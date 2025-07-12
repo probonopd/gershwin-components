@@ -30,6 +30,14 @@
         [col setWidth:[info[2] floatValue]];
         [self.tableView addTableColumn:col];
     }
+    // Mac-like table appearance
+    [self.tableView setUsesAlternatingRowBackgroundColors:YES];
+    if ([self.tableView respondsToSelector:@selector(setSelectionHighlightStyle:)]) {
+        [self.tableView setSelectionHighlightStyle:NSTableViewSelectionHighlightStyleRegular];
+    }
+    [self.tableView setRowHeight:22.0];
+    NSFont *font = [NSFont systemFontOfSize:13.0];
+    [self.tableView setFont:font];
     // Create buttons
     NSArray *buttonTitles = @[ @"Refresh", @"Create New", @"Edit", @"Delete", @"Set Active" ];
     NSMutableArray *buttons = [NSMutableArray array];
@@ -38,10 +46,15 @@
         [btn setTitle:buttonTitles[i]];
         [btn setTarget:target];
         [btn setAction:actions[i]];
+        [btn setButtonType:NSMomentaryPushInButton];
+        if ([btn respondsToSelector:@selector(setBezelStyle:)]) {
+            [btn setBezelStyle:NSRoundedBezelStyle];
+        }
         [self addSubview:btn];
         [buttons addObject:btn];
     }
     self.buttonArray = buttons;
+    // TODO: Add toolbar, menu bar, keyboard shortcuts, and help/about menu for even more Mac-like feel.
 }
 
 - (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
