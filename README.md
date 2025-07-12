@@ -16,7 +16,7 @@ This is a GNUstep application for managing FreeBSD boot environments. The applic
 To build the application, you need to first set up the GNUstep environment and then use the GNU make system:
 
 ```bash
-bash -c ". /usr/local/GNUstep/System/Makefiles/GNUstep.sh && gmake"
+bash -c ". /usr/local/GNUstep/System/Makefiles/GNUstep.sh && cd src && gmake"
 ```
 
 ## Running
@@ -25,7 +25,7 @@ bash -c ". /usr/local/GNUstep/System/Makefiles/GNUstep.sh && gmake"
 To run the application as a regular user (view-only mode):
 
 ```bash
-bash -c ". /usr/local/GNUstep/System/Makefiles/GNUstep.sh && openapp ./BootEnvironments.app"
+bash -c ". /usr/local/GNUstep/System/Makefiles/GNUstep.sh && cd src && openapp ./BootEnvironments.app"
 ```
 
 **Note:** Running as a regular user will only allow viewing existing boot environments. Creating, deleting, or modifying boot environments requires root privileges.
@@ -34,13 +34,13 @@ bash -c ". /usr/local/GNUstep/System/Makefiles/GNUstep.sh && openapp ./BootEnvir
 To run the application with full functionality (create/delete boot environments):
 
 ```bash
-sudo bash -c ". /usr/local/GNUstep/System/Makefiles/GNUstep.sh && openapp ./BootEnvironments.app"
+sudo bash -c ". /usr/local/GNUstep/System/Makefiles/GNUstep.sh && cd src && openapp ./BootEnvironments.app"
 ```
 
 Or use the provided script:
 
 ```bash
-./run_as_root.sh
+cd src && ../run_as_root.sh
 ```
 
 **Important:** Creating and deleting ZFS boot environments requires root privileges because it uses the `bectl` command which needs administrative access to modify the ZFS filesystem.

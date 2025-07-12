@@ -1,6 +1,11 @@
 #import "BootConfigController.h"
 #import <unistd.h>  // For getuid()
 
+@interface BootConfigController ()
+- (void)showSuccessDialog:(NSString *)title message:(NSString *)message;
+- (void)showErrorDialog:(NSString *)title message:(NSString *)message;
+@end
+
 @interface BootConfiguration : NSObject
 {
     NSString *name;
@@ -87,7 +92,7 @@
     
     // Create table columns
     NSTableColumn *nameColumn = [[NSTableColumn alloc] initWithIdentifier:@"name"];
-    [[nameColumn headerCell] setStringValue:@"Boot Environment Name"];
+    [[nameColumn headerCell] setStringValue:@"Name"];
     [nameColumn setWidth:150];
     [configTableView addTableColumn:nameColumn];
     
@@ -555,6 +560,12 @@
     if (isEdit) {
         // Edit existing boot environment
         if (existingConfig) {
+            // Actually update the ZFS boot environment using bectl
+            BOOL bectlSuccess = [self updateBootEnvironmentWithBectl:[existingConfig name] newName:name];
+            if (!bectlSuccess) {
+                [self showErrorDialog:@"Update Failed" message:[NSString stringWithFormat:@"Failed to update boot environment '%@'. Check console for details.", [existingConfig name]]];
+                return;
+            }
             // If setting as active, deactivate others
             if (active) {
                 for (BootConfiguration *otherConfig in bootConfigurations) {
@@ -563,13 +574,11 @@
                     }
                 }
             }
-            
             [existingConfig setName:name];
             [existingConfig setKernel:kernel];
             [existingConfig setRootfs:rootfs];
             [existingConfig setOptions:options];
             [existingConfig setActive:active];
-            
             [self showSuccessDialog:@"Boot Environment Updated" message:[NSString stringWithFormat:@"Boot environment '%@' has been updated successfully.", name]];
         }
     } else {
@@ -667,41 +676,78 @@
         return;
     }
     
-    // Deactivate all boot environments
-    for (BootConfiguration *config in bootConfigurations) {
-        [config setActive:NO];
-    }
-    
-    // Activate selected boot environment
     BootConfiguration *selectedConfig = [bootConfigurations objectAtIndex:selectedRow];
-    [selectedConfig setActive:YES];
+    NSString *beName = [selectedConfig name];
     
-    [configTableView reloadData];
-    
-    NSLog(@"Boot environment '%@' set as active.", [selectedConfig name]);
-    [self showSuccessDialog:@"Active Boot Environment Set" message:[NSString stringWithFormat:@"Boot environment '%@' has been set as active.", [selectedConfig name]]];
+    // Call bectl activate
+    BOOL bectlSuccess = [self activateBootEnvironmentWithBectl:beName];
+    if (bectlSuccess) {
+        // Deactivate all boot environments in UI
+        for (BootConfiguration *config in bootConfigurations) {
+            [config setActive:NO];
+        }
+        // Activate selected boot environment in UI
+        [selectedConfig setActive:YES];
+        [configTableView reloadData];
+        NSLog(@"Boot environment '%@' set as active via bectl.", beName);
+        [self showSuccessDialog:@"Active Boot Environment Set" message:[NSString stringWithFormat:@"Boot environment '%@' has been set as active using bectl.", beName]];
+    } else {
+        NSLog(@"Failed to activate boot environment '%@' with bectl", beName);
+        [self showErrorDialog:@"Activation Failed" message:[NSString stringWithFormat:@"Failed to activate boot environment '%@'. Check the console for details.", beName]];
+    }
 }
 
-- (void)showSuccessDialog:(NSString *)title message:(NSString *)message {
-    NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:title];
-    [alert setInformativeText:message];
-    [alert addButtonWithTitle:@"OK"];
-    [alert setAlertStyle:NSInformationalAlertStyle];
-    
-    [alert runModal];
-    [alert release];
-}
-
-- (void)showErrorDialog:(NSString *)title message:(NSString *)message {
-    NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:title];
-    [alert setInformativeText:message];
-    [alert addButtonWithTitle:@"OK"];
-    [alert setAlertStyle:NSCriticalAlertStyle];
-    
-    [alert runModal];
-    [alert release];
+// Activate a boot environment using bectl activate
+- (BOOL)activateBootEnvironmentWithBectl:(NSString *)beName {
+    NSLog(@"=== Activating ZFS Boot Environment with bectl ===");
+    NSLog(@"Boot environment name: %@", beName);
+    if (getuid() != 0) {
+        NSLog(@"WARNING: Not running as root (uid=%d). bectl activate may fail.", getuid());
+        NSLog(@"Consider running the application with sudo or as root for full functionality.");
+    }
+    NSString *bectlPath = @"/sbin/bectl";
+    NSArray *arguments = @[@"activate", beName];
+    NSLog(@"Executing command: %@ %@", bectlPath, [arguments componentsJoinedByString:@" "]);
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:bectlPath];
+    [task setArguments:arguments];
+    NSPipe *outputPipe = [NSPipe pipe];
+    NSPipe *errorPipe = [NSPipe pipe];
+    [task setStandardOutput:outputPipe];
+    [task setStandardError:errorPipe];
+    NSFileHandle *outputHandle = [outputPipe fileHandleForReading];
+    NSFileHandle *errorHandle = [errorPipe fileHandleForReading];
+    @try {
+        NSLog(@"Launching bectl activate task...");
+        [task launch];
+        [task waitUntilExit];
+        int exitStatus = [task terminationStatus];
+        NSLog(@"bectl activate task completed with exit status: %d", exitStatus);
+        NSData *outputData = [outputHandle readDataToEndOfFile];
+        NSData *errorData = [errorHandle readDataToEndOfFile];
+        NSString *output = [[NSString alloc] initWithData:outputData encoding:NSUTF8StringEncoding];
+        NSString *error = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+        if (output && [output length] > 0) {
+            NSLog(@"bectl activate output: %@", output);
+        }
+        if (error && [error length] > 0) {
+            NSLog(@"bectl activate error: %@", error);
+        }
+        [output release];
+        [error release];
+        if (exitStatus == 0) {
+            NSLog(@"Successfully activated boot environment '%@'", beName);
+            return YES;
+        } else {
+            NSLog(@"Failed to activate boot environment '%@' (exit status: %d)", beName, exitStatus);
+            return NO;
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"Exception while activating boot environment: %@", [exception reason]);
+        return NO;
+    } @finally {
+        [task release];
+    }
 }
 
 - (BOOL)createBootEnvironmentWithBectl:(NSString *)beName {
@@ -842,6 +888,63 @@
     }
 }
 
+// Update a boot environment using bectl rename if the name changes
+- (BOOL)updateBootEnvironmentWithBectl:(NSString *)oldName newName:(NSString *)newName {
+    if ([oldName isEqualToString:newName]) {
+        // No rename needed
+        return YES;
+    }
+    NSLog(@"=== Renaming ZFS Boot Environment with bectl ===");
+    NSLog(@"Old name: %@, New name: %@", oldName, newName);
+    if (getuid() != 0) {
+        NSLog(@"WARNING: Not running as root (uid=%d). bectl rename may fail.", getuid());
+        NSLog(@"Consider running the application with sudo or as root for full functionality.");
+    }
+    NSString *bectlPath = @"/sbin/bectl";
+    NSArray *arguments = @[@"rename", oldName, newName];
+    NSLog(@"Executing command: %@ %@", bectlPath, [arguments componentsJoinedByString:@" "]);
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:bectlPath];
+    [task setArguments:arguments];
+    NSPipe *outputPipe = [NSPipe pipe];
+    NSPipe *errorPipe = [NSPipe pipe];
+    [task setStandardOutput:outputPipe];
+    [task setStandardError:errorPipe];
+    NSFileHandle *outputHandle = [outputPipe fileHandleForReading];
+    NSFileHandle *errorHandle = [errorPipe fileHandleForReading];
+    @try {
+        NSLog(@"Launching bectl rename task...");
+        [task launch];
+        [task waitUntilExit];
+        int exitStatus = [task terminationStatus];
+        NSLog(@"bectl rename task completed with exit status: %d", exitStatus);
+        NSData *outputData = [outputHandle readDataToEndOfFile];
+        NSData *errorData = [errorHandle readDataToEndOfFile];
+        NSString *output = [[NSString alloc] initWithData:outputData encoding:NSUTF8StringEncoding];
+        NSString *error = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+        if (output && [output length] > 0) {
+            NSLog(@"bectl rename output: %@", output);
+        }
+        if (error && [error length] > 0) {
+            NSLog(@"bectl rename error: %@", error);
+        }
+        [output release];
+        [error release];
+        if (exitStatus == 0) {
+            NSLog(@"Successfully renamed boot environment '%@' to '%@'", oldName, newName);
+            return YES;
+        } else {
+            NSLog(@"Failed to rename boot environment '%@' to '%@' (exit status: %d)", oldName, newName, exitStatus);
+            return NO;
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"Exception while renaming boot environment: %@", [exception reason]);
+        return NO;
+    } @finally {
+        [task release];
+    }
+}
+
 // Table View Data Source Methods
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
     return [bootConfigurations count];
@@ -871,6 +974,26 @@
         BootConfiguration *config = [bootConfigurations objectAtIndex:selectedRow];
         NSLog(@"Selected boot environment: %@", [config name]);
     }
+}
+
+- (void)showSuccessDialog:(NSString *)title message:(NSString *)message {
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:title];
+    [alert setInformativeText:message];
+    [alert addButtonWithTitle:@"OK"];
+    [alert setAlertStyle:NSInformationalAlertStyle];
+    [alert runModal];
+    [alert release];
+}
+
+- (void)showErrorDialog:(NSString *)title message:(NSString *)message {
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:title];
+    [alert setInformativeText:message];
+    [alert addButtonWithTitle:@"OK"];
+    [alert setAlertStyle:NSCriticalAlertStyle];
+    [alert runModal];
+    [alert release];
 }
 
 @end

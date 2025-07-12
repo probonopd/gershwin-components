@@ -59,7 +59,7 @@
     
     NSLog(@"Window created with frame: %@", NSStringFromRect(frame));
     
-    [mainWindow setTitle:@"boot environment Manager"];
+    [mainWindow setTitle:@"Boot Environments"];
     
     // Create and setup the boot environment controller
     NSLog(@"Creating boot environment controller");
@@ -95,7 +95,7 @@
     
     // Create Help menu
     NSMenu *helpMenu = [[NSMenu alloc] initWithTitle:@"Help"];
-    NSMenuItem *aboutItem = [[NSMenuItem alloc] initWithTitle:@"About FreeBSD boot environment Manager" 
+    NSMenuItem *aboutItem = [[NSMenuItem alloc] initWithTitle:@"About Boot Environments" 
                                                        action:@selector(showAbout:) 
                                                 keyEquivalent:@""];
     [aboutItem setTarget:self];
@@ -120,7 +120,7 @@
     NSLog(@"About menu item selected");
     
     NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:@"FreeBSD boot environment Manager"];
+    [alert setMessageText:@"Boot Environments"];
     [alert setInformativeText:@"A graphical interface for managing FreeBSD boot environments and configurations.\n\nVersion 1.0\n\nBuilt with GNUstep Objective-C framework for managing ZFS boot environments and loader configurations."];
     [alert addButtonWithTitle:@"OK"];
     [alert setAlertStyle:NSInformationalAlertStyle];

@@ -29,5 +29,7 @@
 - (void)showBootEnvironmentDialog:(BootConfiguration *)config isEdit:(BOOL)isEdit;
 - (BOOL)createBootEnvironmentWithBectl:(NSString *)beName;
 - (BOOL)deleteBootEnvironmentWithBectl:(NSString *)beName;
+- (void)showSuccessDialog:(NSString *)title message:(NSString *)message;
+- (void)showErrorDialog:(NSString *)title message:(NSString *)message;
 
 @end
