@@ -82,68 +82,20 @@
     MainView *mv = [[MainView alloc] initWithFrame:frame];
     mainView = mv;
     
-    // Button layout constants
-    CGFloat buttonWidth = 100;
-    CGFloat buttonHeight = 30;
-    CGFloat buttonSpacing = 20;
-    NSArray *buttons = @[@"Refresh", @"Create New", @"Edit", @"Delete", @"Set Active"];
-    SEL actions[] = {@selector(refreshConfigurations:), @selector(createConfiguration:), @selector(editConfiguration:), @selector(deleteConfiguration:), @selector(setActiveConfiguration:)};
-    NSMutableArray *buttonObjects = [NSMutableArray array];
+    // Set up actions for buttons
+    SEL actions[] = {
+        @selector(refreshConfigurations:),
+        @selector(createConfiguration:),
+        @selector(editConfiguration:),
+        @selector(deleteConfiguration:),
+        @selector(setActiveConfiguration:)
+    };
+    [mv setupWithTarget:self actions:actions];
     
-    for (NSUInteger i = 0; i < buttons.count; i++) {
-        NSButton *btn = [[NSButton alloc] initWithFrame:NSZeroRect];
-        [btn setTitle:buttons[i]];
-        [btn setTarget:self];
-        [btn setAction:actions[i]];
-        [mv addSubview:btn];
-        [buttonObjects addObject:btn];
-        switch (i) {
-            case 0: refreshButton = btn; break;
-            case 1: createButton = btn; break;
-            case 2: editButton = btn; break;
-            case 3: deleteButton = btn; break;
-            case 4: setActiveButton = btn; break;
-        }
-    }
-    mv.buttonArray = buttonObjects;
-    
-    // Table area: from top to just above the buttons (frame will be set in layout)
-    NSScrollView *tableScrollView = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-    [tableScrollView setHasVerticalScroller:YES];
-    [tableScrollView setHasHorizontalScroller:YES];
-    [tableScrollView setBorderType:NSBezelBorder];
-    
-    configTableView = [[NSTableView alloc] initWithFrame:NSZeroRect];
-    [configTableView setDelegate:self];
-    [configTableView setDataSource:self];
-    
-    // Create table columns
-    NSTableColumn *nameColumn = [[NSTableColumn alloc] initWithIdentifier:@"name"];
-    [[nameColumn headerCell] setStringValue:@"Name"];
-    [nameColumn setWidth:150];
-    [configTableView addTableColumn:nameColumn];
-    
-    NSTableColumn *kernelColumn = [[NSTableColumn alloc] initWithIdentifier:@"kernel"];
-    [[kernelColumn headerCell] setStringValue:@"Kernel"];
-    [kernelColumn setWidth:150];
-    [configTableView addTableColumn:kernelColumn];
-    
-    NSTableColumn *rootfsColumn = [[NSTableColumn alloc] initWithIdentifier:@"rootfs"];
-    [[rootfsColumn headerCell] setStringValue:@"Root FS"];
-    [rootfsColumn setWidth:120];
-    [configTableView addTableColumn:rootfsColumn];
-    
-    NSTableColumn *activeColumn = [[NSTableColumn alloc] initWithIdentifier:@"active"];
-    [[activeColumn headerCell] setStringValue:@"Active"];
-    [activeColumn setWidth:60];
-    [configTableView addTableColumn:activeColumn];
-    
-    [tableScrollView setDocumentView:configTableView];
-    [mv addSubview:tableScrollView];
-    mv.tableScrollView = tableScrollView;
-    
-    // Trigger initial layout
-    [mv resizeSubviewsWithOldSize:frame.size];
+    // Set delegate and dataSource for table
+    mv.tableView.delegate = self;
+    mv.tableView.dataSource = self;
+    configTableView = mv.tableView;
     
     return mv;
 }
