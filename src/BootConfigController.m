@@ -1,5 +1,6 @@
 #import "BootConfigController.h"
 #import <unistd.h>  // For getuid()
+#import "MainView.h"
 
 @interface BootConfigController ()
 - (void)showSuccessDialog:(NSString *)title message:(NSString *)message;
@@ -78,15 +79,41 @@
 
 - (NSView *)createMainView {
     NSRect frame = NSMakeRect(0, 0, 800, 600);
-    mainView = [[NSView alloc] initWithFrame:frame];
+    MainView *mv = [[MainView alloc] initWithFrame:frame];
+    mainView = mv;
     
-    // Boot environment list (now takes up most of the space)
-    NSScrollView *tableScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 20, 500, 540)];
+    // Button layout constants
+    CGFloat buttonWidth = 100;
+    CGFloat buttonHeight = 30;
+    CGFloat buttonSpacing = 20;
+    NSArray *buttons = @[@"Refresh", @"Create New", @"Edit", @"Delete", @"Set Active"];
+    SEL actions[] = {@selector(refreshConfigurations:), @selector(createConfiguration:), @selector(editConfiguration:), @selector(deleteConfiguration:), @selector(setActiveConfiguration:)};
+    NSMutableArray *buttonObjects = [NSMutableArray array];
+    
+    for (NSUInteger i = 0; i < buttons.count; i++) {
+        NSButton *btn = [[NSButton alloc] initWithFrame:NSZeroRect];
+        [btn setTitle:buttons[i]];
+        [btn setTarget:self];
+        [btn setAction:actions[i]];
+        [mv addSubview:btn];
+        [buttonObjects addObject:btn];
+        switch (i) {
+            case 0: refreshButton = btn; break;
+            case 1: createButton = btn; break;
+            case 2: editButton = btn; break;
+            case 3: deleteButton = btn; break;
+            case 4: setActiveButton = btn; break;
+        }
+    }
+    mv.buttonArray = buttonObjects;
+    
+    // Table area: from top to just above the buttons (frame will be set in layout)
+    NSScrollView *tableScrollView = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     [tableScrollView setHasVerticalScroller:YES];
     [tableScrollView setHasHorizontalScroller:YES];
     [tableScrollView setBorderType:NSBezelBorder];
     
-    configTableView = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, 500, 540)];
+    configTableView = [[NSTableView alloc] initWithFrame:NSZeroRect];
     [configTableView setDelegate:self];
     [configTableView setDataSource:self];
     
@@ -112,40 +139,13 @@
     [configTableView addTableColumn:activeColumn];
     
     [tableScrollView setDocumentView:configTableView];
-    [mainView addSubview:tableScrollView];
+    [mv addSubview:tableScrollView];
+    mv.tableScrollView = tableScrollView;
     
-    // Control buttons
-    refreshButton = [[NSButton alloc] initWithFrame:NSMakeRect(540, 520, 100, 30)];
-    [refreshButton setTitle:@"Refresh"];
-    [refreshButton setTarget:self];
-    [refreshButton setAction:@selector(refreshConfigurations:)];
-    [mainView addSubview:refreshButton];
+    // Trigger initial layout
+    [mv resizeSubviewsWithOldSize:frame.size];
     
-    createButton = [[NSButton alloc] initWithFrame:NSMakeRect(540, 480, 100, 30)];
-    [createButton setTitle:@"Create New"];
-    [createButton setTarget:self];
-    [createButton setAction:@selector(createConfiguration:)];
-    [mainView addSubview:createButton];
-    
-    editButton = [[NSButton alloc] initWithFrame:NSMakeRect(540, 440, 100, 30)];
-    [editButton setTitle:@"Edit"];
-    [editButton setTarget:self];
-    [editButton setAction:@selector(editConfiguration:)];
-    [mainView addSubview:editButton];
-    
-    deleteButton = [[NSButton alloc] initWithFrame:NSMakeRect(540, 400, 100, 30)];
-    [deleteButton setTitle:@"Delete"];
-    [deleteButton setTarget:self];
-    [deleteButton setAction:@selector(deleteConfiguration:)];
-    [mainView addSubview:deleteButton];
-    
-    setActiveButton = [[NSButton alloc] initWithFrame:NSMakeRect(540, 360, 100, 30)];
-    [setActiveButton setTitle:@"Set Active"];
-    [setActiveButton setTarget:self];
-    [setActiveButton setAction:@selector(setActiveConfiguration:)];
-    [mainView addSubview:setActiveButton];
-    
-    return mainView;
+    return mv;
 }
 
 - (void)loadBootConfigurations {
