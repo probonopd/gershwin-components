@@ -1,0 +1,876 @@
+#import "BootConfigController.h"
+#import <unistd.h>  // For getuid()
+
+@interface BootConfiguration : NSObject
+{
+    NSString *name;
+    NSString *kernel;
+    NSString *rootfs;
+    NSString *options;
+    BOOL active;
+}
+
+@property (nonatomic, retain) NSString *name;
+@property (nonatomic, retain) NSString *kernel;
+@property (nonatomic, retain) NSString *rootfs;
+@property (nonatomic, retain) NSString *options;
+@property (nonatomic, assign) BOOL active;
+
+- (id)initWithName:(NSString *)configName kernel:(NSString *)kernelPath rootfs:(NSString *)rootfsPath options:(NSString *)bootOptions active:(BOOL)isActive;
+
+@end
+
+@implementation BootConfiguration
+
+@synthesize name, kernel, rootfs, options, active;
+
+- (id)initWithName:(NSString *)configName kernel:(NSString *)kernelPath rootfs:(NSString *)rootfsPath options:(NSString *)bootOptions active:(BOOL)isActive {
+    if (self = [super init]) {
+        self.name = configName;
+        self.kernel = kernelPath;
+        self.rootfs = rootfsPath;
+        self.options = bootOptions;
+        self.active = isActive;
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [name release];
+    [kernel release];
+    [rootfs release];
+    [options release];
+    [super dealloc];
+}
+
+@end
+
+@implementation BootConfigController
+
+- (id)init {
+    if (self = [super init]) {
+        bootConfigurations = [[NSMutableArray alloc] init];
+        
+        // Check if running as root and warn user
+        if (getuid() != 0) {
+            NSLog(@"WARNING: Application is not running as root (uid=%d)", getuid());
+            NSLog(@"Creating and deleting boot environments will likely fail.");
+            NSLog(@"Consider running with: sudo bash -c \". /usr/local/GNUstep/System/Makefiles/GNUstep.sh && openapp ./GNUstepApp.app\"");
+        } else {
+            NSLog(@"Application is running as root - full functionality available");
+        }
+        
+        [self loadBootConfigurations];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [bootConfigurations release];
+    [mainView release];
+    [super dealloc];
+}
+
+- (NSView *)createMainView {
+    NSRect frame = NSMakeRect(0, 0, 800, 600);
+    mainView = [[NSView alloc] initWithFrame:frame];
+    
+    // Boot environment list (now takes up most of the space)
+    NSScrollView *tableScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 20, 500, 540)];
+    [tableScrollView setHasVerticalScroller:YES];
+    [tableScrollView setHasHorizontalScroller:YES];
+    [tableScrollView setBorderType:NSBezelBorder];
+    
+    configTableView = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, 500, 540)];
+    [configTableView setDelegate:self];
+    [configTableView setDataSource:self];
+    
+    // Create table columns
+    NSTableColumn *nameColumn = [[NSTableColumn alloc] initWithIdentifier:@"name"];
+    [[nameColumn headerCell] setStringValue:@"Boot Environment Name"];
+    [nameColumn setWidth:150];
+    [configTableView addTableColumn:nameColumn];
+    
+    NSTableColumn *kernelColumn = [[NSTableColumn alloc] initWithIdentifier:@"kernel"];
+    [[kernelColumn headerCell] setStringValue:@"Kernel"];
+    [kernelColumn setWidth:150];
+    [configTableView addTableColumn:kernelColumn];
+    
+    NSTableColumn *rootfsColumn = [[NSTableColumn alloc] initWithIdentifier:@"rootfs"];
+    [[rootfsColumn headerCell] setStringValue:@"Root FS"];
+    [rootfsColumn setWidth:120];
+    [configTableView addTableColumn:rootfsColumn];
+    
+    NSTableColumn *activeColumn = [[NSTableColumn alloc] initWithIdentifier:@"active"];
+    [[activeColumn headerCell] setStringValue:@"Active"];
+    [activeColumn setWidth:60];
+    [configTableView addTableColumn:activeColumn];
+    
+    [tableScrollView setDocumentView:configTableView];
+    [mainView addSubview:tableScrollView];
+    
+    // Control buttons
+    refreshButton = [[NSButton alloc] initWithFrame:NSMakeRect(540, 520, 100, 30)];
+    [refreshButton setTitle:@"Refresh"];
+    [refreshButton setTarget:self];
+    [refreshButton setAction:@selector(refreshConfigurations:)];
+    [mainView addSubview:refreshButton];
+    
+    createButton = [[NSButton alloc] initWithFrame:NSMakeRect(540, 480, 100, 30)];
+    [createButton setTitle:@"Create New"];
+    [createButton setTarget:self];
+    [createButton setAction:@selector(createConfiguration:)];
+    [mainView addSubview:createButton];
+    
+    editButton = [[NSButton alloc] initWithFrame:NSMakeRect(540, 440, 100, 30)];
+    [editButton setTitle:@"Edit"];
+    [editButton setTarget:self];
+    [editButton setAction:@selector(editConfiguration:)];
+    [mainView addSubview:editButton];
+    
+    deleteButton = [[NSButton alloc] initWithFrame:NSMakeRect(540, 400, 100, 30)];
+    [deleteButton setTitle:@"Delete"];
+    [deleteButton setTarget:self];
+    [deleteButton setAction:@selector(deleteConfiguration:)];
+    [mainView addSubview:deleteButton];
+    
+    setActiveButton = [[NSButton alloc] initWithFrame:NSMakeRect(540, 360, 100, 30)];
+    [setActiveButton setTitle:@"Set Active"];
+    [setActiveButton setTarget:self];
+    [setActiveButton setAction:@selector(setActiveConfiguration:)];
+    [mainView addSubview:setActiveButton];
+    
+    return mainView;
+}
+
+- (void)loadBootConfigurations {
+    // Load existing boot environments from FreeBSD boot environments
+    NSLog(@"=== Starting Boot Environment Load ===");
+    
+    [self loadFromBootEnvironments];
+    [self loadFromLoaderConf];
+    
+    NSLog(@"Reloading table view with %lu boot environments", (unsigned long)[bootConfigurations count]);
+    [configTableView reloadData];
+    NSLog(@"=== Boot Environment Load Complete ===");
+}
+
+- (void)loadFromBootEnvironments {
+    // Load ZFS boot environments using 'bectl list'
+    NSLog(@"=== Loading ZFS Boot Environments ===");
+    
+    NSString *bectlPath = @"/sbin/bectl";
+    NSLog(@"Attempting to run command: %@ list -H", bectlPath);
+    
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:bectlPath];
+    [task setArguments:@[@"list", @"-H"]];
+    
+    NSPipe *pipe = [NSPipe pipe];
+    [task setStandardOutput:pipe];
+    [task setStandardError:pipe];
+    
+    @try {
+        NSLog(@"Launching bectl task...");
+        [task launch];
+        [task waitUntilExit];
+        
+        NSLog(@"bectl task completed with exit status: %d", [task terminationStatus]);
+        
+        NSFileHandle *file = [pipe fileHandleForReading];
+        NSData *data = [file readDataToEndOfFile];
+        NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        
+        NSLog(@"bectl raw output length: %lu", (unsigned long)[output length]);
+        NSLog(@"bectl raw output:\n%@", output);
+        
+        if ([task terminationStatus] == 0 && [output length] > 0) {
+            NSLog(@"bectl command successful, parsing output...");
+            [self parseBectlOutput:output];
+        } else {
+            NSLog(@"bectl command failed or returned empty output");
+        }
+        
+        [output release];
+    }
+    @catch (NSException *exception) {
+        NSLog(@"Exception running bectl: %@", [exception description]);
+    }
+    
+    [task release];
+    NSLog(@"=== End Loading ZFS Boot Environments ===");
+}
+
+- (void)parseBectlOutput:(NSString *)output {
+    NSLog(@"=== Parsing bectl Output ===");
+    NSArray *lines = [output componentsSeparatedByString:@"\n"];
+    NSLog(@"Total lines to parse: %lu", (unsigned long)[lines count]);
+    
+    for (int i = 0; i < [lines count]; i++) {
+        NSString *line = [lines objectAtIndex:i];
+        NSLog(@"Line %d: '%@'", i, line);
+        
+        if ([line length] == 0) {
+            NSLog(@"Skipping empty line %d", i);
+            continue;
+        }
+        
+        NSArray *columns = [line componentsSeparatedByString:@"\t"];
+        NSLog(@"Line %d has %lu columns", i, (unsigned long)[columns count]);
+        
+        for (int j = 0; j < [columns count]; j++) {
+            NSLog(@"  Column %d: '%@'", j, [columns objectAtIndex:j]);
+        }
+        
+        if ([columns count] >= 5) {
+            NSString *beName = [columns objectAtIndex:0];
+            NSString *activeFlag = [columns objectAtIndex:1];
+            NSString *mountpoint = [columns objectAtIndex:2];
+            NSString *space = [columns objectAtIndex:3];
+            NSString *created = [columns objectAtIndex:4];
+            
+            NSLog(@"Parsing BE: name='%@', active='%@', mountpoint='%@', space='%@', created='%@'", 
+                  beName, activeFlag, mountpoint, space, created);
+            
+            // Check if this boot environment is active
+            // N = currently booted, R = on reboot, NR = both
+            BOOL isActive = [activeFlag containsString:@"N"] || [activeFlag containsString:@"R"];
+            NSLog(@"Boot environment '%@' is active: %@", beName, isActive ? @"YES" : @"NO");
+            
+            // Determine kernel path based on BE name
+            NSString *kernelPath = @"/boot/kernel/kernel";
+            if ([beName containsString:@"13."]) {
+                kernelPath = @"/boot/kernel.old/kernel";
+            }
+            NSLog(@"Kernel path for '%@': %@", beName, kernelPath);
+            
+            // Determine root filesystem - use ZFS dataset name
+            NSString *rootfs = [NSString stringWithFormat:@"zfs:%@", beName];
+            NSLog(@"Root filesystem for '%@': %@", beName, rootfs);
+            
+            // Add creation date to options for informational purposes
+            NSString *options = [NSString stringWithFormat:@"created=%@", created];
+            NSLog(@"Options for '%@': %@", beName, options);
+            
+            BootConfiguration *config = [[BootConfiguration alloc] 
+                initWithName:beName
+                kernel:kernelPath
+                rootfs:rootfs
+                options:options
+                active:isActive];
+            
+            [bootConfigurations addObject:config];
+            [config release];
+            
+            NSLog(@"Added boot environment: %@", beName);
+        } else {
+            NSLog(@"Skipping line %d - insufficient columns (%lu)", i, (unsigned long)[columns count]);
+        }
+    }
+    
+    NSLog(@"=== End Parsing bectl Output ===");
+    NSLog(@"Total boot environments loaded: %lu", (unsigned long)[bootConfigurations count]);
+}
+
+- (void)loadFromLoaderConf {
+    // Load additional boot environments from /boot/loader.conf
+    NSLog(@"Loading boot environments from /boot/loader.conf...");
+    
+    NSString *loaderConfPath = @"/boot/loader.conf";
+    NSString *content = [NSString stringWithContentsOfFile:loaderConfPath
+                                                  encoding:NSUTF8StringEncoding
+                                                     error:nil];
+    
+    if (content) {
+        [self parseLoaderConf:content];
+    } else {
+        NSLog(@"Could not read /boot/loader.conf");
+    }
+    
+    // Also check for loader.conf.local
+    NSString *loaderConfLocalPath = @"/boot/loader.conf.local";
+    NSString *localContent = [NSString stringWithContentsOfFile:loaderConfLocalPath
+                                                       encoding:NSUTF8StringEncoding
+                                                          error:nil];
+    
+    if (localContent) {
+        NSLog(@"Loading boot environments from /boot/loader.conf.local...");
+        [self parseLoaderConf:localContent];
+    }
+}
+
+- (void)parseLoaderConf:(NSString *)content {
+    NSArray *lines = [content componentsSeparatedByString:@"\n"];
+    NSMutableDictionary *bootOptions = [[NSMutableDictionary alloc] init];
+    
+    for (NSString *line in lines) {
+        NSString *trimmedLine = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        
+        // Skip comments and empty lines
+        if ([trimmedLine length] == 0 || [trimmedLine hasPrefix:@"#"]) {
+            continue;
+        }
+        
+        // Parse key=value pairs
+        NSArray *parts = [trimmedLine componentsSeparatedByString:@"="];
+        if ([parts count] >= 2) {
+            NSString *key = [[parts objectAtIndex:0] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            NSString *value = [[parts objectAtIndex:1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            
+            // Remove quotes from value
+            if ([value hasPrefix:@"\""] && [value hasSuffix:@"\""]) {
+                value = [value substringWithRange:NSMakeRange(1, [value length] - 2)];
+            }
+            
+            [bootOptions setObject:value forKey:key];
+        }
+    }
+    
+    // Create boot environment from parsed options
+    NSString *kernelPath = [bootOptions objectForKey:@"kernel"];
+    NSString *rootfs = [bootOptions objectForKey:@"vfs.root.mountfrom"];
+    
+    if (!kernelPath) kernelPath = @"/boot/kernel/kernel";
+    if (!rootfs) rootfs = @"ufs:/dev/ada0p2";
+    
+    // Check if we already have this boot environment
+    BOOL alreadyExists = NO;
+    for (BootConfiguration *config in bootConfigurations) {
+        if ([[config kernel] isEqualToString:kernelPath] && [[config rootfs] isEqualToString:rootfs]) {
+            alreadyExists = YES;
+            break;
+        }
+    }
+    
+    if (!alreadyExists) {
+        NSString *configName = @"System Default";
+        NSString *options = @"";
+        
+        // Build options string from other loader.conf entries
+        NSMutableArray *optionStrings = [[NSMutableArray alloc] init];
+        for (NSString *key in bootOptions) {
+            if (![key isEqualToString:@"kernel"] && ![key isEqualToString:@"vfs.root.mountfrom"]) {
+                [optionStrings addObject:[NSString stringWithFormat:@"%@=%@", key, [bootOptions objectForKey:key]]];
+            }
+        }
+        
+        if ([optionStrings count] > 0) {
+            options = [optionStrings componentsJoinedByString:@" "];
+        }
+        
+        BootConfiguration *config = [[BootConfiguration alloc] 
+            initWithName:configName
+            kernel:kernelPath
+            rootfs:rootfs
+            options:options
+            active:YES];
+        
+        [bootConfigurations addObject:config];
+        [config release];
+        
+        NSLog(@"Loaded system default boot environment: %@", kernelPath);
+        [optionStrings release];
+    }
+    
+    [bootOptions release];
+}
+
+- (void)refreshConfigurations:(id)sender {
+    NSLog(@"Refreshing boot environments...");
+    
+    NSLog(@"=== Refreshing Boot Environments ===");
+    NSLog(@"Current boot environment count before refresh: %lu", (unsigned long)[bootConfigurations count]);
+    
+    // Clear existing boot environments
+    [bootConfigurations removeAllObjects];
+    NSLog(@"Cleared existing boot environments from memory");
+    
+    // Reload boot environments
+    [self loadBootConfigurations];
+    NSLog(@"Reloaded boot environments from system");
+    NSLog(@"Boot environment count after refresh: %lu", (unsigned long)[bootConfigurations count]);
+    
+    [configTableView reloadData];
+    NSLog(@"Table view reloaded");
+    NSLog(@"=== Boot Environment Refresh Complete ===");
+}
+
+- (void)createConfiguration:(id)sender {
+    NSLog(@"Opening dialog to create new boot environment...");
+    [self showBootEnvironmentDialog:nil isEdit:NO];
+}
+
+- (void)editConfiguration:(id)sender {
+    NSInteger selectedRow = [configTableView selectedRow];
+    if (selectedRow < 0) {
+        [self showErrorDialog:@"Edit Boot Environment" message:@"Please select a boot environment to edit."];
+        return;
+    }
+    
+    BootConfiguration *config = [bootConfigurations objectAtIndex:selectedRow];
+    NSLog(@"Opening dialog to edit boot environment: %@", [config name]);
+    [self showBootEnvironmentDialog:config isEdit:YES];
+}
+
+- (void)showBootEnvironmentDialog:(BootConfiguration *)config isEdit:(BOOL)isEdit {
+    NSWindow *dialog = [[NSWindow alloc] 
+        initWithContentRect:NSMakeRect(200, 200, 400, 300)
+        styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable)
+        backing:NSBackingStoreBuffered
+        defer:NO];
+    
+    [dialog setTitle:isEdit ? @"Edit Boot Environment" : @"Create Boot Environment"];
+    
+    NSView *contentView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
+    [dialog setContentView:contentView];
+    
+    // Create form fields
+    NSTextField *nameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 240, 80, 20)];
+    [nameLabel setStringValue:@"Name:"];
+    [nameLabel setBezeled:NO];
+    [nameLabel setDrawsBackground:NO];
+    [nameLabel setEditable:NO];
+    [contentView addSubview:nameLabel];
+    
+    NSTextField *nameField = [[NSTextField alloc] initWithFrame:NSMakeRect(110, 240, 260, 20)];
+    if (isEdit && config) {
+        [nameField setStringValue:[config name]];
+    }
+    [contentView addSubview:nameField];
+    
+    NSTextField *kernelLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 210, 80, 20)];
+    [kernelLabel setStringValue:@"Kernel:"];
+    [kernelLabel setBezeled:NO];
+    [kernelLabel setDrawsBackground:NO];
+    [kernelLabel setEditable:NO];
+    [contentView addSubview:kernelLabel];
+    
+    NSTextField *kernelField = [[NSTextField alloc] initWithFrame:NSMakeRect(110, 210, 260, 20)];
+    if (isEdit && config) {
+        [kernelField setStringValue:[config kernel]];
+    } else {
+        [kernelField setStringValue:@"/boot/kernel/kernel"];
+    }
+    [contentView addSubview:kernelField];
+    
+    NSTextField *rootfsLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 180, 80, 20)];
+    [rootfsLabel setStringValue:@"Root FS:"];
+    [rootfsLabel setBezeled:NO];
+    [rootfsLabel setDrawsBackground:NO];
+    [rootfsLabel setEditable:NO];
+    [contentView addSubview:rootfsLabel];
+    
+    NSTextField *rootfsField = [[NSTextField alloc] initWithFrame:NSMakeRect(110, 180, 260, 20)];
+    if (isEdit && config) {
+        [rootfsField setStringValue:[config rootfs]];
+    } else {
+        [rootfsField setStringValue:@"ufs:/dev/ada0p2"];
+    }
+    [contentView addSubview:rootfsField];
+    
+    NSTextField *optionsLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 150, 80, 20)];
+    [optionsLabel setStringValue:@"Options:"];
+    [optionsLabel setBezeled:NO];
+    [optionsLabel setDrawsBackground:NO];
+    [optionsLabel setEditable:NO];
+    [contentView addSubview:optionsLabel];
+    
+    NSTextField *optionsField = [[NSTextField alloc] initWithFrame:NSMakeRect(110, 150, 260, 20)];
+    if (isEdit && config) {
+        [optionsField setStringValue:[config options]];
+    }
+    [contentView addSubview:optionsField];
+    
+    NSButton *activeCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(110, 120, 100, 20)];
+    [activeCheckbox setButtonType:NSSwitchButton];
+    [activeCheckbox setTitle:@"Active"];
+    if (isEdit && config) {
+        [activeCheckbox setState:[config active] ? NSOnState : NSOffState];
+    }
+    [contentView addSubview:activeCheckbox];
+    
+    // Create buttons
+    NSButton *okButton = [[NSButton alloc] initWithFrame:NSMakeRect(200, 20, 80, 30)];
+    [okButton setTitle:@"OK"];
+    [okButton setTarget:self];
+    [okButton setAction:@selector(handleDialogOK:)];
+    [contentView addSubview:okButton];
+    
+    NSButton *cancelButton = [[NSButton alloc] initWithFrame:NSMakeRect(290, 20, 80, 30)];
+    [cancelButton setTitle:@"Cancel"];
+    [cancelButton setTarget:self];
+    [cancelButton setAction:@selector(handleDialogCancel:)];
+    [contentView addSubview:cancelButton];
+    
+    // Store dialog data for later use
+    NSMutableDictionary *dialogData = [[NSMutableDictionary alloc] init];
+    [dialogData setObject:dialog forKey:@"dialog"];
+    [dialogData setObject:nameField forKey:@"nameField"];
+    [dialogData setObject:kernelField forKey:@"kernelField"];
+    [dialogData setObject:rootfsField forKey:@"rootfsField"];
+    [dialogData setObject:optionsField forKey:@"optionsField"];
+    [dialogData setObject:activeCheckbox forKey:@"activeCheckbox"];
+    [dialogData setObject:[NSNumber numberWithBool:isEdit] forKey:@"isEdit"];
+    if (config) {
+        [dialogData setObject:config forKey:@"config"];
+    }
+    
+    // Store dialog data in button tags (hacky but works for this simple case)
+    [okButton setTag:(NSInteger)dialogData];
+    [cancelButton setTag:(NSInteger)dialogData];
+    
+    [dialog center];
+    [dialog makeKeyAndOrderFront:nil];
+}
+
+- (void)handleDialogOK:(id)sender {
+    NSButton *button = (NSButton *)sender;
+    NSMutableDictionary *dialogData = (NSMutableDictionary *)[button tag];
+    
+    NSWindow *dialog = [dialogData objectForKey:@"dialog"];
+    NSTextField *nameField = [dialogData objectForKey:@"nameField"];
+    NSTextField *kernelField = [dialogData objectForKey:@"kernelField"];
+    NSTextField *rootfsField = [dialogData objectForKey:@"rootfsField"];
+    NSTextField *optionsField = [dialogData objectForKey:@"optionsField"];
+    NSButton *activeCheckbox = [dialogData objectForKey:@"activeCheckbox"];
+    BOOL isEdit = [[dialogData objectForKey:@"isEdit"] boolValue];
+    BootConfiguration *existingConfig = [dialogData objectForKey:@"config"];
+    
+    NSString *name = [nameField stringValue];
+    NSString *kernel = [kernelField stringValue];
+    NSString *rootfs = [rootfsField stringValue];
+    NSString *options = [optionsField stringValue];
+    BOOL active = [activeCheckbox state] == NSOnState;
+    
+    if ([name length] == 0) {
+        [self showErrorDialog:@"Validation Error" message:@"Boot environment name is required."];
+        return;
+    }
+    
+    if ([kernel length] == 0) {
+        [self showErrorDialog:@"Validation Error" message:@"Kernel path is required."];
+        return;
+    }
+    
+    if (isEdit) {
+        // Edit existing boot environment
+        if (existingConfig) {
+            // If setting as active, deactivate others
+            if (active) {
+                for (BootConfiguration *otherConfig in bootConfigurations) {
+                    if (otherConfig != existingConfig) {
+                        [otherConfig setActive:NO];
+                    }
+                }
+            }
+            
+            [existingConfig setName:name];
+            [existingConfig setKernel:kernel];
+            [existingConfig setRootfs:rootfs];
+            [existingConfig setOptions:options];
+            [existingConfig setActive:active];
+            
+            [self showSuccessDialog:@"Boot Environment Updated" message:[NSString stringWithFormat:@"Boot environment '%@' has been updated successfully.", name]];
+        }
+    } else {
+        // Create new boot environment
+        // Check if name already exists
+        for (BootConfiguration *config in bootConfigurations) {
+            if ([[config name] isEqualToString:name]) {
+                [self showErrorDialog:@"Boot Environment Exists" message:[NSString stringWithFormat:@"Boot environment '%@' already exists.", name]];
+                return;
+            }
+        }
+        
+        // If setting as active, deactivate others
+        if (active) {
+            for (BootConfiguration *config in bootConfigurations) {
+                [config setActive:NO];
+            }
+        }
+        
+        // Actually create the ZFS boot environment using bectl
+        BOOL bectlSuccess = [self createBootEnvironmentWithBectl:name];
+        
+        if (bectlSuccess) {
+            NSLog(@"Successfully created ZFS boot environment '%@' with bectl", name);
+            
+            BootConfiguration *newConfig = [[BootConfiguration alloc] 
+                initWithName:name 
+                kernel:kernel 
+                rootfs:rootfs 
+                options:options 
+                active:active];
+            
+            [bootConfigurations addObject:newConfig];
+            [newConfig release];
+            
+            [self showSuccessDialog:@"Boot Environment Created" message:[NSString stringWithFormat:@"Boot environment '%@' has been created successfully with bectl.", name]];
+        } else {
+            NSLog(@"Failed to create ZFS boot environment '%@' with bectl", name);
+            [self showErrorDialog:@"Creation Failed" message:[NSString stringWithFormat:@"Failed to create boot environment '%@'. Check console for details.", name]];
+            return;
+        }
+    }
+    
+    [configTableView reloadData];
+    [dialog close];
+    [dialogData release];
+}
+
+- (void)handleDialogCancel:(id)sender {
+    NSButton *button = (NSButton *)sender;
+    NSMutableDictionary *dialogData = (NSMutableDictionary *)[button tag];
+    
+    NSWindow *dialog = [dialogData objectForKey:@"dialog"];
+    [dialog close];
+    [dialogData release];
+}
+
+- (void)deleteConfiguration:(id)sender {
+    NSInteger selectedRow = [configTableView selectedRow];
+    if (selectedRow < 0) {
+        [self showErrorDialog:@"Delete Boot Environment" message:@"Please select a boot environment to delete."];
+        return;
+    }
+    
+    BootConfiguration *config = [bootConfigurations objectAtIndex:selectedRow];
+    NSString *configName = [config name];
+    
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:@"Delete Boot Environment"];
+    [alert setInformativeText:[NSString stringWithFormat:@"Are you sure you want to delete the boot environment '%@'? This will permanently remove the ZFS boot environment.", configName]];
+    [alert addButtonWithTitle:@"Delete"];
+    [alert addButtonWithTitle:@"Cancel"];
+    
+    NSInteger result = [alert runModal];
+    if (result == NSAlertFirstButtonReturn) {
+        // Actually delete the ZFS boot environment using bectl
+        BOOL bectlSuccess = [self deleteBootEnvironmentWithBectl:configName];
+        
+        if (bectlSuccess) {
+            NSLog(@"Successfully deleted ZFS boot environment '%@' with bectl", configName);
+            [bootConfigurations removeObjectAtIndex:selectedRow];
+            [configTableView reloadData];
+            [self showSuccessDialog:@"Boot Environment Deleted" message:[NSString stringWithFormat:@"Boot environment '%@' has been deleted successfully.", configName]];
+        } else {
+            NSLog(@"Failed to delete ZFS boot environment '%@' with bectl", configName);
+            [self showErrorDialog:@"Delete Failed" message:[NSString stringWithFormat:@"Failed to delete boot environment '%@'. Check the console for details.", configName]];
+        }
+    }
+}
+
+- (void)setActiveConfiguration:(id)sender {
+    NSInteger selectedRow = [configTableView selectedRow];
+    if (selectedRow < 0) {
+        [self showErrorDialog:@"Set Active Boot Environment" message:@"Please select a boot environment to set as active."];
+        return;
+    }
+    
+    // Deactivate all boot environments
+    for (BootConfiguration *config in bootConfigurations) {
+        [config setActive:NO];
+    }
+    
+    // Activate selected boot environment
+    BootConfiguration *selectedConfig = [bootConfigurations objectAtIndex:selectedRow];
+    [selectedConfig setActive:YES];
+    
+    [configTableView reloadData];
+    
+    NSLog(@"Boot environment '%@' set as active.", [selectedConfig name]);
+    [self showSuccessDialog:@"Active Boot Environment Set" message:[NSString stringWithFormat:@"Boot environment '%@' has been set as active.", [selectedConfig name]]];
+}
+
+- (void)showSuccessDialog:(NSString *)title message:(NSString *)message {
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:title];
+    [alert setInformativeText:message];
+    [alert addButtonWithTitle:@"OK"];
+    [alert setAlertStyle:NSInformationalAlertStyle];
+    
+    [alert runModal];
+    [alert release];
+}
+
+- (void)showErrorDialog:(NSString *)title message:(NSString *)message {
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:title];
+    [alert setInformativeText:message];
+    [alert addButtonWithTitle:@"OK"];
+    [alert setAlertStyle:NSCriticalAlertStyle];
+    
+    [alert runModal];
+    [alert release];
+}
+
+- (BOOL)createBootEnvironmentWithBectl:(NSString *)beName {
+    NSLog(@"=== Creating ZFS Boot Environment with bectl ===");
+    NSLog(@"Boot environment name: %@", beName);
+    
+    // Check if we're running as root
+    if (getuid() != 0) {
+        NSLog(@"WARNING: Not running as root (uid=%d). bectl create may fail.", getuid());
+        NSLog(@"Consider running the application with sudo or as root for full functionality.");
+    }
+    
+    // Create bectl create command
+    NSString *bectlPath = @"/sbin/bectl";
+    NSArray *arguments = @[@"create", beName];
+    
+    NSLog(@"Executing command: %@ %@", bectlPath, [arguments componentsJoinedByString:@" "]);
+    
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:bectlPath];
+    [task setArguments:arguments];
+    
+    NSPipe *outputPipe = [NSPipe pipe];
+    NSPipe *errorPipe = [NSPipe pipe];
+    [task setStandardOutput:outputPipe];
+    [task setStandardError:errorPipe];
+    
+    NSFileHandle *outputHandle = [outputPipe fileHandleForReading];
+    NSFileHandle *errorHandle = [errorPipe fileHandleForReading];
+    
+    @try {
+        NSLog(@"Launching bectl create task...");
+        [task launch];
+        [task waitUntilExit];
+        
+        int exitStatus = [task terminationStatus];
+        NSLog(@"bectl create task completed with exit status: %d", exitStatus);
+        
+        // Read output and error
+        NSData *outputData = [outputHandle readDataToEndOfFile];
+        NSData *errorData = [errorHandle readDataToEndOfFile];
+        
+        NSString *output = [[NSString alloc] initWithData:outputData encoding:NSUTF8StringEncoding];
+        NSString *error = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+        
+        if (output && [output length] > 0) {
+            NSLog(@"bectl create output: %@", output);
+        }
+        
+        if (error && [error length] > 0) {
+            NSLog(@"bectl create error: %@", error);
+        }
+        
+        [output release];
+        [error release];
+        
+        if (exitStatus == 0) {
+            NSLog(@"Successfully created boot environment '%@'", beName);
+            return YES;
+        } else {
+            NSLog(@"Failed to create boot environment '%@' (exit status: %d)", beName, exitStatus);
+            return NO;
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"Exception while creating boot environment: %@", [exception reason]);
+        return NO;
+    } @finally {
+        [task release];
+    }
+}
+
+- (BOOL)deleteBootEnvironmentWithBectl:(NSString *)beName {
+    NSLog(@"=== Deleting ZFS Boot Environment with bectl ===");
+    NSLog(@"Boot environment name: %@", beName);
+    
+    // Check if we're running as root
+    if (getuid() != 0) {
+        NSLog(@"WARNING: Not running as root (uid=%d). bectl destroy may fail.", getuid());
+        NSLog(@"Consider running the application with sudo or as root for full functionality.");
+    }
+    
+    // Create bectl destroy command
+    NSString *bectlPath = @"/sbin/bectl";
+    NSArray *arguments = @[@"destroy", @"-F", beName];  // -F flag to force destruction
+    
+    NSLog(@"Executing command: %@ %@", bectlPath, [arguments componentsJoinedByString:@" "]);
+    
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:bectlPath];
+    [task setArguments:arguments];
+    
+    NSPipe *outputPipe = [NSPipe pipe];
+    NSPipe *errorPipe = [NSPipe pipe];
+    [task setStandardOutput:outputPipe];
+    [task setStandardError:errorPipe];
+    
+    NSFileHandle *outputHandle = [outputPipe fileHandleForReading];
+    NSFileHandle *errorHandle = [errorPipe fileHandleForReading];
+    
+    @try {
+        NSLog(@"Launching bectl destroy task...");
+        [task launch];
+        [task waitUntilExit];
+        
+        int exitStatus = [task terminationStatus];
+        NSLog(@"bectl destroy task completed with exit status: %d", exitStatus);
+        
+        // Read output and error
+        NSData *outputData = [outputHandle readDataToEndOfFile];
+        NSData *errorData = [errorHandle readDataToEndOfFile];
+        
+        NSString *output = [[NSString alloc] initWithData:outputData encoding:NSUTF8StringEncoding];
+        NSString *error = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+        
+        if (output && [output length] > 0) {
+            NSLog(@"bectl destroy output: %@", output);
+        }
+        
+        if (error && [error length] > 0) {
+            NSLog(@"bectl destroy error: %@", error);
+        }
+        
+        [output release];
+        [error release];
+        
+        if (exitStatus == 0) {
+            NSLog(@"Successfully deleted boot environment '%@'", beName);
+            return YES;
+        } else {
+            NSLog(@"Failed to delete boot environment '%@' (exit status: %d)", beName, exitStatus);
+            return NO;
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"Exception while deleting boot environment: %@", [exception reason]);
+        return NO;
+    } @finally {
+        [task release];
+    }
+}
+
+// Table View Data Source Methods
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
+    return [bootConfigurations count];
+}
+
+- (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row {
+    BootConfiguration *config = [bootConfigurations objectAtIndex:row];
+    NSString *identifier = [tableColumn identifier];
+    
+    if ([identifier isEqualToString:@"name"]) {
+        return [config name];
+    } else if ([identifier isEqualToString:@"kernel"]) {
+        return [config kernel];
+    } else if ([identifier isEqualToString:@"rootfs"]) {
+        return [config rootfs];
+    } else if ([identifier isEqualToString:@"active"]) {
+        return [config active] ? @"Yes" : @"No";
+    }
+    
+    return @"";
+}
+
+- (void)tableViewSelectionDidChange:(NSNotification *)notification {
+    // Selection changed - no form fields to update anymore
+    NSInteger selectedRow = [configTableView selectedRow];
+    if (selectedRow >= 0) {
+        BootConfiguration *config = [bootConfigurations objectAtIndex:selectedRow];
+        NSLog(@"Selected boot environment: %@", [config name]);
+    }
+}
+
+@end
