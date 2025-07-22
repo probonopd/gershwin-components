@@ -4,5 +4,6 @@
 @property (nonatomic, strong) NSScrollView *tableScrollView;
 @property (nonatomic, strong) NSTableView *tableView;
 @property (nonatomic, strong) NSArray<NSButton *> *buttonArray;
+@property (nonatomic, strong) NSBox *buttonBox;
 - (void)setupWithTarget:(id)target actions:(SEL[])actions;
 @end

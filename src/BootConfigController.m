@@ -13,6 +13,8 @@
     NSString *kernel;
     NSString *rootfs;
     NSString *options;
+    NSString *size;
+    NSString *date;
     BOOL active;
 }
 
@@ -20,22 +22,26 @@
 @property (nonatomic, retain) NSString *kernel;
 @property (nonatomic, retain) NSString *rootfs;
 @property (nonatomic, retain) NSString *options;
+@property (nonatomic, retain) NSString *size;
+@property (nonatomic, retain) NSString *date;
 @property (nonatomic, assign) BOOL active;
 
-- (id)initWithName:(NSString *)configName kernel:(NSString *)kernelPath rootfs:(NSString *)rootfsPath options:(NSString *)bootOptions active:(BOOL)isActive;
+- (id)initWithName:(NSString *)configName kernel:(NSString *)kernelPath rootfs:(NSString *)rootfsPath options:(NSString *)bootOptions size:(NSString *)sizeInfo date:(NSString *)dateInfo active:(BOOL)isActive;
 
 @end
 
 @implementation BootConfiguration
 
-@synthesize name, kernel, rootfs, options, active;
+@synthesize name, kernel, rootfs, options, size, date, active;
 
-- (id)initWithName:(NSString *)configName kernel:(NSString *)kernelPath rootfs:(NSString *)rootfsPath options:(NSString *)bootOptions active:(BOOL)isActive {
+- (id)initWithName:(NSString *)configName kernel:(NSString *)kernelPath rootfs:(NSString *)rootfsPath options:(NSString *)bootOptions size:(NSString *)sizeInfo date:(NSString *)dateInfo active:(BOOL)isActive {
     if (self = [super init]) {
         self.name = configName;
         self.kernel = kernelPath;
         self.rootfs = rootfsPath;
         self.options = bootOptions;
+        self.size = sizeInfo;
+        self.date = dateInfo;
         self.active = isActive;
     }
     return self;
@@ -46,6 +52,8 @@
     [kernel release];
     [rootfs release];
     [options release];
+    [size release];
+    [date release];
     [super dealloc];
 }
 
@@ -214,6 +222,8 @@
                 kernel:kernelPath
                 rootfs:rootfs
                 options:options
+                size:space
+                date:created
                 active:isActive];
             
             [bootConfigurations addObject:config];
@@ -320,6 +330,8 @@
             kernel:kernelPath
             rootfs:rootfs
             options:options
+            size:@"N/A"
+            date:@"N/A"
             active:YES];
         
         [bootConfigurations addObject:config];
@@ -438,13 +450,7 @@
     }
     [contentView addSubview:optionsField];
     
-    NSButton *activeCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(110, 120, 100, 20)];
-    [activeCheckbox setButtonType:NSSwitchButton];
-    [activeCheckbox setTitle:@"Active"];
-    if (isEdit && config) {
-        [activeCheckbox setState:[config active] ? NSOnState : NSOffState];
-    }
-    [contentView addSubview:activeCheckbox];
+
     
     // Create buttons
     NSButton *okButton = [[NSButton alloc] initWithFrame:NSMakeRect(200, 20, 80, 30)];
@@ -466,7 +472,6 @@
     [dialogData setObject:kernelField forKey:@"kernelField"];
     [dialogData setObject:rootfsField forKey:@"rootfsField"];
     [dialogData setObject:optionsField forKey:@"optionsField"];
-    [dialogData setObject:activeCheckbox forKey:@"activeCheckbox"];
     [dialogData setObject:[NSNumber numberWithBool:isEdit] forKey:@"isEdit"];
     if (config) {
         [dialogData setObject:config forKey:@"config"];
@@ -489,7 +494,6 @@
     NSTextField *kernelField = [dialogData objectForKey:@"kernelField"];
     NSTextField *rootfsField = [dialogData objectForKey:@"rootfsField"];
     NSTextField *optionsField = [dialogData objectForKey:@"optionsField"];
-    NSButton *activeCheckbox = [dialogData objectForKey:@"activeCheckbox"];
     BOOL isEdit = [[dialogData objectForKey:@"isEdit"] boolValue];
     BootConfiguration *existingConfig = [dialogData objectForKey:@"config"];
     
@@ -497,7 +501,6 @@
     NSString *kernel = [kernelField stringValue];
     NSString *rootfs = [rootfsField stringValue];
     NSString *options = [optionsField stringValue];
-    BOOL active = [activeCheckbox state] == NSOnState;
     
     if ([name length] == 0) {
         [self showErrorDialog:@"Validation Error" message:@"Boot environment name is required."];
@@ -518,19 +521,10 @@
                 [self showErrorDialog:@"Update Failed" message:[NSString stringWithFormat:@"Failed to update boot environment '%@'. Check console for details.", [existingConfig name]]];
                 return;
             }
-            // If setting as active, deactivate others
-            if (active) {
-                for (BootConfiguration *otherConfig in bootConfigurations) {
-                    if (otherConfig != existingConfig) {
-                        [otherConfig setActive:NO];
-                    }
-                }
-            }
             [existingConfig setName:name];
             [existingConfig setKernel:kernel];
             [existingConfig setRootfs:rootfs];
             [existingConfig setOptions:options];
-            [existingConfig setActive:active];
             [self showSuccessDialog:@"Boot Environment Updated" message:[NSString stringWithFormat:@"Boot environment '%@' has been updated successfully.", name]];
         }
     } else {
@@ -540,13 +534,6 @@
             if ([[config name] isEqualToString:name]) {
                 [self showErrorDialog:@"Boot Environment Exists" message:[NSString stringWithFormat:@"Boot environment '%@' already exists.", name]];
                 return;
-            }
-        }
-        
-        // If setting as active, deactivate others
-        if (active) {
-            for (BootConfiguration *config in bootConfigurations) {
-                [config setActive:NO];
             }
         }
         
@@ -561,7 +548,9 @@
                 kernel:kernel 
                 rootfs:rootfs 
                 options:options 
-                active:active];
+                size:@"New"
+                date:@"Just created"
+                active:NO];  // New boot environments are not active by default
             
             [bootConfigurations addObject:newConfig];
             [newConfig release];
@@ -912,6 +901,10 @@
         return [config kernel];
     } else if ([identifier isEqualToString:@"rootfs"]) {
         return [config rootfs];
+    } else if ([identifier isEqualToString:@"size"]) {
+        return [config size];
+    } else if ([identifier isEqualToString:@"date"]) {
+        return [config date];
     } else if ([identifier isEqualToString:@"active"]) {
         return [config active] ? @"Yes" : @"No";
     }

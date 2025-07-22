@@ -23,6 +23,8 @@
     NSArray *columnInfo = @[ @[@"name", @"Name", @150],
                              @[@"kernel", @"Kernel", @150],
                              @[@"rootfs", @"Root FS", @120],
+                             @[@"size", @"Size", @80],
+                             @[@"date", @"Date", @120],
                              @[@"active", @"Active", @60] ];
     for (NSArray *info in columnInfo) {
         NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:info[0]];
@@ -38,9 +40,15 @@
     [self.tableView setRowHeight:22.0];
     NSFont *font = [NSFont systemFontOfSize:13.0];
     [self.tableView setFont:font];
-    // Create buttons
+    // Create buttons in an NSBox container
     NSArray *buttonTitles = @[ @"Refresh", @"Create New", @"Edit", @"Delete", @"Set Active" ];
     NSMutableArray *buttons = [NSMutableArray array];
+    
+    NSBox *buttonBox = [[NSBox alloc] initWithFrame:NSZeroRect];
+    [buttonBox setBorderType:NSNoBorder];
+    [buttonBox setTitlePosition:NSNoTitle];
+    self.buttonBox = buttonBox;
+    
     for (NSUInteger i = 0; i < buttonTitles.count; i++) {
         NSButton *btn = [[NSButton alloc] initWithFrame:NSZeroRect];
         [btn setTitle:buttonTitles[i]];
@@ -50,10 +58,11 @@
         if ([btn respondsToSelector:@selector(setBezelStyle:)]) {
             [btn setBezelStyle:NSRoundedBezelStyle];
         }
-        [self addSubview:btn];
+        [buttonBox addSubview:btn];
         [buttons addObject:btn];
     }
     self.buttonArray = buttons;
+    [self addSubview:buttonBox];
     // TODO: Add toolbar, menu bar, keyboard shortcuts, and help/about menu for even more Mac-like feel.
 }
 
@@ -67,11 +76,18 @@
     CGFloat totalButtonsWidth = buttonCount * buttonWidth + (buttonCount - 1) * buttonSpacing;
     CGFloat startX = (bounds.size.width - totalButtonsWidth) / 2.0;
     CGFloat buttonY = 20;
-    // Layout buttons
+    
+    // Layout button box
+    CGFloat boxHeight = buttonHeight + 10;
+    NSRect boxRect = NSMakeRect(startX - 5, buttonY - 5, totalButtonsWidth + 10, boxHeight);
+    [self.buttonBox setFrame:boxRect];
+    
+    // Layout buttons within the box
     for (NSUInteger i = 0; i < buttonCount; i++) {
         NSButton *btn = self.buttonArray[i];
-        [btn setFrame:NSMakeRect(startX + i * (buttonWidth + buttonSpacing), buttonY, buttonWidth, buttonHeight)];
+        [btn setFrame:NSMakeRect(5 + i * (buttonWidth + buttonSpacing), 5, buttonWidth, buttonHeight)];
     }
+    
     // Layout table
     CGFloat tableBottom = buttonY + buttonHeight + 20;
     NSRect tableRect = NSMakeRect(20, tableBottom, bounds.size.width - 40, bounds.size.height - tableBottom - 20);
