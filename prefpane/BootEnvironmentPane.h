@@ -5,6 +5,7 @@
 @interface BootEnvironmentPane : NSPreferencePane
 {
     BootConfigController *bootConfigController;
+    NSTimer *refreshTimer;
 }
 
 @end

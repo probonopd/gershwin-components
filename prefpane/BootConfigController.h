@@ -12,7 +12,6 @@
     NSButton *editButton;
     NSButton *deleteButton;
     NSButton *setActiveButton;
-    NSButton *refreshButton;
 }
 
 - (NSView *)createMainView;
@@ -32,5 +31,6 @@
 - (void)handleDialogCancel:(id)sender;
 - (void)showSuccessDialog:(NSString *)title message:(NSString *)message;
 - (void)showErrorDialog:(NSString *)title message:(NSString *)message;
+- (BOOL)checkPrivilegesForAction:(NSString *)action;
 
 @end

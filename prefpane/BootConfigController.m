@@ -104,76 +104,11 @@
 
 - (id)init {
     if (self = [super init]) {
-        BOOL isRoot = (getuid() == 0);
-        BOOL askpassValid = NO;
-        BOOL sudoValid = NO;
-        if (!isRoot) {
-            // Check SUDO_ASKPASS
-            char *askpass = getenv("SUDO_ASKPASS");
-            if (askpass && [[NSFileManager defaultManager] isExecutableFileAtPath:[NSString stringWithUTF8String:askpass]]) {
-                askpassValid = YES;
-            }
-            // Check sudo in PATH
-            NSString *envPath = [[NSProcessInfo processInfo] environment][@"PATH"];
-            NSArray *paths = [envPath componentsSeparatedByString:@":"];
-            for (NSString *path in paths) {
-                NSString *candidate = [path stringByAppendingPathComponent:@"sudo"];
-                if ([[NSFileManager defaultManager] isExecutableFileAtPath:candidate]) {
-                    sudoValid = YES;
-                    break;
-                }
-            }
-        }
-        if (!isRoot && !(askpassValid && sudoValid)) {
-            [self showErrorDialog:@"Insufficient Privileges" message:@"You must run as root, or have both SUDO_ASKPASS\nset to a valid executable and sudo available on your PATH."];
-        }
         bootConfigurations = [[NSMutableArray alloc] init];
-        // Check if running as root and warn user
-        if (getuid() != 0) {
-            NSLog(@"WARNING: Application is not running as root (uid=%d)", getuid());
-            NSLog(@"Creating and deleting boot environments will likely fail.");
-        } else {
-            NSLog(@"Application is running as root - full functionality available");
-        }
         [self loadBootConfigurations];
-        // Set up periodic refresh every 1.5 seconds
-        [NSTimer scheduledTimerWithTimeInterval:1.5 target:self selector:@selector(refreshConfigurations:) userInfo:nil repeats:YES];
+        // Note: No periodic refresh timer here - now managed by BootEnvironmentPane
     }
     return self;
-}
-
-- (void)mainViewDidLoad {
-    // Privileges check moved here, runs when the pane is shown
-    BOOL isRoot = (getuid() == 0);
-    BOOL askpassValid = NO;
-    BOOL sudoValid = NO;
-    if (!isRoot) {
-        // Check SUDO_ASKPASS
-        char *askpass = getenv("SUDO_ASKPASS");
-        if (askpass && [[NSFileManager defaultManager] isExecutableFileAtPath:[NSString stringWithUTF8String:askpass]]) {
-            askpassValid = YES;
-        }
-        // Check sudo in PATH
-        NSString *envPath = [[NSProcessInfo processInfo] environment][@"PATH"];
-        NSArray *paths = [envPath componentsSeparatedByString:@":"];
-        for (NSString *path in paths) {
-            NSString *candidate = [path stringByAppendingPathComponent:@"sudo"];
-            if ([[NSFileManager defaultManager] isExecutableFileAtPath:candidate]) {
-                sudoValid = YES;
-                break;
-            }
-        }
-    }
-    if (!isRoot && !(askpassValid && sudoValid)) {
-        [self showErrorDialog:@"Insufficient Privileges" message:@"You must run as root, or have both SUDO_ASKPASS\nset to a valid executable and sudo available on your PATH."];
-    }
-    // Warn if not root
-    if (getuid() != 0) {
-        NSLog(@"WARNING: Application is not running as root (uid=%d)", getuid());
-        NSLog(@"Creating and deleting boot environments will likely fail.");
-    } else {
-        NSLog(@"Application is running as root - full functionality available");
-    }
 }
 
 - (void)dealloc {
@@ -183,7 +118,7 @@
 }
 
 - (NSView *)createMainView {
-    NSRect frame = NSMakeRect(0, 0, 800, 600); // Window size
+    NSRect frame = NSMakeRect(0, 0, 600, 400); // Smaller window size to fit reduced table
     MainView *mv = [[MainView alloc] initWithFrame:frame];
     mainView = mv;
 
@@ -198,6 +133,19 @@
     // Set up double-click action
     [configTableView setTarget:self];
     [configTableView setDoubleAction:@selector(tableViewRowDoubleClicked:)];
+    
+    // Connect button actions (no refresh button)
+    [mv.createButton setTarget:self];
+    [mv.createButton setAction:@selector(createConfiguration:)];
+    
+    [mv.editButton setTarget:self];
+    [mv.editButton setAction:@selector(editConfiguration:)];
+    
+    [mv.deleteButton setTarget:self];
+    [mv.deleteButton setAction:@selector(deleteConfiguration:)];
+    
+    [mv.setActiveButton setTarget:self];
+    [mv.setActiveButton setAction:@selector(setActiveConfiguration:)];
 
     return mv;
 }
@@ -467,6 +415,9 @@
 }
 
 - (void)createConfiguration:(id)sender {
+    if (![self checkPrivilegesForAction:@"creating boot environments"]) {
+        return;
+    }
     NSLog(@"Opening dialog to create new boot environment...");
     [self showBootEnvironmentDialog:nil isEdit:NO];
 }
@@ -475,6 +426,10 @@
     NSInteger selectedRow = [configTableView selectedRow];
     if (selectedRow < 0) {
         [self showErrorDialog:@"Edit Boot Environment" message:@"Please select a boot environment to edit."];
+        return;
+    }
+    
+    if (![self checkPrivilegesForAction:@"editing boot environments"]) {
         return;
     }
     
@@ -718,6 +673,10 @@
         return;
     }
     
+    if (![self checkPrivilegesForAction:@"deleting boot environments"]) {
+        return;
+    }
+    
     BootConfiguration *config = [bootConfigurations objectAtIndex:selectedRow];
     NSString *configName = [config name];
     
@@ -748,6 +707,10 @@
     NSInteger selectedRow = [configTableView selectedRow];
     if (selectedRow < 0) {
         [self showErrorDialog:@"Set Active Boot Environment" message:@"Please select a boot environment to set as active."];
+        return;
+    }
+    
+    if (![self checkPrivilegesForAction:@"setting active boot environment"]) {
         return;
     }
     
@@ -1077,6 +1040,47 @@
     }
 }
 
+// Helper method to check privileges before performing privileged actions
+- (BOOL)checkPrivilegesForAction:(NSString *)action {
+    BOOL isRoot = (getuid() == 0);
+    BOOL askpassValid = NO;
+    BOOL sudoValid = NO;
+    
+    if (!isRoot) {
+        // Check SUDO_ASKPASS
+        char *askpass = getenv("SUDO_ASKPASS");
+        if (askpass && [[NSFileManager defaultManager] isExecutableFileAtPath:[NSString stringWithUTF8String:askpass]]) {
+            askpassValid = YES;
+        }
+        // Check sudo in PATH
+        NSString *envPath = [[NSProcessInfo processInfo] environment][@"PATH"];
+        NSArray *paths = [envPath componentsSeparatedByString:@":"];
+        for (NSString *path in paths) {
+            NSString *candidate = [path stringByAppendingPathComponent:@"sudo"];
+            if ([[NSFileManager defaultManager] isExecutableFileAtPath:candidate]) {
+                sudoValid = YES;
+                break;
+            }
+        }
+    }
+    
+    if (!isRoot && !(askpassValid && sudoValid)) {
+        [self showErrorDialog:@"Insufficient Privileges" 
+                      message:[NSString stringWithFormat:@"Cannot perform %@.\n\nYou must run as root, or have both SUDO_ASKPASS\nset to a valid executable and sudo available on your PATH.", action]];
+        return NO;
+    }
+    
+    // Warn if not root but continue
+    if (getuid() != 0) {
+        NSLog(@"WARNING: Application is not running as root (uid=%d) for %@", getuid(), action);
+        NSLog(@"Using sudo -A for privileged operations.");
+    } else {
+        NSLog(@"Application is running as root - %@ available", action);
+    }
+    
+    return YES;
+}
+
 // Table View Data Source Methods
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
     return [bootConfigurations count];
@@ -1088,10 +1092,6 @@
     
     if ([identifier isEqualToString:@"name"]) {
         return [config name];
-    } else if ([identifier isEqualToString:@"kernel"]) {
-        return [config kernel];
-    } else if ([identifier isEqualToString:@"rootfs"]) {
-        return [config rootfs];
     } else if ([identifier isEqualToString:@"size"]) {
         return [config size];
     } else if ([identifier isEqualToString:@"date"]) {

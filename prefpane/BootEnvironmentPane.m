@@ -14,8 +14,30 @@
 
 - (void)dealloc
 {
+    [self stopRefreshTimer];
     [bootConfigController release];
     [super dealloc];
+}
+
+- (void)startRefreshTimer
+{
+    if (!refreshTimer) {
+        refreshTimer = [NSTimer scheduledTimerWithTimeInterval:1.5 
+                                                        target:bootConfigController 
+                                                      selector:@selector(refreshConfigurations:) 
+                                                      userInfo:nil 
+                                                       repeats:YES];
+        [refreshTimer retain];
+    }
+}
+
+- (void)stopRefreshTimer
+{
+    if (refreshTimer) {
+        [refreshTimer invalidate];
+        [refreshTimer release];
+        refreshTimer = nil;
+    }
 }
 
 - (NSView *)loadMainView
@@ -40,8 +62,16 @@
 - (void)didSelect
 {
     [super didSelect];
-    // Refresh data when the pane is selected
+    // Refresh data when the pane is selected and start polling
     [bootConfigController refreshConfigurations:nil];
+    [self startRefreshTimer];
+}
+
+- (void)didUnselect
+{
+    [super didUnselect];
+    // Stop polling when the pane is not visible
+    [self stopRefreshTimer];
 }
 
 - (BOOL)autoSaveTextFields

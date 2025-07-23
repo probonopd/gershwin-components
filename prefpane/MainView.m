@@ -15,20 +15,40 @@
         [self.tableScrollView setDocumentView:self.tableView];
         [self addSubview:self.tableScrollView];
         
+        // Create action buttons
+        [self setupButtons];
+        
         // Setup table columns and appearance
         [self setupTableView];
     }
     return self;
 }
 
+- (void)setupButtons {
+    // Create action buttons with default style
+    self.createButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+    [self.createButton setTitle:@"Create"];
+    [self addSubview:self.createButton];
+    
+    self.editButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+    [self.editButton setTitle:@"Edit"];
+    [self addSubview:self.editButton];
+    
+    self.deleteButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+    [self.deleteButton setTitle:@"Delete"];
+    [self addSubview:self.deleteButton];
+    
+    self.setActiveButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+    [self.setActiveButton setTitle:@"Set Active"];
+    [self addSubview:self.setActiveButton];
+}
+
 - (void)setupTableView {
-    // Create table columns
-    NSArray *columnInfo = @[ @[@"name", @"Name", @150],
-                             @[@"kernel", @"Kernel", @150],
-                             @[@"rootfs", @"Root FS", @120],
-                             @[@"size", @"Size", @80],
-                             @[@"date", @"Date", @120],
-                             @[@"active", @"Active", @60] ];
+    // Create table columns (removed kernel and rootfs columns)
+    NSArray *columnInfo = @[ @[@"name", @"Name", @250],
+                             @[@"size", @"Size", @100],
+                             @[@"date", @"Date", @150],
+                             @[@"active", @"Active", @80] ];
     for (NSArray *info in columnInfo) {
         NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:info[0]];
         [[col headerCell] setStringValue:info[1]];
@@ -51,8 +71,49 @@
     [super resizeSubviewsWithOldSize:oldSize];
     NSRect bounds = [self bounds];
     
-    // Layout table to fill the entire view with margins
-    NSRect tableRect = NSMakeRect(20, 20, bounds.size.width - 40, bounds.size.height - 40);
+    // Button layout at the bottom with default sizing
+    CGFloat buttonHeight = 24; // Default button height
+    CGFloat buttonSpacing = 10;
+    CGFloat bottomMargin = 20;
+    CGFloat leftMargin = 20;
+    
+    // Size buttons to fit their content
+    [self.createButton sizeToFit];
+    [self.editButton sizeToFit];
+    [self.deleteButton sizeToFit];
+    [self.setActiveButton sizeToFit];
+    
+    // Position buttons in a row at the bottom
+    CGFloat buttonY = bottomMargin;
+    CGFloat currentX = leftMargin;
+    
+    NSRect createFrame = [self.createButton frame];
+    createFrame.origin = NSMakePoint(currentX, buttonY);
+    [self.createButton setFrame:createFrame];
+    currentX += NSWidth(createFrame) + buttonSpacing;
+    
+    NSRect editFrame = [self.editButton frame];
+    editFrame.origin = NSMakePoint(currentX, buttonY);
+    [self.editButton setFrame:editFrame];
+    currentX += NSWidth(editFrame) + buttonSpacing;
+    
+    NSRect deleteFrame = [self.deleteButton frame];
+    deleteFrame.origin = NSMakePoint(currentX, buttonY);
+    [self.deleteButton setFrame:deleteFrame];
+    currentX += NSWidth(deleteFrame) + buttonSpacing;
+    
+    NSRect activeFrame = [self.setActiveButton frame];
+    activeFrame.origin = NSMakePoint(currentX, buttonY);
+    [self.setActiveButton setFrame:activeFrame];
+    
+    // Layout table above the buttons - use more of the vertical space
+    CGFloat tableTop = bounds.size.height - 20;
+    CGFloat tableBottom = buttonY + buttonHeight + 10; // 10px spacing above buttons
+    CGFloat availableHeight = tableTop - tableBottom;
+    CGFloat tableHeight = availableHeight * 0.8; // Use 80% of available height instead of 50%
+    CGFloat tableStartY = tableBottom + (availableHeight - tableHeight) * 0.5; // Center vertically in remaining space
+    
+    NSRect tableRect = NSMakeRect(leftMargin, tableStartY, bounds.size.width - 40, tableHeight);
     [self.tableScrollView setFrame:tableRect];
 }
 
