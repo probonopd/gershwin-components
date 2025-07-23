@@ -1,6 +1,8 @@
 # FreeBSD Boot Environments Manager
 
-This is a GNUstep application for managing FreeBSD boot environments. The application provides a graphical interface to:
+<img width="602" height="490" alt="image" src="https://github.com/user-attachments/assets/f9fddfea-8801-49b5-8048-bcbec4133d1b" />
+
+This is a GNUstep preference pane for managing FreeBSD boot environments.
 
 ## Features
 
@@ -13,3 +15,16 @@ This is a GNUstep application for managing FreeBSD boot environments. The applic
 ## Privileges
 
 BootEnvironments.app can use https://github.com/probonopd/sudoaskpass to become root when needed to execute the underlying `bectl` commands.
+
+## Building
+
+```
+cd prefpane/
+gmake
+# Install
+sudo gmake install
+# Test
+/System/Applications/SystemPreferences.app/SystemPreferences
+# Uninstall
+sudo gmake uninstall
+```
