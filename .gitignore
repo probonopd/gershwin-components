@@ -2,3 +2,4 @@
 *.app
 *.obj
 src/BootEnvironments.core
+*.prefPane/

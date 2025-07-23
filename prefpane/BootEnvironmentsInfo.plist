@@ -1,0 +1,9 @@
+{
+    CFBundleIdentifier = "org.gnustep.bootenvironments.prefpane";
+    NOTE = "Automatically generated, do not edit!";
+    NSExecutable = BootEnvironments;
+    NSMainNibFile = "";
+    NSPrefPaneIconFile = "BootEnvironments.tiff";
+    NSPrefPaneIconLabel = "Boot Environments";
+    NSPrincipalClass = BootEnvironmentPane;
+}
