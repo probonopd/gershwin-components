@@ -146,6 +146,12 @@
     
     [mv.setActiveButton setTarget:self];
     [mv.setActiveButton setAction:@selector(setActiveConfiguration:)];
+    
+    [mv.mountButton setTarget:self];
+    [mv.mountButton setAction:@selector(mountBootEnvironment:)];
+    
+    [mv.unmountButton setTarget:self];
+    [mv.unmountButton setAction:@selector(unmountBootEnvironment:)];
 
     return mv;
 }
@@ -507,20 +513,22 @@
     }
     [contentView addSubview:optionsField];
     
-
-    
-    // Create buttons
-    NSButton *okButton = [[NSButton alloc] initWithFrame:NSMakeRect(200, 20, 80, 30)];
-    [okButton setTitle:@"OK"];
-    [okButton setTarget:self];
-    [okButton setAction:@selector(handleDialogOK:)];
-    [contentView addSubview:okButton];
-    
-    NSButton *cancelButton = [[NSButton alloc] initWithFrame:NSMakeRect(290, 20, 80, 30)];
+    NSButton *cancelButton = [[NSButton alloc] initWithFrame:NSMakeRect(220, 100, 80, 30)];
     [cancelButton setTitle:@"Cancel"];
     [cancelButton setTarget:self];
     [cancelButton setAction:@selector(handleDialogCancel:)];
+    [cancelButton setAutoresizingMask:NSViewMinYMargin | NSViewMinXMargin];
+    [cancelButton setKeyEquivalent:@"\e"]; // React to ESC key
     [contentView addSubview:cancelButton];
+    
+    NSButton *okButton = [[NSButton alloc] initWithFrame:NSMakeRect(310, 100, 60, 30)];
+    [okButton setTitle:@"OK"];
+    [okButton setTarget:self];
+    [okButton setAction:@selector(handleDialogOK:)];
+    [okButton setAutoresizingMask:NSViewMinYMargin | NSViewMinXMargin];
+    [okButton setKeyEquivalent:@"\r"];
+    [okButton setKeyEquivalentModifierMask:0];
+    [contentView addSubview:okButton];
     
     // Store dialog data for later use
     NSMutableDictionary *dialogData = [[NSMutableDictionary alloc] init];
@@ -1143,4 +1151,223 @@
     [alert release];
 }
 
+- (void)mountBootEnvironment:(id)sender {
+    NSInteger selectedRow = [configTableView selectedRow];
+    if (selectedRow < 0) {
+        [self showErrorDialog:@"Mount Boot Environment" message:@"Please select a boot environment to mount."];
+        return;
+    }
+    
+    if (![self checkPrivilegesForAction:@"mounting boot environments"]) {
+        return;
+    }
+    
+    BootConfiguration *config = [bootConfigurations objectAtIndex:selectedRow];
+    NSString *beName = [config name];
+    NSString *mountPoint = @"/mnt"; // Use default mount point
+    
+    BOOL success = [self mountBootEnvironmentWithBectl:beName mountPoint:mountPoint];
+    if (success) {
+        [self showSuccessDialog:@"Boot Environment Mounted" 
+                        message:[NSString stringWithFormat:@"Boot environment '%@' has been mounted at '%@'.", beName, mountPoint]];
+    } else {
+        [self showErrorDialog:@"Mount Failed" 
+                      message:[NSString stringWithFormat:@"Failed to mount boot environment '%@'. Check the console for details.", beName]];
+    }
+}
+
+- (void)unmountBootEnvironment:(id)sender {
+    NSInteger selectedRow = [configTableView selectedRow];
+    if (selectedRow < 0) {
+        [self showErrorDialog:@"Unmount Boot Environment" message:@"Please select a boot environment to unmount."];
+        return;
+    }
+    
+    if (![self checkPrivilegesForAction:@"unmounting boot environments"]) {
+        return;
+    }
+    
+    BootConfiguration *config = [bootConfigurations objectAtIndex:selectedRow];
+    NSString *beName = [config name];
+    
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:@"Unmount Boot Environment"];
+    [alert setInformativeText:[NSString stringWithFormat:@"Are you sure you want to unmount the boot environment '%@'?", beName]];
+    [alert addButtonWithTitle:@"Unmount"];
+    [alert addButtonWithTitle:@"Cancel"];
+    
+    NSInteger result = [alert runModal];
+    if (result == NSAlertFirstButtonReturn) {
+        BOOL success = [self unmountBootEnvironmentWithBectl:beName];
+        if (success) {
+            [self showSuccessDialog:@"Boot Environment Unmounted" 
+                            message:[NSString stringWithFormat:@"Boot environment '%@' has been unmounted successfully.", beName]];
+        } else {
+            [self showErrorDialog:@"Unmount Failed" 
+                          message:[NSString stringWithFormat:@"Failed to unmount boot environment '%@'. Check the console for details.", beName]];
+        }
+    }
+    
+    [alert release];
+}
+
+// Mount a boot environment using bectl mount
+- (BOOL)mountBootEnvironmentWithBectl:(NSString *)beName mountPoint:(NSString *)mountPoint {
+    NSLog(@"=== Mounting ZFS Boot Environment with bectl ===");
+    NSLog(@"Boot environment name: %@, Mount point: %@", beName, mountPoint);
+    
+    if (getuid() != 0) {
+        char *askpass = getenv("SUDO_ASKPASS");
+        BOOL askpassValid = NO;
+        if (askpass && [[NSFileManager defaultManager] isExecutableFileAtPath:[NSString stringWithUTF8String:askpass]]) {
+            askpassValid = YES;
+        }
+        if (!askpassValid) {
+            [self showErrorDialog:@"SUDO_ASKPASS Not Set" message:@"SUDO_ASKPASS is not set or does not point to a valid executable. Cannot run sudo -A. Please set SUDO_ASKPASS to a valid askpass binary."];
+            return NO;
+        }
+        NSLog(@"WARNING: Not running as root (uid=%d). Using sudo -A for bectl mount.", getuid());
+    }
+    
+    NSString *bectlPath = @"/sbin/bectl";
+    NSArray *arguments;
+    if (getuid() != 0) {
+        arguments = @[@"sudo", @"-A", bectlPath, @"mount", beName, mountPoint];
+        bectlPath = @"/usr/bin/env";
+    } else {
+        arguments = @[@"mount", beName, mountPoint];
+    }
+    
+    NSLog(@"Executing command: %@ %@", bectlPath, [arguments componentsJoinedByString:@" "]);
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:bectlPath];
+    [task setArguments:arguments];
+    
+    NSPipe *outputPipe = [NSPipe pipe];
+    NSPipe *errorPipe = [NSPipe pipe];
+    [task setStandardOutput:outputPipe];
+    [task setStandardError:errorPipe];
+    
+    NSFileHandle *outputHandle = [outputPipe fileHandleForReading];
+    NSFileHandle *errorHandle = [errorPipe fileHandleForReading];
+    
+    @try {
+        NSLog(@"Launching bectl mount task...");
+        [task launch];
+        [task waitUntilExit];
+        
+        int exitStatus = [task terminationStatus];
+        NSLog(@"bectl mount task completed with exit status: %d", exitStatus);
+        
+        NSData *outputData = [outputHandle readDataToEndOfFile];
+        NSData *errorData = [errorHandle readDataToEndOfFile];
+        
+        NSString *output = [[NSString alloc] initWithData:outputData encoding:NSUTF8StringEncoding];
+        NSString *error = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+        
+        if (output && [output length] > 0) {
+            NSLog(@"bectl mount output: %@", output);
+        }
+        
+        if (error && [error length] > 0) {
+            NSLog(@"bectl mount error: %@", error);
+        }
+        
+        [output release];
+        [error release];
+        
+        if (exitStatus == 0) {
+            NSLog(@"Successfully mounted boot environment '%@' at '%@'", beName, mountPoint);
+            return YES;
+        } else {
+            NSLog(@"Failed to mount boot environment '%@' at '%@' (exit status: %d)", beName, mountPoint, exitStatus);
+            return NO;
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"Exception while mounting boot environment: %@", [exception reason]);
+        return NO;
+    } @finally {
+        [task release];
+    }
+}
+
+// Unmount a boot environment using bectl unmount
+- (BOOL)unmountBootEnvironmentWithBectl:(NSString *)beName {
+    NSLog(@"=== Unmounting ZFS Boot Environment with bectl ===");
+    NSLog(@"Boot environment name: %@", beName);
+    
+    if (getuid() != 0) {
+        char *askpass = getenv("SUDO_ASKPASS");
+        BOOL askpassValid = NO;
+        if (askpass && [[NSFileManager defaultManager] isExecutableFileAtPath:[NSString stringWithUTF8String:askpass]]) {
+            askpassValid = YES;
+        }
+        if (!askpassValid) {
+            [self showErrorDialog:@"SUDO_ASKPASS Not Set" message:@"SUDO_ASKPASS is not set or does not point to a valid executable. Cannot run sudo -A. Please set SUDO_ASKPASS to a valid askpass binary."];
+            return NO;
+        }
+        NSLog(@"WARNING: Not running as root (uid=%d). Using sudo -A for bectl unmount.", getuid());
+    }
+    
+    NSString *bectlPath = @"/sbin/bectl";
+    NSArray *arguments;
+    if (getuid() != 0) {
+        arguments = @[@"sudo", @"-A", bectlPath, @"unmount", beName];
+        bectlPath = @"/usr/bin/env";
+    } else {
+        arguments = @[@"unmount", beName];
+    }
+    
+    NSLog(@"Executing command: %@ %@", bectlPath, [arguments componentsJoinedByString:@" "]);
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:bectlPath];
+    [task setArguments:arguments];
+    
+    NSPipe *outputPipe = [NSPipe pipe];
+    NSPipe *errorPipe = [NSPipe pipe];
+    [task setStandardOutput:outputPipe];
+    [task setStandardError:errorPipe];
+    
+    NSFileHandle *outputHandle = [outputPipe fileHandleForReading];
+    NSFileHandle *errorHandle = [errorPipe fileHandleForReading];
+    
+    @try {
+        NSLog(@"Launching bectl unmount task...");
+        [task launch];
+        [task waitUntilExit];
+        
+        int exitStatus = [task terminationStatus];
+        NSLog(@"bectl unmount task completed with exit status: %d", exitStatus);
+        
+        NSData *outputData = [outputHandle readDataToEndOfFile];
+        NSData *errorData = [errorHandle readDataToEndOfFile];
+        
+        NSString *output = [[NSString alloc] initWithData:outputData encoding:NSUTF8StringEncoding];
+        NSString *error = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+        
+        if (output && [output length] > 0) {
+            NSLog(@"bectl unmount output: %@", output);
+        }
+        
+        if (error && [error length] > 0) {
+            NSLog(@"bectl unmount error: %@", error);
+        }
+        
+        [output release];
+        [error release];
+        
+        if (exitStatus == 0) {
+            NSLog(@"Successfully unmounted boot environment '%@'", beName);
+            return YES;
+        } else {
+            NSLog(@"Failed to unmount boot environment '%@' (exit status: %d)", beName, exitStatus);
+            return NO;
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"Exception while unmounting boot environment: %@", [exception reason]);
+        return NO;
+    } @finally {
+        [task release];
+    }
+}
 @end

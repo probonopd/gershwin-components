@@ -41,6 +41,14 @@
     self.setActiveButton = [[NSButton alloc] initWithFrame:NSZeroRect];
     [self.setActiveButton setTitle:@"Set Active"];
     [self addSubview:self.setActiveButton];
+    
+    self.mountButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+    [self.mountButton setTitle:@"Mount"];
+    [self addSubview:self.mountButton];
+    
+    self.unmountButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+    [self.unmountButton setTitle:@"Unmount"];
+    [self addSubview:self.unmountButton];
 }
 
 - (void)setupTableView {
@@ -82,6 +90,8 @@
     [self.editButton sizeToFit];
     [self.deleteButton sizeToFit];
     [self.setActiveButton sizeToFit];
+    [self.mountButton sizeToFit];
+    [self.unmountButton sizeToFit];
     
     // Position buttons in a row at the bottom
     CGFloat buttonY = bottomMargin;
@@ -105,6 +115,16 @@
     NSRect activeFrame = [self.setActiveButton frame];
     activeFrame.origin = NSMakePoint(currentX, buttonY);
     [self.setActiveButton setFrame:activeFrame];
+    currentX += NSWidth(activeFrame) + buttonSpacing;
+    
+    NSRect mountFrame = [self.mountButton frame];
+    mountFrame.origin = NSMakePoint(currentX, buttonY);
+    [self.mountButton setFrame:mountFrame];
+    currentX += NSWidth(mountFrame) + buttonSpacing;
+    
+    NSRect unmountFrame = [self.unmountButton frame];
+    unmountFrame.origin = NSMakePoint(currentX, buttonY);
+    [self.unmountButton setFrame:unmountFrame];
     
     // Layout table above the buttons - use more of the vertical space
     CGFloat tableTop = bounds.size.height - 20;

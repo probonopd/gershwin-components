@@ -3,7 +3,7 @@
     NOTE = "Automatically generated, do not edit!";
     NSExecutable = BootEnvironments;
     NSMainNibFile = "";
-    NSPrefPaneIconFile = "BootEnvironments.tiff";
+    NSPrefPaneIconFile = "BootEnvironments.png";
     NSPrefPaneIconLabel = "Boot Environments";
     NSPrincipalClass = BootEnvironmentPane;
 }
