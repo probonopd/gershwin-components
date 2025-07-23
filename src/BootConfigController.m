@@ -63,6 +63,30 @@
 
 - (id)init {
     if (self = [super init]) {
+        BOOL isRoot = (getuid() == 0);
+        BOOL askpassValid = NO;
+        BOOL sudoValid = NO;
+        if (!isRoot) {
+            // Check SUDO_ASKPASS
+            char *askpass = getenv("SUDO_ASKPASS");
+            if (askpass && [[NSFileManager defaultManager] isExecutableFileAtPath:[NSString stringWithUTF8String:askpass]]) {
+                askpassValid = YES;
+            }
+            // Check sudo in PATH
+            NSString *envPath = [[NSProcessInfo processInfo] environment][@"PATH"];
+            NSArray *paths = [envPath componentsSeparatedByString:@":"];
+            for (NSString *path in paths) {
+                NSString *candidate = [path stringByAppendingPathComponent:@"sudo"];
+                if ([[NSFileManager defaultManager] isExecutableFileAtPath:candidate]) {
+                    sudoValid = YES;
+                    break;
+                }
+            }
+        }
+        if (!isRoot && !(askpassValid && sudoValid)) {
+            [self showErrorDialog:@"Insufficient Privileges" message:@"You must run as root, or have both SUDO_ASKPASS\nset to a valid executable and sudo available on your PATH."];
+            exit(1);
+        }
         bootConfigurations = [[NSMutableArray alloc] init];
         
         // Check if running as root and warn user
@@ -643,11 +667,26 @@
     NSLog(@"=== Activating ZFS Boot Environment with bectl ===");
     NSLog(@"Boot environment name: %@", beName);
     if (getuid() != 0) {
-        NSLog(@"WARNING: Not running as root (uid=%d). bectl activate may fail.", getuid());
-        NSLog(@"Consider running the application with sudo or as root for full functionality.");
+        char *askpass = getenv("SUDO_ASKPASS");
+        BOOL askpassValid = NO;
+        if (askpass && [[NSFileManager defaultManager] isExecutableFileAtPath:[NSString stringWithUTF8String:askpass]]) {
+            askpassValid = YES;
+        }
+        if (!askpassValid) {
+            [self showErrorDialog:@"SUDO_ASKPASS Not Set" message:@"SUDO_ASKPASS is not set or does not point to a valid executable. Cannot run sudo -A. Please set SUDO_ASKPASS to a valid askpass binary."];
+            return NO;
+        }
+        NSLog(@"WARNING: Not running as root (uid=%d). Using sudo -A for bectl activate.", getuid());
     }
     NSString *bectlPath = @"/sbin/bectl";
-    NSArray *arguments = @[@"activate", beName];
+    NSArray *arguments;
+    if (getuid() != 0) {
+        arguments = @[@"sudo", @"-A", bectlPath, @"activate", beName];
+        bectlPath = @"/usr/bin/env";
+    } else {
+        arguments = @[@"activate", beName];
+    }
+    
     NSLog(@"Executing command: %@ %@", bectlPath, [arguments componentsJoinedByString:@" "]);
     NSTask *task = [[NSTask alloc] init];
     [task setLaunchPath:bectlPath];
@@ -697,13 +736,27 @@
     
     // Check if we're running as root
     if (getuid() != 0) {
-        NSLog(@"WARNING: Not running as root (uid=%d). bectl create may fail.", getuid());
-        NSLog(@"Consider running the application with sudo or as root for full functionality.");
+        char *askpass = getenv("SUDO_ASKPASS");
+        BOOL askpassValid = NO;
+        if (askpass && [[NSFileManager defaultManager] isExecutableFileAtPath:[NSString stringWithUTF8String:askpass]]) {
+            askpassValid = YES;
+        }
+        if (!askpassValid) {
+            [self showErrorDialog:@"SUDO_ASKPASS Not Set" message:@"SUDO_ASKPASS is not set or does not point to a valid executable. Cannot run sudo -A. Please set SUDO_ASKPASS to a valid askpass binary."];
+            return NO;
+        }
+        NSLog(@"WARNING: Not running as root (uid=%d). Using sudo -A for bectl create.", getuid());
     }
     
-    // Create bectl create command
+    // Create bectl create command with sudo if needed
     NSString *bectlPath = @"/sbin/bectl";
-    NSArray *arguments = @[@"create", beName];
+    NSArray *arguments;
+    if (getuid() != 0) {
+        arguments = @[@"sudo", @"-A", bectlPath, @"create", beName];
+        bectlPath = @"/usr/bin/env";
+    } else {
+        arguments = @[@"create", beName];
+    }
     
     NSLog(@"Executing command: %@ %@", bectlPath, [arguments componentsJoinedByString:@" "]);
     
@@ -766,13 +819,27 @@
     
     // Check if we're running as root
     if (getuid() != 0) {
-        NSLog(@"WARNING: Not running as root (uid=%d). bectl destroy may fail.", getuid());
-        NSLog(@"Consider running the application with sudo or as root for full functionality.");
+        char *askpass = getenv("SUDO_ASKPASS");
+        BOOL askpassValid = NO;
+        if (askpass && [[NSFileManager defaultManager] isExecutableFileAtPath:[NSString stringWithUTF8String:askpass]]) {
+            askpassValid = YES;
+        }
+        if (!askpassValid) {
+            [self showErrorDialog:@"SUDO_ASKPASS Not Set" message:@"SUDO_ASKPASS is not set or does not point to a valid executable. Cannot run sudo -A. Please set SUDO_ASKPASS to a valid askpass binary."];
+            return NO;
+        }
+        NSLog(@"WARNING: Not running as root (uid=%d). Using sudo -A for bectl destroy.", getuid());
     }
     
-    // Create bectl destroy command
+    // Create bectl destroy command with sudo if needed
     NSString *bectlPath = @"/sbin/bectl";
-    NSArray *arguments = @[@"destroy", @"-F", beName];  // -F flag to force destruction
+    NSArray *arguments;
+    if (getuid() != 0) {
+        arguments = @[@"sudo", @"-A", bectlPath, @"destroy", @"-F", beName];
+        bectlPath = @"/usr/bin/env";
+    } else {
+        arguments = @[@"destroy", @"-F", beName];  // -F flag to force destruction
+    }
     
     NSLog(@"Executing command: %@ %@", bectlPath, [arguments componentsJoinedByString:@" "]);
     
@@ -838,11 +905,25 @@
     NSLog(@"=== Renaming ZFS Boot Environment with bectl ===");
     NSLog(@"Old name: %@, New name: %@", oldName, newName);
     if (getuid() != 0) {
-        NSLog(@"WARNING: Not running as root (uid=%d). bectl rename may fail.", getuid());
-        NSLog(@"Consider running the application with sudo or as root for full functionality.");
+        char *askpass = getenv("SUDO_ASKPASS");
+        BOOL askpassValid = NO;
+        if (askpass && [[NSFileManager defaultManager] isExecutableFileAtPath:[NSString stringWithUTF8String:askpass]]) {
+            askpassValid = YES;
+        }
+        if (!askpassValid) {
+            [self showErrorDialog:@"SUDO_ASKPASS Not Set" message:@"SUDO_ASKPASS is not set or does not point to a valid executable. Cannot run sudo -A. Please set SUDO_ASKPASS to a valid askpass binary."];
+            return NO;
+        }
+        NSLog(@"WARNING: Not running as root (uid=%d). Using sudo -A for bectl rename.", getuid());
     }
     NSString *bectlPath = @"/sbin/bectl";
-    NSArray *arguments = @[@"rename", oldName, newName];
+    NSArray *arguments;
+    if (getuid() != 0) {
+        arguments = @[@"sudo", @"-A", bectlPath, @"rename", oldName, newName];
+        bectlPath = @"/usr/bin/env";
+    } else {
+        arguments = @[@"rename", oldName, newName];
+    }
     NSLog(@"Executing command: %@ %@", bectlPath, [arguments componentsJoinedByString:@" "]);
     NSTask *task = [[NSTask alloc] init];
     [task setLaunchPath:bectlPath];
