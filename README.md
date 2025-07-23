@@ -14,7 +14,7 @@ This is a GNUstep preference pane for managing FreeBSD boot environments.
 
 ## Privileges
 
-BootEnvironments.app can use https://github.com/probonopd/sudoaskpass to become root when needed to execute the underlying `bectl` commands.
+This uses [SudoAskPass.app](https://github.com/probonopd/sudoaskpass) to become root when needed to execute the underlying `bectl` commands.
 
 ## Building
 
