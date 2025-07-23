@@ -14,11 +14,14 @@
         self.tableView = [[NSTableView alloc] initWithFrame:NSZeroRect];
         [self.tableScrollView setDocumentView:self.tableView];
         [self addSubview:self.tableScrollView];
+        
+        // Setup table columns and appearance
+        [self setupTableView];
     }
     return self;
 }
 
-- (void)setupWithTarget:(id)target actions:(SEL[])actions {
+- (void)setupTableView {
     // Create table columns
     NSArray *columnInfo = @[ @[@"name", @"Name", @150],
                              @[@"kernel", @"Kernel", @150],
@@ -30,6 +33,8 @@
         NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:info[0]];
         [[col headerCell] setStringValue:info[1]];
         [col setWidth:[info[2] floatValue]];
+        // Make column non-editable
+        [col setEditable:NO];
         [self.tableView addTableColumn:col];
     }
     // Mac-like table appearance
@@ -40,57 +45,14 @@
     [self.tableView setRowHeight:22.0];
     NSFont *font = [NSFont systemFontOfSize:13.0];
     [self.tableView setFont:font];
-    // Create buttons in an NSBox container
-    NSArray *buttonTitles = @[ @"Refresh", @"Create New", @"Edit", @"Delete", @"Set Active" ];
-    NSMutableArray *buttons = [NSMutableArray array];
-    
-    NSBox *buttonBox = [[NSBox alloc] initWithFrame:NSZeroRect];
-    [buttonBox setBorderType:NSNoBorder];
-    [buttonBox setTitlePosition:NSNoTitle];
-    self.buttonBox = buttonBox;
-    
-    for (NSUInteger i = 0; i < buttonTitles.count; i++) {
-        NSButton *btn = [[NSButton alloc] initWithFrame:NSZeroRect];
-        [btn setTitle:buttonTitles[i]];
-        [btn setTarget:target];
-        [btn setAction:actions[i]];
-        [btn setButtonType:NSMomentaryPushInButton];
-        if ([btn respondsToSelector:@selector(setBezelStyle:)]) {
-            [btn setBezelStyle:NSRoundedBezelStyle];
-        }
-        [buttonBox addSubview:btn];
-        [buttons addObject:btn];
-    }
-    self.buttonArray = buttons;
-    [self addSubview:buttonBox];
-    // TODO: Add toolbar, menu bar, keyboard shortcuts, and help/about menu for even more Mac-like feel.
 }
 
 - (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
     [super resizeSubviewsWithOldSize:oldSize];
     NSRect bounds = [self bounds];
-    CGFloat buttonWidth = 100;
-    CGFloat buttonHeight = 30;
-    CGFloat buttonSpacing = 20;
-    NSUInteger buttonCount = self.buttonArray.count;
-    CGFloat totalButtonsWidth = buttonCount * buttonWidth + (buttonCount - 1) * buttonSpacing;
-    CGFloat startX = (bounds.size.width - totalButtonsWidth) / 2.0;
-    CGFloat buttonY = 20;
     
-    // Layout button box
-    CGFloat boxHeight = buttonHeight + 10;
-    NSRect boxRect = NSMakeRect(startX - 5, buttonY - 5, totalButtonsWidth + 10, boxHeight);
-    [self.buttonBox setFrame:boxRect];
-    
-    // Layout buttons within the box
-    for (NSUInteger i = 0; i < buttonCount; i++) {
-        NSButton *btn = self.buttonArray[i];
-        [btn setFrame:NSMakeRect(5 + i * (buttonWidth + buttonSpacing), 5, buttonWidth, buttonHeight)];
-    }
-    
-    // Layout table
-    CGFloat tableBottom = buttonY + buttonHeight + 20;
-    NSRect tableRect = NSMakeRect(20, tableBottom, bounds.size.width - 40, bounds.size.height - tableBottom - 20);
+    // Layout table to fill the entire view with margins
+    NSRect tableRect = NSMakeRect(20, 20, bounds.size.width - 40, bounds.size.height - 40);
     [self.tableScrollView setFrame:tableRect];
 }
 

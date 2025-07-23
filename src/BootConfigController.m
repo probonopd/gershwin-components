@@ -2,6 +2,47 @@
 #import <unistd.h>  // For getuid()
 #import "MainView.h"
 
+// Custom view class to handle ESC key events in dialogs
+@interface KeyHandlingView : NSView {
+@public
+    NSMutableDictionary *dialogData;
+    BootConfigController *controller;
+}
+- (void)setDialogData:(NSMutableDictionary *)data;
+- (void)setController:(BootConfigController *)ctrl;
+@end
+
+@implementation KeyHandlingView
+
+- (void)setDialogData:(NSMutableDictionary *)data {
+    dialogData = data;
+}
+
+- (void)setController:(BootConfigController *)ctrl {
+    controller = ctrl;
+}
+
+- (BOOL)acceptsFirstResponder {
+    return YES;
+}
+
+- (void)keyDown:(NSEvent *)event {
+    NSString *characters = [event characters];
+    if ([characters length] > 0) {
+        unichar character = [characters characterAtIndex:0];
+        if (character == 27) { // ESC key
+            NSLog(@"ESC key pressed - canceling dialog");
+            if (dialogData && controller) {
+                [controller handleDialogCancel:self];
+                return;
+            }
+        }
+    }
+    [super keyDown:event];
+}
+
+@end
+
 @interface BootConfigController ()
 - (void)showSuccessDialog:(NSString *)title message:(NSString *)message;
 - (void)showErrorDialog:(NSString *)title message:(NSString *)message;
@@ -99,6 +140,9 @@
         }
         
         [self loadBootConfigurations];
+        
+        // Set up periodic refresh every 1.5 seconds
+        [NSTimer scheduledTimerWithTimeInterval:1.5 target:self selector:@selector(refreshConfigurations:) userInfo:nil repeats:YES];
     }
     return self;
 }
@@ -110,26 +154,31 @@
 }
 
 - (NSView *)createMainView {
-    NSRect frame = NSMakeRect(0, 0, 800, 600);
+    NSRect frame = NSMakeRect(0, 0, 800, 600); // Window size
     MainView *mv = [[MainView alloc] initWithFrame:frame];
     mainView = mv;
-    
-    // Set up actions for buttons
-    SEL actions[] = {
-        @selector(refreshConfigurations:),
-        @selector(createConfiguration:),
-        @selector(editConfiguration:),
-        @selector(deleteConfiguration:),
-        @selector(setActiveConfiguration:)
-    };
-    [mv setupWithTarget:self actions:actions];
-    
+
+    // Set tableView frame to fill the entire view, no padding
+    [mv.tableView setFrame:NSMakeRect(0, 0, frame.size.width, frame.size.height)];
+
     // Set delegate and dataSource for table
     mv.tableView.delegate = self;
     mv.tableView.dataSource = self;
     configTableView = mv.tableView;
-    
+
+    // Set up double-click action
+    [configTableView setTarget:self];
+    [configTableView setDoubleAction:@selector(tableViewRowDoubleClicked:)];
+
     return mv;
+}
+
+- (void)tableViewRowDoubleClicked:(id)sender {
+    NSInteger row = [configTableView clickedRow];
+    if (row >= 0 && row < [bootConfigurations count]) {
+        BootConfiguration *config = [bootConfigurations objectAtIndex:row];
+        [self showBootEnvironmentDialog:config isEdit:YES];
+    }
 }
 
 - (void)loadBootConfigurations {
@@ -505,6 +554,26 @@
     [okButton setTag:(NSInteger)dialogData];
     [cancelButton setTag:(NSInteger)dialogData];
     
+    // Set up key event handling for ESC key
+    [dialog setAcceptsMouseMovedEvents:YES];
+    [dialog makeFirstResponder:nameField];
+    
+    // Create a custom content view that handles key events
+    NSView *originalContentView = [dialog contentView];
+    KeyHandlingView *keyHandlingView = [[KeyHandlingView alloc] initWithFrame:[originalContentView frame]];
+    [keyHandlingView setDialogData:dialogData];
+    [keyHandlingView setController:self];
+    
+    // Move all subviews to the key handling view
+    NSArray *subviews = [[originalContentView subviews] copy];
+    for (NSView *subview in subviews) {
+        [subview removeFromSuperview];
+        [keyHandlingView addSubview:subview];
+    }
+    [dialog setContentView:keyHandlingView];
+    [keyHandlingView release];
+    [subviews release];
+    
     [dialog center];
     [dialog makeKeyAndOrderFront:nil];
 }
@@ -593,8 +662,20 @@
 }
 
 - (void)handleDialogCancel:(id)sender {
-    NSButton *button = (NSButton *)sender;
-    NSMutableDictionary *dialogData = (NSMutableDictionary *)[button tag];
+    NSMutableDictionary *dialogData;
+    
+    if ([sender isKindOfClass:[NSButton class]]) {
+        // Called from Cancel button
+        NSButton *button = (NSButton *)sender;
+        dialogData = (NSMutableDictionary *)[button tag];
+    } else if ([sender isKindOfClass:[KeyHandlingView class]]) {
+        // Called from ESC key handler
+        KeyHandlingView *view = (KeyHandlingView *)sender;
+        dialogData = view->dialogData;
+    } else {
+        NSLog(@"handleDialogCancel called from unknown sender type");
+        return;
+    }
     
     NSWindow *dialog = [dialogData objectForKey:@"dialog"];
     [dialog close];
@@ -993,12 +1074,23 @@
     return @"";
 }
 
+// Table View Delegate Methods
 - (void)tableViewSelectionDidChange:(NSNotification *)notification {
     // Selection changed - no form fields to update anymore
     NSInteger selectedRow = [configTableView selectedRow];
     if (selectedRow >= 0) {
         BootConfiguration *config = [bootConfigurations objectAtIndex:selectedRow];
         NSLog(@"Selected boot environment: %@", [config name]);
+    }
+}
+
+- (void)tableView:(NSTableView *)tableView mouseDownAtRow:(NSInteger)row {
+    // Handle double-click to edit
+    NSEvent *event = [NSApp currentEvent];
+    if ([event clickCount] == 2 && row >= 0) {
+        NSLog(@"Double-clicked row %ld - editing boot environment", (long)row);
+        BootConfiguration *config = [bootConfigurations objectAtIndex:row];
+        [self showBootEnvironmentDialog:config isEdit:YES];
     }
 }
 

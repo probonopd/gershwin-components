@@ -1,3 +1,4 @@
 *.o
 *.app
 *.obj
+src/BootEnvironments.core

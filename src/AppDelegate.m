@@ -6,13 +6,13 @@
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     NSLog(@"Application did finish launching");
     
-    // Create the menu system
-    [self createMenu];
-    
     // Force the application to become active immediately
     [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
     
     [self createMainWindow];
+    
+    // Create the menu system AFTER the controller is created
+    [self createMenu];
     
     // Ensure the application is active and window is visible
     NSLog(@"Activating application and bringing window to front");
@@ -81,29 +81,60 @@
     // Create the main menu bar
     NSMenu *mainMenu = [[NSMenu alloc] init];
     
-    // Create File menu
-    NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
-    NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit" 
-                                                      action:@selector(quitApplication:) 
-                                               keyEquivalent:@"q"];
-    [quitItem setTarget:self];
-    [fileMenu addItem:quitItem];
-    
-    NSMenuItem *fileMenuItem = [[NSMenuItem alloc] initWithTitle:@"File" action:nil keyEquivalent:@""];
-    [fileMenuItem setSubmenu:fileMenu];
-    [mainMenu addItem:fileMenuItem];
-    
-    // Create Help menu
-    NSMenu *helpMenu = [[NSMenu alloc] initWithTitle:@"Help"];
+    // Create Application menu (first menu)
+    NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"BootEnvironments"];
     NSMenuItem *aboutItem = [[NSMenuItem alloc] initWithTitle:@"About Boot Environments" 
                                                        action:@selector(showAbout:) 
                                                 keyEquivalent:@""];
     [aboutItem setTarget:self];
-    [helpMenu addItem:aboutItem];
+    [appMenu addItem:aboutItem];
     
-    NSMenuItem *helpMenuItem = [[NSMenuItem alloc] initWithTitle:@"Help" action:nil keyEquivalent:@""];
-    [helpMenuItem setSubmenu:helpMenu];
-    [mainMenu addItem:helpMenuItem];
+    [appMenu addItem:[NSMenuItem separatorItem]];
+    
+    NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit Boot Environments" 
+                                                      action:@selector(quitApplication:) 
+                                               keyEquivalent:@"q"];
+    [quitItem setTarget:self];
+    [appMenu addItem:quitItem];
+    
+    NSMenuItem *appMenuItem = [[NSMenuItem alloc] initWithTitle:@"BootEnvironments" action:nil keyEquivalent:@""];
+    [appMenuItem setSubmenu:appMenu];
+    [mainMenu addItem:appMenuItem];
+    
+    // Create Boot Environment menu
+    NSMenu *bootMenu = [[NSMenu alloc] initWithTitle:@"Boot Environment"];
+    
+    NSMenuItem *createItem = [[NSMenuItem alloc] initWithTitle:@"Create Boot Environment..." 
+                                                        action:@selector(createConfiguration:) 
+                                                 keyEquivalent:@"n"];
+    [createItem setTarget:bootConfigController];
+    [bootMenu addItem:createItem];
+    
+    NSMenuItem *editItem = [[NSMenuItem alloc] initWithTitle:@"Edit Boot Environment..." 
+                                                      action:@selector(editConfiguration:) 
+                                               keyEquivalent:@"e"];
+    [editItem setTarget:bootConfigController];
+    [bootMenu addItem:editItem];
+    
+    [bootMenu addItem:[NSMenuItem separatorItem]];
+    
+    NSMenuItem *deleteItem = [[NSMenuItem alloc] initWithTitle:@"Delete Boot Environment" 
+                                                        action:@selector(deleteConfiguration:) 
+                                                 keyEquivalent:@"d"];
+    [deleteItem setTarget:bootConfigController];
+    [bootMenu addItem:deleteItem];
+    
+    [bootMenu addItem:[NSMenuItem separatorItem]];
+    
+    NSMenuItem *setActiveItem = [[NSMenuItem alloc] initWithTitle:@"Set Active Boot Environment" 
+                                                           action:@selector(setActiveConfiguration:) 
+                                                    keyEquivalent:@"a"];
+    [setActiveItem setTarget:bootConfigController];
+    [bootMenu addItem:setActiveItem];
+    
+    NSMenuItem *bootMenuItem = [[NSMenuItem alloc] initWithTitle:@"Boot Environment" action:nil keyEquivalent:@""];
+    [bootMenuItem setSubmenu:bootMenu];
+    [mainMenu addItem:bootMenuItem];
     
     // Set the main menu
     [[NSApplication sharedApplication] setMainMenu:mainMenu];

@@ -2,7 +2,7 @@
 
 @class BootConfiguration;
 
-@interface BootConfigController : NSObject
+@interface BootConfigController : NSObject <NSTableViewDataSource, NSTableViewDelegate>
 {
     NSView *mainView;
     NSTableView *configTableView;
@@ -29,6 +29,7 @@
 - (void)showBootEnvironmentDialog:(BootConfiguration *)config isEdit:(BOOL)isEdit;
 - (BOOL)createBootEnvironmentWithBectl:(NSString *)beName;
 - (BOOL)deleteBootEnvironmentWithBectl:(NSString *)beName;
+- (void)handleDialogCancel:(id)sender;
 - (void)showSuccessDialog:(NSString *)title message:(NSString *)message;
 - (void)showErrorDialog:(NSString *)title message:(NSString *)message;
 
