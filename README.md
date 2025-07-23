@@ -2,7 +2,7 @@
 
 <img width="602" height="490" alt="image" src="https://github.com/user-attachments/assets/f9fddfea-8801-49b5-8048-bcbec4133d1b" />
 
-This is a GNUstep preference pane for managing FreeBSD boot environments.
+This is a GNUstep System Preferences pane for managing FreeBSD boot environments.
 
 ## Features
 
