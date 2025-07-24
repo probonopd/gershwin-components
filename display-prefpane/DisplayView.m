@@ -334,6 +334,7 @@
     DisplayInfo *selectedDisplayInfo = nil;
     if ([controller respondsToSelector:@selector(selectedDisplay)]) {
         selectedDisplayInfo = [controller selectedDisplay];
+        NSLog(@"DisplayView: Current selected display: %@", selectedDisplayInfo ? [selectedDisplayInfo name] : @"none");
     }
     
     // Calculate the scaled total bounds for centering
@@ -389,15 +390,16 @@
         [rectView setDisplayInfo:display];
         [rectView setShowsMenuBar:[display isPrimary]]; // Always show menu bar for primary display
         
-        // Set selection state
+        // Set selection state - preserve existing selection if possible
         BOOL shouldBeSelected = NO;
-        if (selectedDisplayInfo) {
-            // Use the currently selected display
-            shouldBeSelected = (display == selectedDisplayInfo);
-        } else {
-            // Default to selecting the primary display
-            shouldBeSelected = [display isPrimary];
-            if (shouldBeSelected && controller && [controller respondsToSelector:@selector(selectDisplay:)]) {
+        if (selectedDisplayInfo && selectedDisplayInfo == display) {
+            // Keep the previously selected display selected
+            shouldBeSelected = YES;
+            NSLog(@"DisplayView: Preserving selection for display: %@", [display name]);
+        } else if (!selectedDisplayInfo && [display isPrimary]) {
+            // Default to selecting the primary display only if no selection exists
+            shouldBeSelected = YES;
+            if (controller && [controller respondsToSelector:@selector(selectDisplay:)]) {
                 [controller selectDisplay:display];
                 NSLog(@"DisplayView: Auto-selecting primary display: %@", [display name]);
             }

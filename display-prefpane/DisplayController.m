@@ -157,8 +157,13 @@
     [gatherWindowsButton setAction:@selector(gatherWindows:)];
     [mainView addSubview:gatherWindowsButton];
     
-    // Load initial display data
-    [self refreshDisplays:nil];
+    // Load initial display data only if we haven't already
+    if ([displays count] == 0) {
+        NSLog(@"DisplayController: Loading initial display data");
+        [self refreshDisplays:nil];
+    } else {
+        NSLog(@"DisplayController: Displays already loaded, skipping initial refresh");
+    }
     
     return mainView;
 }
@@ -171,6 +176,14 @@
     }
     
     NSLog(@"DisplayController: Refreshing displays using xrandr at: %@", xrandrPath);
+    
+    // Store the currently selected display to preserve selection
+    DisplayInfo *previouslySelected = selectedDisplay;
+    NSString *previouslySelectedOutput = nil;
+    if (previouslySelected) {
+        previouslySelectedOutput = [[previouslySelected output] retain];
+        NSLog(@"DisplayController: Preserving selection for display: %@", previouslySelectedOutput);
+    }
     
     NSTask *task = [[NSTask alloc] init];
     [task setLaunchPath:xrandrPath];
@@ -191,6 +204,19 @@
     
     [output release];
     [task release];
+    
+    // Restore the previously selected display if it still exists
+    if (previouslySelectedOutput) {
+        selectedDisplay = nil; // Reset first
+        for (DisplayInfo *display in displays) {
+            if ([[display output] isEqualToString:previouslySelectedOutput]) {
+                selectedDisplay = display;
+                NSLog(@"DisplayController: Restored selection for display: %@", [display name]);
+                break;
+            }
+        }
+        [previouslySelectedOutput release];
+    }
     
     // Update the display view
     if (displayView) {
@@ -854,10 +880,13 @@
     }
     
     if ([args count] > 0) {
+        NSLog(@"DisplayController: Running auto-configuration with args: %@", args);
         [self runXrandrWithArgs:args];
         
-        // Wait a moment then refresh to get the new configuration
-        [self performSelector:@selector(refreshDisplays:) withObject:nil afterDelay:1.0];
+        // Note: runXrandrWithArgs already calls refreshDisplays with a delay
+        // so we don't need to call it again here
+    } else {
+        NSLog(@"DisplayController: No auto-configuration needed");
     }
 }
 
