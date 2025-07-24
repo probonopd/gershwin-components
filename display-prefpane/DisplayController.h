@@ -30,7 +30,6 @@
     NSView *mainView;
     NSPopUpButton *resolutionPopup;
     NSButton *mirrorDisplaysCheckbox;
-    NSButton *gatherWindowsButton;
     NSString *xrandrPath;
     DisplayInfo *selectedDisplay; // Currently selected display for resolution changes
 }

@@ -54,7 +54,6 @@
     [mainView release];
     [resolutionPopup release];
     [mirrorDisplaysCheckbox release];
-    [gatherWindowsButton release];
     [xrandrPath release];
     [super dealloc];
 }
@@ -88,11 +87,34 @@
     
     NSLog(@"DisplayController: Creating main view with xrandr available");
     
+    // Get available width from SystemPreferences window if possible
+    float availableWidth = 500; // Default fallback
+    float availableHeight = 320; // Default fallback
+    
+    // Try to get the actual SystemPreferences window size
+    NSArray *windows = [NSApp windows];
+    for (NSWindow *window in windows) {
+        if ([[window title] containsString:@"System Preferences"] || 
+            [[window className] containsString:@"PreferencePane"]) {
+            NSRect windowFrame = [window frame];
+            NSRect contentRect = [window contentRectForFrameRect:windowFrame];
+            // Use most of the content area, leaving margins
+            availableWidth = contentRect.size.width - 40; // 20px margin on each side
+            availableHeight = contentRect.size.height - 80; // Space for title and controls
+            NSLog(@"DisplayController: Found SystemPreferences window, using size: %.0fx%.0f", availableWidth, availableHeight);
+            break;
+        }
+    }
+    
+    // Ensure reasonable minimums
+    if (availableWidth < 400) availableWidth = 500;
+    if (availableHeight < 250) availableHeight = 320;
+    
     // Use a more reasonable size for System Preferences
-    mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 500, 320)];
+    mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, availableWidth, availableHeight)];
     
     // Add labels and instructions
-    NSTextField *arrangeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 290, 200, 20)];
+    NSTextField *arrangeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, availableHeight - 30, 200, 20)];
     [arrangeLabel setStringValue:@"Arrangement"];
     [arrangeLabel setBezeled:NO];
     [arrangeLabel setDrawsBackground:NO];
@@ -102,13 +124,14 @@
     [mainView addSubview:arrangeLabel];
     [arrangeLabel release];
     
-    // Create a smaller display arrangement view that fits better
-    displayView = [[DisplayView alloc] initWithFrame:NSMakeRect(20, 140, 460, 140)];
+    // Create a display arrangement view that uses most of the available space
+    float displayAreaHeight = availableHeight - 180; // Leave space for controls below
+    displayView = [[DisplayView alloc] initWithFrame:NSMakeRect(20, 140, availableWidth - 22, displayAreaHeight)];
     [displayView setController:self];
     [mainView addSubview:displayView];
     
-    NSTextField *instructLabel1 = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 115, 400, 20)];
-    [instructLabel1 setStringValue:@"To rearrange the displays, drag them to the desired position."];
+    NSTextField *instructLabel1 = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 115, availableWidth - 22, 20)];
+    [instructLabel1 setStringValue:@"Drag displays to rearrange them. Drag menu bar to define the main display."];
     [instructLabel1 setBezeled:NO];
     [instructLabel1 setDrawsBackground:NO];
     [instructLabel1 setEditable:NO];
@@ -116,16 +139,6 @@
     [instructLabel1 setFont:[NSFont systemFontOfSize:11]];
     [mainView addSubview:instructLabel1];
     [instructLabel1 release];
-    
-    NSTextField *instructLabel2 = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 95, 400, 20)];
-    [instructLabel2 setStringValue:@"To relocate the menu bar, drag it to a different display."];
-    [instructLabel2 setBezeled:NO];
-    [instructLabel2 setDrawsBackground:NO];
-    [instructLabel2 setEditable:NO];
-    [instructLabel2 setSelectable:NO];
-    [instructLabel2 setFont:[NSFont systemFontOfSize:11]];
-    [mainView addSubview:instructLabel2];
-    [instructLabel2 release];
     
     // Mirror displays checkbox
     mirrorDisplaysCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, 65, 200, 20)];
@@ -149,13 +162,6 @@
     [resolutionPopup setTarget:self];
     [resolutionPopup setAction:@selector(resolutionChanged:)];
     [mainView addSubview:resolutionPopup];
-    
-    // Gather Windows button - moved to fit in the smaller layout
-    gatherWindowsButton = [[NSButton alloc] initWithFrame:NSMakeRect(310, 32, 120, 25)];
-    [gatherWindowsButton setTitle:@"Gather Windows"];
-    [gatherWindowsButton setTarget:self];
-    [gatherWindowsButton setAction:@selector(gatherWindows:)];
-    [mainView addSubview:gatherWindowsButton];
     
     // Load initial display data only if we haven't already
     if ([displays count] == 0) {
@@ -701,12 +707,6 @@
     [resolutionPopup selectItemWithTitle:resolution];
 }
 
-- (void)gatherWindows:(id)sender
-{
-    // Implementation to gather windows to the primary display
-    // This is a simplified version - in reality you'd use window management APIs
-    NSLog(@"Gather Windows functionality would be implemented here");
-}
 
 - (void)runXrandrWithArgs:(NSArray *)args
 {

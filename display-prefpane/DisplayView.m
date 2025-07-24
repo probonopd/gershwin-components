@@ -21,10 +21,10 @@
     // Draw the display rectangle
     NSRect bounds = [self bounds];
     
-    // Background color - blue gradient like macOS
-    NSGradient *gradient = [[NSGradient alloc] initWithStartingColor:[NSColor colorWithCalibratedRed:0.4 green:0.6 blue:1.0 alpha:1.0]
-                                                         endingColor:[NSColor colorWithCalibratedRed:0.2 green:0.4 blue:0.8 alpha:1.0]];
-    [gradient drawInRect:bounds angle:90];
+    // Background color
+    NSGradient *gradient = [[NSGradient alloc] initWithStartingColor:[NSColor colorWithCalibratedRed:0.4 green:0.7 blue:0.95 alpha:1.0]
+                                                         endingColor:[NSColor colorWithCalibratedRed:0.15 green:0.45 blue:0.6 alpha:1.0]];
+    [gradient drawInRect:bounds angle:45];
     [gradient release];
     
     // Selection border (thick black border when selected)
@@ -55,7 +55,7 @@
         [displayName drawAtPoint:textPoint withAttributes:attrs];
     }
     
-    // Menu bar representation - scale with display size
+    // Menu bar representation
     if (showsMenuBar) {
         float menuBarHeight = MIN(18, bounds.size.height * 0.25); // Scale menu bar height
         NSRect menuBarRect = NSMakeRect(2, bounds.size.height - menuBarHeight - 2, bounds.size.width - 4, menuBarHeight);
@@ -66,25 +66,6 @@
         NSBezierPath *menuBarBorder = [NSBezierPath bezierPathWithRect:menuBarRect];
         [menuBarBorder setLineWidth:1.0];
         [menuBarBorder stroke];
-        
-        // Apple menu symbol (simplified representation) - scale with menu bar
-        NSString *menuSymbol = @"≡"; // Use a simple symbol that should work
-        float fontSize = MIN(12, menuBarHeight * 0.8);
-        NSDictionary *menuAttrs = @{
-            NSFontAttributeName: [NSFont systemFontOfSize:fontSize],
-            NSForegroundColorAttributeName: [NSColor blackColor]
-        };
-        [menuSymbol drawAtPoint:NSMakePoint(4, bounds.size.height - menuBarHeight) withAttributes:menuAttrs];
-        
-        // Add some "menu items" representation - only if there's space
-        if (bounds.size.width > 80) {
-            int itemCount = MIN(3, (int)((bounds.size.width - 40) / 25));
-            for (int i = 0; i < itemCount; i++) {
-                NSRect menuItem = NSMakeRect(20 + i * 25, bounds.size.height - menuBarHeight + 2, 20, menuBarHeight - 4);
-                [[NSColor colorWithCalibratedWhite:0.8 alpha:0.6] setFill];
-                [NSBezierPath fillRect:menuItem];
-            }
-        }
     }
 }
 
@@ -194,6 +175,60 @@
     }
     
     [parentView setNeedsDisplay:YES];
+}
+
+- (void)rightMouseDown:(NSEvent *)theEvent
+{
+    // Create and show context menu for the display
+    NSMenu *contextMenu = [[NSMenu alloc] initWithTitle:@"Display Options"];
+    
+    // Add "Use as Main Display" option (matches macOS terminology)
+    NSMenuItem *makePrimaryItem = [[NSMenuItem alloc] initWithTitle:@"Use as Main Display" 
+                                                             action:@selector(makePrimary:) 
+                                                      keyEquivalent:@""];
+    [makePrimaryItem setTarget:self];
+    [makePrimaryItem setRepresentedObject:displayInfo];
+    
+    // Disable the option if this display is already primary
+    if (displayInfo && [displayInfo isPrimary]) {
+        [makePrimaryItem setEnabled:NO];
+        [makePrimaryItem setTitle:@"Main Display"]; // Show current status
+    }
+    
+    [contextMenu addItem:makePrimaryItem];
+    [makePrimaryItem release];
+    
+    // Show the context menu
+    [NSMenu popUpContextMenu:contextMenu withEvent:theEvent forView:self];
+    [contextMenu release];
+}
+
+- (void)makePrimary:(id)sender
+{
+    NSMenuItem *item = (NSMenuItem *)sender;
+    DisplayInfo *targetDisplay = [item representedObject];
+    
+    if (!targetDisplay) return;
+    
+    NSLog(@"DisplayRectView: Making display %@ primary via context menu", [targetDisplay name]);
+    
+    // Find the parent view and controller
+    NSView *parentView = [self superview];
+    if (parentView && [parentView isKindOfClass:[DisplayView class]]) {
+        DisplayView *displayView = (DisplayView *)parentView;
+        DisplayController *controller = [displayView controller];
+        
+        if (controller && [controller respondsToSelector:@selector(setPrimaryDisplay:)]) {
+            [controller setPrimaryDisplay:targetDisplay];
+            
+            // Update the visual state of all display rectangles
+            NSArray *allRectViews = [displayView displayRects];
+            for (DisplayRectView *rectView in allRectViews) {
+                [rectView setShowsMenuBar:([rectView displayInfo] == targetDisplay)];
+                [rectView setNeedsDisplay:YES];
+            }
+        }
+    }
 }
 
 @end
