@@ -5,15 +5,14 @@ This preference pane allows users to select which system to boot from. It only w
 ## Features
 
 - Lists all available EFI boot entries using `efibootmgr`
-- Allows selection of the startup disk
-- Provides a restart button to immediately boot from the selected disk
-- Refreshes boot entries automatically every 5 seconds
+- Allows changing the boot order with drag and drop
+- Provides a restart button to immediately boot from the selected disk (also without changing the boot order permanently)
 
 ## Dependencies
 
 - efibootmgr (available in FreeBSD)
 - PreferencePanes framework
-- Root privileges required for setting boot entries and restarting
+- Working `SUDO_ASKPASS` setup
 
 ## Building
 
@@ -28,14 +27,7 @@ gmake
 gmake install
 ```
 
-This will install the preference pane to /System/Library/Bundles/StartupDisk.prefPane
-
-## Usage
-
-The preference pane uses `efibootmgr` to:
-- List boot entries with `efibootmgr -v`
-- Set next boot entry with `efibootmgr -n -b <bootnum>`
-- Restart the system with `shutdown -r now`
+This will install the preference pane to `/System/Library/Bundles/StartupDisk.prefPane`
 
 ## Privileges
 
