@@ -10,6 +10,14 @@
         bootEntries = [[NSMutableArray alloc] init];
         bootButtons = [[NSMutableArray alloc] init];
         selectedBootEntry = -1;
+        
+        // Initialize helper process variables
+        helperTask = nil;
+        helperInput = nil;
+        helperOutput = nil;
+        helperInputHandle = nil;
+        helperOutputHandle = nil;
+        
         NSLog(@"StartupDiskController: init completed successfully");
         NSLog(@"StartupDiskController: bootEntries = %@", bootEntries);
         NSLog(@"StartupDiskController: bootButtons = %@", bootButtons);
@@ -112,99 +120,127 @@
     [bootEntries removeAllObjects];
     NSLog(@"StartupDiskController: Cleared bootEntries array");
     
-    // Use efibootmgr to get boot entries
-    NSLog(@"StartupDiskController: Creating NSTask for efibootmgr");
-    NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:@"/usr/local/bin/sudo"];
-    [task setArguments:[NSArray arrayWithObjects:@"-A", @"/usr/sbin/efibootmgr", @"-v", nil]];
-    NSLog(@"StartupDiskController: Task launch path = %@", [task launchPath]);
-    NSLog(@"StartupDiskController: Task arguments = %@", [task arguments]);
+    // Run efibootmgr in a background thread to avoid blocking the UI
+    [NSThread detachNewThreadSelector:@selector(fetchBootEntriesInBackground) 
+                             toTarget:self 
+                           withObject:nil];
+}
+
+- (void)fetchBootEntriesInBackground
+{
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
     
-    NSPipe *pipe = [NSPipe pipe];
-    NSPipe *errorPipe = [NSPipe pipe];
-    [task setStandardOutput:pipe];
-    [task setStandardError:errorPipe];
+    // Start the helper process if not already running
+    if (![self startHelperProcess]) {
+        NSLog(@"StartupDiskController: Failed to start helper process");
+        [self performSelectorOnMainThread:@selector(handleBootEntriesResult:) 
+                               withObject:[NSDictionary dictionaryWithObjectsAndKeys:
+                                          [NSNumber numberWithBool:NO], @"success",
+                                          @"", @"output", 
+                                          @"Failed to start helper process", @"error",
+                                          nil]
+                            waitUntilDone:NO];
+        [pool release];
+        return;
+    }
     
-    NSFileHandle *file = [pipe fileHandleForReading];
-    NSFileHandle *errorFile = [errorPipe fileHandleForReading];
+    NSLog(@"StartupDiskController: Sending list command to helper");
+    NSString *response = nil;
+    NSString *error = nil;
+    BOOL success = [self sendHelperCommand:@"list" withResponse:&response withError:&error];
     
-    @try {
-        NSLog(@"StartupDiskController: Launching efibootmgr task");
-        [task launch];
-        NSLog(@"StartupDiskController: Task launched, waiting for completion");
-        [task waitUntilExit];
-        NSLog(@"StartupDiskController: Task completed with status = %d", [task terminationStatus]);
+    // Update UI on main thread
+    [self performSelectorOnMainThread:@selector(handleBootEntriesResult:) 
+                           withObject:[NSDictionary dictionaryWithObjectsAndKeys:
+                                      [NSNumber numberWithBool:success], @"success",
+                                      response ? response : @"", @"output", 
+                                      error ? error : @"", @"error",
+                                      nil]
+                        waitUntilDone:NO];
+    
+    [pool release];
+}
+- (void)handleBootEntriesResult:(NSDictionary *)resultDict
+{
+    BOOL success = [[resultDict objectForKey:@"success"] boolValue];
+    NSString *output = [resultDict objectForKey:@"output"];
+    NSString *errorOutput = [resultDict objectForKey:@"error"];
+    if (!success) {
+        NSLog(@"StartupDiskController: efibootmgr failed: %@", errorOutput);
         
-        NSData *data = [file readDataToEndOfFile];
-        NSData *errorData = [errorFile readDataToEndOfFile];
-        NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-        NSString *errorOutput = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+        // Show error panel instead of creating fake entries
+        NSString *errorMessage;
+        if ([errorOutput containsString:@"must be run as root"] || [errorOutput containsString:@"Permission denied"]) {
+            errorMessage = @"Administrator privileges required to access boot entries";
+        } else if ([errorOutput containsString:@"No such file or directory"]) {
+            errorMessage = @"EFI boot manager not available on this system";
+        } else if ([errorOutput containsString:@"No BootOrder"]) {
+            errorMessage = @"No EFI boot entries found";
+        } else {
+            errorMessage = [NSString stringWithFormat:@"Boot manager error"];
+        }
         
+        // Show error panel
+        [self showBootErrorAlert:[NSDictionary dictionaryWithObjectsAndKeys:
+                                  @"Startup Disk Error", @"title",
+                                  [NSString stringWithFormat:@"%@\n\nDetailed error: %@", errorMessage, errorOutput], @"message",
+                                  nil]];
+        
+        [self updateBootEntriesDisplay];
+        return;
+    } else {
+        NSLog(@"StartupDiskController: efibootmgr succeeded, parsing output");
         NSLog(@"StartupDiskController: efibootmgr output length = %lu", (unsigned long)[output length]);
-        NSLog(@"StartupDiskController: efibootmgr error output length = %lu", (unsigned long)[errorOutput length]);
         
         if ([output length] > 0) {
             NSLog(@"StartupDiskController: efibootmgr stdout: %@", output);
         }
-        if ([errorOutput length] > 0) {
-            NSLog(@"StartupDiskController: efibootmgr stderr: %@", errorOutput);
-        }
         
-        if ([task terminationStatus] != 0) {
-            NSLog(@"StartupDiskController: efibootmgr failed with status %d: %@", [task terminationStatus], errorOutput);
+        // Parse efibootmgr output
+        NSArray *lines = [output componentsSeparatedByString:@"\n"];
+        NSLog(@"StartupDiskController: Split output into %lu lines", (unsigned long)[lines count]);
+        
+        int lineIndex = 0;
+        for (NSString *line in lines) {
+            NSLog(@"StartupDiskController: Processing line %d: %@", lineIndex++, line);
             
-            // Create a user-friendly error entry and show alert
-            NSString *errorMessage;
-            if ([errorOutput containsString:@"must be run as root"] || [errorOutput containsString:@"Permission denied"]) {
-                errorMessage = @"Administrator privileges required to access boot entries";
-            } else if ([errorOutput containsString:@"No such file or directory"]) {
-                errorMessage = @"EFI boot manager not available on this system";
-            } else if ([task terminationStatus] == 1) {
-                errorMessage = @"No EFI boot entries found";
-            } else {
-                errorMessage = [NSString stringWithFormat:@"Boot manager error (exit code %d)", [task terminationStatus]];
-            }
+            // Look for lines containing "Boot" followed by 4 digits and an asterisk
+            // This handles formats like "+Boot0000*" and " Boot2001*"
+            NSString *trimmedLine = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            NSRange bootRange = [trimmedLine rangeOfString:@"Boot"];
             
-            NSDictionary *errorEntry = [NSDictionary dictionaryWithObjectsAndKeys:
-                                      @"0000", @"bootnum",
-                                      errorMessage, @"description",
-                                      [NSNumber numberWithBool:NO], @"active",
-                                      nil];
-            [bootEntries addObject:errorEntry];
-            NSLog(@"StartupDiskController: Added error entry to bootEntries");
-            
-            // Show error alert on main thread using performSelectorOnMainThread
-            [self performSelectorOnMainThread:@selector(showBootErrorAlert:) 
-                                   withObject:[NSDictionary dictionaryWithObjectsAndKeys:
-                                              @"Startup Disk Error", @"title",
-                                              [NSString stringWithFormat:@"%@\n\nDetailed error: %@", errorMessage, errorOutput], @"message",
-                                              nil]
-                                waitUntilDone:NO];
-        } else {
-            NSLog(@"StartupDiskController: efibootmgr succeeded, parsing output");
-            // Parse efibootmgr output
-            NSArray *lines = [output componentsSeparatedByString:@"\n"];
-            NSLog(@"StartupDiskController: Split output into %lu lines", (unsigned long)[lines count]);
-            
-            int lineIndex = 0;
-            for (NSString *line in lines) {
-                NSLog(@"StartupDiskController: Processing line %d: %@", lineIndex++, line);
-                if ([line hasPrefix:@"Boot"] && [line containsString:@"*"]) {
-                    NSLog(@"StartupDiskController: Found boot entry line: %@", line);
-                    // Parse boot entry line format: Boot0001* FreeBSD HD(1,GPT,...)
-                    NSRange asteriskRange = [line rangeOfString:@"*"];
-                    if (asteriskRange.location != NSNotFound) {
-                        NSString *bootNum = [line substringWithRange:NSMakeRange(4, 4)]; // Extract boot number
-                        NSString *description = [[line substringFromIndex:asteriskRange.location + 1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-                        
-                        NSLog(@"StartupDiskController: Extracted bootNum = %@, raw description = %@", bootNum, description);
-                        
-                        // Clean up description to remove device path info
-                        NSRange hdRange = [description rangeOfString:@" HD("];
-                        if (hdRange.location != NSNotFound) {
-                            description = [description substringToIndex:hdRange.location];
-                        }
-                        
+            if (bootRange.location != NSNotFound && [trimmedLine containsString:@"*"]) {
+                NSLog(@"StartupDiskController: Found boot entry line: %@", line);
+                
+                // Find the position of "Boot" in the trimmed line
+                NSString *bootPart = [trimmedLine substringFromIndex:bootRange.location];
+                NSRange asteriskRange = [bootPart rangeOfString:@"*"];
+                
+                if (asteriskRange.location != NSNotFound && asteriskRange.location >= 8) { // "Boot" + 4 digits = 8 chars minimum
+                    // Extract boot number (4 digits after "Boot")
+                    NSString *bootNum = [bootPart substringWithRange:NSMakeRange(4, 4)];
+                    NSString *description = [[bootPart substringFromIndex:asteriskRange.location + 1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    
+                    NSLog(@"StartupDiskController: Extracted bootNum = %@, raw description = %@", bootNum, description);
+                    
+                    // Clean up description to remove device path info
+                    NSRange hdRange = [description rangeOfString:@" HD("];
+                    if (hdRange.location != NSNotFound) {
+                        description = [description substringToIndex:hdRange.location];
+                    }
+                    NSRange pciRange = [description rangeOfString:@" PciRoot("];
+                    if (pciRange.location != NSNotFound) {
+                        description = [description substringToIndex:pciRange.location];
+                    }
+                    
+                    // Further clean up common patterns
+                    if ([description hasPrefix:@"EFI "]) {
+                        description = [description substringFromIndex:4]; // Remove "EFI " prefix
+                    }
+                    description = [description stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    
+                    // Skip empty descriptions
+                    if ([description length] > 0) {
                         NSLog(@"StartupDiskController: Cleaned description = %@", description);
                         
                         NSDictionary *entry = [NSDictionary dictionaryWithObjectsAndKeys:
@@ -214,48 +250,14 @@
                                              nil];
                         [bootEntries addObject:entry];
                         NSLog(@"StartupDiskController: Added boot entry: %@", entry);
+                    } else {
+                        NSLog(@"StartupDiskController: Skipping entry with empty description");
                     }
                 }
             }
         }
-        
-        [output release];
-        [errorOutput release];
-    }
-    @catch (NSException *exception) {
-        NSLog(@"StartupDiskController: Exception running efibootmgr: %@", exception);
-        NSLog(@"StartupDiskController: Exception reason: %@", [exception reason]);
-        NSLog(@"StartupDiskController: Exception userInfo: %@", [exception userInfo]);
-        
-        // Determine error type and create user-friendly message
-        NSString *errorMessage;
-        NSString *reason = [exception reason];
-        if ([reason containsString:@"invalid launch path"]) {
-            errorMessage = @"System tools not found. Please check your installation.";
-        } else if ([reason containsString:@"Operation not permitted"]) {
-            errorMessage = @"Permission denied. Administrator privileges required.";
-        } else {
-            errorMessage = [NSString stringWithFormat:@"System error: %@", reason];
-        }
-        
-        // Add an error entry
-        NSDictionary *errorEntry = [NSDictionary dictionaryWithObjectsAndKeys:
-                                  @"0000", @"bootnum",
-                                  errorMessage, @"description",
-                                  [NSNumber numberWithBool:NO], @"active",
-                                  nil];
-        [bootEntries addObject:errorEntry];
-        
-        // Show error alert on main thread using performSelectorOnMainThread
-        [self performSelectorOnMainThread:@selector(showSystemErrorAlert:) 
-                               withObject:[NSDictionary dictionaryWithObjectsAndKeys:
-                                          @"Startup Disk System Error", @"title",
-                                          [NSString stringWithFormat:@"%@\n\nTechnical details: %@", errorMessage, reason], @"message",
-                                          nil]
-                            waitUntilDone:NO];
     }
     
-    [task release];
     NSLog(@"StartupDiskController: bootEntries now contains %lu entries", (unsigned long)[bootEntries count]);
     for (int i = 0; i < [bootEntries count]; i++) {
         NSLog(@"StartupDiskController: bootEntries[%d] = %@", i, [bootEntries objectAtIndex:i]);
@@ -418,11 +420,11 @@
         NSString *description = [entry objectForKey:@"description"];
         BOOL isActive = [[entry objectForKey:@"active"] boolValue];
         
-        // Check if this is an error entry
-        if (!isActive || [bootnum isEqualToString:@"0000"]) {
+        // Check if this is an error entry - this should not happen anymore
+        if (!isActive) {
             NSAlert *alert = [[NSAlert alloc] init];
             [alert setMessageText:@"Invalid Boot Entry"];
-            [alert setInformativeText:@"The selected entry is an error message, not a valid boot option.\n\nPlease resolve any system issues and try again, or select a different boot entry."];
+            [alert setInformativeText:@"The selected entry is not a valid boot option.\n\nPlease select a different boot entry."];
             [alert addButtonWithTitle:@"OK"];
             [alert setAlertStyle:NSWarningAlertStyle];
             [alert runModal];
@@ -441,67 +443,39 @@
         [alert release];
         
         if (result == NSAlertFirstButtonReturn) {
-            // Set the next boot entry and restart
-            NSTask *task = [[NSTask alloc] init];
-            [task setLaunchPath:@"/usr/local/bin/sudo"];
-            [task setArguments:[NSArray arrayWithObjects:@"-A", @"/usr/sbin/efibootmgr", @"-n", @"-b", bootnum, nil]];
+            // Set the next boot entry using the helper process
+            NSString *command = [NSString stringWithFormat:@"set_next_boot %@", bootnum];
+            NSString *response = nil;
+            NSString *errorOutput = nil;
             
-            @try {
-                [task launch];
-                [task waitUntilExit];
+            BOOL setBootSuccess = [self sendHelperCommand:command withResponse:&response withError:&errorOutput];
+            
+            if (setBootSuccess) {
+                // Now restart the system
+                NSString *restartResponse = nil;
+                NSString *restartError = nil;
                 
-                if ([task terminationStatus] == 0) {
-                    // Now restart the system
-                    NSTask *restartTask = [[NSTask alloc] init];
-                    [restartTask setLaunchPath:@"/usr/local/bin/sudo"];
-                    [restartTask setArguments:[NSArray arrayWithObjects:@"-A", @"/sbin/shutdown", @"-r", @"now", nil]];
-                    
-                    @try {
-                        [restartTask launch];
-                        [restartTask release];
-                    }
-                    @catch (NSException *restartException) {
-                        NSLog(@"Error restarting system: %@", restartException);
-                        NSAlert *errorAlert = [[NSAlert alloc] init];
-                        [errorAlert setMessageText:@"Restart Failed"];
-                        [errorAlert setInformativeText:[NSString stringWithFormat:@"Boot entry was set successfully, but failed to restart the system.\n\nError: %@\n\nPlease restart manually.", [restartException reason]]];
-                        [errorAlert addButtonWithTitle:@"OK"];
-                        [errorAlert setAlertStyle:NSWarningAlertStyle];
-                        [errorAlert runModal];
-                        [errorAlert release];
-                        [restartTask release];
-                    }
-                } else {
-                    // Get error output from the failed efibootmgr command
-                    NSPipe *errorPipe = [NSPipe pipe];
-                    [task setStandardError:errorPipe];
-                    NSData *errorData = [[errorPipe fileHandleForReading] readDataToEndOfFile];
-                    NSString *errorOutput = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
-                    
+                BOOL restartSuccess = [self sendHelperCommand:@"restart" withResponse:&restartResponse withError:&restartError];
+                
+                if (!restartSuccess) {
+                    NSLog(@"Error restarting system: %@", restartError);
                     NSAlert *errorAlert = [[NSAlert alloc] init];
-                    [errorAlert setMessageText:@"Failed to Set Startup Disk"];
-                    [errorAlert setInformativeText:[NSString stringWithFormat:@"Could not set the next boot entry.\n\nError details: %@\n\nExit code: %d", errorOutput ? errorOutput : @"Unknown error", [task terminationStatus]]];
+                    [errorAlert setMessageText:@"Restart Failed"];
+                    [errorAlert setInformativeText:[NSString stringWithFormat:@"Boot entry was set successfully, but failed to restart the system.\n\nError: %@\n\nPlease restart manually.", restartError ? restartError : @"Unknown error"]];
                     [errorAlert addButtonWithTitle:@"OK"];
-                    [errorAlert setAlertStyle:NSCriticalAlertStyle];
+                    [errorAlert setAlertStyle:NSWarningAlertStyle];
                     [errorAlert runModal];
                     [errorAlert release];
-                    
-                    [errorOutput release];
                 }
-            }
-            @catch (NSException *exception) {
-                NSLog(@"Error setting boot entry: %@", exception);
-                
+            } else {
                 NSAlert *errorAlert = [[NSAlert alloc] init];
-                [errorAlert setMessageText:@"System Error"];
-                [errorAlert setInformativeText:[NSString stringWithFormat:@"Failed to execute boot manager command.\n\nError: %@\n\nPlease ensure you have administrator privileges and try again.", [exception reason]]];
+                [errorAlert setMessageText:@"Failed to Set Startup Disk"];
+                [errorAlert setInformativeText:[NSString stringWithFormat:@"Could not set the next boot entry.\n\nError details: %@", errorOutput ? errorOutput : @"Unknown error"]];
                 [errorAlert addButtonWithTitle:@"OK"];
                 [errorAlert setAlertStyle:NSCriticalAlertStyle];
                 [errorAlert runModal];
                 [errorAlert release];
             }
-            
-            [task release];
         }
     } else {
         NSAlert *alert = [[NSAlert alloc] init];
@@ -514,8 +488,246 @@
     }
 }
 
+- (BOOL)startHelperProcess
+{
+    if (helperTask && [helperTask isRunning]) {
+        NSLog(@"StartupDiskController: Helper process already running");
+        return YES;
+    }
+    
+    NSLog(@"StartupDiskController: Starting helper process with sudo");
+    
+    helperTask = [[NSTask alloc] init];
+    [helperTask setLaunchPath:@"/usr/local/bin/sudo"];
+    [helperTask setArguments:[NSArray arrayWithObjects:@"-A", @"/usr/local/libexec/efiboot-helper", nil]];
+    
+    // Set up pipes
+    helperInput = [NSPipe pipe];
+    helperOutput = [NSPipe pipe];
+    
+    [helperTask setStandardInput:helperInput];
+    [helperTask setStandardOutput:helperOutput];
+    [helperTask setStandardError:helperOutput]; // Combine stderr with stdout
+    
+    helperInputHandle = [helperInput fileHandleForWriting];
+    helperOutputHandle = [helperOutput fileHandleForReading];
+    
+    // Set environment
+    NSMutableDictionary *environment = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [helperTask setEnvironment:environment];
+    [environment release];
+    
+    @try {
+        [helperTask launch];
+        
+        // Wait for the "READY" message
+        NSData *readyData = [helperOutputHandle availableData];
+        NSString *readyMessage = [[NSString alloc] initWithData:readyData encoding:NSUTF8StringEncoding];
+        
+        // Give it a moment to start up properly
+        sleep(1);
+        
+        // Try reading the ready message again if we didn't get it
+        if (![readyMessage containsString:@"READY"]) {
+            readyData = [helperOutputHandle availableData];
+            [readyMessage release];
+            readyMessage = [[NSString alloc] initWithData:readyData encoding:NSUTF8StringEncoding];
+        }
+        
+        NSLog(@"StartupDiskController: Helper process started, ready message: %@", readyMessage);
+        [readyMessage release];
+        
+        return YES;
+    }
+    @catch (NSException *exception) {
+        NSLog(@"StartupDiskController: Failed to start helper process: %@", exception);
+        [self stopHelperProcess];
+        return NO;
+    }
+}
+
+- (void)stopHelperProcess
+{
+    if (helperInputHandle) {
+        @try {
+            NSString *quitCommand = @"quit\n";
+            NSData *quitData = [quitCommand dataUsingEncoding:NSUTF8StringEncoding];
+            [helperInputHandle writeData:quitData];
+        }
+        @catch (NSException *exception) {
+            NSLog(@"StartupDiskController: Exception sending quit command: %@", exception);
+        }
+    }
+    
+    if (helperTask && [helperTask isRunning]) {
+        [helperTask terminate];
+        [helperTask waitUntilExit];
+    }
+    
+    [helperTask release];
+    helperTask = nil;
+    helperInput = nil;
+    helperOutput = nil;
+    helperInputHandle = nil;
+    helperOutputHandle = nil;
+}
+
+- (BOOL)sendHelperCommand:(NSString *)command withResponse:(NSString **)response withError:(NSString **)error
+{
+    if (!helperTask || ![helperTask isRunning]) {
+        if (error) {
+            *error = @"Helper process not running";
+        }
+        return NO;
+    }
+    
+    NSLog(@"StartupDiskController: Sending command to helper: %@", command);
+    
+    @try {
+        // Send command
+        NSString *commandWithNewline = [command stringByAppendingString:@"\n"];
+        NSData *commandData = [commandWithNewline dataUsingEncoding:NSUTF8StringEncoding];
+        [helperInputHandle writeData:commandData];
+        
+        // Read response
+        NSMutableString *responseBuffer = [NSMutableString string];
+        NSMutableString *errorBuffer = [NSMutableString string];
+        BOOL inOutput = NO;
+        BOOL inError = NO;
+        BOOL commandComplete = NO;
+        int result = -1;
+        
+        // Set a timeout
+        NSDate *timeout = [NSDate dateWithTimeIntervalSinceNow:30.0];
+        
+        while ([[NSDate date] compare:timeout] == NSOrderedAscending && !commandComplete) {
+            NSData *data = [helperOutputHandle availableData];
+            if ([data length] > 0) {
+                NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                NSArray *lines = [output componentsSeparatedByString:@"\n"];
+                
+                for (NSString *line in lines) {
+                    if ([line hasPrefix:@"RESULT:"]) {
+                        result = [[line substringFromIndex:7] intValue];
+                    } else if ([line isEqualToString:@"OUTPUT_START"]) {
+                        inOutput = YES;
+                        inError = NO;
+                    } else if ([line isEqualToString:@"OUTPUT_END"]) {
+                        inOutput = NO;
+                    } else if ([line isEqualToString:@"ERROR_START"]) {
+                        inError = YES;
+                        inOutput = NO;
+                    } else if ([line isEqualToString:@"ERROR_END"]) {
+                        inError = NO;
+                    } else if ([line isEqualToString:@"COMMAND_END"]) {
+                        commandComplete = YES;
+                        break;
+                    } else if (inOutput && [line length] > 0) {
+                        [responseBuffer appendString:line];
+                        [responseBuffer appendString:@"\n"];
+                    } else if (inError && [line length] > 0) {
+                        [errorBuffer appendString:line];
+                        [errorBuffer appendString:@"\n"];
+                    }
+                }
+                
+                [output release];
+            } else {
+                // Small delay to prevent busy waiting
+                usleep(50000); // 50ms
+            }
+        }
+        
+        if (response) {
+            *response = [NSString stringWithString:responseBuffer];
+        }
+        if (error) {
+            *error = [NSString stringWithString:errorBuffer];
+        }
+        
+        NSLog(@"StartupDiskController: Command completed with result: %d", result);
+        return (result == 0);
+    }
+    @catch (NSException *exception) {
+        NSLog(@"StartupDiskController: Exception sending command to helper: %@", exception);
+        if (error) {
+            *error = [exception reason];
+        }
+        return NO;
+    }
+}
+
+- (BOOL)runSudoCommand:(NSArray *)arguments withOutput:(NSString **)output withError:(NSString **)error interactive:(BOOL)allowInteractive
+{
+    NSLog(@"StartupDiskController: runSudoCommand called with arguments: %@ (interactive: %@)", arguments, allowInteractive ? @"YES" : @"NO");
+    
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/usr/local/bin/sudo"];  // Use full path for FreeBSD
+    
+    // Build arguments - use -A only for interactive commands, -n for non-interactive
+    NSMutableArray *finalArgs = [NSMutableArray array];
+    if (allowInteractive) {
+        [finalArgs addObject:@"-A"];  // Use askpass for interactive commands
+    } else {
+        [finalArgs addObject:@"-n"];  // Non-interactive mode for cached credentials
+    }
+    [finalArgs addObjectsFromArray:arguments];
+    [task setArguments:finalArgs];
+    
+    // Set environment
+    NSMutableDictionary *environment = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [task setEnvironment:environment];
+    [environment release];
+    
+    NSPipe *pipe = [NSPipe pipe];
+    NSPipe *errorPipe = [NSPipe pipe];
+    [task setStandardOutput:pipe];
+    [task setStandardError:errorPipe];
+    
+    NSFileHandle *file = [pipe fileHandleForReading];
+    NSFileHandle *errorFile = [errorPipe fileHandleForReading];
+    
+    BOOL success = NO;
+    
+    @try {
+        NSLog(@"StartupDiskController: Launching sudo with arguments: %@", finalArgs);
+        [task launch];
+        [task waitUntilExit];
+        
+        NSData *data = [file readDataToEndOfFile];
+        NSData *errorData = [errorFile readDataToEndOfFile];
+        
+        if (output) {
+            *output = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
+        }
+        if (error) {
+            *error = [[[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding] autorelease];
+        }
+        
+        int exitStatus = [task terminationStatus];
+        NSLog(@"StartupDiskController: sudo command completed with exit status: %d", exitStatus);
+        
+        success = (exitStatus == 0);
+        
+        if (!success && error && *error) {
+            NSLog(@"StartupDiskController: sudo command failed with error: %@", *error);
+        }
+    }
+    @catch (NSException *exception) {
+        NSLog(@"StartupDiskController: Exception running sudo command: %@", exception);
+        if (error) {
+            *error = [exception reason];
+        }
+        success = NO;
+    }
+    
+    [task release];
+    return success;
+}
+
 - (void)dealloc
 {
+    [self stopHelperProcess];
     [bootEntries release];
     [bootButtons release];
     [titleLabel release];

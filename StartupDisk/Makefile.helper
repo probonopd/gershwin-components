@@ -1,0 +1,18 @@
+CC = clang19
+CFLAGS = -Wall -Wextra -O2
+TARGET = efiboot-helper
+SOURCE = efiboot-helper.c
+
+all: $(TARGET)
+
+$(TARGET): $(SOURCE)
+	$(CC) $(CFLAGS) -o $(TARGET) $(SOURCE)
+
+clean:
+	rm -f $(TARGET)
+
+install: $(TARGET)
+	sudo -A cp $(TARGET) /usr/local/libexec/
+	sudo -A chmod 755 /usr/local/libexec/$(TARGET)
+
+.PHONY: all clean install
