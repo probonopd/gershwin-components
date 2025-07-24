@@ -8,6 +8,10 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <stdarg.h>
+#include <fcntl.h>
+#include <time.h>
+#include <errno.h>
+#include <string.h>
 
 // Forward declarations
 @class globalshortcutsd;
@@ -15,6 +19,8 @@
 // Global variables
 static BOOL x11_error_occurred = NO;
 static globalshortcutsd *globalInstance = nil;
+static BOOL signal_received = NO;
+static int last_signal = 0;
 
 @interface globalshortcutsd : NSObject
 {
@@ -26,17 +32,19 @@ static globalshortcutsd *globalInstance = nil;
     unsigned int scrolllock_mask;
     BOOL verbose;
     BOOL running;
+    NSString *configPath;
+    time_t lastConfigModTime;
 }
 
 - (id)init;
 - (void)dealloc;
-- (void)loadShortcuts;
-- (void)setupX11;
+- (BOOL)loadShortcuts;
+- (BOOL)setupX11;
 - (void)getOffendingModifiers;
-- (void)grabKeys;
+- (BOOL)grabKeys;
 - (void)ungrabKeys;
 - (void)eventLoop;
-- (void)runCommand:(NSString *)command;
+- (BOOL)runCommand:(NSString *)command;
 - (void)handleSignal:(int)sig;
 - (KeySym)parseKeyString:(NSString *)keyStr;
 - (void)terminate;
@@ -44,11 +52,14 @@ static globalshortcutsd *globalInstance = nil;
 - (void)logWithFormat:(NSString *)format, ...;
 - (BOOL)grabKey:(KeyCode)keycode modifier:(unsigned int)modifier forCombo:(NSString *)combo;
 - (BOOL)matchesEvent:(XKeyEvent *)keyEvent withKeyCombo:(NSString *)keyCombo;
+- (BOOL)isValidKeyCombo:(NSString *)keyCombo;
+- (BOOL)checkConfigFileChanges;
+- (void)validateConfiguration;
 
 @end
 
 // C function for X11 error handling
-static int x11ErrorHandler(Display *dpy, XErrorEvent *error)
+static int x11ErrorHandler(Display *dpy __attribute__((unused)), XErrorEvent *error)
 {
     x11_error_occurred = YES;
     
@@ -72,8 +83,12 @@ static int x11ErrorHandler(Display *dpy, XErrorEvent *error)
 // Signal handler
 static void signalHandler(int sig)
 {
-    if (globalInstance) {
-        [globalInstance handleSignal:sig];
+    signal_received = YES;
+    last_signal = sig;
+    
+    // For immediate termination signals, also call the instance handler
+    if (globalInstance && (sig == SIGTERM || sig == SIGINT || sig == SIGQUIT)) {
+        globalInstance->running = NO;
     }
 }
 
@@ -85,12 +100,20 @@ static void signalHandler(int sig)
     if (self) {
         display = NULL;
         shortcuts = nil;
+        configPath = nil;
+        lastConfigModTime = 0;
         numlock_mask = 0;
         capslock_mask = 0;
         scrolllock_mask = 0;
         verbose = NO;
         running = YES;
         globalInstance = self;
+        
+        // Set up config path
+        NSString *homeDir = NSHomeDirectory();
+        if (homeDir) {
+            configPath = [[homeDir stringByAppendingPathComponent:@".globalshortcutsrc"] retain];
+        }
     }
     return self;
 }
@@ -100,26 +123,96 @@ static void signalHandler(int sig)
     [self ungrabKeys];
     if (display) {
         XCloseDisplay(display);
+        display = NULL;
     }
     [shortcuts release];
+    shortcuts = nil;
+    [configPath release];
+    configPath = nil;
+    
+    if (globalInstance == self) {
+        globalInstance = nil;
+    }
+    
     [super dealloc];
 }
 
-- (void)loadShortcuts
+- (BOOL)loadShortcuts
 {
+    // First try to load from config file
+    if (configPath && [[NSFileManager defaultManager] fileExistsAtPath:configPath]) {
+        NSError *error = nil;
+        NSString *configContent = [NSString stringWithContentsOfFile:configPath 
+                                                             encoding:NSUTF8StringEncoding 
+                                                                error:&error];
+        if (configContent && !error) {
+            // Simple key=value format parser
+            NSMutableDictionary *fileShortcuts = [NSMutableDictionary dictionary];
+            NSArray *lines = [configContent componentsSeparatedByString:@"\n"];
+            
+            for (NSString *line in lines) {
+                NSString *trimmedLine = [line stringByTrimmingCharactersInSet:
+                    [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                
+                // Skip empty lines and comments
+                if ([trimmedLine length] == 0 || [trimmedLine hasPrefix:@"#"]) {
+                    continue;
+                }
+                
+                NSRange equalRange = [trimmedLine rangeOfString:@"="];
+                if (equalRange.location != NSNotFound) {
+                    NSString *key = [[trimmedLine substringToIndex:equalRange.location]
+                        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    NSString *value = [[trimmedLine substringFromIndex:equalRange.location + 1]
+                        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    
+                    if ([key length] > 0 && [value length] > 0) {
+                        [fileShortcuts setObject:value forKey:key];
+                    }
+                }
+            }
+            
+            if ([fileShortcuts count] > 0) {
+                [shortcuts release];
+                shortcuts = [fileShortcuts retain];
+                
+                // Update modification time
+                struct stat statbuf;
+                if (stat([configPath UTF8String], &statbuf) == 0) {
+                    lastConfigModTime = statbuf.st_mtime;
+                }
+                
+                [self logWithFormat:@"Loaded %lu shortcuts from config file: %@", 
+                    (unsigned long)[shortcuts count], configPath];
+                [self validateConfiguration];
+                return YES;
+            }
+        } else {
+            [self logWithFormat:@"Warning: could not read config file %@: %@", 
+                configPath, error ? [error localizedDescription] : @"unknown error"];
+        }
+    }
+    
+    // Fall back to NSUserDefaults
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSDictionary *config = [defaults dictionaryForKey:@"GlobalShortcuts"];
+    NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
+    NSDictionary *config = [globalDomain objectForKey:@"GlobalShortcuts"];
     
     if (!config) {
-        [self logWithFormat:@"No GlobalShortcuts configuration found in defaults"];
-        [self logWithFormat:@"Use: defaults write NSGlobalDomain GlobalShortcuts '{\"ctrl+shift+t\" = \"xterm\";}'"];
-        return;
+        [self logWithFormat:@"No GlobalShortcuts configuration found"];
+        [self logWithFormat:@"Create config file: %@ with format: key=command", 
+            configPath ? configPath : @"~/.globalshortcutsrc"];
+        [self logWithFormat:@"Example: ctrl+shift+t=xterm"];
+        [self logWithFormat:@"Or use: defaults write NSGlobalDomain GlobalShortcuts '{\"ctrl+shift+t\" = \"xterm\";}'"];
+        return NO;
     }
     
     [shortcuts release];
     shortcuts = [config retain];
     
-    [self logWithFormat:@"Loaded %lu shortcuts", (unsigned long)[shortcuts count]];
+    [self logWithFormat:@"Loaded %lu shortcuts from defaults", (unsigned long)[shortcuts count]];
+    [self validateConfiguration];
+    
     if (verbose) {
         NSEnumerator *enumerator = [shortcuts keyEnumerator];
         NSString *key;
@@ -127,24 +220,61 @@ static void signalHandler(int sig)
             [self logWithFormat:@"  %@ -> %@", key, [shortcuts objectForKey:key]];
         }
     }
+    
+    return YES;
 }
 
-- (void)setupX11
+- (BOOL)setupX11
 {
+    if (display) {
+        XCloseDisplay(display);
+        display = NULL;
+    }
+    
     display = XOpenDisplay(NULL);
     if (!display) {
-        [self logWithFormat:@"Could not open X11 display"];
-        exit(1);
+        [self logWithFormat:@"Error: Could not open X11 display. Make sure X11 is running."];
+        return NO;
+    }
+    
+    // Test X11 connection
+    if (XConnectionNumber(display) < 0) {
+        [self logWithFormat:@"Error: Invalid X11 connection"];
+        XCloseDisplay(display);
+        display = NULL;
+        return NO;
     }
     
     XAllowEvents(display, AsyncBoth, CurrentTime);
     
-    for (int screen = 0; screen < ScreenCount(display); screen++) {
-        XSelectInput(display, RootWindow(display, screen),
-                    KeyPressMask | KeyReleaseMask);
+    // Set up error handler before any X11 operations
+    XSetErrorHandler(x11ErrorHandler);
+    
+    int screen_count = ScreenCount(display);
+    if (screen_count <= 0) {
+        [self logWithFormat:@"Error: No X11 screens available"];
+        XCloseDisplay(display);
+        display = NULL;
+        return NO;
+    }
+    
+    for (int screen = 0; screen < screen_count; screen++) {
+        Window root = RootWindow(display, screen);
+        if (root == None) {
+            [self logWithFormat:@"Warning: Could not get root window for screen %d", screen];
+            continue;
+        }
+        
+        XSelectInput(display, root, KeyPressMask | KeyReleaseMask);
     }
     
     [self getOffendingModifiers];
+    
+    if (verbose) {
+        [self logWithFormat:@"X11 setup complete. Screens: %d", screen_count];
+    }
+    
+    return YES;
 }
 
 - (void)getOffendingModifiers
@@ -176,14 +306,24 @@ static void signalHandler(int sig)
         XFreeModifiermap(modmap);
 }
 
-- (void)grabKeys
+- (BOOL)grabKeys
 {
-    if (!shortcuts || !display) return;
+    if (!shortcuts || !display) {
+        [self logWithFormat:@"Error: Cannot grab keys - missing shortcuts or display"];
+        return NO;
+    }
     
     NSEnumerator *enumerator = [shortcuts keyEnumerator];
     NSString *keyCombo;
+    int successful_grabs = 0;
+    int total_shortcuts = [shortcuts count];
     
     while ((keyCombo = [enumerator nextObject])) {
+        if (![self isValidKeyCombo:keyCombo]) {
+            [self logWithFormat:@"Warning: Invalid key combination format: %@", keyCombo];
+            continue;
+        }
+        
         // Parse key combination like "ctrl+shift+t" or "ctrl+shift+code:28"
         NSArray *parts = [keyCombo componentsSeparatedByString:@"+"];
         if ([parts count] < 1) continue;
@@ -191,7 +331,7 @@ static void signalHandler(int sig)
         unsigned int modifier = 0;
         NSString *keyString = nil;
         
-        for (int i = 0; i < [parts count]; i++) {
+        for (NSUInteger i = 0; i < [parts count]; i++) {
             NSString *part = [[parts objectAtIndex:i] lowercaseString];
             if ([part isEqualToString:@"ctrl"] || [part isEqualToString:@"control"]) {
                 modifier |= ControlMask;
@@ -213,18 +353,23 @@ static void signalHandler(int sig)
             }
         }
         
-        if (!keyString) continue;
+        if (!keyString) {
+            [self logWithFormat:@"Warning: No key specified in combination: %@", keyCombo];
+            continue;
+        }
         
         KeyCode keycode = 0;
         
         // Check if it's a raw keycode (format: "code:28")
         if ([keyString hasPrefix:@"code:"]) {
             NSString *codeStr = [keyString substringFromIndex:5];
-            keycode = [codeStr intValue];
-            if (keycode == 0) {
-                [self logWithFormat:@"Warning: invalid keycode '%@' in combination '%@'", keyString, keyCombo];
+            int code = [codeStr intValue];
+            if (code <= 0 || code > 255) {
+                [self logWithFormat:@"Warning: invalid keycode '%@' in combination '%@' (must be 1-255)", 
+                    keyString, keyCombo];
                 continue;
             }
+            keycode = code;
         } else {
             // Parse as keysym
             KeySym keysym = [self parseKeyString:keyString];
@@ -235,7 +380,7 @@ static void signalHandler(int sig)
             
             keycode = XKeysymToKeycode(display, keysym);
             if (keycode == 0) {
-                [self logWithFormat:@"Warning: no keycode for key '%@'", keyString];
+                [self logWithFormat:@"Warning: no keycode mapping for key '%@'", keyString];
                 continue;
             }
         }
@@ -243,11 +388,17 @@ static void signalHandler(int sig)
         // Grab the key with all possible lock combinations
         BOOL success = [self grabKey:keycode modifier:modifier forCombo:keyCombo];
         
-        if (success && verbose) {
-            [self logWithFormat:@"Grabbed key combination: %@ (keycode=%d, modifier=0x%x)", 
-                  keyCombo, keycode, modifier];
+        if (success) {
+            successful_grabs++;
+            if (verbose) {
+                [self logWithFormat:@"Grabbed key combination: %@ (keycode=%d, modifier=0x%x)", 
+                      keyCombo, keycode, modifier];
+            }
         }
     }
+    
+    [self logWithFormat:@"Successfully grabbed %d of %d shortcuts", successful_grabs, total_shortcuts];
+    return successful_grabs > 0;
 }
 
 - (BOOL)grabKey:(KeyCode)keycode modifier:(unsigned int)modifier forCombo:(NSString *)combo
@@ -318,6 +469,10 @@ static void signalHandler(int sig)
 {
     if (display) {
         XUngrabKey(display, AnyKey, AnyModifier, DefaultRootWindow(display));
+        XSync(display, False);
+        if (verbose) {
+            [self logWithFormat:@"Ungrabbed all keys"];
+        }
     }
 }
 
@@ -395,6 +550,8 @@ static void signalHandler(int sig)
 - (void)eventLoop
 {
     XEvent event;
+    int consecutive_errors = 0;
+    const int MAX_CONSECUTIVE_ERRORS = 10;
     
     // Set up signal handlers for graceful shutdown
     signal(SIGTERM, signalHandler);
@@ -402,13 +559,55 @@ static void signalHandler(int sig)
     signal(SIGQUIT, signalHandler); // Ctrl+D equivalent
     signal(SIGHUP, signalHandler);
     signal(SIGCHLD, SIG_IGN); // Ignore child signals
+    signal(SIGPIPE, SIG_IGN); // Ignore pipe signals
     
     [self logWithFormat:@"Starting event loop..."];
     
     while (running) {
+        // Handle signals
+        if (signal_received) {
+            [self handleSignal:last_signal];
+            signal_received = NO;
+            last_signal = 0;
+        }
+        
+        // Check for config file changes every 1000 iterations (~10 seconds)
+        static int config_check_counter = 0;
+        if (++config_check_counter >= 1000) {
+            [self checkConfigFileChanges];
+            config_check_counter = 0;
+        }
+        
+        // Check X11 connection
+        if (!display || XConnectionNumber(display) < 0) {
+            [self logWithFormat:@"Error: Lost X11 connection, attempting to reconnect..."];
+            if (![self setupX11]) {
+                [self logWithFormat:@"Error: Failed to reconnect to X11, exiting"];
+                running = NO;
+                break;
+            }
+            [self grabKeys];
+        }
+        
         // Use XPending to check for events without blocking
         while (XPending(display) && running) {
-            XNextEvent(display, &event);
+            int result = XNextEvent(display, &event);
+            if (result != 0) {
+                consecutive_errors++;
+                [self logWithFormat:@"Warning: XNextEvent failed (error %d), consecutive errors: %d", 
+                    result, consecutive_errors];
+                
+                if (consecutive_errors >= MAX_CONSECUTIVE_ERRORS) {
+                    [self logWithFormat:@"Error: Too many consecutive X11 errors, exiting"];
+                    running = NO;
+                    break;
+                }
+                
+                usleep(100000); // 100ms delay on error
+                continue;
+            }
+            
+            consecutive_errors = 0; // Reset error counter on success
             
             if (event.type == KeyPress) {
                 if (verbose) {
@@ -422,14 +621,25 @@ static void signalHandler(int sig)
                 // Find matching shortcut
                 NSEnumerator *enumerator = [shortcuts keyEnumerator];
                 NSString *keyCombo;
+                BOOL found_match = NO;
                 
                 while ((keyCombo = [enumerator nextObject])) {
                     if ([self matchesEvent:&event.xkey withKeyCombo:keyCombo]) {
                         NSString *command = [shortcuts objectForKey:keyCombo];
                         [self logWithFormat:@"Executing command for %@: %@", keyCombo, command];
-                        [self runCommand:command];
+                        
+                        if (![self runCommand:command]) {
+                            [self logWithFormat:@"Warning: Failed to execute command: %@", command];
+                        }
+                        
+                        found_match = YES;
                         break;
                     }
+                }
+                
+                if (verbose && !found_match) {
+                    [self logWithFormat:@"No matching shortcut for keycode=%d, state=0x%x", 
+                        event.xkey.keycode, event.xkey.state];
                 }
             }
         }
@@ -449,7 +659,7 @@ static void signalHandler(int sig)
     unsigned int modifier = 0;
     NSString *keyString = nil;
     
-    for (int i = 0; i < [parts count]; i++) {
+    for (NSUInteger i = 0; i < [parts count]; i++) {
         NSString *part = [[parts objectAtIndex:i] lowercaseString];
         if ([part isEqualToString:@"ctrl"] || [part isEqualToString:@"control"]) {
             modifier |= ControlMask;
@@ -487,20 +697,39 @@ static void signalHandler(int sig)
     return (keyEvent->keycode == keycode && keyEvent->state == modifier);
 }
 
-- (void)runCommand:(NSString *)command
+- (BOOL)runCommand:(NSString *)command
 {
-    if (!command || [command length] == 0) return;
+    if (!command || [command length] == 0) {
+        [self logWithFormat:@"Warning: Empty command"];
+        return NO;
+    }
+    
+    // Validate command length
+    if ([command length] > 1024) {
+        [self logWithFormat:@"Warning: Command too long (>1024 chars): %@", command];
+        return NO;
+    }
     
     // Parse command and arguments
     NSArray *components = [command componentsSeparatedByString:@" "];
-    if ([components count] == 0) return;
+    if ([components count] == 0) {
+        [self logWithFormat:@"Warning: No command components"];
+        return NO;
+    }
     
     NSString *executable = [components objectAtIndex:0];
+    
+    // Security check - reject commands with dangerous characters
+    NSCharacterSet *dangerousChars = [NSCharacterSet characterSetWithCharactersInString:@"`$;|&<>"];
+    if ([command rangeOfCharacterFromSet:dangerousChars].location != NSNotFound) {
+        [self logWithFormat:@"Warning: Command contains potentially dangerous characters: %@", command];
+    }
+    
     NSString *fullPath = [self findExecutableInPath:executable];
     
     if (!fullPath) {
         [self logWithFormat:@"Warning: executable '%@' not found in PATH", executable];
-        return;
+        return NO;
     }
     
     if (verbose) {
@@ -511,20 +740,54 @@ static void signalHandler(int sig)
     if (pid == 0) {
         // Child process
         setsid();
-        if (fork() == 0) {
+        
+        // Close file descriptors to avoid inheriting them
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        
+        // Redirect to /dev/null
+        int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+            dup2(devnull, STDIN_FILENO);
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            if (devnull > STDERR_FILENO) {
+                close(devnull);
+            }
+        }
+        
+        pid_t grandchild = fork();
+        if (grandchild == 0) {
             // Grandchild process - execute command
             const char *shell = getenv("SHELL");
             if (!shell) shell = "/bin/sh";
             
             execl(shell, shell, "-c", [command UTF8String], (char *)NULL);
-            _exit(1);
+            _exit(127); // exec failed
+        } else if (grandchild > 0) {
+            _exit(0); // Child exits immediately
+        } else {
+            _exit(1); // Fork failed
         }
-        _exit(0);
     } else if (pid > 0) {
         // Parent process - wait for child to exit
-        waitpid(pid, NULL, 0);
+        int status;
+        if (waitpid(pid, &status, 0) < 0) {
+            [self logWithFormat:@"Warning: waitpid failed for command: %@", command];
+            return NO;
+        }
+        
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+            [self logWithFormat:@"Warning: child process exited with status %d for command: %@", 
+                WEXITSTATUS(status), command];
+            return NO;
+        }
+        
+        return YES;
     } else {
         [self logWithFormat:@"Error: failed to fork process for command: %@", command];
+        return NO;
     }
 }
 
@@ -604,6 +867,95 @@ static void signalHandler(int sig)
     [message release];
 }
 
+- (BOOL)isValidKeyCombo:(NSString *)keyCombo
+{
+    if (!keyCombo || [keyCombo length] == 0) {
+        return NO;
+    }
+    
+    NSArray *parts = [keyCombo componentsSeparatedByString:@"+"];
+    if ([parts count] < 1) {
+        return NO;
+    }
+    
+    BOOL hasModifier = NO;
+    BOOL hasKey = NO;
+    
+    for (NSString *part in parts) {
+        NSString *cleanPart = [[part stringByTrimmingCharactersInSet:
+            [NSCharacterSet whitespaceCharacterSet]] lowercaseString];
+        
+        if ([cleanPart length] == 0) {
+            return NO;
+        }
+        
+        if ([cleanPart isEqualToString:@"ctrl"] || [cleanPart isEqualToString:@"control"] ||
+            [cleanPart isEqualToString:@"shift"] || [cleanPart isEqualToString:@"alt"] ||
+            [cleanPart isEqualToString:@"mod1"] || [cleanPart isEqualToString:@"mod2"] ||
+            [cleanPart isEqualToString:@"mod3"] || [cleanPart isEqualToString:@"mod4"] ||
+            [cleanPart isEqualToString:@"mod5"]) {
+            hasModifier = YES;
+        } else {
+            hasKey = YES;
+        }
+    }
+    
+    return hasModifier && hasKey;
+}
+
+- (BOOL)checkConfigFileChanges
+{
+    if (!configPath || ![[NSFileManager defaultManager] fileExistsAtPath:configPath]) {
+        return NO;
+    }
+    
+    struct stat statbuf;
+    if (stat([configPath UTF8String], &statbuf) != 0) {
+        return NO;
+    }
+    
+    if (statbuf.st_mtime > lastConfigModTime) {
+        [self logWithFormat:@"Config file changed, reloading..."];
+        [self ungrabKeys];
+        if ([self loadShortcuts]) {
+            [self grabKeys];
+            return YES;
+        }
+    }
+    
+    return NO;
+}
+
+- (void)validateConfiguration
+{
+    if (!shortcuts) {
+        return;
+    }
+    
+    int valid_shortcuts = 0;
+    int invalid_shortcuts = 0;
+    
+    NSEnumerator *enumerator = [shortcuts keyEnumerator];
+    NSString *keyCombo;
+    
+    while ((keyCombo = [enumerator nextObject])) {
+        if ([self isValidKeyCombo:keyCombo]) {
+            NSString *command = [shortcuts objectForKey:keyCombo];
+            if (command && [command length] > 0) {
+                valid_shortcuts++;
+            } else {
+                invalid_shortcuts++;
+                [self logWithFormat:@"Warning: Empty command for shortcut: %@", keyCombo];
+            }
+        } else {
+            invalid_shortcuts++;
+            [self logWithFormat:@"Warning: Invalid key combination format: %@", keyCombo];
+        }
+    }
+    
+    [self logWithFormat:@"Configuration validation: %d valid, %d invalid shortcuts", 
+        valid_shortcuts, invalid_shortcuts];
+}
 @end
 
 // Usage function
@@ -615,8 +967,15 @@ void showUsage(const char *progname)
     printf("  -h, --help       Show this help\n");
     printf("\n");
     printf("Configuration:\n");
-    printf("Use GNUstep defaults to configure shortcuts:\n");
-    printf("  defaults write NSGlobalDomain GlobalShortcuts '{\"ctrl+shift+t\" = \"Terminal\"; \"ctrl+shift+f\" = \"Browser\";}'\n");
+    printf("1. Config file: ~/.globalshortcutsrc (preferred)\n");
+    printf("   Format: key_combination=command\n");
+    printf("   Example:\n");
+    printf("     ctrl+shift+t=xterm\n");
+    printf("     ctrl+shift+f=firefox\n");
+    printf("     ctrl+alt+l=xscreensaver-command -lock\n");
+    printf("\n");
+    printf("2. GNUstep defaults (fallback):\n");
+    printf("   defaults write NSGlobalDomain GlobalShortcuts '{\"ctrl+shift+t\" = \"Terminal\"; \"ctrl+shift+f\" = \"Browser\";}'\n");
     printf("\n");
     printf("Key combinations use format: modifier+modifier+key\n");
     printf("Modifiers: ctrl, shift, alt, mod2, mod3, mod4, mod5\n");
@@ -630,6 +989,11 @@ void showUsage(const char *progname)
     printf("  mail, www, homepage, search, calculator\n");
     printf("  sleep, wakeup, power, screensaver, standby\n");
     printf("  record, eject\n");
+    printf("\n");
+    printf("Signals:\n");
+    printf("  SIGHUP  - Reload configuration\n");
+    printf("  SIGTERM - Graceful shutdown\n");
+    printf("  SIGINT  - Graceful shutdown (Ctrl+C)\n");
 }
 
 int main(int argc, char *argv[])
@@ -637,6 +1001,7 @@ int main(int argc, char *argv[])
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
     
     BOOL verbose = NO;
+    int exit_code = 0;
     
     // Parse command line arguments
     for (int i = 1; i < argc; i++) {
@@ -654,29 +1019,75 @@ int main(int argc, char *argv[])
         }
     }
     
+    // Check if already running
+    const char *lockfile = "/tmp/globalshortcutsd.lock";
+    int lockfd = open(lockfile, O_CREAT | O_EXCL | O_WRONLY, 0644);
+    if (lockfd < 0) {
+        if (errno == EEXIST) {
+            fprintf(stderr, "Error: globalshortcutsd is already running\n");
+            [pool release];
+            return 1;
+        } else {
+            fprintf(stderr, "Warning: Could not create lock file: %s\n", strerror(errno));
+        }
+    } else {
+        // Write PID to lock file
+        char pidbuf[32];
+        snprintf(pidbuf, sizeof(pidbuf), "%d\n", getpid());
+        write(lockfd, pidbuf, strlen(pidbuf));
+        close(lockfd);
+    }
+    
     // Initialize GNUstep
     [[NSProcessInfo processInfo] setProcessName:@"globalshortcutsd"];
     
     globalshortcutsd *daemon = [[globalshortcutsd alloc] init];
-    daemon->verbose = verbose;
-    
-    [daemon logWithFormat:@"globalshortcutsd starting (verbose=%@)...", verbose ? @"YES" : @"NO"];
-    
-    @try {
-        [daemon setupX11];
-        [daemon loadShortcuts];
-        [daemon grabKeys];
-        [daemon eventLoop];
-    }
-    @catch (NSException *exception) {
-        [daemon logWithFormat:@"Fatal error: %@", [exception reason]];
+    if (!daemon) {
+        fprintf(stderr, "Error: Failed to create daemon instance\n");
+        unlink(lockfile);
         [pool release];
         return 1;
     }
     
+    daemon->verbose = verbose;
+    
+    [daemon logWithFormat:@"globalshortcutsd starting (verbose=%@, pid=%d)...", 
+        verbose ? @"YES" : @"NO", getpid()];
+    
+    @try {
+        if (![daemon setupX11]) {
+            [daemon logWithFormat:@"Error: Failed to setup X11"];
+            exit_code = 1;
+            goto cleanup;
+        }
+        
+        if (![daemon loadShortcuts]) {
+            [daemon logWithFormat:@"Error: Failed to load shortcuts"];
+            exit_code = 1;
+            goto cleanup;
+        }
+        
+        if (![daemon grabKeys]) {
+            [daemon logWithFormat:@"Error: Failed to grab any keys"];
+            exit_code = 1;
+            goto cleanup;
+        }
+        
+        [daemon eventLoop];
+    }
+    @catch (NSException *exception) {
+        [daemon logWithFormat:@"Fatal error: %@ - %@", [exception name], [exception reason]];
+        exit_code = 1;
+    }
+    
+cleanup:
     [daemon logWithFormat:@"globalshortcutsd terminated"];
     [daemon release];
+    
+    // Clean up lock file
+    unlink(lockfile);
+    
     [pool release];
     
-    return 0;
+    return exit_code;
 }

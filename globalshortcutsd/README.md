@@ -1,21 +1,26 @@
 # globalshortcutsd
 
-A GNUstep-based global keyboard shortcuts daemon.
+A robust, production-ready GNUstep-based global keyboard shortcuts daemon for X11.
 
 ## Features
 
 - Global keyboard shortcuts using X11
-- Configuration via GNUstep defaults system
-- Simple key combination syntax
-- Daemon-style operation with proper signal handling
+- Multiple configuration methods (config file and GNUstep defaults)
+- Simple key combination syntax with comprehensive key support
+- Production-ready daemon with proper error handling
 - Automatic PATH searching for executables
 - Configuration reload via SIGHUP signal
+- Automatic config file monitoring and reloading
+- Process isolation and security features
+- Comprehensive logging and verbose mode
+- Lock file to prevent multiple instances
 
 ## Requirements
 
-- GNUstep
-- X11 development libraries
-- clang compiler
+- GNUstep development environment
+- X11 development libraries (libX11-dev)
+- clang19 compiler
+- FreeBSD or compatible Unix system
 
 ## Building
 
@@ -23,15 +28,66 @@ A GNUstep-based global keyboard shortcuts daemon.
 gmake
 ```
 
+### Installing
+
+```sh
+sudo gmake install
+```
+
+This installs to `/usr/local/bin` by default. You can specify a different prefix:
+
+```sh
+sudo gmake install PREFIX=/usr
+```
+
+### Uninstalling
+
+```sh
+sudo gmake uninstall
+```
+
 ## Configuration
+
+### Method 1: Configuration File (Recommended)
+
+Create a configuration file at `~/.globalshortcutsrc`:
+
+```
+# Global shortcuts configuration
+# Format: key_combination=command
+
+# Terminal shortcuts
+ctrl+shift+t=xterm
+ctrl+alt+t=gnome-terminal
+
+# Application launchers
+ctrl+shift+f=firefox
+alt+f2=dmenu_run
+ctrl+alt+l=xscreensaver-command -lock
+
+# Volume controls
+ctrl+shift+equal=amixer set Master 5%+
+ctrl+shift+minus=amixer set Master 5%-
+ctrl+shift+0=amixer set Master toggle
+
+# Multimedia keys
+volume_up=amixer set Master 5%+
+volume_down=amixer set Master 5%-
+volume_mute=amixer set Master toggle
+brightness_up=xbacklight -inc 10
+brightness_down=xbacklight -dec 10
+```
+
+### Method 2: GNUstep Defaults (Fallback)
 
 Configure shortcuts using the GNUstep defaults system:
 
 ```sh
 # Set up some basic shortcuts
 defaults write NSGlobalDomain GlobalShortcuts '{
-    "alt+shift+t" = "Terminal";
-    "alt+shift+3" = "Screenshot";
+    "ctrl+shift+t" = "xterm";
+    "ctrl+shift+f" = "firefox";
+    "ctrl+alt+l" = "xscreensaver-command -lock";
 }'
 ```
 

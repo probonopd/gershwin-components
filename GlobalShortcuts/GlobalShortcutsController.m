@@ -1,0 +1,408 @@
+#import "GlobalShortcutsController.h"
+
+@interface ShortcutEditController : NSObject
+{
+    NSWindow *editWindow;
+    NSTextField *keyComboField;
+    NSTextField *commandField;
+    NSButton *okButton;
+    NSButton *cancelButton;
+    NSMutableDictionary *currentShortcut;
+    GlobalShortcutsController *parentController;
+    BOOL isEditing;
+}
+
+- (id)initWithParent:(GlobalShortcutsController *)parent;
+- (void)showSheetForShortcut:(NSMutableDictionary *)shortcut isEditing:(BOOL)editing parentWindow:(NSWindow *)parentWindow;
+- (void)okClicked:(id)sender;
+- (void)cancelClicked:(id)sender;
+
+@end
+
+@implementation GlobalShortcutsController
+
+- (id)init
+{
+    self = [super init];
+    if (self) {
+        shortcuts = [[NSMutableArray alloc] init];
+        isDaemonRunning = NO;
+    }
+    return self;
+}
+
+- (void)dealloc
+{
+    [mainView release];
+    [shortcuts release];
+    [super dealloc];
+}
+
+- (NSView *)createMainView
+{
+    if (mainView) {
+        return mainView;
+    }
+    
+    // Create main view
+    mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 600, 400)];
+    
+    // Create status label
+    statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 360, 560, 20)];
+    [statusLabel setEditable:NO];
+    [statusLabel setSelectable:NO];
+    [statusLabel setBezeled:NO];
+    [statusLabel setDrawsBackground:NO];
+    [statusLabel setStringValue:@"Loading global shortcuts..."];
+    [mainView addSubview:statusLabel];
+    
+    // Create table view with scroll view
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 60, 460, 280)];
+    [scrollView setHasVerticalScroller:YES];
+    [scrollView setHasHorizontalScroller:NO];
+    [scrollView setBorderType:NSBezelBorder];
+    
+    shortcutsTable = [[NSTableView alloc] initWithFrame:[scrollView bounds]];
+    [shortcutsTable setDelegate:self];
+    [shortcutsTable setDataSource:self];
+    
+    // Create columns
+    NSTableColumn *keyColumn = [[NSTableColumn alloc] initWithIdentifier:@"keyCombo"];
+    [keyColumn setTitle:@"Key Combination"];
+    [keyColumn setWidth:180];
+    [shortcutsTable addTableColumn:keyColumn];
+    [keyColumn release];
+    
+    NSTableColumn *commandColumn = [[NSTableColumn alloc] initWithIdentifier:@"command"];
+    [commandColumn setTitle:@"Command"];
+    [commandColumn setWidth:260];
+    [shortcutsTable addTableColumn:commandColumn];
+    [commandColumn release];
+    
+    [scrollView setDocumentView:shortcutsTable];
+    [mainView addSubview:scrollView];
+    [scrollView release];
+    
+    // Create buttons
+    addButton = [[NSButton alloc] initWithFrame:NSMakeRect(500, 320, 80, 32)];
+    [addButton setTitle:@"Add"];
+    [addButton setTarget:self];
+    [addButton setAction:@selector(addShortcut:)];
+    [mainView addSubview:addButton];
+    
+    editButton = [[NSButton alloc] initWithFrame:NSMakeRect(500, 280, 80, 32)];
+    [editButton setTitle:@"Edit"];
+    [editButton setTarget:self];
+    [editButton setAction:@selector(editShortcut:)];
+    [editButton setEnabled:NO];
+    [mainView addSubview:editButton];
+    
+    deleteButton = [[NSButton alloc] initWithFrame:NSMakeRect(500, 240, 80, 32)];
+    [deleteButton setTitle:@"Delete"];
+    [deleteButton setTarget:self];
+    [deleteButton setAction:@selector(deleteShortcut:)];
+    [deleteButton setEnabled:NO];
+    [mainView addSubview:deleteButton];
+    
+    // Add instructions label
+    NSTextField *instructionsLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 20, 560, 30)];
+    [instructionsLabel setEditable:NO];
+    [instructionsLabel setSelectable:NO];
+    [instructionsLabel setBezeled:NO];
+    [instructionsLabel setDrawsBackground:NO];
+    [instructionsLabel setStringValue:@"Configure global keyboard shortcuts for the globalshortcutsd daemon.\nChanges are saved to NSGlobalDomain GlobalShortcuts and applied automatically."];
+    [mainView addSubview:instructionsLabel];
+    [instructionsLabel release];
+    
+    return mainView;
+}
+
+- (void)refreshShortcuts:(NSTimer *)timer
+{
+    [self updateDaemonStatus];
+    [self loadShortcutsFromDefaults];
+    [shortcutsTable reloadData];
+}
+
+- (BOOL)loadShortcutsFromDefaults
+{
+    [shortcuts removeAllObjects];
+    
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSDictionary *globalShortcuts = [defaults persistentDomainForName:NSGlobalDomain][@"GlobalShortcuts"];
+    
+    if (!globalShortcuts || [globalShortcuts count] == 0) {
+        [statusLabel setStringValue:@"No shortcuts configured. Add shortcuts to create NSGlobalDomain GlobalShortcuts."];
+        return NO;
+    }
+    
+    // Convert dictionary to array of dictionaries for table view
+    NSEnumerator *keyEnum = [globalShortcuts keyEnumerator];
+    NSString *keyCombo;
+    int shortcutCount = 0;
+    
+    while ((keyCombo = [keyEnum nextObject])) {
+        NSString *command = [globalShortcuts objectForKey:keyCombo];
+        if (command && [command length] > 0) {
+            NSMutableDictionary *shortcut = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+                keyCombo, @"keyCombo",
+                command, @"command",
+                nil];
+            [shortcuts addObject:shortcut];
+            shortcutCount++;
+        }
+    }
+    
+    NSString *daemonStatus = isDaemonRunning ? @"running" : @"not running";
+    [statusLabel setStringValue:[NSString stringWithFormat:@"Loaded %d shortcuts from NSGlobalDomain. Daemon is %@", 
+                               shortcutCount, daemonStatus]];
+    
+    return YES;
+}
+
+- (BOOL)saveShortcutsToDefaults
+{
+    NSMutableDictionary *globalShortcuts = [NSMutableDictionary dictionary];
+    
+    // Convert array of dictionaries back to key-value dictionary
+    for (NSDictionary *shortcut in shortcuts) {
+        NSString *keyCombo = [shortcut objectForKey:@"keyCombo"];
+        NSString *command = [shortcut objectForKey:@"command"];
+        if (keyCombo && command && [keyCombo length] > 0 && [command length] > 0) {
+            [globalShortcuts setObject:command forKey:keyCombo];
+        }
+    }
+    
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSMutableDictionary *globalDomain = [[defaults persistentDomainForName:NSGlobalDomain] mutableCopy];
+    if (!globalDomain) {
+        globalDomain = [NSMutableDictionary dictionary];
+    }
+    [globalDomain setObject:globalShortcuts forKey:@"GlobalShortcuts"];
+    [defaults setPersistentDomain:globalDomain forName:NSGlobalDomain];
+    [globalDomain release];
+    [defaults synchronize];
+    
+    // Send SIGHUP to daemon to reload configuration
+    if (isDaemonRunning) {
+        system("killall -HUP globalshortcutsd 2>/dev/null");
+    }
+    
+    return YES;
+}
+
+- (BOOL)isDaemonRunningCheck
+{
+    // Check if globalshortcutsd is running
+    FILE *pipe = popen("pgrep -x globalshortcutsd", "r");
+    if (!pipe) {
+        return NO;
+    }
+    
+    char buffer[128];
+    BOOL found = (fgets(buffer, sizeof(buffer), pipe) != NULL);
+    pclose(pipe);
+    
+    return found;
+}
+
+- (void)updateDaemonStatus
+{
+    isDaemonRunning = [self isDaemonRunningCheck];
+}
+
+- (void)addShortcut:(id)sender
+{
+    NSMutableDictionary *newShortcut = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+        @"", @"keyCombo",
+        @"", @"command",
+        nil];
+    [self showAddEditShortcutSheet:newShortcut isEditing:NO];
+}
+
+- (void)editShortcut:(id)sender
+{
+    NSInteger selectedRow = [shortcutsTable selectedRow];
+    if (selectedRow >= 0 && selectedRow < [shortcuts count]) {
+        NSMutableDictionary *shortcut = [shortcuts objectAtIndex:selectedRow];
+        [self showAddEditShortcutSheet:shortcut isEditing:YES];
+    }
+}
+
+- (void)deleteShortcut:(id)sender
+{
+    NSInteger selectedRow = [shortcutsTable selectedRow];
+    if (selectedRow >= 0 && selectedRow < [shortcuts count]) {
+        [shortcuts removeObjectAtIndex:selectedRow];
+        [self saveShortcutsToDefaults];
+        [shortcutsTable reloadData];
+        [self tableViewSelectionDidChange:nil];
+    }
+}
+
+- (void)showAddEditShortcutSheet:(NSMutableDictionary *)shortcut isEditing:(BOOL)editing
+{
+    ShortcutEditController *editController = [[ShortcutEditController alloc] initWithParent:self];
+    [editController showSheetForShortcut:shortcut isEditing:editing parentWindow:[mainView window]];
+    [editController release];
+}
+
+- (void)tableViewSelectionDidChange:(NSNotification *)notification
+{
+    NSInteger selectedRow = [shortcutsTable selectedRow];
+    BOOL hasSelection = (selectedRow >= 0);
+    
+    [editButton setEnabled:hasSelection];
+    [deleteButton setEnabled:hasSelection];
+}
+
+// Table view data source methods
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
+{
+    return [shortcuts count];
+}
+
+- (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
+{
+    if (row >= 0 && row < [shortcuts count]) {
+        NSDictionary *shortcut = [shortcuts objectAtIndex:row];
+        return [shortcut objectForKey:[tableColumn identifier]];
+    }
+    return nil;
+}
+
+// Table view delegate methods
+- (void)tableView:(NSTableView *)tableView setObjectValue:(id)object forTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
+{
+    if (row >= 0 && row < [shortcuts count]) {
+        NSMutableDictionary *shortcut = [shortcuts objectAtIndex:row];
+        [shortcut setObject:object forKey:[tableColumn identifier]];
+        [self saveShortcutsToDefaults];
+    }
+}
+
+@end
+
+@implementation ShortcutEditController
+
+- (id)initWithParent:(GlobalShortcutsController *)parent
+{
+    self = [super init];
+    if (self) {
+        parentController = parent;
+    }
+    return self;
+}
+
+- (void)showSheetForShortcut:(NSMutableDictionary *)shortcut isEditing:(BOOL)editing parentWindow:(NSWindow *)parentWindow
+{
+    currentShortcut = [shortcut retain];
+    isEditing = editing;
+    
+    // Create edit window
+    editWindow = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 400, 150)
+                                             styleMask:NSTitledWindowMask
+                                               backing:NSBackingStoreBuffered
+                                                 defer:NO];
+    
+    [editWindow setTitle:editing ? @"Edit Shortcut" : @"Add Shortcut"];
+    
+    NSView *contentView = [editWindow contentView];
+    
+    // Key combination label and field
+    NSTextField *keyLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 100, 120, 20)];
+    [keyLabel setEditable:NO];
+    [keyLabel setSelectable:NO];
+    [keyLabel setBezeled:NO];
+    [keyLabel setDrawsBackground:NO];
+    [keyLabel setStringValue:@"Key Combination:"];
+    [contentView addSubview:keyLabel];
+    [keyLabel release];
+    
+    keyComboField = [[NSTextField alloc] initWithFrame:NSMakeRect(150, 100, 220, 22)];
+    [keyComboField setStringValue:[currentShortcut objectForKey:@"keyCombo"]];
+    [contentView addSubview:keyComboField];
+    
+    // Command label and field
+    NSTextField *commandLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 70, 120, 20)];
+    [commandLabel setEditable:NO];
+    [commandLabel setSelectable:NO];
+    [commandLabel setBezeled:NO];
+    [commandLabel setDrawsBackground:NO];
+    [commandLabel setStringValue:@"Command:"];
+    [contentView addSubview:commandLabel];
+    [commandLabel release];
+    
+    commandField = [[NSTextField alloc] initWithFrame:NSMakeRect(150, 70, 220, 22)];
+    [commandField setStringValue:[currentShortcut objectForKey:@"command"]];
+    [contentView addSubview:commandField];
+    
+    // Buttons
+    cancelButton = [[NSButton alloc] initWithFrame:NSMakeRect(220, 20, 80, 32)];
+    [cancelButton setTitle:@"Cancel"];
+    [cancelButton setTarget:self];
+    [cancelButton setAction:@selector(cancelClicked:)];
+    [contentView addSubview:cancelButton];
+    
+    okButton = [[NSButton alloc] initWithFrame:NSMakeRect(310, 20, 80, 32)];
+    [okButton setTitle:@"OK"];
+    [okButton setTarget:self];
+    [okButton setAction:@selector(okClicked:)];
+    [okButton setKeyEquivalent:@"\r"];
+    [contentView addSubview:okButton];
+    
+    [NSApp beginSheet:editWindow modalForWindow:parentWindow modalDelegate:nil didEndSelector:nil contextInfo:nil];
+}
+
+- (void)okClicked:(id)sender
+{
+    NSString *keyCombo = [[keyComboField stringValue] stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceCharacterSet]];
+    NSString *command = [[commandField stringValue] stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceCharacterSet]];
+    
+    if ([keyCombo length] == 0) {
+        NSAlert *alert = [NSAlert alertWithMessageText:@"Invalid Input"
+                                         defaultButton:@"OK"
+                                       alternateButton:nil
+                                           otherButton:nil
+                             informativeTextWithFormat:@"Please enter a key combination."];
+        [alert runModal];
+        return;
+    }
+    
+    if ([command length] == 0) {
+        NSAlert *alert = [NSAlert alertWithMessageText:@"Invalid Input"
+                                         defaultButton:@"OK"
+                                       alternateButton:nil
+                                           otherButton:nil
+                             informativeTextWithFormat:@"Please enter a command."];
+        [alert runModal];
+        return;
+    }
+    
+    [currentShortcut setObject:keyCombo forKey:@"keyCombo"];
+    [currentShortcut setObject:command forKey:@"command"];
+    
+    if (!isEditing) {
+        [parentController->shortcuts addObject:currentShortcut];
+    }
+    
+    [parentController saveShortcutsToDefaults];
+    [parentController->shortcutsTable reloadData];
+    
+    [NSApp endSheet:editWindow];
+    [editWindow orderOut:nil];
+    [editWindow release];
+    [currentShortcut release];
+}
+
+- (void)cancelClicked:(id)sender
+{
+    [NSApp endSheet:editWindow];
+    [editWindow orderOut:nil];
+    [editWindow release];
+    [currentShortcut release];
+}
+
+@end

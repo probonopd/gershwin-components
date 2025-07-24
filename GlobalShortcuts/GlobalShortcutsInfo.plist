@@ -1,0 +1,9 @@
+{
+    CFBundleIdentifier = "org.gnustep.globalshortcuts.prefpane";
+    NOTE = "Automatically generated, do not edit!";
+    NSExecutable = GlobalShortcuts;
+    NSMainNibFile = "";
+    NSPrefPaneIconFile = "GlobalShortcuts.png";
+    NSPrefPaneIconLabel = "Global Shortcuts";
+    NSPrincipalClass = GlobalShortcutsPane;
+}
