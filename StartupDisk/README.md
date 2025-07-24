@@ -2,8 +2,11 @@
 
 This preference pane allows users to select which system to boot from. It only works on EFI systems.
 
+> [!WARNING]
+> This is a work in progress. It is not functional yet.
+
 > [!NOTE]
-> This is a work in progress. Use with care.
+> `/usr/sbin/efibootmgr` only works with root permissions, even to just list (not change) EFI entries. Probably we need to implement a version of it that contains only read (not write) functionality and doesn't require root, so that we need to ask the user for a root password only if the user wants to change something.
 
 ## Features
 
@@ -32,9 +35,6 @@ gmake install
 ```
 
 This will install the preference pane to /System/Library/Bundles/StartupDisk.prefPane
-
-> [!NOTE]
-> `/usr/sbin/efibootmgr` must be setuid root in order for this to work.
 
 ## Usage
 
