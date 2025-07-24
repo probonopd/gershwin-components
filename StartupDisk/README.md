@@ -1,5 +1,7 @@
 # Startup Disk Preference Pane
 
+<img width="602" height="490" alt="image" src="https://github.com/user-attachments/assets/fbfa79de-daac-4b7b-8911-c2231f8ec5ef" />
+
 This preference pane allows users to select which system to boot from. It only works on EFI systems.
 
 ## Features
