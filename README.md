@@ -1,30 +1,8 @@
-# FreeBSD Boot Environments Manager
+# FreeBSD System Preferences Panes
 
-<img width="602" height="490" alt="image" src="https://github.com/user-attachments/assets/f9fddfea-8801-49b5-8048-bcbec4133d1b" />
+GNUstep System Preferences panes intended for use in Gershwin, but may be useful elsewhere as well.
 
-This is a GNUstep System Preferences pane for managing FreeBSD boot environments.
+* Display (using `randr`)
+* Boot Environments (using FreeBSD ZFS `bectl`)
 
-## Features
-
-- **Show boot environments**: Display all available boot environments in a table view
-- **Create New Configurations**: Add new boot environments with custom kernel, root filesystem, and boot options
-- **Edit Configurations**: Modify existing boot environments
-- **Switch Active Configuration**: Set which configuration should be used as the default boot option
-- **Delete Configurations**: Remove unwanted boot environments
-
-## Privileges
-
-This uses [SudoAskPass.app](https://github.com/probonopd/sudoaskpass) to become root when needed to execute the underlying `bectl` commands.
-
-## Building
-
-```
-cd prefpane/
-gmake
-# Install
-sudo gmake install
-# Test
-/System/Applications/SystemPreferences.app/SystemPreferences
-# Uninstall
-sudo gmake uninstall
-```
+See the `README.md` in the respective directory.
