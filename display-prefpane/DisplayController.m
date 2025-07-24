@@ -72,7 +72,7 @@
         mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 500, 320)];
         
         NSTextField *errorLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 140, 460, 40)];
-        [errorLabel setStringValue:@"Display configuration is not available.\nThe xrandr utility is required but was not found."];
+        [errorLabel setStringValue:@"Display configuration is not available.\nThe xrandr tool is required but was not found."];
         [errorLabel setBezeled:NO];
         [errorLabel setDrawsBackground:NO];
         [errorLabel setEditable:NO];
@@ -110,28 +110,10 @@
     if (availableWidth < 400) availableWidth = 500;
     if (availableHeight < 250) availableHeight = 320;
     
-    // Use a more reasonable size for System Preferences
     mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, availableWidth, availableHeight)];
     
-    // Add labels and instructions
-    NSTextField *arrangeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, availableHeight - 30, 200, 20)];
-    [arrangeLabel setStringValue:@"Arrangement"];
-    [arrangeLabel setBezeled:NO];
-    [arrangeLabel setDrawsBackground:NO];
-    [arrangeLabel setEditable:NO];
-    [arrangeLabel setSelectable:NO];
-    [arrangeLabel setFont:[NSFont boldSystemFontOfSize:13]];
-    [mainView addSubview:arrangeLabel];
-    [arrangeLabel release];
-    
-    // Create a display arrangement view that uses most of the available space
-    float displayAreaHeight = availableHeight - 180; // Leave space for controls below
-    displayView = [[DisplayView alloc] initWithFrame:NSMakeRect(20, 140, availableWidth - 22, displayAreaHeight)];
-    [displayView setController:self];
-    [mainView addSubview:displayView];
-    
     NSTextField *instructLabel1 = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 115, availableWidth - 22, 20)];
-    [instructLabel1 setStringValue:@"Drag displays to rearrange them. Drag menu bar to define the main display."];
+    [instructLabel1 setStringValue:@"Drag displays to arrange them. Drag menu bar to set the main display."];
     [instructLabel1 setBezeled:NO];
     [instructLabel1 setDrawsBackground:NO];
     [instructLabel1 setEditable:NO];
@@ -139,6 +121,13 @@
     [instructLabel1 setFont:[NSFont systemFontOfSize:11]];
     [mainView addSubview:instructLabel1];
     [instructLabel1 release];
+    
+    // Create a display arrangement view that uses most of the available space
+    float displayAreaHeight = availableHeight - 160; // Leave space for controls below
+    displayView = [[DisplayView alloc] initWithFrame:NSMakeRect(20, 140, availableWidth - 22, displayAreaHeight)];
+    [displayView setController:self];
+    [mainView addSubview:displayView];
+
     
     // Mirror displays checkbox
     mirrorDisplaysCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, 65, 200, 20)];
