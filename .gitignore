@@ -3,3 +3,4 @@
 *.obj
 *.prefPane/
 *.core
+StartupDisk/efiboot-helper

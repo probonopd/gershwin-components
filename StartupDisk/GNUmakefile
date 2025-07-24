@@ -2,7 +2,7 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 BUNDLE_NAME = StartupDisk
 StartupDisk_OBJC_FILES = StartupDiskPane.m StartupDiskController.m
-StartupDisk_RESOURCE_FILES = StartupDisk.png StartupDiskInfo.plist
+StartupDisk_RESOURCE_FILES = StartupDisk.png StartupDiskInfo.plist efiboot-helper
 StartupDisk_BUNDLE_LIBS = -lPreferencePanes
 StartupDisk_PRINCIPAL_CLASS = StartupDiskPane
 StartupDisk_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles

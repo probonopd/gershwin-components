@@ -2,12 +2,6 @@
 
 This preference pane allows users to select which system to boot from. It only works on EFI systems.
 
-> [!WARNING]
-> This is a work in progress. It is not functional yet.
-
-> [!NOTE]
-> `/usr/sbin/efibootmgr` only works with root permissions, even to just list (not change) EFI entries. Probably we need to implement a version of it that contains only read (not write) functionality and doesn't require root, so that we need to ask the user for a root password only if the user wants to change something. Or change it so that it doesn't refuse to run without being root when invoked with `-v` to list existing boot entries.
-
 ## Features
 
 - Lists all available EFI boot entries using `efibootmgr`

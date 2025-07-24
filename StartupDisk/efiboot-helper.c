@@ -4,143 +4,139 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <sys/types.h>
 
-#define MAX_LINE 1024
-#define MAX_ARGS 32
+static pid_t authorized_parent_pid = 0;
 
-// Function to execute a command and return its output
-int execute_command(char *command, char *output, int output_size, char *error, int error_size) {
+int run_command(const char *command, char **output, char **error) {
     FILE *fp;
-    char *line = NULL;
-    size_t len = 0;
-    ssize_t read;
-    int status;
+    char *cmd_output = NULL;
+    size_t output_size = 0;
+    char buffer[4096];
+    int exit_code;
     
-    // Clear output buffers
-    output[0] = '\0';
-    error[0] = '\0';
+    // Create command with stderr redirection
+    char full_command[8192];
+    snprintf(full_command, sizeof(full_command), "%s 2>&1", command);
     
-    // Execute the command
-    fp = popen(command, "r");
+    fp = popen(full_command, "r");
     if (fp == NULL) {
-        snprintf(error, error_size, "Failed to execute command: %s", strerror(errno));
+        *error = strdup("Failed to execute command");
         return -1;
     }
     
-    // Read output
-    while ((read = getline(&line, &len, fp)) != -1) {
-        if (strlen(output) + read < output_size - 1) {
-            strcat(output, line);
+    // Read all output
+    while (fgets(buffer, sizeof(buffer), fp) != NULL) {
+        size_t len = strlen(buffer);
+        cmd_output = realloc(cmd_output, output_size + len + 1);
+        if (cmd_output == NULL) {
+            pclose(fp);
+            return -1;
         }
+        strcpy(cmd_output + output_size, buffer);
+        output_size += len;
     }
     
-    if (line) {
-        free(line);
+    exit_code = pclose(fp);
+    
+    if (cmd_output == NULL) {
+        cmd_output = strdup("");
     }
     
-    status = pclose(fp);
-    return WEXITSTATUS(status);
+    *output = cmd_output;
+    *error = strdup(""); // Since we redirect stderr to stdout
+    
+    return WEXITSTATUS(exit_code);
 }
 
-// Function to list boot entries
-void list_boot_entries() {
-    char output[4096];
-    char error[1024];
-    int result;
-    
-    printf("COMMAND:list\n");
-    result = execute_command("/usr/sbin/efibootmgr -v", output, sizeof(output), error, sizeof(error));
-    
+void send_response(int result, const char *output, const char *error) {
     printf("RESULT:%d\n", result);
-    printf("OUTPUT_START\n");
-    printf("%s", output);
-    printf("OUTPUT_END\n");
-    if (strlen(error) > 0) {
-        printf("ERROR_START\n");
-        printf("%s", error);
-        printf("ERROR_END\n");
+    if (output && strlen(output) > 0) {
+        printf("OUTPUT_START\n%sOUTPUT_END\n", output);
+    }
+    if (error && strlen(error) > 0) {
+        printf("ERROR_START\n%sERROR_END\n", error);
     }
     printf("COMMAND_END\n");
     fflush(stdout);
 }
 
-// Function to set next boot entry
-void set_next_boot(char *bootnum) {
-    char command[256];
-    char output[1024];
-    char error[1024];
-    int result;
-    
-    printf("COMMAND:set_next_boot\n");
-    snprintf(command, sizeof(command), "/usr/sbin/efibootmgr -n -b %s", bootnum);
-    result = execute_command(command, output, sizeof(output), error, sizeof(error));
-    
-    printf("RESULT:%d\n", result);
-    printf("OUTPUT_START\n");
-    printf("%s", output);
-    printf("OUTPUT_END\n");
-    if (strlen(error) > 0) {
-        printf("ERROR_START\n");
-        printf("%s", error);
-        printf("ERROR_END\n");
-    }
-    printf("COMMAND_END\n");
-    fflush(stdout);
+int verify_parent_process() {
+    // For now, just return true - in a real implementation,
+    // you would check that getppid() == authorized_parent_pid
+    return 1;
 }
 
-// Function to restart system
-void restart_system() {
-    char output[1024];
-    char error[1024];
+int main(int argc, char *argv[]) {
+    char line[1024];
+    char *output, *error;
     int result;
     
-    printf("COMMAND:restart\n");
-    result = execute_command("/sbin/shutdown -r now", output, sizeof(output), error, sizeof(error));
-    
-    printf("RESULT:%d\n", result);
-    printf("OUTPUT_START\n");
-    printf("%s", output);
-    printf("OUTPUT_END\n");
-    if (strlen(error) > 0) {
-        printf("ERROR_START\n");
-        printf("%s", error);
-        printf("ERROR_END\n");
+    // Check that we have the parent PID argument
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <parent_pid>\n", argv[0]);
+        return 1;
     }
-    printf("COMMAND_END\n");
-    fflush(stdout);
-}
-
-int main() {
-    char line[MAX_LINE];
-    char *token;
+    
+    // Store the authorized parent PID
+    authorized_parent_pid = atoi(argv[1]);
+    if (authorized_parent_pid <= 0) {
+        fprintf(stderr, "Invalid parent PID\n");
+        return 1;
+    }
+    
+    // Verify we're being called by the authorized parent
+    if (!verify_parent_process()) {
+        fprintf(stderr, "Unauthorized access attempt\n");
+        return 1;
+    }
     
     printf("READY\n");
     fflush(stdout);
     
-    // Main command loop
     while (fgets(line, sizeof(line), stdin)) {
+        // Initialize pointers to NULL for each iteration
+        output = NULL;
+        error = NULL;
+        
         // Remove newline
         line[strcspn(line, "\n")] = 0;
         
-        if (strcmp(line, "list") == 0) {
-            list_boot_entries();
-        } else if (strncmp(line, "set_next_boot ", 14) == 0) {
-            char *bootnum = line + 14;
-            set_next_boot(bootnum);
-        } else if (strcmp(line, "restart") == 0) {
-            restart_system();
-        } else if (strcmp(line, "quit") == 0) {
+        if (strcmp(line, "quit") == 0) {
             break;
+        }
+        
+        // Verify parent process for each command
+        if (!verify_parent_process()) {
+            send_response(1, "", "Unauthorized access");
+            continue;
+        }
+        
+        if (strncmp(line, "list", 4) == 0) {
+            result = run_command("efibootmgr", &output, &error);
+            send_response(result, output, error);
+        } else if (strncmp(line, "set_boot_order ", 15) == 0) {
+            char command[1024];
+            snprintf(command, sizeof(command), "efibootmgr -o %s", line + 15);
+            result = run_command(command, &output, &error);
+            send_response(result, output, error);
+        } else if (strncmp(line, "set_next_boot ", 14) == 0) {
+            char command[1024];
+            snprintf(command, sizeof(command), "efibootmgr -n %s", line + 14);
+            result = run_command(command, &output, &error);
+            send_response(result, output, error);
+        } else if (strcmp(line, "restart") == 0) {
+            result = run_command("shutdown -r now", &output, &error);
+            send_response(result, output, error);
         } else if (strcmp(line, "ping") == 0) {
             printf("PONG\n");
             fflush(stdout);
         } else {
-            printf("COMMAND:unknown\n");
-            printf("RESULT:-1\n");
-            printf("ERROR_START\nUnknown command: %s\nERROR_END\n", line);
-            printf("COMMAND_END\n");
-            fflush(stdout);
+            send_response(1, "", "Unknown command");
         }
+        
+        if (output) free(output);
+        if (error) free(error);
     }
     
     return 0;

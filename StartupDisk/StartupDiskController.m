@@ -1,5 +1,78 @@
 #import "StartupDiskController.h"
 
+// Custom table view class for easier dragging
+@implementation EasyDragTableView
+
+- (void)mouseDown:(NSEvent *)theEvent
+{
+    NSPoint point = [self convertPoint:[theEvent locationInWindow] fromView:nil];
+    NSInteger row = [self rowAtPoint:point];
+    
+    if (row >= 0) {
+        isDragging = NO;
+        dragStartPoint = point;
+        
+        // Select the row first
+        [self selectRowIndexes:[NSIndexSet indexSetWithIndex:row] byExtendingSelection:NO];
+        
+        // Start tracking mouse movement immediately
+        NSEvent *nextEvent;
+        while ((nextEvent = [[self window] nextEventMatchingMask:NSLeftMouseDraggedMask | NSLeftMouseUpMask])) {
+            if ([nextEvent type] == NSLeftMouseUp) {
+                // Mouse released without dragging
+                break;
+            } else if ([nextEvent type] == NSLeftMouseDragged) {
+                // Start drag immediately on any movement (no threshold)
+                if (!isDragging) {
+                    isDragging = YES;
+                    
+                    // Create drag pasteboard
+                    NSPasteboard *pboard = [NSPasteboard pasteboardWithName:NSDragPboard];
+                    NSIndexSet *rowIndexes = [NSIndexSet indexSetWithIndex:row];
+                    
+                    if ([self writeRowsWithIndexes:rowIndexes toPasteboard:pboard]) {
+                        NSRect dragRect = [self rectOfRow:row];
+                        dragRect.origin = dragStartPoint;
+                        dragRect.size.width = 16;
+                        dragRect.size.height = 16;
+                        
+                        // Create a simple drag image
+                        NSImage *dragImage = [[NSImage alloc] initWithSize:dragRect.size];
+                        [dragImage lockFocus];
+                        [[NSColor systemBlueColor] set];
+                        NSRectFill(NSMakeRect(0, 0, dragRect.size.width, dragRect.size.height));
+                        [dragImage unlockFocus];
+                        
+                        [self dragImage:dragImage
+                                     at:dragRect.origin
+                                 offset:NSZeroSize
+                                  event:theEvent
+                             pasteboard:pboard
+                                 source:self
+                              slideBack:YES];
+                        
+                        [dragImage release];
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    
+    [super mouseDown:theEvent];
+}
+
+- (BOOL)writeRowsWithIndexes:(NSIndexSet *)rowIndexes toPasteboard:(NSPasteboard *)pboard
+{
+    // Delegate to the data source
+    if ([[self dataSource] respondsToSelector:@selector(tableView:writeRowsWithIndexes:toPasteboard:)]) {
+        return [(id)[self dataSource] tableView:self writeRowsWithIndexes:rowIndexes toPasteboard:pboard];
+    }
+    return NO;
+}
+
+@end
+
 @implementation StartupDiskController
 
 - (id)init
@@ -8,8 +81,7 @@
     self = [super init];
     if (self) {
         bootEntries = [[NSMutableArray alloc] init];
-        bootButtons = [[NSMutableArray alloc] init];
-        selectedBootEntry = -1;
+        bootOrderChanged = NO;
         
         // Initialize helper process variables
         helperTask = nil;
@@ -20,7 +92,6 @@
         
         NSLog(@"StartupDiskController: init completed successfully");
         NSLog(@"StartupDiskController: bootEntries = %@", bootEntries);
-        NSLog(@"StartupDiskController: bootButtons = %@", bootButtons);
     } else {
         NSLog(@"StartupDiskController: init failed - super init returned nil");
     }
@@ -60,7 +131,7 @@
     // Title label
     NSLog(@"StartupDiskController: Creating title label");
     titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, frame.size.height - 50, frame.size.width - 40, 24)];
-    [titleLabel setStringValue:@"Select the system you want to use to start up your computer"];
+    [titleLabel setStringValue:@"Drag boot entries to arrange their priority order"];
     [titleLabel setBezeled:NO];
     [titleLabel setDrawsBackground:NO];
     [titleLabel setEditable:NO];
@@ -70,39 +141,62 @@
     [mainView addSubview:titleLabel];
     NSLog(@"StartupDiskController: Title label added successfully");
     
-    // Scroll view for boot entries
-    NSLog(@"StartupDiskController: Creating scroll view");
-    scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 80, frame.size.width - 40, frame.size.height - 160)];
+    // Instruction label
+    NSLog(@"StartupDiskController: Creating instruction label");
+    instructionLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, frame.size.height - 75, frame.size.width - 40, 20)];
+    [instructionLabel setStringValue:@"The first entry in the list will be used as the default startup disk"];
+    [instructionLabel setBezeled:NO];
+    [instructionLabel setDrawsBackground:NO];
+    [instructionLabel setEditable:NO];
+    [instructionLabel setSelectable:NO];
+    [instructionLabel setFont:[NSFont systemFontOfSize:11]];
+    [instructionLabel setTextColor:[NSColor secondaryLabelColor]];
+    NSLog(@"StartupDiskController: Adding instruction label to mainView");
+    [mainView addSubview:instructionLabel];
+    NSLog(@"StartupDiskController: Instruction label added successfully");
+    
+    // Scroll view and table view for boot entries
+    NSLog(@"StartupDiskController: Creating scroll view and table view");
+    scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 100, frame.size.width - 40, frame.size.height - 200)];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:NO];
     [scrollView setBorderType:NSBezelBorder];
     [scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     NSLog(@"StartupDiskController: Scroll view frame = %@", NSStringFromRect([scrollView frame]));
     
-    NSLog(@"StartupDiskController: Creating content view");
-    contentView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, frame.size.width - 60, 200)];
-    NSLog(@"StartupDiskController: Content view frame = %@", NSStringFromRect([contentView frame]));
-    [scrollView setDocumentView:contentView];
+    NSRect tableFrame = NSMakeRect(0, 0, frame.size.width - 60, 200);
+    tableView = [[EasyDragTableView alloc] initWithFrame:tableFrame];
+    [tableView setDataSource:self];
+    [tableView setDelegate:self];
+    [tableView setRowHeight:22];
+    [tableView setIntercellSpacing:NSMakeSize(0, 1)];
+    [tableView setSelectionHighlightStyle:NSTableViewSelectionHighlightStyleRegular];
+    
+    // Enable drag and drop
+    [tableView registerForDraggedTypes:[NSArray arrayWithObject:@"BootEntryType"]];
+    [tableView setDraggingSourceOperationMask:NSDragOperationMove forLocal:YES];
+    
+    // Add a single column
+    NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"BootEntry"];
+    [column setTitle:@"Boot Entries"];
+    [column setWidth:tableFrame.size.width - 20];
+    
+    // Set up the data cell
+    NSTextFieldCell *dataCell = [[NSTextFieldCell alloc] init];
+    [column setDataCell:dataCell];
+    [dataCell release];
+    
+    [tableView addTableColumn:column];
+    [column release];
+    
+    [scrollView setDocumentView:tableView];
     NSLog(@"StartupDiskController: Adding scroll view to mainView");
     [mainView addSubview:scrollView];
     NSLog(@"StartupDiskController: Scroll view added successfully");
     
-    // Selected boot entry label
-    NSLog(@"StartupDiskController: Creating selected label");
-    selectedLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 50, frame.size.width - 200, 20)];
-    [selectedLabel setStringValue:@""];
-    [selectedLabel setBezeled:NO];
-    [selectedLabel setDrawsBackground:NO];
-    [selectedLabel setEditable:NO];
-    [selectedLabel setSelectable:NO];
-    [selectedLabel setFont:[NSFont systemFontOfSize:11]];
-    NSLog(@"StartupDiskController: Adding selected label to mainView");
-    [mainView addSubview:selectedLabel];
-    NSLog(@"StartupDiskController: Selected label added successfully");
-    
     // Restart button
     NSLog(@"StartupDiskController: Creating restart button");
-    restartButton = [[NSButton alloc] initWithFrame:NSMakeRect(frame.size.width - 160, 50, 120, 32)];
+    restartButton = [[NSButton alloc] initWithFrame:NSMakeRect(frame.size.width - 160, 60, 120, 32)];
     [restartButton setTitle:@"Restart..."];
     [restartButton setTarget:self];
     [restartButton setAction:@selector(restartClicked:)];
@@ -117,6 +211,34 @@
 - (void)refreshBootEntries
 {
     NSLog(@"StartupDiskController: refreshBootEntries called");
+    
+    // Don't refresh if the user has made changes that haven't been applied yet
+    // But add a safety mechanism - if bootOrderChanged has been true for too long, reset it
+    static NSDate *bootOrderChangedTime = nil;
+    
+    if (bootOrderChanged) {
+        if (!bootOrderChangedTime) {
+            bootOrderChangedTime = [[NSDate date] retain];
+        }
+        
+        // If it's been more than 10 seconds since the flag was set, reset it
+        if ([[NSDate date] timeIntervalSinceDate:bootOrderChangedTime] > 10.0) {
+            NSLog(@"StartupDiskController: bootOrderChanged flag stuck for >10 seconds, resetting");
+            bootOrderChanged = NO;
+            [bootOrderChangedTime release];
+            bootOrderChangedTime = nil;
+        } else {
+            NSLog(@"StartupDiskController: Skipping refresh because boot order has changed");
+            return;
+        }
+    } else {
+        // Reset the timer when bootOrderChanged becomes NO
+        if (bootOrderChangedTime) {
+            [bootOrderChangedTime release];
+            bootOrderChangedTime = nil;
+        }
+    }
+    
     [bootEntries removeAllObjects];
     NSLog(@"StartupDiskController: Cleared bootEntries array");
     
@@ -272,122 +394,135 @@
 {
     NSLog(@"StartupDiskController: updateBootEntriesDisplay called");
     NSLog(@"StartupDiskController: bootEntries count = %lu", (unsigned long)[bootEntries count]);
-    NSLog(@"StartupDiskController: bootButtons count = %lu", (unsigned long)[bootButtons count]);
     
-    // Clear existing buttons
-    NSLog(@"StartupDiskController: Removing existing buttons from contentView");
-    for (NSButton *button in bootButtons) {
-        NSLog(@"StartupDiskController: Removing button: %@", button);
-        [button removeFromSuperview];
-    }
-    [bootButtons removeAllObjects];
-    NSLog(@"StartupDiskController: Cleared bootButtons array");
-    
-    if (!contentView) {
-        NSLog(@"StartupDiskController: ERROR - contentView is nil!");
+    if (!tableView) {
+        NSLog(@"StartupDiskController: ERROR - tableView is nil!");
         return;
     }
     
-    // Calculate content height
-    CGFloat contentHeight = [bootEntries count] * 80 + 20;
-    NSLog(@"StartupDiskController: Calculated contentHeight = %f", contentHeight);
+    // Reload the table data
+    [tableView reloadData];
     
-    NSRect contentFrame = [contentView frame];
-    NSLog(@"StartupDiskController: Current contentView frame = %@", NSStringFromRect(contentFrame));
-    contentFrame.size.height = MAX(contentHeight, contentFrame.size.height);
-    [contentView setFrame:contentFrame];
-    NSLog(@"StartupDiskController: Updated contentView frame = %@", NSStringFromRect(contentFrame));
-    
-    // Create buttons for each boot entry
-    CGFloat yPos = contentHeight - 80;
-    int index = 0;
-    
-    NSLog(@"StartupDiskController: Creating buttons for boot entries");
-    for (NSDictionary *entry in bootEntries) {
-        NSString *description = [entry objectForKey:@"description"];
-        
-        NSLog(@"StartupDiskController: Creating button %d for entry: %@", index, description);
-        
-        // Create a button for this boot entry
-        NSButton *button = [[NSButton alloc] initWithFrame:NSMakeRect(10, yPos, contentFrame.size.width - 20, 60)];
-        [button setTitle:description];
-        [button setButtonType:NSRadioButton];
-        [button setTarget:self];
-        [button setAction:@selector(bootEntrySelected:)];
-        [button setTag:index];
-        
-        NSLog(@"StartupDiskController: Button %d frame = %@", index, NSStringFromRect([button frame]));
-        
-        // Style the button to look like the macOS Startup Disk entries
-        [button setImagePosition:NSImageLeft];
-        [button setAlignment:NSLeftTextAlignment];
-        
-        // Try to set an appropriate icon based on the description
-        NSImage *icon = nil;
-        if ([description containsString:@"FreeBSD"] || [description containsString:@"BSD"]) {
-            icon = [NSImage imageNamed:@"NSComputer"];
-        } else if ([description containsString:@"Windows"] || [description containsString:@"Microsoft"]) {
-            icon = [NSImage imageNamed:@"NSComputer"];
-        } else {
-            icon = [NSImage imageNamed:@"NSComputer"];
-        }
-        
-        if (icon) {
-            [icon setSize:NSMakeSize(32, 32)];
-            [button setImage:icon];
-            NSLog(@"StartupDiskController: Set icon for button %d", index);
-        } else {
-            NSLog(@"StartupDiskController: No icon found for button %d", index);
-        }
-        
-        NSLog(@"StartupDiskController: Adding button %d to contentView", index);
-        [contentView addSubview:button];
-        [bootButtons addObject:button];
-        NSLog(@"StartupDiskController: Added button %d successfully", index);
-        
-        yPos -= 80;
-        index++;
-    }
-    
-    NSLog(@"StartupDiskController: Created %d buttons", index);
-    NSLog(@"StartupDiskController: contentView now has %lu subviews", (unsigned long)[[contentView subviews] count]);
-    
-    // Update selected entry display
-    if (selectedBootEntry >= 0 && selectedBootEntry < [bootEntries count]) {
-        NSDictionary *entry = [bootEntries objectAtIndex:selectedBootEntry];
-        NSString *description = [entry objectForKey:@"description"];
-        [selectedLabel setStringValue:[NSString stringWithFormat:@"You have selected %@ as the startup disk.", description]];
-        NSLog(@"StartupDiskController: Updated selectedLabel to: %@", [selectedLabel stringValue]);
-        
-        // Select the corresponding button
-        if (selectedBootEntry < [bootButtons count]) {
-            NSButton *button = [bootButtons objectAtIndex:selectedBootEntry];
-            [button setState:NSOnState];
-            NSLog(@"StartupDiskController: Selected button %d", selectedBootEntry);
-        }
+    // Update the instruction label based on whether we have entries
+    if ([bootEntries count] > 0) {
+        NSDictionary *firstEntry = [bootEntries objectAtIndex:0];
+        NSString *description = [firstEntry objectForKey:@"description"];
+        [instructionLabel setStringValue:[NSString stringWithFormat:@"Default startup disk: %@", description]];
     } else {
-        [selectedLabel setStringValue:@""];
-        NSLog(@"StartupDiskController: Cleared selectedLabel");
+        [instructionLabel setStringValue:@"No boot entries found"];
     }
     
     NSLog(@"StartupDiskController: updateBootEntriesDisplay completed");
 }
 
-- (void)bootEntrySelected:(id)sender
+- (void)applyBootOrder:(id)sender
 {
-    NSButton *button = (NSButton *)sender;
-    selectedBootEntry = [button tag];
-    NSLog(@"StartupDiskController: bootEntrySelected called - selected entry %d", selectedBootEntry);
+    NSLog(@"StartupDiskController: applyBootOrder called");
     
-    // Unselect all other buttons
-    for (NSButton *otherButton in bootButtons) {
-        if (otherButton != button) {
-            [otherButton setState:NSOffState];
+    if ([bootEntries count] == 0) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"No Boot Entries"];
+        [alert setInformativeText:@"There are no boot entries to configure."];
+        [alert addButtonWithTitle:@"OK"];
+        [alert setAlertStyle:NSInformationalAlertStyle];
+        [alert runModal];
+        [alert release];
+        return;
+    }
+    
+    // Build the new boot order from the current bootEntries array
+    NSMutableArray *bootOrder = [NSMutableArray array];
+    for (NSDictionary *entry in bootEntries) {
+        NSString *bootnum = [entry objectForKey:@"bootnum"];
+        if (bootnum) {
+            [bootOrder addObject:bootnum];
         }
     }
     
-    [self updateBootEntriesDisplay];
-    NSLog(@"StartupDiskController: bootEntrySelected completed");
+    if ([bootOrder count] == 0) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"Invalid Boot Entries"];
+        [alert setInformativeText:@"No valid boot numbers found in the boot entries."];
+        [alert addButtonWithTitle:@"OK"];
+        [alert setAlertStyle:NSWarningAlertStyle];
+        [alert runModal];
+        [alert release];
+        return;
+    }
+    
+    // Create the boot order command
+    NSString *bootOrderString = [bootOrder componentsJoinedByString:@","];
+    NSString *command = [NSString stringWithFormat:@"set_boot_order %@", bootOrderString];
+    
+    NSLog(@"StartupDiskController: Setting boot order: %@", bootOrderString);
+    
+    // Run in background thread
+    [NSThread detachNewThreadSelector:@selector(applyBootOrderInBackground:) 
+                             toTarget:self 
+                           withObject:command];
+}
+
+- (void)applyBootOrderInBackground:(NSString *)command
+{
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    
+    // Start the helper process if not already running
+    if (![self startHelperProcess]) {
+        NSLog(@"StartupDiskController: Failed to start helper process for boot order");
+        [self performSelectorOnMainThread:@selector(handleApplyBootOrderResult:) 
+                               withObject:[NSDictionary dictionaryWithObjectsAndKeys:
+                                          [NSNumber numberWithBool:NO], @"success",
+                                          @"Failed to start helper process", @"error",
+                                          nil]
+                            waitUntilDone:NO];
+        [pool release];
+        return;
+    }
+    
+    NSLog(@"StartupDiskController: Sending boot order command to helper: %@", command);
+    NSString *response = nil;
+    NSString *error = nil;
+    BOOL success = [self sendHelperCommand:command withResponse:&response withError:&error];
+    
+    // Update UI on main thread
+    [self performSelectorOnMainThread:@selector(handleApplyBootOrderResult:) 
+                           withObject:[NSDictionary dictionaryWithObjectsAndKeys:
+                                      [NSNumber numberWithBool:success], @"success",
+                                      response ? response : @"", @"output", 
+                                      error ? error : @"", @"error",
+                                      nil]
+                        waitUntilDone:NO];
+    
+    [pool release];
+}
+
+- (void)handleApplyBootOrderResult:(NSDictionary *)resultDict
+{
+    BOOL success = [[resultDict objectForKey:@"success"] boolValue];
+    NSString *errorOutput = [resultDict objectForKey:@"error"];
+    
+    if (success) {
+        NSLog(@"StartupDiskController: Boot order applied successfully");
+        bootOrderChanged = NO;
+        
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"Boot Order Applied"];
+        [alert setInformativeText:@"The boot priority order has been successfully updated."];
+        [alert addButtonWithTitle:@"OK"];
+        [alert setAlertStyle:NSInformationalAlertStyle];
+        [alert runModal];
+        [alert release];
+    } else {
+        NSLog(@"StartupDiskController: Failed to apply boot order: %@", errorOutput);
+        
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"Failed to Apply Boot Order"];
+        [alert setInformativeText:[NSString stringWithFormat:@"Could not update the boot priority order.\n\nError: %@", errorOutput ? errorOutput : @"Unknown error"]];
+        [alert addButtonWithTitle:@"OK"];
+        [alert setAlertStyle:NSCriticalAlertStyle];
+        [alert runModal];
+        [alert release];
+    }
 }
 
 - (void)showBootErrorAlert:(NSDictionary *)alertInfo
@@ -414,8 +549,15 @@
 
 - (void)restartClicked:(id)sender
 {
-    if (selectedBootEntry >= 0 && selectedBootEntry < [bootEntries count]) {
-        NSDictionary *entry = [bootEntries objectAtIndex:selectedBootEntry];
+    NSInteger selectedRow = [tableView selectedRow];
+    
+    // If no row is selected, use the first entry (highest priority)
+    if (selectedRow < 0 && [bootEntries count] > 0) {
+        selectedRow = 0;
+    }
+    
+    if (selectedRow >= 0 && selectedRow < [bootEntries count]) {
+        NSDictionary *entry = [bootEntries objectAtIndex:selectedRow];
         NSString *bootnum = [entry objectForKey:@"bootnum"];
         NSString *description = [entry objectForKey:@"description"];
         BOOL isActive = [[entry objectForKey:@"active"] boolValue];
@@ -432,9 +574,16 @@
             return;
         }
         
+        NSString *priorityInfo = @"";
+        if (selectedRow == 0) {
+            priorityInfo = @" (highest priority)";
+        } else {
+            priorityInfo = [NSString stringWithFormat:@" (priority %ld)", (long)(selectedRow + 1)];
+        }
+        
         NSAlert *alert = [[NSAlert alloc] init];
         [alert setMessageText:@"Restart Computer"];
-        [alert setInformativeText:[NSString stringWithFormat:@"Are you sure you want to restart your computer now?\n\nYour computer will restart using:\n%@\n\nAny unsaved work will be lost.", description]];
+        [alert setInformativeText:[NSString stringWithFormat:@"Are you sure you want to restart your computer now?\n\nYour computer will restart using:\n%@%@\n\nAny unsaved work will be lost.", description, priorityInfo]];
         [alert addButtonWithTitle:@"Restart"];
         [alert addButtonWithTitle:@"Cancel"];
         [alert setAlertStyle:NSCriticalAlertStyle];
@@ -479,8 +628,8 @@
         }
     } else {
         NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:@"No Startup Disk Selected"];
-        [alert setInformativeText:@"Please select a startup disk from the list above before clicking Restart.\n\nTo select a startup disk, click on one of the available boot entries."];
+        [alert setMessageText:@"No Boot Entries Available"];
+        [alert setInformativeText:@"No boot entries are available to restart with.\n\nPlease refresh the boot entries or check your system configuration."];
         [alert addButtonWithTitle:@"OK"];
         [alert setAlertStyle:NSInformationalAlertStyle];
         [alert runModal];
@@ -497,9 +646,43 @@
     
     NSLog(@"StartupDiskController: Starting helper process with sudo");
     
+    // Get the helper path from our bundle
+    NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+    NSLog(@"StartupDiskController: Bundle path = %@", [bundle bundlePath]);
+    NSLog(@"StartupDiskController: Bundle resources path = %@", [bundle resourcePath]);
+    
+    NSString *helperPath = [bundle pathForResource:@"efiboot-helper" ofType:nil];
+    
+    if (!helperPath) {
+        NSLog(@"StartupDiskController: Could not find efiboot-helper in bundle resources");
+        // Also try looking in the bundle's main directory
+        NSString *bundlePath = [bundle bundlePath];
+        helperPath = [bundlePath stringByAppendingPathComponent:@"efiboot-helper"];
+        
+        // Check if it exists at that location
+        if (![[NSFileManager defaultManager] fileExistsAtPath:helperPath]) {
+            // Try Resources subdirectory
+            helperPath = [[bundle resourcePath] stringByAppendingPathComponent:@"efiboot-helper"];
+            if (![[NSFileManager defaultManager] fileExistsAtPath:helperPath]) {
+                NSLog(@"StartupDiskController: Could not find efiboot-helper at any location");
+                NSLog(@"StartupDiskController: Tried locations:");
+                NSLog(@"  - %@", [bundle pathForResource:@"efiboot-helper" ofType:nil]);
+                NSLog(@"  - %@", [bundlePath stringByAppendingPathComponent:@"efiboot-helper"]);
+                NSLog(@"  - %@", [[bundle resourcePath] stringByAppendingPathComponent:@"efiboot-helper"]);
+                return NO;
+            }
+        }
+        NSLog(@"StartupDiskController: Found efiboot-helper at %@", helperPath);
+    } else {
+        NSLog(@"StartupDiskController: Found efiboot-helper in bundle resources at %@", helperPath);
+    }
+    
     helperTask = [[NSTask alloc] init];
     [helperTask setLaunchPath:@"/usr/local/bin/sudo"];
-    [helperTask setArguments:[NSArray arrayWithObjects:@"-A", @"/usr/local/libexec/efiboot-helper", nil]];
+    
+    // Pass our process ID to the helper for security
+    NSString *parentPID = [NSString stringWithFormat:@"%d", getpid()];
+    [helperTask setArguments:[NSArray arrayWithObjects:@"-A", helperPath, parentPID, nil]];
     
     // Set up pipes
     helperInput = [NSPipe pipe];
@@ -725,16 +908,223 @@
     return success;
 }
 
+// MARK: - NSTableView Data Source and Delegate Methods
+
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)aTableView
+{
+    return [bootEntries count];
+}
+
+- (id)tableView:(NSTableView *)aTableView objectValueForTableColumn:(NSTableColumn *)aTableColumn row:(NSInteger)rowIndex
+{
+    if (rowIndex >= 0 && rowIndex < [bootEntries count]) {
+        NSDictionary *entry = [bootEntries objectAtIndex:rowIndex];
+        NSString *description = [entry objectForKey:@"description"];
+        
+        // Add priority indicator
+        NSString *priorityText = [NSString stringWithFormat:@"%ld. %@", (long)(rowIndex + 1), description];
+        return priorityText;
+    }
+    return @"";
+}
+
+- (NSImage *)iconForBootEntry:(NSDictionary *)entry
+{
+    NSString *description = [entry objectForKey:@"description"];
+    NSImage *icon = nil;
+    
+    // Try to determine icon based on description
+    if ([description rangeOfString:@"Windows" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        icon = [NSImage imageNamed:@"NSApplicationIcon"];
+    } else if ([description rangeOfString:@"UEFI" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+               [description rangeOfString:@"EFI" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        icon = [NSImage imageNamed:@"NSAdvanced"];
+    } else {
+        // Default icon for other boot entries
+        icon = [NSImage imageNamed:@"NSComputer"];
+    }
+    
+    // If no icon found, use a generic folder icon
+    if (!icon) {
+        icon = [NSImage imageNamed:@"NSFolder"];
+    }
+    
+    return icon;
+}
+
+- (void)tableView:(NSTableView *)aTableView willDisplayCell:(id)aCell forTableColumn:(NSTableColumn *)aTableColumn row:(NSInteger)rowIndex
+{
+    if (rowIndex >= 0 && rowIndex < [bootEntries count]) {
+        NSDictionary *entry = [bootEntries objectAtIndex:rowIndex];
+        NSImage *icon = [self iconForBootEntry:entry];
+        
+        if ([aCell respondsToSelector:@selector(setImage:)]) {
+            [aCell setImage:icon];
+        }
+    }
+}
+
+// Remove the dataCellForTableColumn method as we're using willDisplayCell instead
+
+// MARK: - Drag and Drop Support
+
+- (BOOL)tableView:(NSTableView *)tv writeRowsWithIndexes:(NSIndexSet *)rowIndexes toPasteboard:(NSPasteboard *)pboard
+{
+    NSLog(@"StartupDiskController: Starting drag operation for rows: %@", rowIndexes);
+    
+    // Copy the row index to the pasteboard
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:rowIndexes];
+    [pboard declareTypes:[NSArray arrayWithObject:@"BootEntryType"] owner:self];
+    [pboard setData:data forType:@"BootEntryType"];
+    
+    return YES;
+}
+
+- (NSDragOperation)tableView:(NSTableView *)tv validateDrop:(id <NSDraggingInfo>)info proposedRow:(NSInteger)row proposedDropOperation:(NSTableViewDropOperation)op
+{
+    // Only allow drops between rows, not on rows
+    if (op == NSTableViewDropAbove) {
+        return NSDragOperationMove;
+    }
+    
+    return NSDragOperationNone;
+}
+
+- (BOOL)tableView:(NSTableView *)tv acceptDrop:(id <NSDraggingInfo>)info row:(NSInteger)row dropOperation:(NSTableViewDropOperation)op
+{
+    NSLog(@"StartupDiskController: Accepting drop at row %ld", (long)row);
+    
+    NSPasteboard *pboard = [info draggingPasteboard];
+    NSData *rowData = [pboard dataForType:@"BootEntryType"];
+    NSIndexSet *rowIndexes = [NSKeyedUnarchiver unarchiveObjectWithData:rowData];
+    
+    NSInteger dragRow = [rowIndexes firstIndex];
+    
+    // Don't allow dropping on the same position
+    if (dragRow == row || dragRow == row - 1) {
+        return NO;
+    }
+    
+    // Get the entry being moved
+    NSDictionary *movingEntry = [[bootEntries objectAtIndex:dragRow] retain];
+    
+    // Remove from old position
+    [bootEntries removeObjectAtIndex:dragRow];
+    
+    // Adjust insertion index if necessary
+    NSInteger insertIndex = row;
+    if (dragRow < row) {
+        insertIndex--;
+    }
+    
+    // Insert at new position
+    [bootEntries insertObject:movingEntry atIndex:insertIndex];
+    [movingEntry release];
+    
+    // Mark that the boot order has changed
+    bootOrderChanged = YES;
+    
+    // Apply the boot order immediately and synchronously
+    [self applyBootOrderSynchronously];
+    
+    // Reload the table
+    [tableView reloadData];
+    
+    // Update the instruction label
+    if ([bootEntries count] > 0) {
+        NSDictionary *firstEntry = [bootEntries objectAtIndex:0];
+        NSString *description = [firstEntry objectForKey:@"description"];
+        [instructionLabel setStringValue:[NSString stringWithFormat:@"Default startup disk: %@", description]];
+    }
+    
+    NSLog(@"StartupDiskController: Boot order changed and applied automatically");
+    
+    return YES;
+}
+
+- (void)applyBootOrderSynchronously
+{
+    NSLog(@"StartupDiskController: applyBootOrderSynchronously called");
+    
+    if ([bootEntries count] == 0) {
+        NSLog(@"StartupDiskController: No boot entries to apply");
+        bootOrderChanged = NO;
+        return;
+    }
+    
+    // Build the new boot order from the current bootEntries array
+    NSMutableArray *bootOrder = [NSMutableArray array];
+    for (NSDictionary *entry in bootEntries) {
+        NSString *bootnum = [entry objectForKey:@"bootnum"];
+        if (bootnum) {
+            [bootOrder addObject:bootnum];
+        }
+    }
+    
+    if ([bootOrder count] == 0) {
+        NSLog(@"StartupDiskController: No valid boot numbers found");
+        bootOrderChanged = NO;
+        return;
+    }
+    
+    // Create the boot order command
+    NSString *bootOrderString = [bootOrder componentsJoinedByString:@","];
+    NSString *command = [NSString stringWithFormat:@"set_boot_order %@", bootOrderString];
+    
+    NSLog(@"StartupDiskController: Setting boot order synchronously: %@", bootOrderString);
+    
+    // Start the helper process if not already running
+    if (![self startHelperProcess]) {
+        NSLog(@"StartupDiskController: Failed to start helper process for boot order");
+        bootOrderChanged = NO;
+        
+        // Show error alert on main thread
+        [self performSelectorOnMainThread:@selector(showBootOrderErrorAlert:)
+                               withObject:@"Failed to start helper process for applying boot order"
+                            waitUntilDone:NO];
+        return;
+    }
+    
+    // Send command synchronously
+    NSString *response = nil;
+    NSString *error = nil;
+    BOOL success = [self sendHelperCommand:command withResponse:&response withError:&error];
+    
+    if (success) {
+        NSLog(@"StartupDiskController: Boot order applied successfully and synchronously");
+        bootOrderChanged = NO;  // Reset flag to allow refreshes
+    } else {
+        NSLog(@"StartupDiskController: Failed to apply boot order synchronously: %@", error);
+        bootOrderChanged = NO;  // Reset flag even on failure to prevent permanent blocking
+        
+        // Show error alert on main thread
+        NSString *errorMessage = error ? error : @"Unknown error occurred while applying boot order";
+        [self performSelectorOnMainThread:@selector(showBootOrderErrorAlert:)
+                               withObject:errorMessage
+                            waitUntilDone:NO];
+    }
+}
+
+- (void)showBootOrderErrorAlert:(NSString *)errorMessage
+{
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:@"Failed to Apply Boot Order"];
+    [alert setInformativeText:[NSString stringWithFormat:@"Could not update the boot priority order.\n\nError: %@", errorMessage]];
+    [alert addButtonWithTitle:@"OK"];
+    [alert setAlertStyle:NSCriticalAlertStyle];
+    [alert runModal];
+    [alert release];
+}
+
 - (void)dealloc
 {
     [self stopHelperProcess];
     [bootEntries release];
-    [bootButtons release];
     [titleLabel release];
-    [selectedLabel release];
+    [instructionLabel release];
     [restartButton release];
     [scrollView release];
-    [contentView release];
+    [tableView release];
     [super dealloc];
 }
 
