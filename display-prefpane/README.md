@@ -1,6 +1,11 @@
 # Display Preference Pane
 
-A GNUstep preference pane for managing display configuration, similar to the macOS Display preferences.
+<img width="602" height="424" alt="image" src="https://github.com/user-attachments/assets/f9115f62-8ae3-43d3-9e90-972df5ee00cf" />
+
+A GNUstep preference pane for managing display configuration using `xrandr`.
+
+> [!NOTE]
+> Since the developer has no access to a multiple display setup, multiple display support might still need to be worked on. Contributions are welcome.
 
 ## Features
 
@@ -60,13 +65,4 @@ The visual representation scales the actual display sizes and positions to fit w
 - Resolution selection from available modes
 - Primary display selection
 - Display mirroring
-- Hot-plugging detection (via timer refresh)
-
-## Files
-
-- `DisplayPane.{h,m}` - Main preference pane class
-- `DisplayController.{h,m}` - Display management logic  
-- `DisplayView.{h,m}` - Visual arrangement interface
-- `DisplayInfo.plist` - Bundle metadata
-- `Display.png` - Preference pane icon
-- `GNUmakefile` - Build configuration
+- Hot-plugging detection
