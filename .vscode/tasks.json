@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build All Preference Panes",
+			"type": "shell",
+			"command": "cd BootEnvironments && gmake && cd ../Display && gmake && cd ../StartupDisk && gmake",
+			"group": "build"
+		}
+	]
+}
