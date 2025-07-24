@@ -105,8 +105,8 @@
 - (id)init {
     if (self = [super init]) {
         bootConfigurations = [[NSMutableArray alloc] init];
-        [self loadBootConfigurations];
-        // Note: No periodic refresh timer here - now managed by BootEnvironmentPane
+        // Note: Configuration loading is deferred until the pane is actually accessed
+        // No periodic refresh timer here - now managed by BootEnvironmentPane
     }
     return self;
 }
