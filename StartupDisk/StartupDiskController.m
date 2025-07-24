@@ -1040,7 +1040,7 @@
         icon = [NSImage imageNamed:@"NSAdvanced"];
     } else {
         // Default icon for other boot entries
-        icon = [NSImage imageNamed:@"NSDisk"];
+        icon = [NSImage imageNamed:@"NSComputer"];
     }
     
     // If no icon found, use a generic folder icon
