@@ -1,5 +1,104 @@
 #import "StartupDiskController.h"
 
+// Custom cell class for displaying icons with text
+@interface BootEntryCell : NSTextFieldCell
+{
+    NSImage *cellImage;
+}
+- (void)setImage:(NSImage *)image;
+- (NSImage *)image;
+@end
+
+@implementation BootEntryCell
+
+- (id)init
+{
+    self = [super init];
+    if (self) {
+        cellImage = nil;
+    }
+    return self;
+}
+
+- (void)setImage:(NSImage *)image
+{
+    if (cellImage != image) {
+        [cellImage release];
+        cellImage = [image retain];
+    }
+}
+
+- (NSImage *)image
+{
+    return cellImage;
+}
+
+- (void)drawWithFrame:(NSRect)cellFrame inView:(NSView *)controlView
+{
+    // First draw the background for selection if needed
+    if ([self isHighlighted]) {
+        [[NSColor selectedControlColor] set];
+        NSRectFill(cellFrame);
+    }
+    
+    // Calculate image and text rects
+    NSRect imageRect = cellFrame;
+    NSRect textRect = cellFrame;
+    
+    if (cellImage) {
+        // Leave space for the icon (16x16 with some padding)
+        imageRect.size.width = 16;
+        imageRect.size.height = 16;
+        imageRect.origin.y += (cellFrame.size.height - 16) / 2; // Center vertically
+        imageRect.origin.x += 4; // Small left margin
+        
+        // Adjust text rect to start after the icon
+        textRect.origin.x += 24; // Icon width + padding
+        textRect.size.width -= 24;
+        
+        // Draw the image
+        [cellImage drawInRect:imageRect 
+                     fromRect:NSZeroRect 
+                    operation:NSCompositeSourceOver 
+                     fraction:1.0
+                respectFlipped:YES
+                         hints:nil];
+    }
+    
+    // Draw the text in the remaining space
+    NSString *stringValue = [self stringValue];
+    if (stringValue && [stringValue length] > 0) {
+        NSColor *textColor = [self isHighlighted] ? [NSColor selectedControlTextColor] : [NSColor controlTextColor];
+        
+        NSDictionary *attributes = [NSDictionary dictionaryWithObjectsAndKeys:
+                                   [self font], NSFontAttributeName,
+                                   textColor, NSForegroundColorAttributeName,
+                                   nil];
+        
+        // Center the text vertically
+        NSSize textSize = [stringValue sizeWithAttributes:attributes];
+        textRect.origin.y += (textRect.size.height - textSize.height) / 2;
+        textRect.size.height = textSize.height;
+        
+        [stringValue drawInRect:textRect withAttributes:attributes];
+    }
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+    BootEntryCell *copy = [super copyWithZone:zone];
+    copy->cellImage = [cellImage retain];
+    return copy;
+}
+
+- (void)dealloc
+{
+    [cellImage release];
+    [super dealloc];
+}
+
+@end
+
 // Custom table view class for easier dragging
 @implementation EasyDragTableView
 
@@ -181,8 +280,8 @@
     [column setTitle:@"Boot Entries"];
     [column setWidth:tableFrame.size.width - 20];
     
-    // Set up the data cell
-    NSTextFieldCell *dataCell = [[NSTextFieldCell alloc] init];
+    // Set up a custom data cell that supports both image and text
+    BootEntryCell *dataCell = [[BootEntryCell alloc] init];
     [column setDataCell:dataCell];
     [dataCell release];
     
@@ -941,7 +1040,7 @@
         icon = [NSImage imageNamed:@"NSAdvanced"];
     } else {
         // Default icon for other boot entries
-        icon = [NSImage imageNamed:@"NSComputer"];
+        icon = [NSImage imageNamed:@"NSDisk"];
     }
     
     // If no icon found, use a generic folder icon
@@ -954,12 +1053,20 @@
 
 - (void)tableView:(NSTableView *)aTableView willDisplayCell:(id)aCell forTableColumn:(NSTableColumn *)aTableColumn row:(NSInteger)rowIndex
 {
+    NSLog(@"StartupDiskController: willDisplayCell called for row %ld, cell class: %@", (long)rowIndex, [aCell class]);
+    
     if (rowIndex >= 0 && rowIndex < [bootEntries count]) {
         NSDictionary *entry = [bootEntries objectAtIndex:rowIndex];
         NSImage *icon = [self iconForBootEntry:entry];
         
-        if ([aCell respondsToSelector:@selector(setImage:)]) {
-            [aCell setImage:icon];
+        NSLog(@"StartupDiskController: Setting icon for entry: %@, icon: %@", [entry objectForKey:@"description"], icon);
+        
+        if ([aCell isKindOfClass:[BootEntryCell class]]) {
+            BootEntryCell *bootCell = (BootEntryCell *)aCell;
+            [bootCell setImage:icon];
+            NSLog(@"StartupDiskController: Icon set on BootEntryCell successfully");
+        } else {
+            NSLog(@"StartupDiskController: WARNING - Cell is not BootEntryCell, it's %@", [aCell class]);
         }
     }
 }
