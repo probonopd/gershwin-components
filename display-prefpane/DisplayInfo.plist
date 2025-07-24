@@ -1,0 +1,9 @@
+{
+    CFBundleIdentifier = "org.gnustep.display.prefpane";
+    NOTE = "Automatically generated, do not edit!";
+    NSExecutable = Display;
+    NSMainNibFile = "";
+    NSPrefPaneIconFile = "Display.png";
+    NSPrefPaneIconLabel = "Display";
+    NSPrincipalClass = DisplayPane;
+}
