@@ -76,12 +76,3 @@ freebsd_arm64_task:
   packages_artifacts:
     path: /usr/local/poudriere/data/packages/132arm64-${POUDRIERE_PORTS}
     type: application/octet-stream
-
-# Build matrix for multiple FreeBSD versions
-matrix:
-  - env:
-      FREEBSD_VERSION: "13.2-RELEASE"
-      POUDRIERE_BASE: "13.2-RELEASE"
-  - env:
-      FREEBSD_VERSION: "14.0-RELEASE"  
-      POUDRIERE_BASE: "14.0-RELEASE"
