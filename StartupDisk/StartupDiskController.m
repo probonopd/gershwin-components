@@ -1,5 +1,8 @@
 #import "StartupDiskController.h"
 
+// Global timer for boot order changes
+NSDate *bootOrderChangedTime = nil;
+
 // Custom cell class for displaying icons with text
 @interface BootEntryCell : NSTextFieldCell
 {
@@ -316,7 +319,6 @@
     // Don't refresh if the user has made changes that haven't been applied yet
     // But add a safety mechanism - if bootOrderChanged has been true for too long, reset it
     static NSDate *bootOrderChangedTime = nil;
-    
     if (bootOrderChanged) {
         if (!bootOrderChangedTime) {
             bootOrderChangedTime = [[NSDate date] retain];
@@ -389,6 +391,11 @@
     NSString *output = [resultDict objectForKey:@"output"];
     NSString *errorOutput = [resultDict objectForKey:@"error"];
     if (!success) {
+        // Stop the timer if the helper is not running
+        if (bootOrderChangedTime) {
+            [bootOrderChangedTime release];
+            bootOrderChangedTime = nil;
+        }
         NSLog(@"StartupDiskController: efibootmgr failed: %@", errorOutput);
         
         // Show error panel instead of creating fake entries
@@ -800,6 +807,24 @@
     NSMutableDictionary *environment = [[[NSProcessInfo processInfo] environment] mutableCopy];
     [helperTask setEnvironment:environment];
     [environment release];
+    
+    // Check SUDO_ASKPASS environment variable
+    NSString *sudoAskPass = [[[NSProcessInfo processInfo] environment] objectForKey:@"SUDO_ASKPASS"];
+    BOOL askpassValid = NO;
+    if (sudoAskPass && [sudoAskPass length] > 0) {
+        askpassValid = [[NSFileManager defaultManager] isExecutableFileAtPath:sudoAskPass];
+    }
+    if (!askpassValid) {
+        NSLog(@"StartupDiskController: SUDO_ASKPASS is not set or does not point to an executable: %@", sudoAskPass);
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"SUDO_ASKPASS Not Set or Invalid"];
+        [alert setInformativeText:@"The SUDO_ASKPASS environment variable must be set and point to an existing executable binary.\n\nPlease set SUDO_ASKPASS to a valid askpass helper and try again."];
+        [alert addButtonWithTitle:@"OK"];
+        [alert setAlertStyle:NSCriticalAlertStyle];
+        [alert runModal];
+        [alert release];
+        return NO;
+    }
     
     @try {
         [helperTask launch];
