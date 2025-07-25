@@ -129,10 +129,18 @@
     [shortcuts removeAllObjects];
     
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSDictionary *globalShortcuts = [defaults persistentDomainForName:NSGlobalDomain][@"GlobalShortcuts"];
+    
+    // Try primary domain first
+    NSDictionary *globalShortcuts = [defaults persistentDomainForName:@"GlobalShortcuts"];
     
     if (!globalShortcuts || [globalShortcuts count] == 0) {
-        [statusLabel setStringValue:@"No shortcuts configured. Add shortcuts to create NSGlobalDomain GlobalShortcuts."];
+        // Fallback to NSGlobalDomain for backward compatibility
+        NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
+        globalShortcuts = [globalDomain objectForKey:@"GlobalShortcuts"];
+    }
+    
+    if (!globalShortcuts || [globalShortcuts count] == 0) {
+        [statusLabel setStringValue:@"No shortcuts configured. Add shortcuts to create GlobalShortcuts domain."];
         return NO;
     }
     
@@ -154,7 +162,7 @@
     }
     
     NSString *daemonStatus = isDaemonRunning ? @"running" : @"not running";
-    [statusLabel setStringValue:[NSString stringWithFormat:@"Loaded %d shortcuts from NSGlobalDomain. Daemon is %@", 
+    [statusLabel setStringValue:[NSString stringWithFormat:@"Loaded %d shortcuts from GlobalShortcuts domain. Daemon is %@", 
                                shortcutCount, daemonStatus]];
     
     return YES;
@@ -174,13 +182,9 @@
     }
     
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSMutableDictionary *globalDomain = [[defaults persistentDomainForName:NSGlobalDomain] mutableCopy];
-    if (!globalDomain) {
-        globalDomain = [NSMutableDictionary dictionary];
-    }
-    [globalDomain setObject:globalShortcuts forKey:@"GlobalShortcuts"];
-    [defaults setPersistentDomain:globalDomain forName:NSGlobalDomain];
-    [globalDomain release];
+    
+    // Save to primary domain
+    [defaults setPersistentDomain:globalShortcuts forName:@"GlobalShortcuts"];
     [defaults synchronize];
     
     // Send SIGHUP to daemon to reload configuration

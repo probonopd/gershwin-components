@@ -1,10 +1,10 @@
 # globalshortcutsd
 
-A robust, production-ready GNUstep-based global keyboard shortcuts daemon for X11.
+A GNUstep-based global keyboard shortcuts daemon.
 
 ## Features
 
-- Global keyboard shortcuts using X11
+- Global keyboard shortcuts
 - Multiple configuration methods (config file and GNUstep defaults)
 - Simple key combination syntax with comprehensive key support
 - Production-ready daemon with proper error handling
@@ -48,47 +48,20 @@ sudo gmake uninstall
 
 ## Configuration
 
-### Method 1: Configuration File (Recommended)
-
-Create a configuration file at `~/.globalshortcutsrc`:
-
-```
-# Global shortcuts configuration
-# Format: key_combination=command
-
-# Terminal shortcuts
-ctrl+shift+t=xterm
-ctrl+alt+t=gnome-terminal
-
-# Application launchers
-ctrl+shift+f=firefox
-alt+f2=dmenu_run
-ctrl+alt+l=xscreensaver-command -lock
-
-# Volume controls
-ctrl+shift+equal=amixer set Master 5%+
-ctrl+shift+minus=amixer set Master 5%-
-ctrl+shift+0=amixer set Master toggle
-
-# Multimedia keys
-volume_up=amixer set Master 5%+
-volume_down=amixer set Master 5%-
-volume_mute=amixer set Master toggle
-brightness_up=xbacklight -inc 10
-brightness_down=xbacklight -dec 10
-```
-
-### Method 2: GNUstep Defaults (Fallback)
-
 Configure shortcuts using the GNUstep defaults system:
 
 ```sh
 # Set up some basic shortcuts
-defaults write NSGlobalDomain GlobalShortcuts '{
-    "ctrl+shift+t" = "xterm";
-    "ctrl+shift+f" = "firefox";
-    "ctrl+alt+l" = "xscreensaver-command -lock";
+defaults write GlobalShortcuts '{
+    "ctrl+shift+t" = "Terminal";
 }'
+```
+
+You can also add or update individual shortcuts:
+
+```sh
+# Add or update a single shortcut
+defaults write GlobalShortcuts -dict-add "ctrl+alt+t" "Terminal"
 ```
 
 ### Key Combination Format
@@ -139,20 +112,20 @@ killall -TERM globalshortcutsd
 
 ```sh
 # Terminal shortcut
-defaults write NSGlobalDomain GlobalShortcuts -dict-add "ctrl+alt+t" "Terminal"
+defaults write GlobalShortcuts -dict-add "ctrl+alt+t" "Terminal"
 
 # Application launcher
-defaults write NSGlobalDomain GlobalShortcuts -dict-add "alt+f2" "Launcher"
+defaults write GlobalShortcuts -dict-add "alt+f2" "Launcher"
 
 # Lock screen
-defaults write NSGlobalDomain GlobalShortcuts -dict-add "ctrl+alt+l" "ScreenLock"
+defaults write GlobalShortcuts -dict-add "ctrl+alt+l" "ScreenLock"
 
 # Volume control
-defaults write NSGlobalDomain GlobalShortcuts -dict-add "ctrl+shift+equal" "VolumeControl --increase"
-defaults write NSGlobalDomain GlobalShortcuts -dict-add "ctrl+shift+minus" "VolumeControl --decrease"
+defaults write GlobalShortcuts -dict-add "ctrl+shift+equal" "VolumeControl --increase"
+defaults write GlobalShortcuts -dict-add "ctrl+shift+minus" "VolumeControl --decrease"
 
 # Raw keycode example (useful for special keys)
-defaults write NSGlobalDomain GlobalShortcuts -dict-add "ctrl+shift+code:28" "echo Raw keycode 28 pressed"
+defaults write GlobalShortcuts -dict-add "ctrl+shift+code:28" "echo Raw keycode 28 pressed"
 ```
 
 ## Multimedia Keys
@@ -183,7 +156,7 @@ globalshortcutsd includes comprehensive support for multimedia keys:
 
 Example multimedia configuration:
 ```sh
-defaults write NSGlobalDomain GlobalShortcuts '{
+defaults write GlobalShortcuts '{
     "volume_up" = "VolumeControl --increase";
     "volume_down" = "VolumeControl --decrease";
     "volume_mute" = "VolumeControl --toggle";

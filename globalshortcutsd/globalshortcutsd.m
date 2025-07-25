@@ -32,8 +32,8 @@ static int last_signal = 0;
     unsigned int scrolllock_mask;
     BOOL verbose;
     BOOL running;
-    NSString *configPath;
-    time_t lastConfigModTime;
+    NSString *defaultsDomain;
+    time_t lastDefaultsModTime;
 }
 
 - (id)init;
@@ -53,7 +53,7 @@ static int last_signal = 0;
 - (BOOL)grabKey:(KeyCode)keycode modifier:(unsigned int)modifier forCombo:(NSString *)combo;
 - (BOOL)matchesEvent:(XKeyEvent *)keyEvent withKeyCombo:(NSString *)keyCombo;
 - (BOOL)isValidKeyCombo:(NSString *)keyCombo;
-- (BOOL)checkConfigFileChanges;
+- (BOOL)checkDefaultsChanges;
 - (void)validateConfiguration;
 
 @end
@@ -100,20 +100,14 @@ static void signalHandler(int sig)
     if (self) {
         display = NULL;
         shortcuts = nil;
-        configPath = nil;
-        lastConfigModTime = 0;
+        defaultsDomain = [@"GlobalShortcuts" retain];
+        lastDefaultsModTime = 0;
         numlock_mask = 0;
         capslock_mask = 0;
         scrolllock_mask = 0;
         verbose = NO;
         running = YES;
         globalInstance = self;
-        
-        // Set up config path
-        NSString *homeDir = NSHomeDirectory();
-        if (homeDir) {
-            configPath = [[homeDir stringByAppendingPathComponent:@".globalshortcutsrc"] retain];
-        }
     }
     return self;
 }
@@ -127,8 +121,8 @@ static void signalHandler(int sig)
     }
     [shortcuts release];
     shortcuts = nil;
-    [configPath release];
-    configPath = nil;
+    [defaultsDomain release];
+    defaultsDomain = nil;
     
     if (globalInstance == self) {
         globalInstance = nil;
@@ -139,78 +133,34 @@ static void signalHandler(int sig)
 
 - (BOOL)loadShortcuts
 {
-    // First try to load from config file
-    if (configPath && [[NSFileManager defaultManager] fileExistsAtPath:configPath]) {
-        NSError *error = nil;
-        NSString *configContent = [NSString stringWithContentsOfFile:configPath 
-                                                             encoding:NSUTF8StringEncoding 
-                                                                error:&error];
-        if (configContent && !error) {
-            // Simple key=value format parser
-            NSMutableDictionary *fileShortcuts = [NSMutableDictionary dictionary];
-            NSArray *lines = [configContent componentsSeparatedByString:@"\n"];
-            
-            for (NSString *line in lines) {
-                NSString *trimmedLine = [line stringByTrimmingCharactersInSet:
-                    [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-                
-                // Skip empty lines and comments
-                if ([trimmedLine length] == 0 || [trimmedLine hasPrefix:@"#"]) {
-                    continue;
-                }
-                
-                NSRange equalRange = [trimmedLine rangeOfString:@"="];
-                if (equalRange.location != NSNotFound) {
-                    NSString *key = [[trimmedLine substringToIndex:equalRange.location]
-                        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-                    NSString *value = [[trimmedLine substringFromIndex:equalRange.location + 1]
-                        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-                    
-                    if ([key length] > 0 && [value length] > 0) {
-                        [fileShortcuts setObject:value forKey:key];
-                    }
-                }
-            }
-            
-            if ([fileShortcuts count] > 0) {
-                [shortcuts release];
-                shortcuts = [fileShortcuts retain];
-                
-                // Update modification time
-                struct stat statbuf;
-                if (stat([configPath UTF8String], &statbuf) == 0) {
-                    lastConfigModTime = statbuf.st_mtime;
-                }
-                
-                [self logWithFormat:@"Loaded %lu shortcuts from config file: %@", 
-                    (unsigned long)[shortcuts count], configPath];
-                [self validateConfiguration];
-                return YES;
-            }
-        } else {
-            [self logWithFormat:@"Warning: could not read config file %@: %@", 
-                configPath, error ? [error localizedDescription] : @"unknown error"];
-        }
-    }
-    
-    // Fall back to NSUserDefaults
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
-    NSDictionary *config = [globalDomain objectForKey:@"GlobalShortcuts"];
+    NSDictionary *config = [defaults persistentDomainForName:defaultsDomain];
+    
+    if (!config) {
+        // Try fallback to NSGlobalDomain with GlobalShortcuts key for backward compatibility
+        NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
+        config = [globalDomain objectForKey:@"GlobalShortcuts"];
+    }
     
     if (!config) {
         [self logWithFormat:@"No GlobalShortcuts configuration found"];
-        [self logWithFormat:@"Create config file: %@ with format: key=command", 
-            configPath ? configPath : @"~/.globalshortcutsrc"];
-        [self logWithFormat:@"Example: ctrl+shift+t=xterm"];
+        [self logWithFormat:@"Create shortcuts using: defaults write %@ '{\"ctrl+shift+t\" = \"xterm\";}'", defaultsDomain];
         [self logWithFormat:@"Or use: defaults write NSGlobalDomain GlobalShortcuts '{\"ctrl+shift+t\" = \"xterm\";}'"];
+        [self logWithFormat:@"Example shortcuts:"];
+        [self logWithFormat:@"  ctrl+shift+t -> Terminal"];
+        [self logWithFormat:@"  ctrl+shift+f -> Firefox"];
+        [self logWithFormat:@"  ctrl+alt+l -> Screen lock"];
         return NO;
     }
     
     [shortcuts release];
     shortcuts = [config retain];
     
-    [self logWithFormat:@"Loaded %lu shortcuts from defaults", (unsigned long)[shortcuts count]];
+    // Update modification time for change detection
+    lastDefaultsModTime = time(NULL);
+    
+    [self logWithFormat:@"Loaded %lu shortcuts from GNUstep defaults domain '%@'", 
+        (unsigned long)[shortcuts count], defaultsDomain];
     [self validateConfiguration];
     
     if (verbose) {
@@ -571,11 +521,11 @@ static void signalHandler(int sig)
             last_signal = 0;
         }
         
-        // Check for config file changes every 1000 iterations (~10 seconds)
-        static int config_check_counter = 0;
-        if (++config_check_counter >= 1000) {
-            [self checkConfigFileChanges];
-            config_check_counter = 0;
+        // Check for defaults changes every 1000 iterations (~10 seconds)
+        static int defaults_check_counter = 0;
+        if (++defaults_check_counter >= 1000) {
+            [self checkDefaultsChanges];
+            defaults_check_counter = 0;
         }
         
         // Check X11 connection
@@ -903,24 +853,35 @@ static void signalHandler(int sig)
     return hasModifier && hasKey;
 }
 
-- (BOOL)checkConfigFileChanges
+- (BOOL)checkDefaultsChanges
 {
-    if (!configPath || ![[NSFileManager defaultManager] fileExistsAtPath:configPath]) {
-        return NO;
-    }
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     
-    struct stat statbuf;
-    if (stat([configPath UTF8String], &statbuf) != 0) {
-        return NO;
-    }
+    // Force synchronize to get latest changes from other processes
+    [defaults synchronize];
     
-    if (statbuf.st_mtime > lastConfigModTime) {
-        [self logWithFormat:@"Config file changed, reloading..."];
-        [self ungrabKeys];
-        if ([self loadShortcuts]) {
-            [self grabKeys];
-            return YES;
+    // Check if configuration has changed
+    // We'll reload if enough time has passed or if we detect external changes
+    time_t currentTime = time(NULL);
+    if (currentTime - lastDefaultsModTime > 5) { // Check every 5+ seconds
+        NSDictionary *currentConfig = [defaults persistentDomainForName:defaultsDomain];
+        if (!currentConfig) {
+            // Try fallback to NSGlobalDomain
+            NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
+            currentConfig = [globalDomain objectForKey:@"GlobalShortcuts"];
         }
+        
+        // Compare with current shortcuts
+        if (![currentConfig isEqualToDictionary:shortcuts]) {
+            [self logWithFormat:@"Defaults changed, reloading..."];
+            [self ungrabKeys];
+            if ([self loadShortcuts]) {
+                [self grabKeys];
+                return YES;
+            }
+        }
+        
+        lastDefaultsModTime = currentTime;
     }
     
     return NO;
@@ -967,15 +928,20 @@ void showUsage(const char *progname)
     printf("  -h, --help       Show this help\n");
     printf("\n");
     printf("Configuration:\n");
-    printf("1. Config file: ~/.globalshortcutsrc (preferred)\n");
-    printf("   Format: key_combination=command\n");
-    printf("   Example:\n");
-    printf("     ctrl+shift+t=xterm\n");
-    printf("     ctrl+shift+f=firefox\n");
-    printf("     ctrl+alt+l=xscreensaver-command -lock\n");
+    printf("Uses GNUstep defaults system for configuration.\n");
     printf("\n");
-    printf("2. GNUstep defaults (fallback):\n");
-    printf("   defaults write NSGlobalDomain GlobalShortcuts '{\"ctrl+shift+t\" = \"Terminal\"; \"ctrl+shift+f\" = \"Browser\";}'\n");
+    printf("1. Primary domain (recommended):\n");
+    printf("   defaults write GlobalShortcuts key_combination command\n");
+    printf("   Example:\n");
+    printf("     defaults write GlobalShortcuts 'ctrl+shift+t' 'xterm'\n");
+    printf("     defaults write GlobalShortcuts 'ctrl+shift+f' 'firefox'\n");
+    printf("     defaults write GlobalShortcuts 'ctrl+alt+l' 'xscreensaver-command -lock'\n");
+    printf("\n");
+    printf("2. Batch configuration:\n");
+    printf("   defaults write GlobalShortcuts '{\"ctrl+shift+t\" = \"xterm\"; \"ctrl+shift+f\" = \"firefox\";}'\n");
+    printf("\n");
+    printf("3. Fallback domain (for compatibility):\n");
+    printf("   defaults write NSGlobalDomain GlobalShortcuts '{\"ctrl+shift+t\" = \"xterm\";}'\n");
     printf("\n");
     printf("Key combinations use format: modifier+modifier+key\n");
     printf("Modifiers: ctrl, shift, alt, mod2, mod3, mod4, mod5\n");
@@ -989,6 +955,14 @@ void showUsage(const char *progname)
     printf("  mail, www, homepage, search, calculator\n");
     printf("  sleep, wakeup, power, screensaver, standby\n");
     printf("  record, eject\n");
+    printf("\n");
+    printf("View current configuration:\n");
+    printf("  defaults read GlobalShortcuts\n");
+    printf("  defaults read NSGlobalDomain GlobalShortcuts\n");
+    printf("\n");
+    printf("Delete configuration:\n");
+    printf("  defaults delete GlobalShortcuts\n");
+    printf("  defaults delete NSGlobalDomain GlobalShortcuts\n");
     printf("\n");
     printf("Signals:\n");
     printf("  SIGHUP  - Reload configuration\n");
@@ -1018,33 +992,30 @@ int main(int argc, char *argv[])
             return 1;
         }
     }
-    
-    // Check if already running
-    const char *lockfile = "/tmp/globalshortcutsd.lock";
-    int lockfd = open(lockfile, O_CREAT | O_EXCL | O_WRONLY, 0644);
-    if (lockfd < 0) {
-        if (errno == EEXIST) {
-            fprintf(stderr, "Error: globalshortcutsd is already running\n");
-            [pool release];
-            return 1;
-        } else {
-            fprintf(stderr, "Warning: Could not create lock file: %s\n", strerror(errno));
+
+    // Check if already running using pgrep (excluding self)
+    pid_t mypid = getpid();
+    FILE *pf = popen("pgrep -x globalshortcutsd", "r");
+    if (pf) {
+        char buf[32];
+        while (fgets(buf, sizeof(buf), pf)) {
+            pid_t pid = (pid_t)atoi(buf);
+            if (pid > 0 && pid != mypid) {
+                fprintf(stderr, "Error: globalshortcutsd is already running (pid %d)\n", pid);
+                pclose(pf);
+                [pool release];
+                return 1;
+            }
         }
-    } else {
-        // Write PID to lock file
-        char pidbuf[32];
-        snprintf(pidbuf, sizeof(pidbuf), "%d\n", getpid());
-        write(lockfd, pidbuf, strlen(pidbuf));
-        close(lockfd);
+        pclose(pf);
     }
-    
+
     // Initialize GNUstep
     [[NSProcessInfo processInfo] setProcessName:@"globalshortcutsd"];
     
     globalshortcutsd *daemon = [[globalshortcutsd alloc] init];
     if (!daemon) {
         fprintf(stderr, "Error: Failed to create daemon instance\n");
-        unlink(lockfile);
         [pool release];
         return 1;
     }
@@ -1083,9 +1054,6 @@ int main(int argc, char *argv[])
 cleanup:
     [daemon logWithFormat:@"globalshortcutsd terminated"];
     [daemon release];
-    
-    // Clean up lock file
-    unlink(lockfile);
     
     [pool release];
     
