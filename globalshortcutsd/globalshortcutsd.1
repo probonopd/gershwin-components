@@ -78,6 +78,16 @@ To remove all shortcuts:
 defaults delete GlobalShortcuts
 .Ed
 .Pp
+To reload configuration after changing shortcuts:
+.Bd -literal -offset indent
+killall -HUP globalshortcutsd
+.Ed
+.Pp
+To gracefully shut down the daemon:
+.Bd -literal -offset indent
+killall -TERM globalshortcutsd
+.Ed
+.Pp
 .Nm
 .Sh SEE ALSO
 .Xr X11 7

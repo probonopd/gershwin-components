@@ -52,16 +52,14 @@ Configure shortcuts using the GNUstep defaults system:
 
 ```sh
 # Set up some basic shortcuts
-defaults write GlobalShortcuts '{
-    "ctrl+shift+t" = "Terminal";
-}'
+defaults write GlobalShortcuts ctrl+shift+t Terminal
 ```
 
 You can also add or update individual shortcuts:
 
 ```sh
 # Add or update a single shortcut
-defaults write GlobalShortcuts -dict-add "ctrl+alt+t" "Terminal"
+defaults write GlobalShortcuts ctrl+alt+t Terminal
 ```
 
 ### Key Combination Format
@@ -112,20 +110,20 @@ killall -TERM globalshortcutsd
 
 ```sh
 # Terminal shortcut
-defaults write GlobalShortcuts -dict-add "ctrl+alt+t" "Terminal"
+defaults write GlobalShortcuts ctrl+alt+t Terminal
 
 # Application launcher
-defaults write GlobalShortcuts -dict-add "alt+f2" "Launcher"
+defaults write GlobalShortcuts alt+f2 Launcher
 
 # Lock screen
-defaults write GlobalShortcuts -dict-add "ctrl+alt+l" "ScreenLock"
+defaults write GlobalShortcuts ctrl+alt+l ScreenLock
 
 # Volume control
-defaults write GlobalShortcuts -dict-add "ctrl+shift+equal" "VolumeControl --increase"
-defaults write GlobalShortcuts -dict-add "ctrl+shift+minus" "VolumeControl --decrease"
+defaults write GlobalShortcuts ctrl+shift+equal "VolumeControl --increase"
+defaults write GlobalShortcuts ctrl+shift+minus "VolumeControl --decrease"
 
 # Raw keycode example (useful for special keys)
-defaults write GlobalShortcuts -dict-add "ctrl+shift+code:28" "echo Raw keycode 28 pressed"
+defaults write GlobalShortcuts ctrl+shift+code:28 "echo Raw keycode 28 pressed"
 ```
 
 ## Multimedia Keys
@@ -156,12 +154,10 @@ globalshortcutsd includes comprehensive support for multimedia keys:
 
 Example multimedia configuration:
 ```sh
-defaults write GlobalShortcuts '{
-    "volume_up" = "VolumeControl --increase";
-    "volume_down" = "VolumeControl --decrease";
-    "volume_mute" = "VolumeControl --toggle";
-    "brightness_up" = "DisplayManager --brightness-up";
-    "brightness_down" = "DisplayManager --brightness-down";
-    "www" = "Browser";
-}'
+defaults write GlobalShortcuts volume_up "VolumeControl --increase"
+defaults write GlobalShortcuts volume_down "VolumeControl --decrease"
+defaults write GlobalShortcuts volume_mute "VolumeControl --toggle"
+defaults write GlobalShortcuts brightness_up "DisplayManager --brightness-up"
+defaults write GlobalShortcuts brightness_down "DisplayManager --brightness-down"
+defaults write GlobalShortcuts www "Browser"
 ```

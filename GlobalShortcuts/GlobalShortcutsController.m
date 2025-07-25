@@ -110,7 +110,7 @@
     [instructionsLabel setSelectable:NO];
     [instructionsLabel setBezeled:NO];
     [instructionsLabel setDrawsBackground:NO];
-    [instructionsLabel setStringValue:@"Configure global keyboard shortcuts for the globalshortcutsd daemon.\nChanges are saved to NSGlobalDomain GlobalShortcuts and applied automatically."];
+    [instructionsLabel setStringValue:@"Configure global keyboard shortcuts for the globalshortcutsd daemon."];
     [mainView addSubview:instructionsLabel];
     [instructionsLabel release];
     
