@@ -20,31 +20,23 @@ globalshortcutsd_OBJCFLAGS += -Wall -Wextra -Werror -O2
 include $(GNUSTEP_MAKEFILES)/tool.make
 
 # Installation directories
-PREFIX ?= /usr/local
-BINDIR = $(PREFIX)/bin
+BINDIR = $(GNUSTEP_SYSTEM_TOOLS)
 MANDIR = $(PREFIX)/share/man/man1
 DOCDIR = $(PREFIX)/share/doc/globalshortcutsd
 
-# Install target
-install-daemon: all
-	@echo "Installing globalshortcutsd..."
-	install -d $(DESTDIR)$(BINDIR)
-	install -m 755 $(GNUSTEP_OBJ_DIR)/globalshortcutsd $(DESTDIR)$(BINDIR)/
+# Install target (append our steps to the default install)
+install::
+	@echo "Installing globalshortcutsd extras..."
 	install -d $(DESTDIR)$(DOCDIR)
 	install -m 644 README.md $(DESTDIR)$(DOCDIR)/
+	install -d $(DESTDIR)$(MANDIR)
+	install -m 644 globalshortcutsd.1 $(DESTDIR)$(MANDIR)/
 	@echo "Installation complete."
-	@echo "Create a configuration file at ~/.globalshortcutsrc"
-	@echo "Example configuration:"
-	@echo "  ctrl+shift+t=xterm"
-	@echo "  ctrl+shift+f=firefox"
-	@echo ""
-	@echo "Start the daemon with: globalshortcutsd"
-	@echo "For verbose output: globalshortcutsd -v"
 
-# Uninstall target
-uninstall-daemon:
-	@echo "Uninstalling globalshortcutsd..."
-	rm -f $(DESTDIR)$(BINDIR)/globalshortcutsd
+# Uninstall target (append our steps to the default uninstall)
+uninstall::
+	@echo "Uninstalling globalshortcutsd extras..."
+	rm -f $(DESTDIR)$(MANDIR)/globalshortcutsd.1
 	rm -rf $(DESTDIR)$(DOCDIR)
 	@echo "Uninstallation complete."
 
@@ -52,4 +44,4 @@ uninstall-daemon:
 clean::
 	rm -f *~ *.core
 
-.PHONY: install-daemon uninstall-daemon clean
+.PHONY: install uninstall clean

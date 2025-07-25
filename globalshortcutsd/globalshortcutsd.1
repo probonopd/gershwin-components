@@ -1,0 +1,85 @@
+.Dd July 25, 2025
+.Dt GLOBALSHORTCUTSD 1
+.Os
+.Sh NAME
+globalshortcutsd \- global keyboard shortcut daemon
+.Sh SYNOPSIS
+.Nm globalshortcutsd
+.Op Fl h
+.Sh DESCRIPTION
+.Nm
+detects and handles global keyboard shortcuts, allowing users to bind keys to actions system-wide.
+.Pp
+The daemon listens for key events and executes configured commands when shortcuts are triggered.
+.Pp
+The configuration file location and format are described in the project documentation.
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl h
+Display help and usage information.
+.El
+.Sh EXAMPLES
+To start the daemon:
+.Bd -literal -offset indent
+globalshortcutsd
+.Ed
+.Pp
+To run in the background:
+.Bd -literal -offset indent
+nohup globalshortcutsd &
+.Ed
+.Pp
+To see help:
+.Bd -literal -offset indent
+globalshortcutsd -h
+.Ed
+.Sh CONFIGURATION
+.Nm
+is configured using the GNUstep defaults system. The domain is
+.Sy GlobalShortcuts .
+Key bindings are specified as key-value pairs, where the key is the key combination and the value is the shell command to execute.
+.Pp
+Key combinations must be specified in lowercase, with modifiers and key separated by plus signs:
+.Bd -literal -offset indent
+modifier+modifier+key
+.Ed
+.Pp
+Supported modifiers: ctrl, shift, alt, mod1, mod2, mod3, mod4, mod5
+.Pp
+Supported keys: a-z, 0-9, f1-f24, space, return, enter, tab, escape, esc, backspace, delete, home, end, page_up, page_down, up, down, left, right, and multimedia keys (see README).
+.Pp
+Raw keycodes can be specified as code:NN (e.g., code:28).
+.Pp
+To set multiple shortcuts at once:
+.Bd -literal -offset indent
+defaults write GlobalShortcuts '{
+    "ctrl+shift+t" = "Terminal";
+    "ctrl+alt+l" = "ScreenLock";
+}'
+.Ed
+.Pp
+To add or update a single shortcut:
+.Bd -literal -offset indent
+defaults write GlobalShortcuts -dict-add "ctrl+alt+t" "Terminal"
+.Ed
+.Pp
+To use a raw keycode:
+.Bd -literal -offset indent
+defaults write GlobalShortcuts -dict-add "ctrl+shift+code:28" "echo Raw keycode 28 pressed"
+.Ed
+.Pp
+To list current shortcuts:
+.Bd -literal -offset indent
+defaults read GlobalShortcuts
+.Ed
+.Pp
+To remove all shortcuts:
+.Bd -literal -offset indent
+defaults delete GlobalShortcuts
+.Ed
+.Pp
+.Nm
+.Sh SEE ALSO
+.Xr X11 7
+.Sh AUTHORS
+Written by the Gershwin project contributors.

@@ -137,15 +137,8 @@ static void signalHandler(int sig)
     NSDictionary *config = [defaults persistentDomainForName:defaultsDomain];
     
     if (!config) {
-        // Try fallback to NSGlobalDomain with GlobalShortcuts key for backward compatibility
-        NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
-        config = [globalDomain objectForKey:@"GlobalShortcuts"];
-    }
-    
-    if (!config) {
         [self logWithFormat:@"No GlobalShortcuts configuration found"];
         [self logWithFormat:@"Create shortcuts using: defaults write %@ '{\"ctrl+shift+t\" = \"xterm\";}'", defaultsDomain];
-        [self logWithFormat:@"Or use: defaults write NSGlobalDomain GlobalShortcuts '{\"ctrl+shift+t\" = \"xterm\";}'"];
         [self logWithFormat:@"Example shortcuts:"];
         [self logWithFormat:@"  ctrl+shift+t -> Terminal"];
         [self logWithFormat:@"  ctrl+shift+f -> Firefox"];
@@ -865,12 +858,6 @@ static void signalHandler(int sig)
     time_t currentTime = time(NULL);
     if (currentTime - lastDefaultsModTime > 5) { // Check every 5+ seconds
         NSDictionary *currentConfig = [defaults persistentDomainForName:defaultsDomain];
-        if (!currentConfig) {
-            // Try fallback to NSGlobalDomain
-            NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
-            currentConfig = [globalDomain objectForKey:@"GlobalShortcuts"];
-        }
-        
         // Compare with current shortcuts
         if (![currentConfig isEqualToDictionary:shortcuts]) {
             [self logWithFormat:@"Defaults changed, reloading..."];
@@ -940,9 +927,6 @@ void showUsage(const char *progname)
     printf("2. Batch configuration:\n");
     printf("   defaults write GlobalShortcuts '{\"ctrl+shift+t\" = \"xterm\"; \"ctrl+shift+f\" = \"firefox\";}'\n");
     printf("\n");
-    printf("3. Fallback domain (for compatibility):\n");
-    printf("   defaults write NSGlobalDomain GlobalShortcuts '{\"ctrl+shift+t\" = \"xterm\";}'\n");
-    printf("\n");
     printf("Key combinations use format: modifier+modifier+key\n");
     printf("Modifiers: ctrl, shift, alt, mod2, mod3, mod4, mod5\n");
     printf("Keys: a-z, 0-9, f1-f24, space, return, tab, escape, etc.\n");
@@ -958,11 +942,9 @@ void showUsage(const char *progname)
     printf("\n");
     printf("View current configuration:\n");
     printf("  defaults read GlobalShortcuts\n");
-    printf("  defaults read NSGlobalDomain GlobalShortcuts\n");
     printf("\n");
     printf("Delete configuration:\n");
     printf("  defaults delete GlobalShortcuts\n");
-    printf("  defaults delete NSGlobalDomain GlobalShortcuts\n");
     printf("\n");
     printf("Signals:\n");
     printf("  SIGHUP  - Reload configuration\n");
