@@ -27,6 +27,8 @@ DOCDIR = $(PREFIX)/share/doc/globalshortcutsd
 # Install target (append our steps to the default install)
 install::
 	@echo "Installing globalshortcutsd extras..."
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 $(GNUSTEP_OBJ_DIR)/globalshortcutsd $(DESTDIR)$(BINDIR)/
 	install -d $(DESTDIR)$(DOCDIR)
 	install -m 644 README.md $(DESTDIR)$(DOCDIR)/
 	install -d $(DESTDIR)$(MANDIR)
@@ -36,6 +38,7 @@ install::
 # Uninstall target (append our steps to the default uninstall)
 uninstall::
 	@echo "Uninstalling globalshortcutsd extras..."
+	rm -f $(DESTDIR)$(BINDIR)/globalshortcutsd
 	rm -f $(DESTDIR)$(MANDIR)/globalshortcutsd.1
 	rm -rf $(DESTDIR)$(DOCDIR)
 	@echo "Uninstallation complete."
