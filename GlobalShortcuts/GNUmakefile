@@ -1,5 +1,12 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
+# Use clang19 as specified in instructions
+CC = clang19
+OBJC = clang19
+
+# Compiler flags for production builds
+GlobalShortcuts_OBJCFLAGS += -Wall -Wextra -Werror -O2
+
 BUNDLE_NAME = GlobalShortcuts
 GlobalShortcuts_OBJC_FILES = GlobalShortcutsPane.m GlobalShortcutsController.m
 GlobalShortcuts_RESOURCE_FILES = GlobalShortcuts.png GlobalShortcutsInfo.plist

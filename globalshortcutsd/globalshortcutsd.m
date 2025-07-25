@@ -16,6 +16,28 @@
 // Forward declarations
 @class globalshortcutsd;
 
+// Helper function to parse key combinations with both + and - separators
+NSArray *parseKeyCombo(NSString *keyCombo) {
+    if (!keyCombo || [keyCombo length] == 0) {
+        return nil;
+    }
+    
+    // First try + separator
+    NSArray *parts = [keyCombo componentsSeparatedByString:@"+"];
+    if ([parts count] > 1) {
+        return parts;
+    }
+    
+    // Then try - separator
+    parts = [keyCombo componentsSeparatedByString:@"-"];
+    if ([parts count] > 1) {
+        return parts;
+    }
+    
+    // Single part, return as is
+    return [NSArray arrayWithObject:keyCombo];
+}
+
 // Global variables
 static BOOL x11_error_occurred = NO;
 static globalshortcutsd *globalInstance = nil;
@@ -53,7 +75,6 @@ static int last_signal = 0;
 - (BOOL)grabKey:(KeyCode)keycode modifier:(unsigned int)modifier forCombo:(NSString *)combo;
 - (BOOL)matchesEvent:(XKeyEvent *)keyEvent withKeyCombo:(NSString *)keyCombo;
 - (BOOL)isValidKeyCombo:(NSString *)keyCombo;
-- (BOOL)checkDefaultsChanges;
 - (void)validateConfiguration;
 
 @end
@@ -134,16 +155,43 @@ static void signalHandler(int sig)
 - (BOOL)loadShortcuts
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    
+    // Force synchronize to get latest changes from other processes
+    [defaults synchronize];
+    
+    // On reload (when shortcuts already exists), create a new NSUserDefaults instance
+    // to bypass any potential caching issues
+    if (shortcuts) {
+        [defaults release];
+        defaults = [[NSUserDefaults alloc] init];
+        [defaults synchronize];
+    }
+    
     NSDictionary *config = [defaults persistentDomainForName:defaultsDomain];
     
+    if (shortcuts && defaults != [NSUserDefaults standardUserDefaults]) {
+        [defaults release];
+    }
+    
     if (!config) {
-        [self logWithFormat:@"No GlobalShortcuts configuration found"];
-        [self logWithFormat:@"Create shortcuts using: defaults write %@ '{\"ctrl+shift+t\" = \"xterm\";}'", defaultsDomain];
-        [self logWithFormat:@"Example shortcuts:"];
-        [self logWithFormat:@"  ctrl+shift+t -> Terminal"];
-        [self logWithFormat:@"  ctrl+shift+f -> Firefox"];
-        [self logWithFormat:@"  ctrl+alt+l -> Screen lock"];
-        return NO;
+        [self logWithFormat:@"No GlobalShortcuts configuration found - starting with empty configuration"];
+        [self logWithFormat:@"Create shortcuts using: defaults write %@ 'ctrl+shift+t' 'Terminal'", defaultsDomain];
+        [self logWithFormat:@"Example shortcut:"];
+        [self logWithFormat:@"  defaults write %@ 'ctrl+shift+t' 'Terminal'", defaultsDomain];
+
+        
+        // Create empty shortcuts dictionary
+        [shortcuts release];
+        shortcuts = [[NSDictionary alloc] init];
+        lastDefaultsModTime = time(NULL);
+        
+        [self logWithFormat:@"Loaded 0 shortcuts from GNUstep defaults domain '%@'", defaultsDomain];
+        return YES;
+    }
+    
+    // Log the configuration being loaded
+    if (verbose) {
+        [self logWithFormat:@"Raw configuration from defaults: %@", config];
     }
     
     [shortcuts release];
@@ -251,9 +299,14 @@ static void signalHandler(int sig)
 
 - (BOOL)grabKeys
 {
-    if (!shortcuts || !display) {
-        [self logWithFormat:@"Error: Cannot grab keys - missing shortcuts or display"];
+    if (!display) {
+        [self logWithFormat:@"Error: Cannot grab keys - missing display"];
         return NO;
+    }
+    
+    if (!shortcuts || [shortcuts count] == 0) {
+        [self logWithFormat:@"No shortcuts to grab - daemon ready for configuration"];
+        return YES;
     }
     
     NSEnumerator *enumerator = [shortcuts keyEnumerator];
@@ -267,9 +320,9 @@ static void signalHandler(int sig)
             continue;
         }
         
-        // Parse key combination like "ctrl+shift+t" or "ctrl+shift+code:28"
-        NSArray *parts = [keyCombo componentsSeparatedByString:@"+"];
-        if ([parts count] < 1) continue;
+        // Parse key combination like "ctrl+shift+t", "ctrl-shift-t", or "ctrl+shift+code:28"
+        NSArray *parts = parseKeyCombo(keyCombo);
+        if (!parts || [parts count] < 1) continue;
         
         unsigned int modifier = 0;
         NSString *keyString = nil;
@@ -514,13 +567,6 @@ static void signalHandler(int sig)
             last_signal = 0;
         }
         
-        // Check for defaults changes every 1000 iterations (~10 seconds)
-        static int defaults_check_counter = 0;
-        if (++defaults_check_counter >= 1000) {
-            [self checkDefaultsChanges];
-            defaults_check_counter = 0;
-        }
-        
         // Check X11 connection
         if (!display || XConnectionNumber(display) < 0) {
             [self logWithFormat:@"Error: Lost X11 connection, attempting to reconnect..."];
@@ -596,8 +642,8 @@ static void signalHandler(int sig)
 
 - (BOOL)matchesEvent:(XKeyEvent *)keyEvent withKeyCombo:(NSString *)keyCombo
 {
-    NSArray *parts = [keyCombo componentsSeparatedByString:@"+"];
-    if ([parts count] < 1) return NO;
+    NSArray *parts = parseKeyCombo(keyCombo);
+    if (!parts || [parts count] < 1) return NO;
     
     unsigned int modifier = 0;
     NSString *keyString = nil;
@@ -746,8 +792,12 @@ static void signalHandler(int sig)
         case SIGHUP:
             [self logWithFormat:@"Received HUP signal, reloading configuration..."];
             [self ungrabKeys];
-            [self loadShortcuts];
-            [self grabKeys];
+            if ([self loadShortcuts]) {
+                [self logWithFormat:@"Configuration reloaded successfully, grabbing keys..."];
+                [self grabKeys];
+            } else {
+                [self logWithFormat:@"Warning: Failed to reload configuration"];
+            }
             break;
         default:
             [self logWithFormat:@"Received unexpected signal: %d", sig];
@@ -816,8 +866,8 @@ static void signalHandler(int sig)
         return NO;
     }
     
-    NSArray *parts = [keyCombo componentsSeparatedByString:@"+"];
-    if ([parts count] < 1) {
+    NSArray *parts = parseKeyCombo(keyCombo);
+    if (!parts || [parts count] < 1) {
         return NO;
     }
     
@@ -844,34 +894,6 @@ static void signalHandler(int sig)
     }
     
     return hasModifier && hasKey;
-}
-
-- (BOOL)checkDefaultsChanges
-{
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    
-    // Force synchronize to get latest changes from other processes
-    [defaults synchronize];
-    
-    // Check if configuration has changed
-    // We'll reload if enough time has passed or if we detect external changes
-    time_t currentTime = time(NULL);
-    if (currentTime - lastDefaultsModTime > 5) { // Check every 5+ seconds
-        NSDictionary *currentConfig = [defaults persistentDomainForName:defaultsDomain];
-        // Compare with current shortcuts
-        if (![currentConfig isEqualToDictionary:shortcuts]) {
-            [self logWithFormat:@"Defaults changed, reloading..."];
-            [self ungrabKeys];
-            if ([self loadShortcuts]) {
-                [self grabKeys];
-                return YES;
-            }
-        }
-        
-        lastDefaultsModTime = currentTime;
-    }
-    
-    return NO;
 }
 
 - (void)validateConfiguration
@@ -920,14 +942,10 @@ void showUsage(const char *progname)
     printf("1. Primary domain (recommended):\n");
     printf("   defaults write GlobalShortcuts key_combination command\n");
     printf("   Example:\n");
-    printf("     defaults write GlobalShortcuts 'ctrl+shift+t' 'xterm'\n");
-    printf("     defaults write GlobalShortcuts 'ctrl+shift+f' 'firefox'\n");
-    printf("     defaults write GlobalShortcuts 'ctrl+alt+l' 'xscreensaver-command -lock'\n");
+    printf("     defaults write GlobalShortcuts ctrl+shift+t Terminal\n");
+
     printf("\n");
-    printf("2. Batch configuration:\n");
-    printf("   defaults write GlobalShortcuts '{\"ctrl+shift+t\" = \"xterm\"; \"ctrl+shift+f\" = \"firefox\";}'\n");
-    printf("\n");
-    printf("Key combinations use format: modifier+modifier+key\n");
+    printf("Key combinations use format: modifier+modifier+key or modifier-modifier-key\n");
     printf("Modifiers: ctrl, shift, alt, mod2, mod3, mod4, mod5\n");
     printf("Keys: a-z, 0-9, f1-f24, space, return, tab, escape, etc.\n");
     printf("Raw keycodes: code:28 (where 28 is the keycode number)\n");
@@ -1015,15 +1033,17 @@ int main(int argc, char *argv[])
         }
         
         if (![daemon loadShortcuts]) {
-            [daemon logWithFormat:@"Error: Failed to load shortcuts"];
-            exit_code = 1;
-            goto cleanup;
+            [daemon logWithFormat:@"Warning: Failed to load shortcuts, but continuing anyway"];
         }
         
-        if (![daemon grabKeys]) {
-            [daemon logWithFormat:@"Error: Failed to grab any keys"];
-            exit_code = 1;
-            goto cleanup;
+        if ([daemon->shortcuts count] > 0) {
+            if (![daemon grabKeys]) {
+                [daemon logWithFormat:@"Error: Failed to grab any keys"];
+                exit_code = 1;
+                goto cleanup;
+            }
+        } else {
+            [daemon logWithFormat:@"No shortcuts configured - waiting for configuration"];
         }
         
         [daemon eventLoop];

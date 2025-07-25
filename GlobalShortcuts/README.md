@@ -62,7 +62,7 @@ The "Global Shortcuts" pane should appear in the preferences window.
 
 ## Configuration Storage
 
-The preference pane manages shortcuts via with the key "GlobalShortcuts". The format is a dictionary where keys are the key combinations and values are the commands:
+The preference pane manages shortcuts via the GlobalShortcuts domain. The format is a dictionary where keys are the key combinations and values are the commands:
 
 ```
 GlobalShortcuts = {
@@ -75,7 +75,7 @@ You can also set shortcuts manually using the defaults command:
 
 ```sh
 # Set individual shortcuts
-defaults write GlobalShortcuts 'ctrl+shift+t' 'Terminal'
+defaults write GlobalShortcuts ctrl+shift+t Terminal
 ```
 
-Changes made through the preference pane are immediately written to and the globalshortcutsd daemon is notified to reload its configuration.
+Changes made through the preference pane are immediately written to GlobalShortcuts and the globalshortcutsd daemon is notified to reload its configuration.

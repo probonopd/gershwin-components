@@ -1,5 +1,27 @@
 #import "GlobalShortcutsController.h"
 
+// Helper function to parse key combinations with both + and - separators
+NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
+    if (!keyCombo || [keyCombo length] == 0) {
+        return nil;
+    }
+    
+    // First try + separator
+    NSArray *parts = [keyCombo componentsSeparatedByString:@"+"];
+    if ([parts count] > 1) {
+        return parts;
+    }
+    
+    // Then try - separator
+    parts = [keyCombo componentsSeparatedByString:@"-"];
+    if ([parts count] > 1) {
+        return parts;
+    }
+    
+    // Single part, return as is
+    return [NSArray arrayWithObject:keyCombo];
+}
+
 @interface ShortcutEditController : NSObject
 {
     NSWindow *editWindow;
@@ -130,14 +152,8 @@
     
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     
-    // Try primary domain first
+    // Only use GlobalShortcuts domain
     NSDictionary *globalShortcuts = [defaults persistentDomainForName:@"GlobalShortcuts"];
-    
-    if (!globalShortcuts || [globalShortcuts count] == 0) {
-        // Fallback to NSGlobalDomain for backward compatibility
-        NSDictionary *globalDomain = [defaults persistentDomainForName:NSGlobalDomain];
-        globalShortcuts = [globalDomain objectForKey:@"GlobalShortcuts"];
-    }
     
     if (!globalShortcuts || [globalShortcuts count] == 0) {
         [statusLabel setStringValue:@"No shortcuts configured. Add shortcuts to create GlobalShortcuts domain."];
@@ -227,7 +243,7 @@
 - (void)editShortcut:(id)sender
 {
     NSInteger selectedRow = [shortcutsTable selectedRow];
-    if (selectedRow >= 0 && selectedRow < [shortcuts count]) {
+    if (selectedRow >= 0 && selectedRow < (NSInteger)[shortcuts count]) {
         NSMutableDictionary *shortcut = [shortcuts objectAtIndex:selectedRow];
         [self showAddEditShortcutSheet:shortcut isEditing:YES];
     }
@@ -236,7 +252,7 @@
 - (void)deleteShortcut:(id)sender
 {
     NSInteger selectedRow = [shortcutsTable selectedRow];
-    if (selectedRow >= 0 && selectedRow < [shortcuts count]) {
+    if (selectedRow >= 0 && selectedRow < (NSInteger)[shortcuts count]) {
         [shortcuts removeObjectAtIndex:selectedRow];
         [self saveShortcutsToDefaults];
         [shortcutsTable reloadData];
@@ -260,6 +276,42 @@
     [deleteButton setEnabled:hasSelection];
 }
 
+- (BOOL)isValidKeyCombo:(NSString *)keyCombo
+{
+    if (!keyCombo || [keyCombo length] == 0) {
+        return NO;
+    }
+    
+    NSArray *parts = parseKeyComboInPrefPane(keyCombo);
+    if (!parts || [parts count] < 1) {
+        return NO;
+    }
+    
+    BOOL hasModifier = NO;
+    BOOL hasKey = NO;
+    
+    for (NSString *part in parts) {
+        NSString *cleanPart = [[part stringByTrimmingCharactersInSet:
+            [NSCharacterSet whitespaceCharacterSet]] lowercaseString];
+        
+        if ([cleanPart length] == 0) {
+            return NO;
+        }
+        
+        if ([cleanPart isEqualToString:@"ctrl"] || [cleanPart isEqualToString:@"control"] ||
+            [cleanPart isEqualToString:@"shift"] || [cleanPart isEqualToString:@"alt"] ||
+            [cleanPart isEqualToString:@"mod1"] || [cleanPart isEqualToString:@"mod2"] ||
+            [cleanPart isEqualToString:@"mod3"] || [cleanPart isEqualToString:@"mod4"] ||
+            [cleanPart isEqualToString:@"mod5"]) {
+            hasModifier = YES;
+        } else {
+            hasKey = YES;
+        }
+    }
+    
+    return hasModifier && hasKey;
+}
+
 // Table view data source methods
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
 {
@@ -268,7 +320,7 @@
 
 - (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
-    if (row >= 0 && row < [shortcuts count]) {
+    if (row >= 0 && row < (NSInteger)[shortcuts count]) {
         NSDictionary *shortcut = [shortcuts objectAtIndex:row];
         return [shortcut objectForKey:[tableColumn identifier]];
     }
@@ -278,7 +330,7 @@
 // Table view delegate methods
 - (void)tableView:(NSTableView *)tableView setObjectValue:(id)object forTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
-    if (row >= 0 && row < [shortcuts count]) {
+    if (row >= 0 && row < (NSInteger)[shortcuts count]) {
         NSMutableDictionary *shortcut = [shortcuts objectAtIndex:row];
         [shortcut setObject:object forKey:[tableColumn identifier]];
         [self saveShortcutsToDefaults];
@@ -371,6 +423,16 @@
                                        alternateButton:nil
                                            otherButton:nil
                              informativeTextWithFormat:@"Please enter a key combination."];
+        [alert runModal];
+        return;
+    }
+    
+    if (![parentController isValidKeyCombo:keyCombo]) {
+        NSAlert *alert = [NSAlert alertWithMessageText:@"Invalid Key Combination"
+                                         defaultButton:@"OK"
+                                       alternateButton:nil
+                                           otherButton:nil
+                             informativeTextWithFormat:@"Key combination format is invalid. Use format: modifier+modifier+key (e.g., ctrl+shift+t).\n\nSupported modifiers: ctrl, shift, alt, mod1-mod5\nSupported keys: a-z, 0-9, f1-f24, special keys, multimedia keys"];
         [alert runModal];
         return;
     }

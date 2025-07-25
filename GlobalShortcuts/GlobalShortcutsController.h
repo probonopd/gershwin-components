@@ -28,5 +28,6 @@
 - (BOOL)isDaemonRunningCheck;
 - (void)updateDaemonStatus;
 - (void)showAddEditShortcutSheet:(NSMutableDictionary *)shortcut isEditing:(BOOL)editing;
+- (BOOL)isValidKeyCombo:(NSString *)keyCombo;
 
 @end
