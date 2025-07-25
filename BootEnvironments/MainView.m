@@ -61,6 +61,8 @@
         NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:info[0]];
         [[col headerCell] setStringValue:info[1]];
         [col setWidth:[info[2] floatValue]];
+        [col setMinWidth:40];
+        [col setResizingMask:NSTableColumnAutoresizingMask];
         // Make column non-editable
         [col setEditable:NO];
         [self.tableView addTableColumn:col];
@@ -73,6 +75,8 @@
     [self.tableView setRowHeight:22.0];
     NSFont *font = [NSFont systemFontOfSize:13.0];
     [self.tableView setFont:font];
+    [self.tableView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    [self.tableScrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
 }
 
 - (void)resizeSubviewsWithOldSize:(NSSize)oldSize {

@@ -265,6 +265,7 @@
     
     NSRect tableFrame = NSMakeRect(0, 0, frame.size.width - 60, 200);
     tableView = [[EasyDragTableView alloc] initWithFrame:tableFrame];
+    [tableView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [tableView setDataSource:self];
     [tableView setDelegate:self];
     [tableView setRowHeight:22];
@@ -279,6 +280,7 @@
     NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"BootEntry"];
     [column setTitle:@"Boot Entries"];
     [column setWidth:tableFrame.size.width - 20];
+    [column setResizingMask:NSTableColumnAutoresizingMask];
     
     // Set up a custom data cell that supports both image and text
     BootEntryCell *dataCell = [[BootEntryCell alloc] init];
