@@ -69,22 +69,16 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
     // Create main view
     mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 600, 400)];
     
-    // Create status label
-    statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 360, 560, 20)];
-    [statusLabel setEditable:NO];
-    [statusLabel setSelectable:NO];
-    [statusLabel setBezeled:NO];
-    [statusLabel setDrawsBackground:NO];
-    [statusLabel setStringValue:@"Loading global shortcuts..."];
-    [mainView addSubview:statusLabel];
-    
+    // Remove status label below the table
     // Create table view with scroll view
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 60, 460, 280)];
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(12, 60, mainView.frame.size.width - 24, 280)];
+    [scrollView setAutoresizingMask:NSViewWidthSizable];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:NO];
     [scrollView setBorderType:NSBezelBorder];
     
     shortcutsTable = [[NSTableView alloc] initWithFrame:[scrollView bounds]];
+    [shortcutsTable setAutoresizingMask:NSViewWidthSizable];
     [shortcutsTable setDelegate:self];
     [shortcutsTable setDataSource:self];
     [shortcutsTable setDoubleAction:@selector(tableDoubleClicked:)];
@@ -94,13 +88,17 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
     NSTableColumn *keyColumn = [[NSTableColumn alloc] initWithIdentifier:@"keyCombo"];
     [keyColumn setTitle:@"Key Combination"];
     [keyColumn setWidth:180];
+    [keyColumn setMinWidth:100];
+    [keyColumn setResizingMask:NSTableColumnAutoresizingMask];
     [keyColumn setEditable:NO];
     [shortcutsTable addTableColumn:keyColumn];
     [keyColumn release];
     
     NSTableColumn *commandColumn = [[NSTableColumn alloc] initWithIdentifier:@"command"];
     [commandColumn setTitle:@"Command"];
-    [commandColumn setWidth:260];
+    [commandColumn setWidth:shortcutsTable.frame.size.width - 180 - 20];
+    [commandColumn setMinWidth:100];
+    [commandColumn setResizingMask:NSTableColumnAutoresizingMask];
     [commandColumn setEditable:NO];
     [shortcutsTable addTableColumn:commandColumn];
     [commandColumn release];
@@ -109,36 +107,41 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
     [mainView addSubview:scrollView];
     [scrollView release];
     
-    // Create buttons
-    addButton = [[NSButton alloc] initWithFrame:NSMakeRect(500, 320, 80, 32)];
+    // Place buttons below the table, horizontally centered and autoresizing
+    CGFloat buttonY = 20;
+    CGFloat buttonWidth = 80;
+    CGFloat buttonSpacing = 20;
+    CGFloat totalButtonWidth = buttonWidth * 3 + buttonSpacing * 2;
+    CGFloat startX = 12 + (mainView.frame.size.width - 24 - totalButtonWidth) / 2;
+    
+    addButton = [[NSButton alloc] init];
     [addButton setTitle:@"Add"];
     [addButton setTarget:self];
     [addButton setAction:@selector(addShortcut:)];
+    [addButton sizeToFit];
+    [addButton setFrame:NSMakeRect(startX, buttonY, buttonWidth, addButton.frame.size.height)];
+    [addButton setAutoresizingMask:NSViewMinXMargin | NSViewMaxXMargin];
     [mainView addSubview:addButton];
     
-    editButton = [[NSButton alloc] initWithFrame:NSMakeRect(500, 280, 80, 32)];
+    editButton = [[NSButton alloc] init];
     [editButton setTitle:@"Edit"];
     [editButton setTarget:self];
     [editButton setAction:@selector(editShortcut:)];
     [editButton setEnabled:NO];
+    [editButton sizeToFit];
+    [editButton setFrame:NSMakeRect(startX + buttonWidth + buttonSpacing, buttonY, buttonWidth, editButton.frame.size.height)];
+    [editButton setAutoresizingMask:NSViewMinXMargin | NSViewMaxXMargin];
     [mainView addSubview:editButton];
     
-    deleteButton = [[NSButton alloc] initWithFrame:NSMakeRect(500, 240, 80, 32)];
+    deleteButton = [[NSButton alloc] init];
     [deleteButton setTitle:@"Delete"];
     [deleteButton setTarget:self];
     [deleteButton setAction:@selector(deleteShortcut:)];
     [deleteButton setEnabled:NO];
+    [deleteButton sizeToFit];
+    [deleteButton setFrame:NSMakeRect(startX + (buttonWidth + buttonSpacing) * 2, buttonY, buttonWidth, deleteButton.frame.size.height)];
+    [deleteButton setAutoresizingMask:NSViewMinXMargin | NSViewMaxXMargin];
     [mainView addSubview:deleteButton];
-    
-    // Add instructions label
-    NSTextField *instructionsLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 20, 560, 30)];
-    [instructionsLabel setEditable:NO];
-    [instructionsLabel setSelectable:NO];
-    [instructionsLabel setBezeled:NO];
-    [instructionsLabel setDrawsBackground:NO];
-    [instructionsLabel setStringValue:@"Configure global keyboard shortcuts for the globalshortcutsd daemon."];
-    [mainView addSubview:instructionsLabel];
-    [instructionsLabel release];
     
     return mainView;
 }
@@ -403,17 +406,21 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
     [contentView addSubview:commandField];
     
     // Buttons
-    cancelButton = [[NSButton alloc] initWithFrame:NSMakeRect(220, 20, 80, 32)];
+    cancelButton = [[NSButton alloc] init];
     [cancelButton setTitle:@"Cancel"];
     [cancelButton setTarget:self];
     [cancelButton setAction:@selector(cancelClicked:)];
+    [cancelButton sizeToFit];
+    [cancelButton setFrame:NSMakeRect(220, 20, 80, cancelButton.frame.size.height)];
     [contentView addSubview:cancelButton];
     
-    okButton = [[NSButton alloc] initWithFrame:NSMakeRect(310, 20, 80, 32)];
+    okButton = [[NSButton alloc] init];
     [okButton setTitle:@"OK"];
     [okButton setTarget:self];
     [okButton setAction:@selector(okClicked:)];
     [okButton setKeyEquivalent:@"\r"];
+    [okButton sizeToFit];
+    [okButton setFrame:NSMakeRect(310, 20, 80, okButton.frame.size.height)];
     [contentView addSubview:okButton];
     
     [NSApp beginSheet:editWindow modalForWindow:parentWindow modalDelegate:nil didEndSelector:nil contextInfo:nil];
