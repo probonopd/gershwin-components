@@ -87,17 +87,21 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
     shortcutsTable = [[NSTableView alloc] initWithFrame:[scrollView bounds]];
     [shortcutsTable setDelegate:self];
     [shortcutsTable setDataSource:self];
+    [shortcutsTable setDoubleAction:@selector(tableDoubleClicked:)];
+    [shortcutsTable setTarget:self];
     
     // Create columns
     NSTableColumn *keyColumn = [[NSTableColumn alloc] initWithIdentifier:@"keyCombo"];
     [keyColumn setTitle:@"Key Combination"];
     [keyColumn setWidth:180];
+    [keyColumn setEditable:NO];
     [shortcutsTable addTableColumn:keyColumn];
     [keyColumn release];
     
     NSTableColumn *commandColumn = [[NSTableColumn alloc] initWithIdentifier:@"command"];
     [commandColumn setTitle:@"Command"];
     [commandColumn setWidth:260];
+    [commandColumn setEditable:NO];
     [shortcutsTable addTableColumn:commandColumn];
     [commandColumn release];
     
@@ -178,7 +182,7 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
     }
     
     NSString *daemonStatus = isDaemonRunning ? @"running" : @"not running";
-    [statusLabel setStringValue:[NSString stringWithFormat:@"Loaded %d shortcuts from GlobalShortcuts domain. Daemon is %@", 
+    [statusLabel setStringValue:[NSString stringWithFormat:@"Loaded %d shortcuts. Daemon is %@", 
                                shortcutCount, daemonStatus]];
     
     return YES;
@@ -330,10 +334,15 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
 // Table view delegate methods
 - (void)tableView:(NSTableView *)tableView setObjectValue:(id)object forTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
-    if (row >= 0 && row < (NSInteger)[shortcuts count]) {
-        NSMutableDictionary *shortcut = [shortcuts objectAtIndex:row];
-        [shortcut setObject:object forKey:[tableColumn identifier]];
-        [self saveShortcutsToDefaults];
+    // Table cells are not editable - use double-click or Edit button instead
+    return;
+}
+
+- (void)tableDoubleClicked:(id)sender
+{
+    NSInteger selectedRow = [shortcutsTable selectedRow];
+    if (selectedRow >= 0 && selectedRow < (NSInteger)[shortcuts count]) {
+        [self editShortcut:sender];
     }
 }
 

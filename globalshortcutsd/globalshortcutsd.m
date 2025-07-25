@@ -200,7 +200,7 @@ static void signalHandler(int sig)
     // Update modification time for change detection
     lastDefaultsModTime = time(NULL);
     
-    [self logWithFormat:@"Loaded %lu shortcuts from GNUstep defaults domain '%@'", 
+    [self logWithFormat:@"Loaded %lu shortcuts from defaults domain '%@'", 
         (unsigned long)[shortcuts count], defaultsDomain];
     [self validateConfiguration];
     

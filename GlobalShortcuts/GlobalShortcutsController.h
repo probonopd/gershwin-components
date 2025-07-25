@@ -23,6 +23,7 @@
 - (void)deleteShortcut:(id)sender;
 - (void)editShortcut:(id)sender;
 - (void)tableViewSelectionDidChange:(NSNotification *)notification;
+- (void)tableDoubleClicked:(id)sender;
 - (BOOL)loadShortcutsFromDefaults;
 - (BOOL)saveShortcutsToDefaults;
 - (BOOL)isDaemonRunningCheck;
