@@ -1,0 +1,9 @@
+A GNUstep preference pane for managing ZFS boot environments on FreeBSD systems.
+
+This preference pane provides a graphical interface for:
+- Viewing available ZFS boot environments
+- Creating new boot environments
+- Activating different boot environments
+- Deleting unused boot environments
+
+Requires the FreeBSD bectl utility for ZFS boot environment management.

@@ -1,0 +1,11 @@
+A GNUstep preference pane for managing startup disk selection on FreeBSD systems.
+
+This preference pane provides a graphical interface for:
+- Viewing available EFI boot entries
+- Setting the default boot disk/partition
+- Managing EFI boot order
+- Adding and removing boot entries
+- Configuring boot timeouts
+
+Uses efibootmgr for EFI boot management and includes a helper utility
+for privileged operations. Designed for UEFI systems running FreeBSD.

@@ -1,0 +1,15 @@
+A GNUstep preference pane and daemon for global keyboard shortcuts on FreeBSD systems.
+
+This package provides:
+- A GNUstep preference pane for configuring global keyboard shortcuts
+- A daemon (globalshortcutsd) that monitors and executes keyboard shortcuts
+- Integration with X11 for system-wide keyboard event handling
+
+Features:
+- Configure custom keyboard shortcuts for launching applications
+- System-wide hotkey monitoring using X11
+- User-friendly graphical configuration interface
+- Lightweight daemon with minimal resource usage
+
+The daemon reads configuration from ~/.globalshortcutsrc and supports
+common shortcut formats like "ctrl+shift+t=xterm".

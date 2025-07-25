@@ -1,0 +1,10 @@
+A GNUstep preference pane for display and monitor configuration on FreeBSD systems.
+
+This preference pane provides a graphical interface for:
+- Configuring display resolution and refresh rates
+- Managing multiple monitor setups
+- Setting primary display
+- Adjusting display orientation
+- Configuring display scaling
+
+Uses the XRandR extension for display management and configuration.

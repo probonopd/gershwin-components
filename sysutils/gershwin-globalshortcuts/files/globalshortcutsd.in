@@ -1,0 +1,40 @@
+#!/bin/sh
+
+# PROVIDE: globalshortcutsd
+# REQUIRE: LOGIN DAEMON
+# KEYWORD: shutdown
+
+# Add these lines to /etc/rc.conf.local or /etc/rc.conf
+# to enable this service:
+#
+# globalshortcutsd_enable (bool):	Set to NO by default.
+#					Set it to YES to enable globalshortcutsd.
+# globalshortcutsd_user (string):	Set user that globalshortcutsd will run under
+#					Default is "nobody".
+
+. /etc/rc.subr
+
+name=globalshortcutsd
+rcvar=globalshortcutsd_enable
+
+load_rc_config $name
+
+: ${globalshortcutsd_enable:="NO"}
+: ${globalshortcutsd_user:="nobody"}
+
+pidfile="/var/run/${name}.pid"
+command="/usr/local/bin/${name}"
+command_args="-d"
+command_interpreter=""
+
+start_precmd="globalshortcutsd_prestart"
+
+globalshortcutsd_prestart()
+{
+	if [ ! -e "/home/${globalshortcutsd_user}/.globalshortcutsrc" ]; then
+		warn "Configuration file /home/${globalshortcutsd_user}/.globalshortcutsrc does not exist"
+		warn "Create it with shortcuts like: ctrl+shift+t=xterm"
+	fi
+}
+
+run_rc_command "$1"

@@ -1,0 +1,87 @@
+env:
+  CIRRUS_CLONE_DEPTH: 1
+  PACKAGES: ports-mgmt/poudriere-devel
+  OVERLAYS: ${CIRRUS_WORKING_DIR}
+  POUDRIERE_BASE: 13.2-RELEASE
+  POUDRIERE_PORTS: HEAD
+  UNAME_r: 13.2-RELEASE
+  UNAME_v: FreeBSD 13.2-RELEASE
+
+# Enable build artifacts
+env:
+  CIRRUS_LOG_TIMESTAMP: true
+
+# Build task for amd64
+freebsd_amd64_task:
+  name: FreeBSD amd64 13.2
+  freebsd_instance:
+    image_family: freebsd-13-2
+    cpu: 4
+    memory: 8G
+  
+  env:
+    ABI: FreeBSD:13:amd64
+    ARCH: amd64
+    
+  prepare_script:
+    - pkg install -y ${PACKAGES}
+    - echo "OVERLAYS=${OVERLAYS}/" >> /etc/make.conf
+    - echo "DEFAULT_VERSIONS=ssl=openssl" >> /etc/make.conf
+    
+  poudriere_create_script:
+    - poudriere jail -c -j 132amd64 -v ${POUDRIERE_BASE} -a ${ARCH}
+    - poudriere ports -c -p ${POUDRIERE_PORTS}
+    
+  configure_script:
+    - mkdir -p /usr/local/etc/poudriere.d/132amd64-${POUDRIERE_PORTS}
+    - echo "ALLOW_MAKE_JOBS=yes" > /usr/local/etc/poudriere.d/132amd64-${POUDRIERE_PORTS}/make.conf
+    - echo "DEFAULT_VERSIONS=ssl=openssl" >> /usr/local/etc/poudriere.d/132amd64-${POUDRIERE_PORTS}/make.conf
+    
+  build_script:
+    - poudriere bulk -j 132amd64 -p ${POUDRIERE_PORTS} -f /dev/null sysutils/gershwin-prefpanes sysutils/gershwin-display sysutils/gershwin-globalshortcuts sysutils/gershwin-startupdisk
+    
+  packages_artifacts:
+    path: /usr/local/poudriere/data/packages/132amd64-${POUDRIERE_PORTS}
+    type: application/octet-stream
+
+# Build task for arm64  
+freebsd_arm64_task:
+  name: FreeBSD arm64 13.2
+  freebsd_instance:
+    image_family: freebsd-13-2
+    cpu: 4
+    memory: 8G
+  
+  env:
+    ABI: FreeBSD:13:aarch64
+    ARCH: aarch64
+    
+  prepare_script:
+    - pkg install -y ${PACKAGES}
+    - echo "OVERLAYS=${OVERLAYS}/" >> /etc/make.conf
+    - echo "DEFAULT_VERSIONS=ssl=openssl" >> /etc/make.conf
+    
+  poudriere_create_script:
+    - poudriere jail -c -j 132arm64 -v ${POUDRIERE_BASE} -a ${ARCH}
+    - poudriere ports -c -p ${POUDRIERE_PORTS}
+    
+  configure_script:
+    - mkdir -p /usr/local/etc/poudriere.d/132arm64-${POUDRIERE_PORTS}
+    - echo "ALLOW_MAKE_JOBS=yes" > /usr/local/etc/poudriere.d/132arm64-${POUDRIERE_PORTS}/make.conf
+    - echo "DEFAULT_VERSIONS=ssl=openssl" >> /usr/local/etc/poudriere.d/132arm64-${POUDRIERE_PORTS}/make.conf
+    
+  build_script:
+    - poudriere bulk -j 132arm64 -p ${POUDRIERE_PORTS} -f /dev/null sysutils/gershwin-prefpanes sysutils/gershwin-display sysutils/gershwin-globalshortcuts sysutils/gershwin-startupdisk
+    
+  packages_artifacts:
+    path: /usr/local/poudriere/data/packages/132arm64-${POUDRIERE_PORTS}
+    type: application/octet-stream
+
+# Build matrix for multiple FreeBSD versions
+matrix:
+  - env:
+      FREEBSD_VERSION: "13.2-RELEASE"
+      POUDRIERE_BASE: "13.2-RELEASE"
+  - env:
+      FREEBSD_VERSION: "14.0-RELEASE"  
+      POUDRIERE_BASE: "14.0-RELEASE"

@@ -5,3 +5,4 @@
 *.core
 StartupDisk/efiboot-helper
 obj/
+examples/
