@@ -1,11 +1,14 @@
 env:
   CIRRUS_CLONE_DEPTH: 1
-  PACKAGES: ports-mgmt/poudriere-devel
-  OVERLAYS: ${CIRRUS_WORKING_DIR}
-  POUDRIERE_BASE: 14.2-RELEASE
-  POUDRIERE_PORTS: HEAD
-  UNAME_r: 14.2-RELEASE
-  UNAME_v: FreeBSD 14.2-RELEASE
+  BATCH: 1
+  CCACHE_DIR: "/tmp/.ccache"
+  CCACHE_COMPRESS: 1
+  CCACHE_SIZE: "200M"
+  CCACHE_STATIC_PREFIX: "/usr/local"
+  CCACHE_NOSTATS: 1
+  CCACHE_TEMPDIR: "/tmp"
+  WITH_CCACHE_BUILD: "YES"
+  PORTS_BRANCH: "2025Q2"
 
 # Enable build artifacts
 env:
@@ -18,61 +21,68 @@ freebsd_amd64_task:
     image_family: freebsd-14-2-release-amd64-ufs
     cpu: 4
     memory: 8G
-  
-  env:
-    ABI: FreeBSD:14:amd64
-    ARCH: amd64
-    
-  prepare_script:
-    - pkg install -y ${PACKAGES}
-    - echo "OVERLAYS=${OVERLAYS}/" >> /etc/make.conf
-    - echo "DEFAULT_VERSIONS=ssl=openssl" >> /etc/make.conf
-    
-  poudriere_create_script:
-    - poudriere jail -c -j 142amd64 -v ${POUDRIERE_BASE} -a ${ARCH}
-    - poudriere ports -c -p ${POUDRIERE_PORTS}
-    
-  configure_script:
-    - mkdir -p /usr/local/etc/poudriere.d/142amd64-${POUDRIERE_PORTS}
-    - echo "ALLOW_MAKE_JOBS=yes" > /usr/local/etc/poudriere.d/142amd64-${POUDRIERE_PORTS}/make.conf
-    - echo "DEFAULT_VERSIONS=ssl=openssl" >> /usr/local/etc/poudriere.d/142amd64-${POUDRIERE_PORTS}/make.conf
-    
-  build_script:
-    - poudriere bulk -j 142amd64 -p ${POUDRIERE_PORTS} -f /dev/null sysutils/gershwin-prefpanes sysutils/gershwin-display sysutils/gershwin-globalshortcuts sysutils/gershwin-startupdisk
-    
-  packages_artifacts:
-    path: /usr/local/poudriere/data/packages/142amd64-${POUDRIERE_PORTS}
-    type: application/octet-stream
 
-# Build task for arm64  
-freebsd_arm64_task:
-  name: FreeBSD arm64 14.2
-  freebsd_instance:
-    image_family: freebsd-13-2
-    cpu: 4
-    memory: 8G
-  
-  env:
-    ABI: FreeBSD:13:aarch64
-    ARCH: aarch64
-    
-  prepare_script:
-    - pkg install -y ${PACKAGES}
-    - echo "OVERLAYS=${OVERLAYS}/" >> /etc/make.conf
-    - echo "DEFAULT_VERSIONS=ssl=openssl" >> /etc/make.conf
-    
-  poudriere_create_script:
-    - poudriere jail -c -j 132arm64 -v ${POUDRIERE_BASE} -a ${ARCH}
-    - poudriere ports -c -p ${POUDRIERE_PORTS}
-    
-  configure_script:
-    - mkdir -p /usr/local/etc/poudriere.d/132arm64-${POUDRIERE_PORTS}
-    - echo "ALLOW_MAKE_JOBS=yes" > /usr/local/etc/poudriere.d/132arm64-${POUDRIERE_PORTS}/make.conf
-    - echo "DEFAULT_VERSIONS=ssl=openssl" >> /usr/local/etc/poudriere.d/132arm64-${POUDRIERE_PORTS}/make.conf
-    
-  build_script:
-    - poudriere bulk -j 132arm64 -p ${POUDRIERE_PORTS} -f /dev/null sysutils/gershwin-prefpanes sysutils/gershwin-display sysutils/gershwin-globalshortcuts sysutils/gershwin-startupdisk
-    
-  packages_artifacts:
-    path: /usr/local/poudriere/data/packages/142arm64-${POUDRIERE_PORTS}
-    type: application/octet-stream
+  portstree_cache:
+    folder: /usr/ports/
+  ccache_cache:
+    folder: ${CCACHE_DIR}
+  pkg_cache:
+    folder: /var/cache/pkg/
+  timeout_in: 90m
+
+  prerequisites_script:
+    - ASSUME_ALWAYS_YES=yes pkg bootstrap -f
+    - pkg install -y git-lite
+
+  portstree_setup_script:
+    - if [ ! -f "/usr/ports/${PORTS_BRANCH}" ] ; then mkdir -p /usr/ports && fetch "https://github.com/freebsd/freebsd-ports/archive/refs/heads/${PORTS_BRANCH}.tar.gz" -o - | tar xf - -C /usr/ports --strip-components=1 && touch "/usr/ports/${PORTS_BRANCH}" ; fi
+
+  ccache_setup_script:
+    - env IGNORE_OSVERSION=yes pkg install -y ccache-static
+    - ccache --max-size=${CCACHE_SIZE}
+    - echo "WITH_CCACHE_BUILD=yes" >> /etc/make.conf
+
+  makeconf_setup_script:
+    - echo 'OVERLAYS=/'"$(pwd)"'/' >> /etc/make.conf
+    - echo 'WITH_DEBUG=yes' >> /etc/make.conf
+    - echo 'DEBUG_FLAGS+= -O0' >> /etc/make.conf
+    - cat /etc/make.conf
+
+  install-run-deps_setup_script:
+    - |
+     make run-depends-list | sort | uniq | grep -v '^==\|xlibre' | cut -d '/' -f 4- | xargs pkg install -y
+
+  install-build-deps_setup_script:
+    - |
+     make build-depends-list | sort | uniq | grep -v '^==\|xlibre\|xorg-macros' | cut -d '/' -f 4- | xargs pkg install -y
+
+  stage_script:
+    - |
+     gmake stage
+
+  stage-qa_script:
+    - |
+     gmake stage-qa
+
+  check-plist_script:
+    - |
+     gmake check-plist
+
+  package_script:
+    - |
+     export PACKAGES="$(pwd)/pkgs/"
+     mkdir $PACKAGES
+     gmake package
+
+  build_postsetup_script:
+    - |
+     export PACKAGES="$(pwd)/pkgs/"
+     ABI="$(pkg config abi)"
+     mv $PACKAGES/All $PACKAGES/$ABI
+     pkg repo -l $PACKAGES/$ABI
+     pkg install -y tree
+     cd $PACKAGES/$ABI 
+     tree -h -D -C -H -./ --houtro=/dev/null -T 'Gershwin binaries for FreeBSD' ./ > ./index.html
+
+  pkgs_artifacts:
+    path: "./pkgs/**/*"
