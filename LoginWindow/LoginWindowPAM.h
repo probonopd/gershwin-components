@@ -19,6 +19,7 @@
 - (id)init;
 - (void)dealloc;
 - (BOOL)authenticateUser:(NSString *)username password:(NSString *)password;
+- (BOOL)openSessionForUser:(NSString *)username;
 - (BOOL)openSession;
 - (void)closeSession;
 - (char **)getEnvironmentList;

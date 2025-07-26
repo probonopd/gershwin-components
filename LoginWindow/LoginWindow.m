@@ -41,6 +41,10 @@ void signalHandler(int sig) {
     signal(SIGINT, signalHandler);
     
     [self createLoginWindow];
+    
+    // Check for auto-login user after window is created but before showing it
+    [self checkAutoLogin];
+    
     [loginWindow makeKeyAndOrderFront:self];
     [NSApp activateIgnoringOtherApps:YES];
 }
@@ -844,6 +848,478 @@ void signalHandler(int sig) {
         NSLog(@"[DEBUG] Fork failed");
         [self showStatus:@"Failed to start session"];
         [pamAuth closeSession];
+    }
+}
+
+- (void)checkAutoLogin
+{
+    NSLog(@"[DEBUG] Checking for auto-login user");
+    
+    // Read the autoLoginUser from system preferences for security
+    NSString *systemPrefsPath = [NSString stringWithFormat:@"%s/Library/Preferences/loginwindow.plist", 
+                                 getenv("GNUSTEP_SYSTEM_ROOT") ?: "/System"];
+    NSLog(@"[DEBUG] Reading auto-login config from: %@", systemPrefsPath);
+    
+    NSDictionary *loginConfig = [NSDictionary dictionaryWithContentsOfFile:systemPrefsPath];
+    NSString *autoLoginUser = [loginConfig objectForKey:@"autoLoginUser"];
+    
+    if (autoLoginUser && [autoLoginUser length] > 0) {
+        NSLog(@"[DEBUG] Auto-login user found: %@", autoLoginUser);
+        
+        // Verify that the user exists
+        const char *user_cstr = [autoLoginUser UTF8String];
+        struct passwd *pwd = getpwnam(user_cstr);
+        
+        if (pwd) {
+            NSLog(@"[DEBUG] Auto-login user verified, starting session automatically");
+            
+            // Hide the login window immediately since we're auto-logging in
+            [loginWindow orderOut:self];
+            
+            // Set the username field (for logging purposes)
+            [usernameField setStringValue:autoLoginUser];
+            
+            // Start the session without password authentication for auto-login
+            // Note: This bypasses password authentication for auto-login
+            [self startAutoLoginSession:autoLoginUser];
+        } else {
+            NSLog(@"[DEBUG] Auto-login user '%@' not found in system, showing login window", autoLoginUser);
+        }
+    } else {
+        NSLog(@"[DEBUG] No auto-login user configured, showing login window");
+    }
+}
+
+- (void)startAutoLoginSession:(NSString *)username
+{
+    NSLog(@"[DEBUG] Starting auto-login session for user: %@", username);
+    const char *user_cstr = [username UTF8String];
+    struct passwd *pwd = getpwnam(user_cstr);
+    
+    if (!pwd) {
+        NSLog(@"[DEBUG] Auto-login user not found: %@", username);
+        [self showStatus:@"Auto-login user not found"];
+        [loginWindow makeKeyAndOrderFront:self];
+        return;
+    }
+    
+    NSLog(@"[DEBUG] Auto-login user found - UID: %d, GID: %d, Home: %s, Shell: %s", 
+          pwd->pw_uid, pwd->pw_gid, pwd->pw_dir, pwd->pw_shell);
+    
+    // For auto-login, we still need to open a PAM session but skip authentication
+    // We'll use a simplified PAM session opening
+    if (![pamAuth openSessionForUser:username]) {
+        NSLog(@"[DEBUG] Failed to open PAM session for auto-login user");
+        // Fall back to showing login window
+        [self showStatus:@"Failed to open session for auto-login"];
+        [loginWindow makeKeyAndOrderFront:self];
+        return;
+    }
+    
+    NSLog(@"[DEBUG] PAM session opened successfully for auto-login");
+    
+    // Get PAM environment
+    char **pam_envlist = [pamAuth getEnvironmentList];
+    NSLog(@"[DEBUG] PAM environment list obtained: %p", pam_envlist);
+    
+    // Log current selected session
+    NSLog(@"[DEBUG] Currently selected session executable: %@", selectedSessionExec);
+    NSLog(@"[DEBUG] Available sessions: %@", availableSessions);
+    NSLog(@"[DEBUG] Available session execs: %@", availableSessionExecs);
+    
+    // Change to user's home directory
+    if (chdir(pwd->pw_dir) != 0) {
+        NSLog(@"[DEBUG] Cannot change to home directory: %s", pwd->pw_dir);
+        [self showStatus:@"Cannot change to home directory"];
+        [pamAuth closeSession];
+        [loginWindow makeKeyAndOrderFront:self];
+        return;
+    }
+    
+    NSLog(@"[DEBUG] Changed to user home directory: %s", pwd->pw_dir);
+    
+    // Start the user's session (reuse the existing session starting code)
+    NSLog(@"[DEBUG] About to fork for auto-login session");
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child process - create new session to avoid X11 threading issues
+        NSLog(@"[DEBUG] Child process started for auto-login");
+        
+        // Create a new session and process group - this is critical for proper cleanup
+        pid_t sessionId = setsid();
+        if (sessionId == -1) {
+            NSLog(@"[DEBUG] setsid() failed: %s", strerror(errno));
+            exit(1);
+        }
+        NSLog(@"[DEBUG] Created new session with SID: %d", sessionId);
+        
+        // Close all file descriptors except stdin, stdout, stderr
+        int maxfd = sysconf(_SC_OPEN_MAX);
+        NSLog(@"[DEBUG] Closing file descriptors up to: %d", maxfd);
+        for (int fd = 3; fd < maxfd; fd++) {
+            close(fd);
+        }
+        
+        NSLog(@"[DEBUG] About to set user context for auto-login user: %s (uid=%d, gid=%d)", pwd->pw_name, pwd->pw_uid, pwd->pw_gid);
+        
+        // Use manual setup for better error reporting
+        NSLog(@"[DEBUG] Starting manual user setup for auto-login");
+        
+        // Set supplementary groups first
+        NSLog(@"[DEBUG] Calling initgroups for user: %s, gid: %d", pwd->pw_name, pwd->pw_gid);
+        if (initgroups(pwd->pw_name, pwd->pw_gid) != 0) {
+            int err = errno;
+            perror("initgroups failed");
+            NSLog(@"[DEBUG] initgroups failed for user: %s, gid: %d (errno: %d - %s)", pwd->pw_name, pwd->pw_gid, err, strerror(err));
+            exit(1);
+        }
+        NSLog(@"[DEBUG] initgroups succeeded for user: %s", pwd->pw_name);
+        
+        // Set group ID
+        NSLog(@"[DEBUG] Calling setgid for gid: %d", pwd->pw_gid);
+        if (setgid(pwd->pw_gid) != 0) {
+            int err = errno;
+            perror("setgid failed");
+            NSLog(@"[DEBUG] setgid failed for gid: %d (errno: %d - %s)", pwd->pw_gid, err, strerror(err));
+            exit(1);
+        }
+        NSLog(@"[DEBUG] setgid succeeded for gid: %d", pwd->pw_gid);
+        
+        // Set user ID (this must be last)
+        NSLog(@"[DEBUG] Calling setuid for uid: %d", pwd->pw_uid);
+        if (setuid(pwd->pw_uid) != 0) {
+            int err = errno;
+            perror("setuid failed");
+            NSLog(@"[DEBUG] setuid failed for uid: %d (errno: %d - %s)", pwd->pw_uid, err, strerror(err));
+            exit(1);
+        }
+        NSLog(@"[DEBUG] setuid succeeded for uid: %d", pwd->pw_uid);
+        
+        // Verify the change worked
+        uid_t real_uid = getuid();
+        uid_t eff_uid = geteuid();
+        gid_t real_gid = getgid();
+        gid_t eff_gid = getegid();
+        NSLog(@"[DEBUG] After auto-login user setup - real_uid: %d, eff_uid: %d, real_gid: %d, eff_gid: %d", 
+              real_uid, eff_uid, real_gid, eff_gid);
+        
+        if (real_uid != pwd->pw_uid || eff_uid != pwd->pw_uid) {
+            NSLog(@"[DEBUG] UID verification failed - expected: %d, got real: %d, eff: %d", pwd->pw_uid, real_uid, eff_uid);
+            exit(1);
+        }
+        
+        if (real_gid != pwd->pw_gid || eff_gid != pwd->pw_gid) {
+            NSLog(@"[DEBUG] GID verification failed - expected: %d, got real: %d, eff: %d", pwd->pw_gid, real_gid, eff_gid);
+            exit(1);
+        }
+        
+        NSLog(@"[DEBUG] Manual auto-login user setup completed successfully");
+        
+        NSLog(@"[DEBUG] Auto-login user context setup complete");
+        
+        // Clear signal handlers and reset signal mask
+        signal(SIGTERM, SIG_DFL);
+        signal(SIGINT, SIG_DFL);
+        signal(SIGHUP, SIG_DFL);
+        signal(SIGCHLD, SIG_DFL);
+        
+        NSLog(@"[DEBUG] Signal handlers reset for auto-login");
+        
+        // Set up environment for the session (reuse existing environment setup code)
+        clearenv();
+        setenv("USER", user_cstr, 1);
+        setenv("LOGNAME", user_cstr, 1);
+        setenv("HOME", pwd->pw_dir, 1);
+        setenv("SHELL", pwd->pw_shell, 1);
+        setenv("DISPLAY", ":0", 1);
+        setenv("PATH", "/usr/local/bin:/usr/bin:/bin", 1);
+        setenv("GNUSTEP_USER_ROOT", [[NSString stringWithFormat:@"%s/GNUstep", pwd->pw_dir] UTF8String], 1);
+        setenv("XAUTHORITY", [[NSString stringWithFormat:@"%s/.Xauthority", pwd->pw_dir] UTF8String], 1);
+        
+        NSLog(@"[DEBUG] Basic environment set for auto-login");
+        
+        // Set login class environment variables
+        login_cap_t *lc = login_getpwclass(pwd);
+        if (lc != NULL) {
+            NSLog(@"[DEBUG] Setting login class environment variables for auto-login");
+            
+            // Set language/locale environment
+            const char *lang = login_getcapstr(lc, "lang", NULL, NULL);
+            if (lang != NULL) {
+                setenv("LANG", lang, 1);
+                NSLog(@"[DEBUG] Set LANG=%s", lang);
+            }
+            
+            // Set character set
+            const char *charset = login_getcapstr(lc, "charset", NULL, NULL);
+            if (charset != NULL) {
+                setenv("MM_CHARSET", charset, 1);
+                NSLog(@"[DEBUG] Set MM_CHARSET=%s", charset);
+            }
+            
+            // Set timezone
+            const char *timezone = login_getcapstr(lc, "timezone", NULL, NULL);
+            if (timezone != NULL) {
+                setenv("TZ", timezone, 1);
+                NSLog(@"[DEBUG] Set TZ=%s", timezone);
+            }
+            
+            // Set manual path
+            const char *manpath = login_getcapstr(lc, "manpath", NULL, NULL);
+            if (manpath != NULL) {
+                setenv("MANPATH", manpath, 1);
+                NSLog(@"[DEBUG] Set MANPATH=%s", manpath);
+            }
+            
+            login_close(lc);
+            NSLog(@"[DEBUG] Login class environment variables set for auto-login");
+        } else {
+            NSLog(@"[DEBUG] No login class found for auto-login user");
+        }
+        
+        // Set PAM environment variables
+        if (pam_envlist) {
+            NSLog(@"[DEBUG] Setting PAM environment variables for auto-login");
+            for (int i = 0; pam_envlist[i]; i++) {
+                NSLog(@"[DEBUG] PAM env[%d]: %s", i, pam_envlist[i]);
+                putenv(pam_envlist[i]);
+            }
+        } else {
+            NSLog(@"[DEBUG] No PAM environment variables to set for auto-login");
+        }
+        
+        // Set up keyboard layout before starting session (reuse existing keyboard setup)
+        NSLog(@"[DEBUG] Setting up keyboard layout for auto-login");
+        
+        // First, try to read keyboard layout from login.conf or environment
+        const char *kb_layout = NULL;
+        const char *kb_variant = NULL;
+        const char *kb_options = NULL;
+        
+        // Get login capabilities for this user in child process
+        login_cap_t *child_lc = login_getpwclass(pwd);
+        if (child_lc != NULL) {
+            kb_layout = login_getcapstr(child_lc, "keyboard.layout", NULL, NULL);
+            kb_variant = login_getcapstr(child_lc, "keyboard.variant", NULL, NULL);
+            kb_options = login_getcapstr(child_lc, "keyboard.options", NULL, NULL);
+            NSLog(@"[DEBUG] Checked login.conf for keyboard settings");
+        }
+        
+        // If no keyboard layout specified in login.conf, check environment
+        if (!kb_layout) {
+            kb_layout = getenv("XKB_DEFAULT_LAYOUT");
+        }
+        if (!kb_variant) {
+            kb_variant = getenv("XKB_DEFAULT_VARIANT");
+        }
+        if (!kb_options) {
+            kb_options = getenv("XKB_DEFAULT_OPTIONS");
+        }
+        
+        // Check various system configuration files for keyboard layout
+        if (!kb_layout) {
+            NSLog(@"[DEBUG] No keyboard layout from login.conf or environment, checking /etc/rc.conf");
+            // Check /etc/rc.conf for keyboard layout
+            FILE *rc_conf = fopen("/etc/rc.conf", "r");
+            if (rc_conf) {
+                char line[256];
+                while (fgets(line, sizeof(line), rc_conf)) {
+                    if (strncmp(line, "keymap=", 7) == 0) {
+                        char *keymap = strchr(line, '=') + 1;
+                        char *newline = strchr(keymap, '\n');
+                        if (newline) *newline = '\0';
+                        // Remove quotes if present
+                        if (keymap[0] == '"') {
+                            keymap++;
+                            char *end_quote = strchr(keymap, '"');
+                            if (end_quote) *end_quote = '\0';
+                        }
+                        NSLog(@"[DEBUG] Found raw keymap in /etc/rc.conf: %s", keymap);
+                        // Convert console keymap to X11 layout (simplified mapping)
+                        if (strstr(keymap, "us")) kb_layout = "us";
+                        else if (strstr(keymap, "de")) kb_layout = "de";
+                        else if (strstr(keymap, "fr")) kb_layout = "fr";
+                        else if (strstr(keymap, "es")) kb_layout = "es";
+                        else if (strstr(keymap, "it")) kb_layout = "it";
+                        else if (strstr(keymap, "pt")) kb_layout = "pt";
+                        else if (strstr(keymap, "ru")) kb_layout = "ru";
+                        else if (strstr(keymap, "uk") || strstr(keymap, "gb")) kb_layout = "gb";
+                        else if (strstr(keymap, "dvorak")) {
+                            kb_layout = "us";
+                            kb_variant = "dvorak";
+                        }
+                        else {
+                            kb_layout = "us"; // fallback
+                            NSLog(@"[DEBUG] Unknown keymap '%s', using fallback 'us'", keymap);
+                        }
+                        NSLog(@"[DEBUG] Converted console keymap '%s' to X11 layout '%s'", keymap, kb_layout);
+                        if (kb_variant) NSLog(@"[DEBUG] Set variant to '%s'", kb_variant);
+                        break;
+                    }
+                }
+                fclose(rc_conf);
+            } else {
+                NSLog(@"[DEBUG] Could not open /etc/rc.conf");
+            }
+        }
+        
+        // Close login capabilities if we opened them
+        if (child_lc != NULL) {
+            login_close(child_lc);
+        }
+        
+        // Default to US layout if nothing found
+        if (!kb_layout) {
+            kb_layout = "us";
+            NSLog(@"[DEBUG] No keyboard layout found, defaulting to US");
+        }
+        
+        NSLog(@"[DEBUG] Final keyboard layout for auto-login: %s", kb_layout ? kb_layout : "none");
+        if (kb_variant) NSLog(@"[DEBUG] Final keyboard variant for auto-login: %s", kb_variant);
+        if (kb_options) NSLog(@"[DEBUG] Final keyboard options for auto-login: %s", kb_options);
+        
+        // Clear existing keyboard options first
+        NSLog(@"[DEBUG] Clearing existing keyboard options for auto-login");
+        system("/usr/local/bin/setxkbmap -option '' 2>/dev/null || true");
+        
+        // Build setxkbmap command
+        char xkb_cmd[512] = "/usr/local/bin/setxkbmap";
+        
+        if (kb_layout && strlen(kb_layout) > 0) {
+            strcat(xkb_cmd, " ");
+            strcat(xkb_cmd, kb_layout);
+        }
+        
+        if (kb_variant && strlen(kb_variant) > 0) {
+            strcat(xkb_cmd, " -variant ");
+            strcat(xkb_cmd, kb_variant);
+        }
+        
+        if (kb_options && strlen(kb_options) > 0) {
+            strcat(xkb_cmd, " -option ");
+            strcat(xkb_cmd, kb_options);
+        }
+        
+        strcat(xkb_cmd, " 2>/dev/null");
+        
+        NSLog(@"[DEBUG] Executing keyboard setup command for auto-login: %s", xkb_cmd);
+        int kb_result = system(xkb_cmd);
+        NSLog(@"[DEBUG] Keyboard setup command result for auto-login: %d", kb_result);
+        
+        // Verify the keyboard layout was set correctly
+        NSLog(@"[DEBUG] Verifying keyboard layout after auto-login setup");
+        system("/usr/local/bin/setxkbmap -query | head -10");
+        
+        // Also try to force refresh X11 keyboard state
+        NSLog(@"[DEBUG] Refreshing X11 keyboard state for auto-login");
+        system("/usr/local/bin/xkbcomp $DISPLAY - 2>/dev/null < /dev/null || true");
+        
+        NSLog(@"[DEBUG] Keyboard layout setup complete for auto-login");
+        
+        // Change to user's home directory
+        if (chdir(pwd->pw_dir) != 0) {
+            NSLog(@"[DEBUG] chdir failed in child process for auto-login");
+            exit(1);
+        }
+        
+        NSLog(@"[DEBUG] Changed to home dir in child for auto-login: %s", pwd->pw_dir);
+        
+        // Execute the selected session directly
+        NSString *sessionToExecute = selectedSessionExec;
+        NSLog(@"[DEBUG] Initial session to execute for auto-login: '%@'", sessionToExecute ? sessionToExecute : @"(nil)");
+        NSLog(@"[DEBUG] Available sessions for auto-login: %@", availableSessions);
+        NSLog(@"[DEBUG] Available session execs for auto-login: %@", availableSessionExecs);
+        
+        if (!sessionToExecute || [sessionToExecute length] == 0) {
+            NSLog(@"[DEBUG] No session selected for auto-login, using default: GWorkspace");
+            sessionToExecute = @"/System/Applications/GWorkspace.app/GWorkspace";
+        }
+        
+        NSLog(@"[DEBUG] Final session to execute for auto-login: '%@'", sessionToExecute);
+        NSLog(@"[DEBUG] User shell for auto-login: %s", pwd->pw_shell);
+        
+        // Check if the executable exists
+        NSArray *sessionComponents = [sessionToExecute componentsSeparatedByString:@" "];
+        NSString *mainExecutable = [sessionComponents firstObject];
+        NSLog(@"[DEBUG] Main executable from session command for auto-login: '%@'", mainExecutable);
+        
+        if ([mainExecutable hasPrefix:@"/"]) {
+            // Absolute path - check if it exists
+            NSLog(@"[DEBUG] Checking if session executable exists for auto-login: %@", mainExecutable);
+            if ([[NSFileManager defaultManager] fileExistsAtPath:mainExecutable]) {
+                NSLog(@"[DEBUG] Session executable exists for auto-login: %@", mainExecutable);
+            } else {
+                NSLog(@"[DEBUG] Session executable not found for auto-login: %@", mainExecutable);
+                // Try fallback
+                sessionToExecute = @"/System/Applications/GWorkspace.app/GWorkspace";
+                NSLog(@"[DEBUG] Using fallback session for auto-login: %@", sessionToExecute);
+            }
+        } else {
+            NSLog(@"[DEBUG] Session executable is not absolute path for auto-login: %@", mainExecutable);
+            // It will be resolved by the shell through PATH
+        }
+        
+        // Execute the session through the user's shell
+        NSLog(@"[DEBUG] About to execl with shell for auto-login: %s, command: %s", pwd->pw_shell, [sessionToExecute UTF8String]);
+        execl(pwd->pw_shell, pwd->pw_shell, "-c", [sessionToExecute UTF8String], NULL);
+        
+        // If execl fails, log and exit
+        NSLog(@"[DEBUG] execl failed for auto-login session: %@", sessionToExecute);
+        perror("execl failed");
+        exit(1);
+    } else if (pid > 0) {
+        // Parent process - wait for session to complete
+        NSLog(@"[DEBUG] Parent process for auto-login, session PID: %d", pid);
+        
+        // Store session information for cleanup
+        sessionPid = pid;
+        sessionUid = pwd->pw_uid;
+        sessionGid = pwd->pw_gid;
+        
+        printf("Auto-login session started for user %s (PID: %d)\n", user_cstr, pid);
+        
+        // Wait for the session to end
+        int status;
+        pid_t wpid = -1;
+        while (wpid != pid) {
+            wpid = waitpid(pid, &status, 0);
+            if (wpid == -1) {
+                if (errno == EINTR) {
+                    continue; // Interrupted by signal, try again
+                }
+                NSLog(@"[DEBUG] waitpid error for auto-login: %s", strerror(errno));
+                break;
+            }
+        }
+        
+        NSLog(@"[DEBUG] Auto-login session ended with status: %d", status);
+        if (WIFEXITED(status)) {
+            NSLog(@"[DEBUG] Auto-login session exited normally with code: %d", WEXITSTATUS(status));
+        } else if (WIFSIGNALED(status)) {
+            NSLog(@"[DEBUG] Auto-login session terminated by signal: %d", WTERMSIG(status));
+        }
+        
+        // Forcefully kill all remaining session processes
+        NSLog(@"[DEBUG] Starting forceful cleanup of auto-login session processes");
+        [self killAllSessionProcesses:sessionUid];
+        
+        // Session ended, close PAM session
+        [pamAuth closeSession];
+        NSLog(@"[DEBUG] PAM session closed for auto-login");
+        
+        // Reset session tracking variables
+        sessionPid = 0;
+        sessionUid = 0;
+        sessionGid = 0;
+        
+        // Reset login window for next user
+        NSLog(@"[DEBUG] Auto-login session ended, resetting login window for next user");
+        [self resetLoginWindow];
+    } else {
+        NSLog(@"[DEBUG] Fork failed for auto-login");
+        [self showStatus:@"Failed to start auto-login session"];
+        [pamAuth closeSession];
+        [loginWindow makeKeyAndOrderFront:self];
     }
 }
 

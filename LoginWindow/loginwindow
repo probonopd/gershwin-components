@@ -23,6 +23,7 @@ load_rc_config ${name}
 command="/usr/sbin/daemon"
 procname="/System/Applications/LoginWindow.app/LoginWindow"
 pidfile="/var/run/${name}.pid"
-command_args="-f ${procname} --pid-file=${pidfile}"
+logfile="/var/log/LoginWindow.log"
+command_args="-f -o ${logfile} ${procname} --pid-file=${pidfile}"
 
 run_rc_command "$1"

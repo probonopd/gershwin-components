@@ -217,4 +217,80 @@ int loginwindow_pam_conv(int num_msg, const struct pam_message **msg,
     return pam_getenvlist(pam_handle);
 }
 
+- (BOOL)openSessionForUser:(NSString *)username
+{
+    NSLog(@"[PAM] openSessionForUser called for user: %@", username);
+    if (authenticationInProgress) {
+        NSLog(@"[PAM] Authentication already in progress");
+        return NO;
+    }
+    authenticationInProgress = YES;
+    
+    [_storedUsername release];
+    [_storedPassword release];
+    _storedUsername = [username copy];
+    _storedPassword = nil; // No password for auto-login
+    
+    NSLog(@"[PAM] Starting PAM session for auto-login user: %@", username);
+    
+    // "system" is the service name used for PAM authentication
+    int result = pam_start("system", [username UTF8String], &pam_conversation, &pam_handle);
+    NSLog(@"[PAM] pam_start result for auto-login: %d (%s)", result, pam_strerror(pam_handle, result));
+    if (result != PAM_SUCCESS) {
+        NSLog(@"[PAM] pam_start failed for auto-login: %s", pam_strerror(pam_handle, result));
+        authenticationInProgress = NO;
+        return NO;
+    }
+    
+    result = pam_set_item(pam_handle, PAM_TTY, ttyname(STDIN_FILENO));
+    NSLog(@"[PAM] pam_set_item PAM_TTY result for auto-login: %d (%s)", result, pam_strerror(pam_handle, result));
+    
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) == 0) {
+        pam_set_item(pam_handle, PAM_RHOST, hostname);
+        NSLog(@"[PAM] pam_set_item PAM_RHOST for auto-login: %s", hostname);
+    } else {
+        NSLog(@"[PAM] gethostname failed for auto-login");
+    }
+    
+    // For auto-login, skip authentication but still do account management
+    NSLog(@"[PAM] Skipping authentication for auto-login, proceeding to account management");
+    
+    result = pam_acct_mgmt(pam_handle, PAM_SILENT);
+    NSLog(@"[PAM] pam_acct_mgmt result for auto-login: %d (%s)", result, pam_strerror(pam_handle, result));
+    if (result != PAM_SUCCESS) {
+        NSLog(@"[PAM] pam_acct_mgmt failed for auto-login: %s", pam_strerror(pam_handle, result));
+        pam_end(pam_handle, result);
+        pam_handle = NULL;
+        authenticationInProgress = NO;
+        return NO;
+    }
+    
+    // Open the session directly
+    result = pam_setcred(pam_handle, PAM_ESTABLISH_CRED);
+    NSLog(@"[PAM] pam_setcred result for auto-login: %d (%s)", result, pam_strerror(pam_handle, result));
+    if (result != PAM_SUCCESS) {
+        NSLog(@"[PAM] pam_setcred failed for auto-login: %s", pam_strerror(pam_handle, result));
+        pam_end(pam_handle, result);
+        pam_handle = NULL;
+        authenticationInProgress = NO;
+        return NO;
+    }
+    
+    result = pam_open_session(pam_handle, 0);
+    NSLog(@"[PAM] pam_open_session result for auto-login: %d (%s)", result, pam_strerror(pam_handle, result));
+    if (result != PAM_SUCCESS) {
+        NSLog(@"[PAM] pam_open_session failed for auto-login: %s", pam_strerror(pam_handle, result));
+        pam_setcred(pam_handle, PAM_DELETE_CRED);
+        pam_end(pam_handle, result);
+        pam_handle = NULL;
+        authenticationInProgress = NO;
+        return NO;
+    }
+    
+    authenticationInProgress = NO;
+    NSLog(@"[PAM] Auto-login session opened successfully for user: %@", username);
+    return YES;
+}
+
 @end

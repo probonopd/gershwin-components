@@ -38,6 +38,9 @@ install:: all
 	@if [ -e "/tmp/$(APP_NAME).app.backup.$$$$" ]; then \
 		echo "Old LoginWindow.app backup available at /tmp/$(APP_NAME).app.backup.$$$$"; \
 	fi
+	@echo "Installing rc.d script..."
+	sudo -A install -m 555 loginwindow /usr/local/etc/rc.d/loginwindow
+	@echo "rc.d script installed to /usr/local/etc/rc.d/loginwindow"
 
 # Uninstall target
 uninstall::
