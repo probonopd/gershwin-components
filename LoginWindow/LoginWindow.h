@@ -22,6 +22,7 @@
     gid_t sessionGid;
     BOOL didStartXServer;
     pid_t xServerPid;
+    BOOL isTerminating;
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification;
@@ -41,6 +42,12 @@
 - (BOOL)startXServer;
 - (void)ensureXServerRunning;
 - (void)stopXServerIfStartedByUs;
+- (void)cleanupExistingXServer;
 - (void)shakeWindow;
+- (void)saveLastLoggedInUser:(NSString *)username;
+- (NSString *)loadLastLoggedInUser;
+- (void)monitorXServer;
+- (void)restartXServerIfNeeded;
+- (void)handleXServerCrash;
 
 @end
