@@ -2,7 +2,7 @@
 #import <AppKit/AppKit.h>
 #import "LoginWindowPAM.h"
 
-@interface LoginWindowApp : NSObject
+@interface LoginWindow : NSObject
 {
     NSWindow *loginWindow;
     NSTextField *usernameField;
@@ -27,6 +27,7 @@
 - (BOOL)authenticateUser:(NSString *)username password:(NSString *)password;
 - (void)startUserSession:(NSString *)username;
 - (void)showStatus:(NSString *)message;
-- (void)scanAvailableSessions;
+- (void)sessionChanged:(id)sender;
+- (void)resetLoginWindow;
 
 @end

@@ -1,4 +1,4 @@
-#import "LoginWindowApp.h"
+#import "LoginWindow.h"
 #import <pwd.h>
 #import <unistd.h>
 #import <sys/wait.h>
@@ -11,7 +11,7 @@
 #import <shadow.h>
 #endif
 
-@implementation LoginWindowApp
+@implementation LoginWindow
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
@@ -432,6 +432,45 @@
         
         NSLog(@"[DEBUG] Basic environment set");
         
+        // Set login class environment variables
+        login_cap_t *lc = login_getpwclass(pwd);
+        if (lc != NULL) {
+            NSLog(@"[DEBUG] Setting login class environment variables");
+            
+            // Set language/locale environment
+            const char *lang = login_getcapstr(lc, "lang", NULL, NULL);
+            if (lang != NULL) {
+                setenv("LANG", lang, 1);
+                NSLog(@"[DEBUG] Set LANG=%s", lang);
+            }
+            
+            // Set character set
+            const char *charset = login_getcapstr(lc, "charset", NULL, NULL);
+            if (charset != NULL) {
+                setenv("MM_CHARSET", charset, 1);
+                NSLog(@"[DEBUG] Set MM_CHARSET=%s", charset);
+            }
+            
+            // Set timezone
+            const char *timezone = login_getcapstr(lc, "timezone", NULL, NULL);
+            if (timezone != NULL) {
+                setenv("TZ", timezone, 1);
+                NSLog(@"[DEBUG] Set TZ=%s", timezone);
+            }
+            
+            // Set manual path
+            const char *manpath = login_getcapstr(lc, "manpath", NULL, NULL);
+            if (manpath != NULL) {
+                setenv("MANPATH", manpath, 1);
+                NSLog(@"[DEBUG] Set MANPATH=%s", manpath);
+            }
+            
+            login_close(lc);
+            NSLog(@"[DEBUG] Login class environment variables set");
+        } else {
+            NSLog(@"[DEBUG] No login class found for user");
+        }
+        
         // Set PAM environment variables
         if (pam_envlist) {
             NSLog(@"[DEBUG] Setting PAM environment variables");
@@ -443,6 +482,134 @@
             NSLog(@"[DEBUG] No PAM environment variables to set");
         }
         
+        // Set up keyboard layout before starting session
+        NSLog(@"[DEBUG] Setting up keyboard layout");
+        
+        // First, try to read keyboard layout from login.conf or environment
+        const char *kb_layout = NULL;
+        const char *kb_variant = NULL;
+        const char *kb_options = NULL;
+        
+        // Get login capabilities for this user in child process
+        login_cap_t *child_lc = login_getpwclass(pwd);
+        if (child_lc != NULL) {
+            kb_layout = login_getcapstr(child_lc, "keyboard.layout", NULL, NULL);
+            kb_variant = login_getcapstr(child_lc, "keyboard.variant", NULL, NULL);
+            kb_options = login_getcapstr(child_lc, "keyboard.options", NULL, NULL);
+            NSLog(@"[DEBUG] Checked login.conf for keyboard settings");
+        }
+        
+        // If no keyboard layout specified in login.conf, check environment
+        if (!kb_layout) {
+            kb_layout = getenv("XKB_DEFAULT_LAYOUT");
+        }
+        if (!kb_variant) {
+            kb_variant = getenv("XKB_DEFAULT_VARIANT");
+        }
+        if (!kb_options) {
+            kb_options = getenv("XKB_DEFAULT_OPTIONS");
+        }
+        
+        // Check various system configuration files for keyboard layout
+        if (!kb_layout) {
+            NSLog(@"[DEBUG] No keyboard layout from login.conf or environment, checking /etc/rc.conf");
+            // Check /etc/rc.conf for keyboard layout
+            FILE *rc_conf = fopen("/etc/rc.conf", "r");
+            if (rc_conf) {
+                char line[256];
+                while (fgets(line, sizeof(line), rc_conf)) {
+                    if (strncmp(line, "keymap=", 7) == 0) {
+                        char *keymap = strchr(line, '=') + 1;
+                        char *newline = strchr(keymap, '\n');
+                        if (newline) *newline = '\0';
+                        // Remove quotes if present
+                        if (keymap[0] == '"') {
+                            keymap++;
+                            char *end_quote = strchr(keymap, '"');
+                            if (end_quote) *end_quote = '\0';
+                        }
+                        NSLog(@"[DEBUG] Found raw keymap in /etc/rc.conf: %s", keymap);
+                        // Convert console keymap to X11 layout (simplified mapping)
+                        if (strstr(keymap, "us")) kb_layout = "us";
+                        else if (strstr(keymap, "de")) kb_layout = "de";
+                        else if (strstr(keymap, "fr")) kb_layout = "fr";
+                        else if (strstr(keymap, "es")) kb_layout = "es";
+                        else if (strstr(keymap, "it")) kb_layout = "it";
+                        else if (strstr(keymap, "pt")) kb_layout = "pt";
+                        else if (strstr(keymap, "ru")) kb_layout = "ru";
+                        else if (strstr(keymap, "uk") || strstr(keymap, "gb")) kb_layout = "gb";
+                        else if (strstr(keymap, "dvorak")) {
+                            kb_layout = "us";
+                            kb_variant = "dvorak";
+                        }
+                        else {
+                            kb_layout = "us"; // fallback
+                            NSLog(@"[DEBUG] Unknown keymap '%s', using fallback 'us'", keymap);
+                        }
+                        NSLog(@"[DEBUG] Converted console keymap '%s' to X11 layout '%s'", keymap, kb_layout);
+                        if (kb_variant) NSLog(@"[DEBUG] Set variant to '%s'", kb_variant);
+                        break;
+                    }
+                }
+                fclose(rc_conf);
+            } else {
+                NSLog(@"[DEBUG] Could not open /etc/rc.conf");
+            }
+        }
+        
+        // Close login capabilities if we opened them
+        if (child_lc != NULL) {
+            login_close(child_lc);
+        }
+        
+        // Default to US layout if nothing found
+        if (!kb_layout) {
+            kb_layout = "us";
+            NSLog(@"[DEBUG] No keyboard layout found, defaulting to US");
+        }
+        
+        NSLog(@"[DEBUG] Final keyboard layout: %s", kb_layout ? kb_layout : "none");
+        if (kb_variant) NSLog(@"[DEBUG] Final keyboard variant: %s", kb_variant);
+        if (kb_options) NSLog(@"[DEBUG] Final keyboard options: %s", kb_options);
+        
+        // Clear existing keyboard options first
+        NSLog(@"[DEBUG] Clearing existing keyboard options");
+        system("/usr/local/bin/setxkbmap -option '' 2>/dev/null || true");
+        
+        // Build setxkbmap command
+        char xkb_cmd[512] = "/usr/local/bin/setxkbmap";
+        
+        if (kb_layout && strlen(kb_layout) > 0) {
+            strcat(xkb_cmd, " ");
+            strcat(xkb_cmd, kb_layout);
+        }
+        
+        if (kb_variant && strlen(kb_variant) > 0) {
+            strcat(xkb_cmd, " -variant ");
+            strcat(xkb_cmd, kb_variant);
+        }
+        
+        if (kb_options && strlen(kb_options) > 0) {
+            strcat(xkb_cmd, " -option ");
+            strcat(xkb_cmd, kb_options);
+        }
+        
+        strcat(xkb_cmd, " 2>/dev/null");
+        
+        NSLog(@"[DEBUG] Executing keyboard setup command: %s", xkb_cmd);
+        int kb_result = system(xkb_cmd);
+        NSLog(@"[DEBUG] Keyboard setup command result: %d", kb_result);
+        
+        // Verify the keyboard layout was set correctly
+        NSLog(@"[DEBUG] Verifying keyboard layout after setup");
+        system("/usr/local/bin/setxkbmap -query | head -10");
+        
+        // Also try to force refresh X11 keyboard state
+        NSLog(@"[DEBUG] Refreshing X11 keyboard state");
+        system("/usr/local/bin/xkbcomp $DISPLAY - 2>/dev/null < /dev/null || true");
+        
+        NSLog(@"[DEBUG] Keyboard layout setup complete");
+        
         // Change to user's home directory
         if (chdir(pwd->pw_dir) != 0) {
             NSLog(@"[DEBUG] chdir failed in child process");
@@ -451,7 +618,7 @@
         
         NSLog(@"[DEBUG] Changed to home dir in child: %s", pwd->pw_dir);
         
-        // Execute the selected session directly (like SLiM does)
+        // Execute the selected session directly
         NSString *sessionToExecute = selectedSessionExec;
         NSLog(@"[DEBUG] Initial session to execute: '%@'", sessionToExecute ? sessionToExecute : @"(nil)");
         NSLog(@"[DEBUG] Available sessions: %@", availableSessions);
@@ -508,6 +675,13 @@
         pid_t wpid = -1;
         while (wpid != pid) {
             wpid = waitpid(pid, &status, 0);
+            if (wpid == -1) {
+                if (errno == EINTR) {
+                    continue; // Interrupted by signal, try again
+                }
+                NSLog(@"[DEBUG] waitpid error: %s", strerror(errno));
+                break;
+            }
         }
         
         NSLog(@"[DEBUG] Session ended with status: %d", status);
@@ -519,14 +693,16 @@
         
         // Session ended, close PAM session
         [pamAuth closeSession];
+        NSLog(@"[DEBUG] PAM session closed");
         
-        // Show login window again and reset fields
-        [loginWindow makeKeyAndOrderFront:self];
-        [passwordField setStringValue:@""];
-        [usernameField setStringValue:@""];
-        [self showStatus:@"Session ended"];
-        [loginWindow makeFirstResponder:usernameField];
-        NSLog(@"[DEBUG] Login window restored");
+        // Clean up any remaining child processes
+        while (waitpid(-1, NULL, WNOHANG) > 0) {
+            NSLog(@"[DEBUG] Cleaned up child process");
+        }
+        
+        // Reset login window to initial state
+        [self resetLoginWindow];
+        NSLog(@"[DEBUG] Login window restored and activated");
     } else {
         NSLog(@"[DEBUG] Fork failed");
         [self showStatus:@"Failed to start session"];
@@ -550,6 +726,32 @@
     } else {
         NSLog(@"[DEBUG] Invalid session index: %ld (count: %lu)", (long)idx, (unsigned long)[availableSessionExecs count]);
     }
+}
+
+- (void)resetLoginWindow
+{
+    NSLog(@"[DEBUG] Resetting login window state");
+    
+    // Clear input fields
+    [passwordField setStringValue:@""];
+    [usernameField setStringValue:@""];
+    [self showStatus:@""];
+    
+    // Reset session selection to default
+    if ([availableSessionExecs count] > 0) {
+        selectedSessionExec = [availableSessionExecs objectAtIndex:0];
+        [sessionDropdown selectItemAtIndex:0];
+    }
+    
+    // Ensure window is properly positioned and visible
+    [loginWindow center];
+    [loginWindow setLevel:NSScreenSaverWindowLevel];
+    [loginWindow makeKeyAndOrderFront:self];
+    [loginWindow makeMainWindow];
+    [loginWindow makeFirstResponder:usernameField];
+    [NSApp activateIgnoringOtherApps:YES];
+    
+    NSLog(@"[DEBUG] Login window reset complete");
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
