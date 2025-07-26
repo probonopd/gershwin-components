@@ -412,7 +412,7 @@ void signalHandler(int sig) {
 
 - (BOOL)authenticateUser:(NSString *)username password:(NSString *)password
 {
-    // Use PAM for authentication (just like SLiM does)
+    // Use PAM for authentication
     return [pamAuth authenticateUser:username password:password];
 }
 
@@ -465,7 +465,14 @@ void signalHandler(int sig) {
     if (pid == 0) {
         // Child process - create new session to avoid X11 threading issues
         NSLog(@"[DEBUG] Child process started");
-        setsid();
+        
+        // Create a new session and process group - this is critical for proper cleanup
+        pid_t sessionId = setsid();
+        if (sessionId == -1) {
+            NSLog(@"[DEBUG] setsid() failed: %s", strerror(errno));
+            exit(1);
+        }
+        NSLog(@"[DEBUG] Created new session with SID: %d", sessionId);
         
         // Close all file descriptors except stdin, stdout, stderr
         int maxfd = sysconf(_SC_OPEN_MAX);
@@ -782,7 +789,7 @@ void signalHandler(int sig) {
         perror("execl failed");
         exit(1);
     } else if (pid > 0) {
-        // Parent process - wait for session to complete like SLiM does
+        // Parent process - wait for session to complete
         NSLog(@"[DEBUG] Parent process, session PID: %d", pid);
         
         // Store session information for cleanup
@@ -830,9 +837,9 @@ void signalHandler(int sig) {
         sessionUid = 0;
         sessionGid = 0;
         
-        // Exit LoginWindow after session ends
-        NSLog(@"[DEBUG] Session ended, exiting LoginWindow");
-        [NSApp terminate:self];
+        // Reset login window for next user
+        NSLog(@"[DEBUG] Session ended, resetting login window for next user");
+        [self resetLoginWindow];
     } else {
         NSLog(@"[DEBUG] Fork failed");
         [self showStatus:@"Failed to start session"];
@@ -842,26 +849,70 @@ void signalHandler(int sig) {
 
 - (void)killAllSessionProcesses:(uid_t)uid
 {
-    NSLog(@"[DEBUG] Starting forceful cleanup of all processes for UID: %d", uid);
+    NSLog(@"[DEBUG] Starting targeted session cleanup for UID: %d", uid);
     
-    // First, try to get all processes for this user using sysctl
+    // 1. Only kill the session process group, not all user processes
+    // 2. Use the session PID to target only session-related processes
+    // 3. Don't kill unrelated user processes (like those started from command line)
+    
+    if (sessionPid <= 0) {
+        NSLog(@"[DEBUG] No session PID to clean up");
+        return;
+    }
+    
+    NSLog(@"[DEBUG] Cleaning up session process group for PID: %d", sessionPid);
+    
+    // Step 1: Send HUP signal to the session process group 
+    NSLog(@"[DEBUG] Sending SIGHUP to process group %d", sessionPid);
+    if (killpg(sessionPid, SIGHUP) != 0) {
+        if (errno != ESRCH) {
+            NSLog(@"[DEBUG] Failed to send SIGHUP to process group %d: %s", sessionPid, strerror(errno));
+        }
+    }
+    
+    // Step 2: Send TERM signal to process group, if that fails send KILL
+    NSLog(@"[DEBUG] Sending SIGTERM to process group %d", sessionPid);
+    if (killpg(sessionPid, SIGTERM) != 0) {
+        if (errno != ESRCH) {
+            NSLog(@"[DEBUG] SIGTERM failed, sending SIGKILL to process group %d", sessionPid);
+            killpg(sessionPid, SIGKILL);
+        }
+    } else {
+        // Give processes a moment to terminate gracefully
+        usleep(500000); // 500ms
+        
+        // Check if the session process still exists, if so, force kill
+        if (kill(sessionPid, 0) == 0) {
+            NSLog(@"[DEBUG] Session process still alive, sending SIGKILL to process group %d", sessionPid);
+            killpg(sessionPid, SIGKILL);
+        }
+    }
+    
+    // Step 3: Kill the main session process directly
+    NSLog(@"[DEBUG] Killing main session process %d", sessionPid);
+    if (kill(sessionPid, SIGKILL) != 0) {
+        if (errno != ESRCH) {
+            NSLog(@"[DEBUG] Failed to kill session process %d: %s", sessionPid, strerror(errno));
+        }
+    }
+    
+    // Step 4: Additional cleanup - find any processes that might still be in the same session
+    NSLog(@"[DEBUG] Looking for remaining processes in session %d", sessionPid);
+    
     int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_UID, uid};
     size_t size = 0;
     
-    // Get the size needed
     if (sysctl(mib, 4, NULL, &size, NULL, 0) != 0) {
         NSLog(@"[DEBUG] Failed to get process list size: %s", strerror(errno));
         return;
     }
     
-    // Allocate buffer for process info
     struct kinfo_proc *procs = malloc(size);
     if (!procs) {
         NSLog(@"[DEBUG] Failed to allocate memory for process list");
         return;
     }
     
-    // Get the actual process list
     if (sysctl(mib, 4, procs, &size, NULL, 0) != 0) {
         NSLog(@"[DEBUG] Failed to get process list: %s", strerror(errno));
         free(procs);
@@ -869,132 +920,57 @@ void signalHandler(int sig) {
     }
     
     int numProcs = size / sizeof(struct kinfo_proc);
-    NSLog(@"[DEBUG] Found %d processes for UID %d", numProcs, uid);
+    NSLog(@"[DEBUG] Checking %d processes for session cleanup", numProcs);
     
-    // Create arrays to store PIDs for different cleanup phases
-    NSMutableArray *userPids = [NSMutableArray array];
-    NSMutableArray *sessionPids = [NSMutableArray array];
-    
-    // Collect all relevant PIDs
+    int sessionRelatedKilled = 0;
     for (int i = 0; i < numProcs; i++) {
         pid_t pid = procs[i].ki_pid;
         
-        // Skip kernel processes (PID 0) and init (PID 1)
-        if (pid <= 1) continue;
-        
-        // Skip our own process
-        if (pid == getpid()) continue;
-        
-        // Add to appropriate list
-        [userPids addObject:@(pid)];
-        
-        // If this is a process in the same session as our session PID, add to session list
-        if (sessionPid > 0 && procs[i].ki_sid == sessionPid) {
-            [sessionPids addObject:@(pid)];
+        // Skip kernel processes, init, and our own process
+        if (pid <= 1 || pid == getpid()) {
+            continue;
         }
         
-        NSLog(@"[DEBUG] Found user process: PID=%d, PPID=%d, SID=%d, Command=%s", 
-              pid, procs[i].ki_ppid, procs[i].ki_sid, procs[i].ki_comm);
+        // Only kill processes that are related to our session:
+        // 1. Processes whose PPID is our session PID (direct children)
+        // 2. Processes whose SID is our session PID (same session)
+        // 3. Processes whose PGID is our session PID (same process group)
+        bool isSessionRelated = false;
+        
+        if (procs[i].ki_ppid == sessionPid) {
+            NSLog(@"[DEBUG] Found child process: PID=%d, Command=%s", pid, procs[i].ki_comm);
+            isSessionRelated = true;
+        } else if (procs[i].ki_sid == sessionPid) {
+            NSLog(@"[DEBUG] Found session process: PID=%d, SID=%d, Command=%s", pid, procs[i].ki_sid, procs[i].ki_comm);
+            isSessionRelated = true;
+        } else if (procs[i].ki_pgid == sessionPid) {
+            NSLog(@"[DEBUG] Found process group member: PID=%d, PGID=%d, Command=%s", pid, procs[i].ki_pgid, procs[i].ki_comm);
+            isSessionRelated = true;
+        }
+        
+        if (isSessionRelated) {
+            NSLog(@"[DEBUG] Killing session-related process: PID=%d, Command=%s", pid, procs[i].ki_comm);
+            if (kill(pid, SIGKILL) == 0) {
+                sessionRelatedKilled++;
+            } else if (errno != ESRCH) {
+                NSLog(@"[DEBUG] Failed to kill session process %d: %s", pid, strerror(errno));
+            }
+        }
     }
     
     free(procs);
     
-    NSLog(@"[DEBUG] Collected %lu user processes, %lu session processes", 
-          (unsigned long)[userPids count], (unsigned long)[sessionPids count]);
+    NSLog(@"[DEBUG] Session cleanup complete: killed %d session-related processes", sessionRelatedKilled);
     
-    // Phase 1: Send SIGTERM to all session processes first
-    if ([sessionPids count] > 0) {
-        NSLog(@"[DEBUG] Phase 1: Sending SIGTERM to session processes");
-        for (NSNumber *pidNum in sessionPids) {
-            pid_t pid = [pidNum intValue];
-            NSLog(@"[DEBUG] Sending SIGTERM to session process: %d", pid);
-            if (kill(pid, SIGTERM) != 0) {
-                NSLog(@"[DEBUG] Failed to send SIGTERM to PID %d: %s", pid, strerror(errno));
-            }
-        }
-        
-        // Wait a bit for graceful termination
-        NSLog(@"[DEBUG] Waiting 2 seconds for graceful termination");
-        sleep(2);
+    // Step 5: Reap any zombie children
+    int status;
+    int reaped = 0;
+    while (waitpid(-1, &status, WNOHANG) > 0) {
+        reaped++;
     }
-    
-    // Phase 2: Send SIGTERM to all user processes
-    NSLog(@"[DEBUG] Phase 2: Sending SIGTERM to all user processes");
-    for (NSNumber *pidNum in userPids) {
-        pid_t pid = [pidNum intValue];
-        NSLog(@"[DEBUG] Sending SIGTERM to user process: %d", pid);
-        if (kill(pid, SIGTERM) != 0) {
-            // Process might already be dead, that's fine
-            if (errno != ESRCH) {
-                NSLog(@"[DEBUG] Failed to send SIGTERM to PID %d: %s", pid, strerror(errno));
-            }
-        }
+    if (reaped > 0) {
+        NSLog(@"[DEBUG] Reaped %d zombie processes", reaped);
     }
-    
-    // Wait a bit more for graceful termination
-    NSLog(@"[DEBUG] Waiting 3 seconds for graceful termination");
-    sleep(3);
-    
-    // Phase 3: Send SIGKILL to any remaining processes
-    NSLog(@"[DEBUG] Phase 3: Sending SIGKILL to any remaining processes");
-    for (NSNumber *pidNum in userPids) {
-        pid_t pid = [pidNum intValue];
-        
-        // Check if process still exists
-        if (kill(pid, 0) == 0) {
-            NSLog(@"[DEBUG] Process %d still alive, sending SIGKILL", pid);
-            if (kill(pid, SIGKILL) != 0) {
-                if (errno != ESRCH) {
-                    NSLog(@"[DEBUG] Failed to send SIGKILL to PID %d: %s", pid, strerror(errno));
-                }
-            }
-        }
-    }
-    
-    // Phase 4: Try to kill the session process group if we have it
-    if (sessionPid > 0) {
-        NSLog(@"[DEBUG] Phase 4: Attempting to kill session process group: %d", sessionPid);
-        
-        // First try SIGTERM to the process group
-        if (killpg(sessionPid, SIGTERM) == 0) {
-            NSLog(@"[DEBUG] Sent SIGTERM to process group %d", sessionPid);
-            sleep(2);
-            
-            // Then SIGKILL to the process group
-            if (killpg(sessionPid, SIGKILL) == 0) {
-                NSLog(@"[DEBUG] Sent SIGKILL to process group %d", sessionPid);
-            } else {
-                NSLog(@"[DEBUG] Failed to send SIGKILL to process group %d: %s", sessionPid, strerror(errno));
-            }
-        } else {
-            NSLog(@"[DEBUG] Failed to send SIGTERM to process group %d: %s", sessionPid, strerror(errno));
-        }
-    }
-    
-    // Phase 5: Use pkill as a fallback to catch any remaining processes
-    NSLog(@"[DEBUG] Phase 5: Using pkill as fallback for UID: %d", uid);
-    char pkill_cmd[256];
-    snprintf(pkill_cmd, sizeof(pkill_cmd), "/usr/bin/pkill -TERM -U %d 2>/dev/null || true", uid);
-    NSLog(@"[DEBUG] Executing: %s", pkill_cmd);
-    system(pkill_cmd);
-    
-    sleep(2);
-    
-    snprintf(pkill_cmd, sizeof(pkill_cmd), "/usr/bin/pkill -KILL -U %d 2>/dev/null || true", uid);
-    NSLog(@"[DEBUG] Executing: %s", pkill_cmd);
-    system(pkill_cmd);
-    
-    // Phase 6: Final cleanup - wait for any remaining child processes
-    NSLog(@"[DEBUG] Phase 5: Final cleanup of remaining child processes");
-    int cleanedUp = 0;
-    while (waitpid(-1, NULL, WNOHANG) > 0) {
-        cleanedUp++;
-    }
-    if (cleanedUp > 0) {
-        NSLog(@"[DEBUG] Cleaned up %d additional child processes", cleanedUp);
-    }
-    
-    NSLog(@"[DEBUG] Forceful session cleanup completed for UID: %d", uid);
 }
 
 - (void)showStatus:(NSString *)message
@@ -1043,7 +1019,7 @@ void signalHandler(int sig) {
     [loginWindow makeFirstResponder:usernameField];
     [NSApp activateIgnoringOtherApps:YES];
     
-    NSLog(@"[DEBUG] Login window reset complete");
+    NSLog(@"[DEBUG] Login window reset complete - ready for next user");
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
