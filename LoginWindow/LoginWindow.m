@@ -10,6 +10,7 @@
 #import <sys/sysctl.h>
 #import <sys/user.h>
 #import <libutil.h>
+#import <fcntl.h>
 #import <X11/Xlib.h>
 
 #ifdef HAVE_SHADOW
@@ -1687,6 +1688,24 @@ void signalHandler(int sig) {
     NSString *xauthCmd = [NSString stringWithFormat:@"/usr/local/bin/xauth -f %@ add :0 . %@", authFile, mcookie];
     system([xauthCmd UTF8String]);
     
+    // Rotate existing X server log file before starting new session
+    NSString *xorgLogPath = @"/var/log/Xorg.0.log";
+    NSString *xorgLogOldPath = @"/var/log/Xorg.0.log.old";
+    
+    if ([[NSFileManager defaultManager] fileExistsAtPath:xorgLogPath]) {
+        NSLog(@"[DEBUG] Moving existing X server log to %@", xorgLogOldPath);
+        // Remove old backup if it exists
+        [[NSFileManager defaultManager] removeItemAtPath:xorgLogOldPath error:nil];
+        // Move current log to backup
+        NSError *moveError = nil;
+        if (![[NSFileManager defaultManager] moveItemAtPath:xorgLogPath toPath:xorgLogOldPath error:&moveError]) {
+            NSLog(@"[DEBUG] Failed to rotate X server log: %@", moveError.localizedDescription);
+            // Continue anyway - not a fatal error
+        } else {
+            NSLog(@"[DEBUG] Successfully rotated X server log");
+        }
+    }
+    
     // Start X server on display :0
     pid_t xserver_pid = fork();
     if (xserver_pid == 0) {
@@ -1696,7 +1715,40 @@ void signalHandler(int sig) {
         // Set up environment for X server
         setenv("DISPLAY", ":0", 1);
         
-        // Close file descriptors except stdin, stdout, stderr
+        // Redirect X server output to its proper log file location
+        // Close stdin, stdout, stderr and redirect them properly
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        
+        // Redirect stdin to /dev/null
+        int nullfd = open("/dev/null", O_RDONLY);
+        if (nullfd != STDIN_FILENO) {
+            dup2(nullfd, STDIN_FILENO);
+            close(nullfd);
+        }
+        
+        // Redirect stdout and stderr to X server's log file
+        int logfd = open("/var/log/Xorg.0.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (logfd >= 0) {
+            dup2(logfd, STDOUT_FILENO);
+            dup2(logfd, STDERR_FILENO);
+            if (logfd != STDOUT_FILENO && logfd != STDERR_FILENO) {
+                close(logfd);
+            }
+        } else {
+            // Fallback to /dev/null if can't open log file
+            int devnull = open("/dev/null", O_WRONLY);
+            if (devnull >= 0) {
+                dup2(devnull, STDOUT_FILENO);
+                dup2(devnull, STDERR_FILENO);
+                if (devnull != STDOUT_FILENO && devnull != STDERR_FILENO) {
+                    close(devnull);
+                }
+            }
+        }
+        
+        // Close all other file descriptors
         int maxfd = sysconf(_SC_OPEN_MAX);
         for (int fd = 3; fd < maxfd; fd++) {
             close(fd);
@@ -1718,7 +1770,7 @@ void signalHandler(int sig) {
               (char *)NULL);
         
         // If we get here, exec failed
-        NSLog(@"[DEBUG] Failed to exec X server: %s", strerror(errno));
+        // Can't use NSLog here since we redirected stderr
         exit(1);
     } else if (xserver_pid > 0) {
         // Parent process
