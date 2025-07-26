@@ -13,13 +13,15 @@ A simple, minimalist login manager for GNUstep-based desktop environments.
 4. Disable other display managers (gdm, lightdm, etc.) in `/etc/rc.conf`
 
 
-# Create the system preferences directory if it doesn't exist
+## Enabling
+
+Create the system preferences directory if it doesn't exist
 
 ```
 sudo -A mkdir -p /System/Library/Preferences
 ```
 
-# Create or update the loginwindow.plist file with auto-login user
+Create or update the loginwindow.plist file with auto-login user
 
 ```
 sudo -A defaults write /System/Library/Preferences/loginwindow autoLoginUser User
