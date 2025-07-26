@@ -165,7 +165,7 @@ void signalHandler(int sig) {
 {
     [self scanAvailableSessions];
     
-    NSRect windowFrame = NSMakeRect(0, 0, 400, 300);
+    NSRect windowFrame = NSMakeRect(0, 0, 400, 310);
     
     char hostname[256] = "";
     gethostname(hostname, sizeof(hostname));
@@ -187,8 +187,8 @@ void signalHandler(int sig) {
     
     NSView *contentView = [loginWindow contentView];
     
-    // Logo/Title
-    NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 220, 300, 40)];
+    // Title
+    NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 230+12, 300, 40)];
     [titleLabel setStringValue:computerName];
     [titleLabel setAlignment:NSCenterTextAlignment];
     [titleLabel setFont:[NSFont boldSystemFontOfSize:24]];
@@ -197,83 +197,89 @@ void signalHandler(int sig) {
     [titleLabel setEditable:NO];
     [titleLabel setSelectable:NO];
     [contentView addSubview:titleLabel];
-    
+
     // Username field
-    NSTextField *usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 180, 100, 20)];
+    NSTextField *usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 180+12, 100, 20)];
     [usernameLabel setStringValue:@"Username:"];
     [usernameLabel setBezeled:NO];
     [usernameLabel setDrawsBackground:NO];
     [usernameLabel setEditable:NO];
     [usernameLabel setSelectable:NO];
     [contentView addSubview:usernameLabel];
-    
-    usernameField = [[NSTextField alloc] initWithFrame:NSMakeRect(160, 180, 190, 22)];
+
+    usernameField = [[NSTextField alloc] initWithFrame:NSMakeRect(160, 180+12, 190, 22)];
     [usernameField setBezeled:YES];
     [usernameField setBezelStyle:NSTextFieldSquareBezel];
     [usernameField setEditable:YES];
     [usernameField setSelectable:YES];
     [usernameField setEnabled:YES];
     [contentView addSubview:usernameField];
-    
+
     // Password field
-    NSTextField *passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 150, 100, 20)];
+    NSTextField *passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 150+12, 100, 20)];
     [passwordLabel setStringValue:@"Password:"];
     [passwordLabel setBezeled:NO];
     [passwordLabel setDrawsBackground:NO];
     [passwordLabel setEditable:NO];
     [passwordLabel setSelectable:NO];
     [contentView addSubview:passwordLabel];
-    
-    passwordField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(160, 150, 190, 22)];
+
+    passwordField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(160, 150+12, 190, 22)];
     [passwordField setBezeled:YES];
     [passwordField setBezelStyle:NSTextFieldSquareBezel];
     [passwordField setEditable:YES];
     [passwordField setSelectable:YES];
     [passwordField setEnabled:YES];
     [contentView addSubview:passwordField];
-    
-    // Login button
-    loginButton = [[NSButton alloc] initWithFrame:NSMakeRect(160, 110, 80, 32)];
-    [loginButton setTitle:@"Login"];
-    [loginButton setBezelStyle:NSRoundedBezelStyle];
-    [loginButton setTarget:self];
-    [loginButton setAction:@selector(loginButtonPressed:)];
-    [loginButton setKeyEquivalent:@"\r"];
-    [contentView addSubview:loginButton];
-    
-    // Shutdown button
-    shutdownButton = [[NSButton alloc] initWithFrame:NSMakeRect(50, 50, 80, 32)];
-    [shutdownButton setTitle:@"Shutdown"];
-    [shutdownButton setBezelStyle:NSRoundedBezelStyle];
-    [shutdownButton setTarget:self];
-    [shutdownButton setAction:@selector(shutdownButtonPressed:)];
-    [contentView addSubview:shutdownButton];
-    
-    // Restart button
-    restartButton = [[NSButton alloc] initWithFrame:NSMakeRect(140, 50, 80, 32)];
-    [restartButton setTitle:@"Restart"];
-    [restartButton setBezelStyle:NSRoundedBezelStyle];
-    [restartButton setTarget:self];
-    [restartButton setAction:@selector(restartButtonPressed:)];
-    [contentView addSubview:restartButton];
-    
-    // Status label
-    statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 20, 300, 20)];
+
+    // Session dropdown
+    BOOL showDropdown = [availableSessions count] > 1;
+    if (showDropdown) {
+        sessionDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(50, 110+12, 300, 24)];
+        [sessionDropdown addItemsWithTitles:availableSessions];
+        [sessionDropdown setTarget:self];
+        [sessionDropdown setAction:@selector(sessionChanged:)];
+        [contentView addSubview:sessionDropdown];
+        statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 40+12, 300, 20)];
+    } else {
+        statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 60+12, 300, 20)];
+    }
     [statusLabel setStringValue:@""];
     [statusLabel setAlignment:NSCenterTextAlignment];
     [statusLabel setBezeled:NO];
     [statusLabel setDrawsBackground:NO];
     [statusLabel setEditable:NO];
     [statusLabel setSelectable:NO];
-    [statusLabel setTextColor:[NSColor redColor]];
     [contentView addSubview:statusLabel];
-    
-    // Session dropdown
-    sessionDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(50, 80, 300, 24)];
-    [sessionDropdown addItemsWithTitles:availableSessions];
-    [sessionDropdown setTarget:self];
-    [sessionDropdown setAction:@selector(sessionChanged:)];
-    [contentView addSubview:sessionDropdown];
+
+    CGFloat buttonWidth = 80;
+    CGFloat buttonHeight = 24;
+    CGFloat buttonSpacing = 10;
+    CGFloat bottomMargin = 10+12;
+    CGFloat leftX = 50;
+    CGFloat buttonY = bottomMargin;
+    CGFloat rightX = windowFrame.size.width - buttonWidth - 50;
+
+    shutdownButton = [[NSButton alloc] initWithFrame:NSMakeRect(leftX, buttonY, buttonWidth, buttonHeight)];
+    [shutdownButton setTitle:@"Shut Down"];
+    [shutdownButton setTarget:self];
+    [shutdownButton setAction:@selector(shutdownButtonPressed:)];
+    [contentView addSubview:shutdownButton];
+
+    restartButton = [[NSButton alloc] initWithFrame:NSMakeRect(leftX + buttonWidth + buttonSpacing, buttonY, buttonWidth, buttonHeight)];
+    [restartButton setTitle:@"Restart"];
+    [restartButton setTarget:self];
+    [restartButton setAction:@selector(restartButtonPressed:)];
+    [contentView addSubview:restartButton];
+
+    loginButton = [[NSButton alloc] initWithFrame:NSMakeRect(rightX, buttonY, buttonWidth, buttonHeight)];
+    [loginButton setTitle:@"Login"];
+    [loginButton setTarget:self];
+    [loginButton setAction:@selector(loginButtonPressed:)];
+    [loginButton setKeyEquivalent:@"\r"];
+    [loginButton setEnabled:YES];
+    [loginButton setShowsBorderOnlyWhileMouseInside:NO];
+    [contentView addSubview:loginButton];
     
     // Set initial focus
     [loginWindow makeFirstResponder:usernameField];
