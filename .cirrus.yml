@@ -18,7 +18,7 @@ env:
 freebsd_amd64_task:
   name: FreeBSD amd64 14.2
   freebsd_instance:
-    image_family: freebsd-14-2-release-amd64-ufs
+    image: freebsd-14-2-release-amd64-ufs
     cpu: 4
     memory: 8G
 
