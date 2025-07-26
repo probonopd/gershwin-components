@@ -325,8 +325,6 @@ void signalHandler(int sig) {
         return;
     }
         
-    [self showStatus:@"Authenticating..."];
-    
     NSLog(@"[DEBUG] authenticateUser:password: will be called");
     if ([self authenticateUser:username password:password]) {
         NSLog(@"[DEBUG] authenticateUser:password: returned YES");
@@ -1710,12 +1708,9 @@ void signalHandler(int sig) {
     pid_t xserver_pid = fork();
     if (xserver_pid == 0) {
         // Child process - start X server
-        NSLog(@"[DEBUG] Starting X server");
+        // IMMEDIATELY redirect file descriptors before ANY other operations
+        // to prevent ANY output from going to LoginWindow.log
         
-        // Set up environment for X server
-        setenv("DISPLAY", ":0", 1);
-        
-        // Redirect X server output to its proper log file location
         // Close stdin, stdout, stderr and redirect them properly
         close(STDIN_FILENO);
         close(STDOUT_FILENO);
@@ -1747,6 +1742,10 @@ void signalHandler(int sig) {
                 }
             }
         }
+        
+        // Now we can safely do other setup since stdout/stderr are redirected
+        // Set up environment for X server
+        setenv("DISPLAY", ":0", 1);
         
         // Close all other file descriptors
         int maxfd = sysconf(_SC_OPEN_MAX);
