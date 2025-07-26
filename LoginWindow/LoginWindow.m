@@ -303,13 +303,7 @@ void signalHandler(int sig) {
         [self shakeWindow];
         return;
     }
-    
-    if ([password length] == 0) {
-        [self showStatus:@"Please enter password"];
-        [self shakeWindow];
-        return;
-    }
-    
+        
     [self showStatus:@"Authenticating..."];
     
     NSLog(@"[DEBUG] authenticateUser:password: will be called");
