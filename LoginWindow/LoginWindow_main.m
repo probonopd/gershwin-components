@@ -6,6 +6,14 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+// Forward declarations of functions from this file
+BOOL isXServerRunning(void);
+BOOL waitForXServer(void);
+BOOL startXServer(void);
 
 BOOL isXServerRunning(void)
 {
@@ -176,31 +184,131 @@ BOOL startXServer(void)
     }
 }
 
+// Global variables to track Xorg state (similar to shell script)
+static pid_t global_xorg_pid = 0;
+static BOOL global_we_started_xorg = NO;
+
+// Function to start Xorg using the same logic as the shell script
+BOOL startXorgLikeShellScript(void)
+{
+    NSLog(@"[DEBUG] Starting Xorg using shell script logic");
+    
+    // Check if Xorg is already running (equivalent to pgrep -q Xorg)
+    FILE *pipe = popen("pgrep -q Xorg", "r");
+    int pgrep_result = pclose(pipe);
+    
+    if (pgrep_result == 0) {
+        NSLog(@"[DEBUG] Xorg already running, not starting our own instance");
+        global_we_started_xorg = NO;
+        return YES;
+    }
+    
+    NSLog(@"[DEBUG] Starting Xorg server...");
+    
+    // Prepare log file (equivalent to shell script log preparation)
+    const char *logfile = "/var/log/LoginWindow.log";
+    unlink(logfile);
+    int logfd = open(logfile, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (logfd >= 0) {
+        close(logfd);
+    }
+    
+    // Start Xorg in background and save PID (equivalent to Xorg :0 -auth /var/run/xauth &)
+    pid_t xorg_pid = fork();
+    if (xorg_pid == 0) {
+        // Child process - start Xorg
+        // Redirect stdout and stderr to log file
+        int logfd = open(logfile, O_WRONLY | O_APPEND);
+        if (logfd >= 0) {
+            dup2(logfd, STDOUT_FILENO);
+            dup2(logfd, STDERR_FILENO);
+            close(logfd);
+        }
+        
+        // Execute Xorg with the same parameters as shell script
+        execl("/usr/local/bin/Xorg", "Xorg", ":0", "-auth", "/var/run/xauth", (char *)NULL);
+        // If exec fails, try alternative path
+        execl("/usr/bin/Xorg", "Xorg", ":0", "-auth", "/var/run/xauth", (char *)NULL);
+        
+        // If we get here, exec failed
+        NSLog(@"[ERROR] Failed to exec Xorg");
+        exit(1);
+    } else if (xorg_pid > 0) {
+        // Parent process - save PID and mark that we started it
+        global_xorg_pid = xorg_pid;
+        global_we_started_xorg = YES;
+        
+        // Write PID to file (equivalent to echo $xorg_pid > ${xorg_pidfile})
+        FILE *pidfile = fopen("/var/run/Xorg.loginwindow.pid", "w");
+        if (pidfile) {
+            fprintf(pidfile, "%d\n", xorg_pid);
+            fclose(pidfile);
+        }
+        
+        // Mark that we started Xorg (equivalent to touch ${xorg_started_flag})
+        int flagfd = open("/var/run/loginwindow.xorg.started", O_CREAT | O_WRONLY | O_TRUNC, 0644);
+        if (flagfd >= 0) {
+            close(flagfd);
+        }
+        
+        // Wait a moment for Xorg to initialize (equivalent to sleep 2)
+        sleep(2);
+        setenv("DISPLAY", ":0", 1);
+        
+        NSLog(@"[DEBUG] Xorg started with PID: %d", xorg_pid);
+        return YES;
+    } else {
+        NSLog(@"[ERROR] Failed to fork for Xorg");
+        return NO;
+    }
+}
+
+// Function to stop Xorg using the same logic as the shell script
+void stopXorgLikeShellScript(void)
+{
+    NSLog(@"[DEBUG] Stopping Xorg using shell script logic");
+    
+    // Stop Xorg only if we started it (equivalent to if [ -f ${xorg_started_flag} ])
+    if (global_we_started_xorg && access("/var/run/loginwindow.xorg.started", F_OK) == 0) {
+        NSLog(@"[DEBUG] Stopping Xorg server (we started it)...");
+        
+        if (global_xorg_pid > 0) {
+            kill(global_xorg_pid, SIGTERM);
+        } else {
+            // Try to read PID from file
+            FILE *pidfile = fopen("/var/run/Xorg.loginwindow.pid", "r");
+            if (pidfile) {
+                int pid;
+                if (fscanf(pidfile, "%d", &pid) == 1 && pid > 0) {
+                    kill(pid, SIGTERM);
+                }
+                fclose(pidfile);
+            }
+        }
+        
+        // Remove PID file (equivalent to rm -f ${xorg_pidfile})
+        unlink("/var/run/Xorg.loginwindow.pid");
+        
+        // Remove flag file (equivalent to rm -f ${xorg_started_flag})
+        unlink("/var/run/loginwindow.xorg.started");
+        
+        global_we_started_xorg = NO;
+        global_xorg_pid = 0;
+    } else {
+        NSLog(@"[DEBUG] Not stopping Xorg (we didn't start it)");
+    }
+}
+
 int main(int argc, const char *argv[])
 {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
     
-    // CRITICAL: Start X server at the very beginning before any GUI operations
-    NSLog(@"[DEBUG] Ensuring X server is running before starting LoginWindow");
+    // MOVED FROM SHELL SCRIPT: Start Xorg at the very beginning before anything else happens
+    NSLog(@"[DEBUG] Starting Xorg management (moved from shell script)");
     
-    // First check if we can connect to existing X server
-    if (!isXServerRunning()) {
-        NSLog(@"[DEBUG] X server is not accessible, attempting to start it");
-        
-        if (!startXServer()) {
-            NSLog(@"[ERROR] Failed to start X server - LoginWindow may not work properly");
-            // Try to create a minimal auth file as fallback
-            NSLog(@"[DEBUG] Creating fallback X authority file");
-            system("touch /tmp/loginwindow.auth");
-            system("chmod 600 /tmp/loginwindow.auth");
-            setenv("XAUTHORITY", "/tmp/loginwindow.auth", 1);
-        } else {
-            // Give X server additional time to fully initialize after being ready
-            NSLog(@"[DEBUG] X server started successfully, waiting additional 2 seconds for full initialization");
-            sleep(2);
-        }
-    } else {
-        NSLog(@"[DEBUG] X server is already running and accessible");
+    if (!startXorgLikeShellScript()) {
+        NSLog(@"[ERROR] Failed to start Xorg - LoginWindow may not work properly");
+        // Continue anyway, as the existing code had fallback logic
     }
     
     // Set DISPLAY environment variable to ensure GUI apps can connect
@@ -212,6 +320,10 @@ int main(int argc, const char *argv[])
     [NSApplication sharedApplication];
     [NSApp setDelegate: [[LoginWindow alloc] init]];
     [NSApp run];
+    
+    // MOVED FROM SHELL SCRIPT: Stop Xorg when LoginWindow exits
+    NSLog(@"[DEBUG] LoginWindow exiting, stopping Xorg if we started it");
+    stopXorgLikeShellScript();
     
     [pool drain];
     return 0;
