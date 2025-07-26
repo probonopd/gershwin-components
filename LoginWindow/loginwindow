@@ -1,48 +1,28 @@
 #!/bin/sh
-#
-# FreeBSD rc.d script for LoginWindow display manager
-#
+
 # PROVIDE: loginwindow
 # REQUIRE: LOGIN cleanvar moused syscons dbus
 # KEYWORD: shutdown
 #
-# Add the following lines to /etc/rc.conf to enable loginwindow:
+# Add the following lines to /etc/rc.conf to enable the LoginWindow:
+#
 # loginwindow_enable="YES"
 #
 
 . /etc/rc.subr
 
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+
 name="loginwindow"
-rcvar="loginwindow_enable"
+rcvar=loginwindow_enable
 
-command="/System/Applications/LoginWindow.app/LoginWindow"
-command_args=""
-pidfile="/var/run/loginwindow.pid"
+load_rc_config ${name}
 
-start_precmd="loginwindow_prestart"
-stop_postcmd="loginwindow_poststop"
+: ${loginwindow_enable:="NO"}
 
-loginwindow_prestart()
-{
-    # Ensure X11 is available
-    if [ ! -e /tmp/.X11-unix/X0 ]; then
-        echo "Starting X server..."
-        /usr/local/bin/Xorg :0 vt9 -nolisten tcp &
-        sleep 2
-    fi
-    
-    # Set DISPLAY for the login window
-    export DISPLAY=:0
-    
-    # Ensure proper permissions
-    /bin/chmod 755 /System/Applications/LoginWindow.app/LoginWindow 2>/dev/null || true
-}
+command="/usr/sbin/daemon"
+procname="/System/Applications/LoginWindow.app/LoginWindow"
+pidfile="/var/run/${name}.pid"
+command_args="-f ${procname} --pid-file=${pidfile}"
 
-loginwindow_poststop()
-{
-    # Clean up any remaining processes
-    pkill -f LoginWindow 2>/dev/null || true
-}
-
-load_rc_config $name
 run_rc_command "$1"
