@@ -6,10 +6,25 @@
 #import <string.h>
 #import <grp.h>
 #import <errno.h>
+#import <signal.h>
+#import <sys/sysctl.h>
+#import <sys/user.h>
+#import <libutil.h>
 
 #ifdef HAVE_SHADOW
 #import <shadow.h>
 #endif
+
+// Signal handler for cleanup on termination
+void signalHandler(int sig) {
+    NSLog(@"[DEBUG] Received signal %d, performing cleanup", sig);
+    // We can't safely call Objective-C methods from a signal handler,
+    // but we can at least try to kill processes using the global variables
+    // Note: This is not the safest approach, but it's better than nothing
+    if (sig == SIGTERM || sig == SIGINT) {
+        exit(0); // This will trigger applicationWillTerminate
+    }
+}
 
 @implementation LoginWindow
 
@@ -17,6 +32,14 @@
 {
     pamAuth = [[LoginWindowPAM alloc] init];
     NSLog(@"[DEBUG] pamAuth initialized: %@", pamAuth);
+    sessionPid = 0;
+    sessionUid = 0;
+    sessionGid = 0;
+    
+    // Set up signal handlers for cleanup
+    signal(SIGTERM, signalHandler);
+    signal(SIGINT, signalHandler);
+    
     [self createLoginWindow];
     [loginWindow makeKeyAndOrderFront:self];
     [NSApp activateIgnoringOtherApps:YES];
@@ -26,6 +49,23 @@
 {
     [pamAuth release];
     [super dealloc];
+}
+
+- (void)applicationWillTerminate:(NSNotification *)notification
+{
+    NSLog(@"[DEBUG] Application terminating, performing session cleanup");
+    
+    // If we have an active session, kill all its processes
+    if (sessionUid > 0) {
+        NSLog(@"[DEBUG] Cleaning up active session for UID: %d", sessionUid);
+        [self killAllSessionProcesses:sessionUid];
+        
+        // Close PAM session if still open
+        if (pamAuth) {
+            [pamAuth closeSession];
+            NSLog(@"[DEBUG] PAM session closed during termination");
+        }
+    }
 }
 
 - (void)scanAvailableSessions
@@ -744,6 +784,12 @@
     } else if (pid > 0) {
         // Parent process - wait for session to complete like SLiM does
         NSLog(@"[DEBUG] Parent process, session PID: %d", pid);
+        
+        // Store session information for cleanup
+        sessionPid = pid;
+        sessionUid = pwd->pw_uid;
+        sessionGid = pwd->pw_gid;
+        
         printf("Session started for user %s (PID: %d)\n", user_cstr, pid);
         
         // Hide the login window during session
@@ -771,14 +817,18 @@
             NSLog(@"[DEBUG] Session terminated by signal: %d", WTERMSIG(status));
         }
         
+        // Forcefully kill all remaining session processes
+        NSLog(@"[DEBUG] Starting forceful cleanup of session processes");
+        [self killAllSessionProcesses:sessionUid];
+        
         // Session ended, close PAM session
         [pamAuth closeSession];
         NSLog(@"[DEBUG] PAM session closed");
         
-        // Clean up any remaining child processes
-        while (waitpid(-1, NULL, WNOHANG) > 0) {
-            NSLog(@"[DEBUG] Cleaned up child process");
-        }
+        // Reset session tracking variables
+        sessionPid = 0;
+        sessionUid = 0;
+        sessionGid = 0;
         
         // Exit LoginWindow after session ends
         NSLog(@"[DEBUG] Session ended, exiting LoginWindow");
@@ -788,6 +838,163 @@
         [self showStatus:@"Failed to start session"];
         [pamAuth closeSession];
     }
+}
+
+- (void)killAllSessionProcesses:(uid_t)uid
+{
+    NSLog(@"[DEBUG] Starting forceful cleanup of all processes for UID: %d", uid);
+    
+    // First, try to get all processes for this user using sysctl
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_UID, uid};
+    size_t size = 0;
+    
+    // Get the size needed
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) != 0) {
+        NSLog(@"[DEBUG] Failed to get process list size: %s", strerror(errno));
+        return;
+    }
+    
+    // Allocate buffer for process info
+    struct kinfo_proc *procs = malloc(size);
+    if (!procs) {
+        NSLog(@"[DEBUG] Failed to allocate memory for process list");
+        return;
+    }
+    
+    // Get the actual process list
+    if (sysctl(mib, 4, procs, &size, NULL, 0) != 0) {
+        NSLog(@"[DEBUG] Failed to get process list: %s", strerror(errno));
+        free(procs);
+        return;
+    }
+    
+    int numProcs = size / sizeof(struct kinfo_proc);
+    NSLog(@"[DEBUG] Found %d processes for UID %d", numProcs, uid);
+    
+    // Create arrays to store PIDs for different cleanup phases
+    NSMutableArray *userPids = [NSMutableArray array];
+    NSMutableArray *sessionPids = [NSMutableArray array];
+    
+    // Collect all relevant PIDs
+    for (int i = 0; i < numProcs; i++) {
+        pid_t pid = procs[i].ki_pid;
+        
+        // Skip kernel processes (PID 0) and init (PID 1)
+        if (pid <= 1) continue;
+        
+        // Skip our own process
+        if (pid == getpid()) continue;
+        
+        // Add to appropriate list
+        [userPids addObject:@(pid)];
+        
+        // If this is a process in the same session as our session PID, add to session list
+        if (sessionPid > 0 && procs[i].ki_sid == sessionPid) {
+            [sessionPids addObject:@(pid)];
+        }
+        
+        NSLog(@"[DEBUG] Found user process: PID=%d, PPID=%d, SID=%d, Command=%s", 
+              pid, procs[i].ki_ppid, procs[i].ki_sid, procs[i].ki_comm);
+    }
+    
+    free(procs);
+    
+    NSLog(@"[DEBUG] Collected %lu user processes, %lu session processes", 
+          (unsigned long)[userPids count], (unsigned long)[sessionPids count]);
+    
+    // Phase 1: Send SIGTERM to all session processes first
+    if ([sessionPids count] > 0) {
+        NSLog(@"[DEBUG] Phase 1: Sending SIGTERM to session processes");
+        for (NSNumber *pidNum in sessionPids) {
+            pid_t pid = [pidNum intValue];
+            NSLog(@"[DEBUG] Sending SIGTERM to session process: %d", pid);
+            if (kill(pid, SIGTERM) != 0) {
+                NSLog(@"[DEBUG] Failed to send SIGTERM to PID %d: %s", pid, strerror(errno));
+            }
+        }
+        
+        // Wait a bit for graceful termination
+        NSLog(@"[DEBUG] Waiting 2 seconds for graceful termination");
+        sleep(2);
+    }
+    
+    // Phase 2: Send SIGTERM to all user processes
+    NSLog(@"[DEBUG] Phase 2: Sending SIGTERM to all user processes");
+    for (NSNumber *pidNum in userPids) {
+        pid_t pid = [pidNum intValue];
+        NSLog(@"[DEBUG] Sending SIGTERM to user process: %d", pid);
+        if (kill(pid, SIGTERM) != 0) {
+            // Process might already be dead, that's fine
+            if (errno != ESRCH) {
+                NSLog(@"[DEBUG] Failed to send SIGTERM to PID %d: %s", pid, strerror(errno));
+            }
+        }
+    }
+    
+    // Wait a bit more for graceful termination
+    NSLog(@"[DEBUG] Waiting 3 seconds for graceful termination");
+    sleep(3);
+    
+    // Phase 3: Send SIGKILL to any remaining processes
+    NSLog(@"[DEBUG] Phase 3: Sending SIGKILL to any remaining processes");
+    for (NSNumber *pidNum in userPids) {
+        pid_t pid = [pidNum intValue];
+        
+        // Check if process still exists
+        if (kill(pid, 0) == 0) {
+            NSLog(@"[DEBUG] Process %d still alive, sending SIGKILL", pid);
+            if (kill(pid, SIGKILL) != 0) {
+                if (errno != ESRCH) {
+                    NSLog(@"[DEBUG] Failed to send SIGKILL to PID %d: %s", pid, strerror(errno));
+                }
+            }
+        }
+    }
+    
+    // Phase 4: Try to kill the session process group if we have it
+    if (sessionPid > 0) {
+        NSLog(@"[DEBUG] Phase 4: Attempting to kill session process group: %d", sessionPid);
+        
+        // First try SIGTERM to the process group
+        if (killpg(sessionPid, SIGTERM) == 0) {
+            NSLog(@"[DEBUG] Sent SIGTERM to process group %d", sessionPid);
+            sleep(2);
+            
+            // Then SIGKILL to the process group
+            if (killpg(sessionPid, SIGKILL) == 0) {
+                NSLog(@"[DEBUG] Sent SIGKILL to process group %d", sessionPid);
+            } else {
+                NSLog(@"[DEBUG] Failed to send SIGKILL to process group %d: %s", sessionPid, strerror(errno));
+            }
+        } else {
+            NSLog(@"[DEBUG] Failed to send SIGTERM to process group %d: %s", sessionPid, strerror(errno));
+        }
+    }
+    
+    // Phase 5: Use pkill as a fallback to catch any remaining processes
+    NSLog(@"[DEBUG] Phase 5: Using pkill as fallback for UID: %d", uid);
+    char pkill_cmd[256];
+    snprintf(pkill_cmd, sizeof(pkill_cmd), "/usr/bin/pkill -TERM -U %d 2>/dev/null || true", uid);
+    NSLog(@"[DEBUG] Executing: %s", pkill_cmd);
+    system(pkill_cmd);
+    
+    sleep(2);
+    
+    snprintf(pkill_cmd, sizeof(pkill_cmd), "/usr/bin/pkill -KILL -U %d 2>/dev/null || true", uid);
+    NSLog(@"[DEBUG] Executing: %s", pkill_cmd);
+    system(pkill_cmd);
+    
+    // Phase 6: Final cleanup - wait for any remaining child processes
+    NSLog(@"[DEBUG] Phase 5: Final cleanup of remaining child processes");
+    int cleanedUp = 0;
+    while (waitpid(-1, NULL, WNOHANG) > 0) {
+        cleanedUp++;
+    }
+    if (cleanedUp > 0) {
+        NSLog(@"[DEBUG] Cleaned up %d additional child processes", cleanedUp);
+    }
+    
+    NSLog(@"[DEBUG] Forceful session cleanup completed for UID: %d", uid);
 }
 
 - (void)showStatus:(NSString *)message
@@ -811,6 +1018,11 @@
 - (void)resetLoginWindow
 {
     NSLog(@"[DEBUG] Resetting login window state");
+    
+    // Reset session tracking variables
+    sessionPid = 0;
+    sessionUid = 0;
+    sessionGid = 0;
     
     // Clear input fields
     [passwordField setStringValue:@""];

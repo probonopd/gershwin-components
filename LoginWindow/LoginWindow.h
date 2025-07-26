@@ -17,9 +17,13 @@
     NSArray *availableSessions;
     NSArray *availableSessionExecs;
     NSString *selectedSessionExec;
+    pid_t sessionPid;
+    uid_t sessionUid;
+    gid_t sessionGid;
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification;
+- (void)applicationWillTerminate:(NSNotification *)notification;
 - (void)createLoginWindow;
 - (void)loginButtonPressed:(id)sender;
 - (void)shutdownButtonPressed:(id)sender;
@@ -30,5 +34,6 @@
 - (void)sessionChanged:(id)sender;
 - (void)resetLoginWindow;
 - (BOOL)trySystemAction:(NSString *)actionType;
+- (void)killAllSessionProcesses:(uid_t)uid;
 
 @end
