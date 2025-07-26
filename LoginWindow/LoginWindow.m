@@ -53,9 +53,6 @@ void signalHandler(int sig) {
         NSLog(@"[WARNING] X server is not running even after main() startup attempt");
     }
     
-    // Start X server monitoring
-    [self monitorXServer];
-    
     [self createLoginWindow];
     
     // Check for auto-login user after window is created but before showing it
@@ -332,7 +329,6 @@ void signalHandler(int sig) {
     NSLog(@"[DEBUG] authenticateUser:password: will be called");
     if ([self authenticateUser:username password:password]) {
         NSLog(@"[DEBUG] authenticateUser:password: returned YES");
-        [self showStatus:@"Login successful"];
         [self saveLastLoggedInUser:username];
         [self startUserSession:username];
     } else {
@@ -899,7 +895,7 @@ void signalHandler(int sig) {
     
     // Read the autoLoginUser from loginwindow domain
     NSUserDefaults *loginDefaults = [[NSUserDefaults alloc] init];
-    [loginDefaults addSuiteNamed:@"loginwindow"];
+    [loginDefaults addSuiteNamed:@"LoginWindow"];
     
     NSString *autoLoginUser = [loginDefaults stringForKey:@"autoLoginUser"];
     
@@ -1571,22 +1567,13 @@ void signalHandler(int sig) {
     
     // Use the loginwindow domain for storing preferences
     NSUserDefaults *loginDefaults = [[NSUserDefaults alloc] init];
-    [loginDefaults addSuiteNamed:@"loginwindow"];
-    
+    [loginDefaults addSuiteNamed:@"LoginWindow"];
+
     [loginDefaults setObject:username forKey:@"lastLoggedInUser"];
     
     // Force synchronization to ensure the setting is written immediately
     if ([loginDefaults synchronize]) {
         NSLog(@"[DEBUG] Successfully saved last logged-in user to loginwindow domain");
-        
-        // Also use defaults command as backup to ensure persistence
-        NSString *defaultsCmd = [NSString stringWithFormat:@"/usr/bin/defaults write loginwindow lastLoggedInUser '%@'", username];
-        int result = system([defaultsCmd UTF8String]);
-        if (result == 0) {
-            NSLog(@"[DEBUG] Also saved using defaults command for extra persistence");
-        } else {
-            NSLog(@"[DEBUG] defaults command backup failed with result: %d", result);
-        }
     } else {
         NSLog(@"[DEBUG] Failed to save last logged-in user to loginwindow domain");
     }
@@ -1629,7 +1616,7 @@ void signalHandler(int sig) {
     
     // Fall back to NSUserDefaults method
     NSUserDefaults *loginDefaults = [[NSUserDefaults alloc] init];
-    [loginDefaults addSuiteNamed:@"loginwindow"];
+    [loginDefaults addSuiteNamed:@"LoginWindow"];
     
     NSString *lastUser = [loginDefaults stringForKey:@"lastLoggedInUser"];
     
@@ -1932,231 +1919,6 @@ void signalHandler(int sig) {
     // Start the animation
     [shakeAnimation startAnimation];
     [shakeAnimation autorelease];
-}
-
-- (void)monitorXServer
-{
-    NSLog(@"[DEBUG] Starting X server monitoring");
-    
-    // Check if X server is running every 5 seconds
-    [NSTimer scheduledTimerWithTimeInterval:5.0
-                                     target:self
-                                   selector:@selector(checkXServerStatus:)
-                                   userInfo:nil
-                                    repeats:YES];
-}
-
-- (void)checkXServerStatus:(NSTimer *)timer
-{
-    // Only monitor if we started the X server or if there's an active session
-    if (!didStartXServer && sessionPid <= 0) {
-        // Don't interfere if we didn't start X server and there's no active session
-        return;
-    }
-    
-    if (![self isXServerRunning]) {
-        NSLog(@"[DEBUG] X server appears to have died");
-        
-        if (sessionPid > 0) {
-            // Handle crash during active session
-            [self handleXServerCrash];
-        } else {
-            // No active session, just restart X server
-            [self restartXServerIfNeeded];
-        }
-    }
-}
-
-- (void)restartXServerIfNeeded
-{
-    NSLog(@"[DEBUG] Attempting to restart X server");
-    
-    // Don't restart if application is terminating
-    if (isTerminating) {
-        NSLog(@"[DEBUG] Application is terminating, skipping X server restart");
-        return;
-    }
-    
-    // Clean up any stale X server process tracking
-    if (didStartXServer && xServerPid > 0) {
-        NSLog(@"[DEBUG] Cleaning up stale X server PID tracking");
-        // Check if the process actually exists
-        if (kill(xServerPid, 0) != 0 && errno == ESRCH) {
-            NSLog(@"[DEBUG] Previous X server process %d no longer exists", xServerPid);
-            didStartXServer = NO;
-            xServerPid = 0;
-        }
-    }
-    
-    // If there's an active session, we need to be more careful
-    if (sessionPid > 0) {
-        NSLog(@"[DEBUG] Active session detected (PID: %d), notifying user about X server restart", sessionPid);
-        
-        // Show a message to the user if login window is visible
-        if ([loginWindow isVisible]) {
-            [self showStatus:@"Display server restarting..."];
-        }
-        
-        // Kill the current session since X server died
-        NSLog(@"[DEBUG] Terminating current session due to X server failure");
-        [self killAllSessionProcesses:sessionUid];
-        [pamAuth closeSession];
-        
-        // Reset session variables
-        sessionPid = 0;
-        sessionUid = 0;
-        sessionGid = 0;
-    }
-    
-    // Hide/release the old login window since X connection is broken
-    if (loginWindow) {
-        NSLog(@"[DEBUG] Releasing broken login window");
-        [loginWindow orderOut:self];
-        [loginWindow release];
-        loginWindow = nil;
-        // Clear all the UI references since they're invalid now
-        usernameField = nil;
-        passwordField = nil;
-        loginButton = nil;
-        shutdownButton = nil;
-        restartButton = nil;
-        statusLabel = nil;
-        sessionDropdown = nil;
-    }
-    
-    // Attempt to restart X server
-    if ([self startXServer]) {
-        NSLog(@"[DEBUG] Successfully restarted X server");
-        
-        // Recreate the login window with new X connection
-        NSLog(@"[DEBUG] Recreating login window after X server restart");
-        @try {
-            [self createLoginWindow];
-            
-            // Load and apply last logged-in user again
-            NSString *lastUser = [self loadLastLoggedInUser];
-            if (lastUser) {
-                [usernameField setStringValue:lastUser];
-                [loginWindow makeFirstResponder:passwordField];
-            } else {
-                [loginWindow makeFirstResponder:usernameField];
-            }
-            
-            [self showStatus:@"Display server restarted"];
-            // Clear the status message after a few seconds
-            [NSTimer scheduledTimerWithTimeInterval:3.0
-                                             target:self
-                                           selector:@selector(clearStatus:)
-                                           userInfo:nil
-                                            repeats:NO];
-        }
-        @catch (NSException *exception) {
-            NSLog(@"[ERROR] Failed to recreate login window: %@", exception);
-            [self showStatus:@"Error recreating login window"];
-            
-            // Try again in 5 seconds
-            [NSTimer scheduledTimerWithTimeInterval:5.0
-                                             target:self
-                                           selector:@selector(restartXServerIfNeeded)
-                                           userInfo:nil
-                                            repeats:NO];
-        }
-    } else {
-        NSLog(@"[DEBUG] Failed to restart X server");
-        
-        // Try again in 10 seconds
-        [NSTimer scheduledTimerWithTimeInterval:10.0
-                                         target:self
-                                       selector:@selector(restartXServerIfNeeded)
-                                       userInfo:nil
-                                        repeats:NO];
-    }
-}
-
-- (void)clearStatus:(NSTimer *)timer
-{
-    [self showStatus:@""];
-}
-
-- (void)handleXServerCrash
-{
-    NSLog(@"[DEBUG] Handling X server crash during active session");
-    
-    // Don't handle crash if application is terminating
-    if (isTerminating) {
-        NSLog(@"[DEBUG] Application is terminating, skipping X server crash handling");
-        return;
-    }
-    
-    if (sessionPid > 0) {
-        NSLog(@"[DEBUG] Active session detected during X server crash, terminating session");
-        
-        // If we can't restart X server, we need to terminate the session
-        [self killAllSessionProcesses:sessionUid];
-        [pamAuth closeSession];
-        
-        // Reset session variables
-        sessionPid = 0;
-        sessionUid = 0;
-        sessionGid = 0;
-    }
-    
-    // Hide/release the old login window since X connection is broken
-    if (loginWindow) {
-        NSLog(@"[DEBUG] Releasing broken login window due to X server crash");
-        [loginWindow orderOut:self];
-        [loginWindow release];
-        loginWindow = nil;
-        // Clear all the UI references since they're invalid now
-        usernameField = nil;
-        passwordField = nil;
-        loginButton = nil;
-        shutdownButton = nil;
-        restartButton = nil;
-        statusLabel = nil;
-        sessionDropdown = nil;
-    }
-    
-    // Try to restart X server
-    if ([self startXServer]) {
-        NSLog(@"[DEBUG] X server restarted successfully after crash");
-        
-        // Recreate the login window with new X connection
-        NSLog(@"[DEBUG] Recreating login window after X server crash recovery");
-        @try {
-            [self createLoginWindow];
-            
-            // Load and apply last logged-in user again
-            NSString *lastUser = [self loadLastLoggedInUser];
-            if (lastUser) {
-                [usernameField setStringValue:lastUser];
-                [loginWindow makeFirstResponder:passwordField];
-            } else {
-                [loginWindow makeFirstResponder:usernameField];
-            }
-            
-            [self showStatus:@"Session terminated due to display server failure"];
-        }
-        @catch (NSException *exception) {
-            NSLog(@"[ERROR] Failed to recreate login window after crash: %@", exception);
-            [self showStatus:@"Error recreating login window"];
-            
-            // Try again in 5 seconds
-            [NSTimer scheduledTimerWithTimeInterval:5.0
-                                             target:self
-                                           selector:@selector(restartXServerIfNeeded)
-                                           userInfo:nil
-                                            repeats:NO];
-        }
-    } else {
-        NSLog(@"[DEBUG] Failed to restart X server after crash");
-        // Try again in 10 seconds
-        [NSTimer scheduledTimerWithTimeInterval:10.0
-                                         target:self
-                                       selector:@selector(restartXServerIfNeeded)
-                                       userInfo:nil
-                                        repeats:NO];
-    }
 }
 
 @end

@@ -27,6 +27,6 @@ logfile="/var/log/LoginWindow.log"
 rm -f ${logfile}
 touch ${logfile}
 chmod 644 ${logfile}
-command_args="-f -o ${logfile} ${procname} --pid-file=${pidfile}"
+command_args="-r -f -o ${logfile} ${procname} --pid-file=${pidfile}"
 
 run_rc_command "$1"

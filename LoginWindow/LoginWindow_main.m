@@ -205,7 +205,7 @@ BOOL startXorgLikeShellScript(void)
     
     NSLog(@"[DEBUG] Starting Xorg server...");
     
-    // Prepare log file (equivalent to shell script log preparation)
+    // Prepare log file
     const char *logfile = "/var/log/LoginWindow.log";
     unlink(logfile);
     int logfd = open(logfile, O_CREAT | O_WRONLY | O_TRUNC, 0644);
@@ -225,7 +225,7 @@ BOOL startXorgLikeShellScript(void)
             close(logfd);
         }
         
-        // Execute Xorg with the same parameters as shell script
+        // Execute Xorg
         execl("/usr/local/bin/Xorg", "Xorg", ":0", "-auth", "/var/run/xauth", (char *)NULL);
         // If exec fails, try alternative path
         execl("/usr/bin/Xorg", "Xorg", ":0", "-auth", "/var/run/xauth", (char *)NULL);
@@ -251,8 +251,8 @@ BOOL startXorgLikeShellScript(void)
             close(flagfd);
         }
         
-        // Wait a moment for Xorg to initialize (equivalent to sleep 2)
-        sleep(2);
+        // Wait a moment for Xorg to initialize
+        sleep(1);
         setenv("DISPLAY", ":0", 1);
         
         NSLog(@"[DEBUG] Xorg started with PID: %d", xorg_pid);
@@ -303,8 +303,8 @@ int main(int argc, const char *argv[])
 {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
     
-    // MOVED FROM SHELL SCRIPT: Start Xorg at the very beginning before anything else happens
-    NSLog(@"[DEBUG] Starting Xorg management (moved from shell script)");
+    // Start Xorg at the very beginning before anything else happens
+    NSLog(@"[DEBUG] Starting Xorg management");
     
     if (!startXorgLikeShellScript()) {
         NSLog(@"[ERROR] Failed to start Xorg - LoginWindow may not work properly");

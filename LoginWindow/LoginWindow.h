@@ -46,8 +46,5 @@
 - (void)shakeWindow;
 - (void)saveLastLoggedInUser:(NSString *)username;
 - (NSString *)loadLastLoggedInUser;
-- (void)monitorXServer;
-- (void)restartXServerIfNeeded;
-- (void)handleXServerCrash;
 
 @end
