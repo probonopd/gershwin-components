@@ -300,11 +300,13 @@ void signalHandler(int sig) {
     
     if ([username length] == 0) {
         [self showStatus:@"Please enter username"];
+        [self shakeWindow];
         return;
     }
     
     if ([password length] == 0) {
         [self showStatus:@"Please enter password"];
+        [self shakeWindow];
         return;
     }
     
@@ -318,6 +320,7 @@ void signalHandler(int sig) {
     } else {
         NSLog(@"[DEBUG] authenticateUser:password: returned NO");
         [self showStatus:@"Authentication failed"];
+        [self shakeWindow];
         [passwordField setStringValue:@""];
         [loginWindow makeFirstResponder:passwordField];
     }
@@ -1731,6 +1734,61 @@ void signalHandler(int sig) {
     
     didStartXServer = NO;
     xServerPid = 0;
+}
+
+- (void)shakeWindow
+{
+    NSRect originalFrame = [loginWindow frame];
+    
+    // Create an animation to shake the window
+    NSMutableArray *animations = [NSMutableArray array];
+    
+    // Define shake parameters
+    CGFloat shakeDistance = 10.0;
+    NSTimeInterval shakeDuration = 0.05;
+    int shakeCount = 4;
+    
+    // Create keyframe animations for the shake effect
+    for (int i = 0; i < shakeCount; i++) {
+        // Shake left
+        NSRect leftFrame = originalFrame;
+        leftFrame.origin.x -= shakeDistance;
+        
+        NSDictionary *leftAnimation = @{
+            NSViewAnimationTargetKey: loginWindow,
+            NSViewAnimationEndFrameKey: [NSValue valueWithRect:leftFrame]
+        };
+        [animations addObject:leftAnimation];
+        
+        // Shake right  
+        NSRect rightFrame = originalFrame;
+        rightFrame.origin.x += shakeDistance;
+        
+        NSDictionary *rightAnimation = @{
+            NSViewAnimationTargetKey: loginWindow,
+            NSViewAnimationEndFrameKey: [NSValue valueWithRect:rightFrame]
+        };
+        [animations addObject:rightAnimation];
+        
+        // Reduce shake distance for dampening effect
+        shakeDistance *= 0.7;
+    }
+    
+    // Return to original position
+    NSDictionary *returnAnimation = @{
+        NSViewAnimationTargetKey: loginWindow,
+        NSViewAnimationEndFrameKey: [NSValue valueWithRect:originalFrame]
+    };
+    [animations addObject:returnAnimation];
+    
+    // Create and configure the animation
+    NSViewAnimation *shakeAnimation = [[NSViewAnimation alloc] initWithViewAnimations:animations];
+    [shakeAnimation setDuration:shakeDuration * [animations count]];
+    [shakeAnimation setAnimationCurve:NSAnimationEaseInOut];
+    
+    // Start the animation
+    [shakeAnimation startAnimation];
+    [shakeAnimation autorelease];
 }
 
 @end

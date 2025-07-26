@@ -41,5 +41,6 @@
 - (BOOL)startXServer;
 - (void)ensureXServerRunning;
 - (void)stopXServerIfStartedByUs;
+- (void)shakeWindow;
 
 @end
