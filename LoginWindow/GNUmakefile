@@ -16,7 +16,7 @@ LoginWindow_RESOURCE_FILES = \
 LoginWindow_PRINCIPAL_CLASS = LoginWindow
 
 # Additional libraries
-LoginWindow_LDFLAGS += -lpam -lutil
+LoginWindow_LDFLAGS += -lpam -lutil -lX11
 
 # Installation directories
 GNUSTEP_APPS_DIR = /System/Applications

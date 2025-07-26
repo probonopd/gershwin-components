@@ -24,6 +24,66 @@ command="/usr/sbin/daemon"
 procname="/System/Applications/LoginWindow.app/LoginWindow"
 pidfile="/var/run/${name}.pid"
 logfile="/var/log/LoginWindow.log"
-command_args="-f -o ${logfile} ${procname} --pid-file=${pidfile}"
+command_args="-p ${pidfile} -o ${logfile} ${procname}"
+xorg_pidfile="/var/run/Xorg.loginwindow.pid"
+xorg_started_flag="/var/run/loginwindow.xorg.started"
+
+# Custom start function
+loginwindow_start()
+{
+    # Check if Xorg is already running
+    if ! pgrep -q Xorg; then
+        echo "Starting Xorg server..."
+        # Start Xorg in background and save PID
+        Xorg :0 -auth /var/run/xauth & 
+        xorg_pid=$!
+        echo $xorg_pid > ${xorg_pidfile}
+        # Mark that we started Xorg
+        touch ${xorg_started_flag}
+        # Wait a moment for Xorg to initialize
+        sleep 2
+        export DISPLAY=:0
+    else
+        echo "Xorg already running, not starting our own instance"
+        # Remove flag since we didn't start it
+        rm -f ${xorg_started_flag}
+    fi
+    
+    # Prepare log file
+    rm -f ${logfile}
+    touch ${logfile}
+    chmod 644 ${logfile}
+    
+    # Start the LoginWindow
+    echo "Starting LoginWindow..."
+    ${command} ${command_args}
+}
+
+# Custom stop function
+loginwindow_stop()
+{
+    # Stop LoginWindow first
+    echo "Stopping LoginWindow..."
+    if [ -f ${pidfile} ]; then
+        kill `cat ${pidfile}` 2>/dev/null
+        rm -f ${pidfile}
+    fi
+    
+    # Stop Xorg only if we started it
+    if [ -f ${xorg_started_flag} ]; then
+        echo "Stopping Xorg server (we started it)..."
+        if [ -f ${xorg_pidfile} ]; then
+            kill `cat ${xorg_pidfile}` 2>/dev/null
+            rm -f ${xorg_pidfile}
+        fi
+        rm -f ${xorg_started_flag}
+    else
+        echo "Not stopping Xorg (we didn't start it)"
+    fi
+}
+
+# Set custom functions
+start_cmd="loginwindow_start"
+stop_cmd="loginwindow_stop"
 
 run_rc_command "$1"

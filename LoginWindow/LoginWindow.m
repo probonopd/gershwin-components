@@ -10,6 +10,7 @@
 #import <sys/sysctl.h>
 #import <sys/user.h>
 #import <libutil.h>
+#import <X11/Xlib.h>
 
 #ifdef HAVE_SHADOW
 #import <shadow.h>
@@ -35,10 +36,17 @@ void signalHandler(int sig) {
     sessionPid = 0;
     sessionUid = 0;
     sessionGid = 0;
+    didStartXServer = NO;
+    xServerPid = 0;
     
     // Set up signal handlers for cleanup
     signal(SIGTERM, signalHandler);
     signal(SIGINT, signalHandler);
+    
+    // X server should already be running from main() - just verify
+    if (![self isXServerRunning]) {
+        NSLog(@"[WARNING] X server is not running even after main() startup attempt");
+    }
     
     [self createLoginWindow];
     
@@ -70,6 +78,9 @@ void signalHandler(int sig) {
             NSLog(@"[DEBUG] PAM session closed during termination");
         }
     }
+    
+    // Stop X server if we started it
+    [self stopXServerIfStartedByUs];
 }
 
 - (void)scanAvailableSessions
@@ -1501,6 +1512,219 @@ void signalHandler(int sig) {
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
 {
     return YES;
+}
+
+- (BOOL)isXServerRunning
+{
+    NSLog(@"[DEBUG] Checking if X server is running");
+    
+    // Try to connect to display :0 to check if X server is running
+    const char *display_name = ":0";
+    setenv("DISPLAY", display_name, 1);
+    
+    // Try to open X display directly - this is more reliable than using xset
+    Display *testDisplay = XOpenDisplay(display_name);
+    if (testDisplay != NULL) {
+        XCloseDisplay(testDisplay);
+        NSLog(@"[DEBUG] X server is running on %s", display_name);
+        return YES;
+    } else {
+        NSLog(@"[DEBUG] X server is not running on %s", display_name);
+        return NO;
+    }
+}
+
+- (BOOL)startXServer
+{
+    NSLog(@"[DEBUG] Starting X server");
+    
+    // Find X server executable
+    NSString *xserverPath = nil;
+    NSArray *possiblePaths = @[@"/usr/local/bin/X", @"/usr/local/bin/Xorg", @"/usr/bin/Xorg"];
+    
+    for (NSString *path in possiblePaths) {
+        if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+            xserverPath = path;
+            break;
+        }
+    }
+    
+    if (!xserverPath) {
+        NSLog(@"[DEBUG] X server not found in standard locations");
+        return NO;
+    }
+    
+    NSLog(@"[DEBUG] Found X server at: %@", xserverPath);
+    
+    // Create X authority file
+    NSString *authFile = @"/var/run/loginwindow.auth";
+    // Generate a random 32-character hex cookie using arc4random
+    NSMutableString *mcookie = [NSMutableString stringWithCapacity:32];
+    for (int i = 0; i < 32; i++) {
+        [mcookie appendFormat:@"%x", arc4random_uniform(16)];
+    }
+    // Create xauth command to add cookie
+    NSString *xauthCmd = [NSString stringWithFormat:@"/usr/local/bin/xauth -f %@ add :0 . %@", authFile, mcookie];
+    system([xauthCmd UTF8String]);
+    
+    // Start X server on display :0
+    pid_t xserver_pid = fork();
+    if (xserver_pid == 0) {
+        // Child process - start X server
+        NSLog(@"[DEBUG] Starting X server");
+        
+        // Set up environment for X server
+        setenv("DISPLAY", ":0", 1);
+        
+        // Close file descriptors except stdin, stdout, stderr
+        int maxfd = sysconf(_SC_OPEN_MAX);
+        for (int fd = 3; fd < maxfd; fd++) {
+            close(fd);
+        }
+        
+        // Ignore signals that could interfere with X server startup
+        signal(SIGTTIN, SIG_IGN);
+        signal(SIGTTOU, SIG_IGN);
+        signal(SIGUSR1, SIG_IGN);
+        
+        // Create new process group
+        setpgid(0, getpid());
+        
+        // Start X server with FreeBSD-appropriate configuration
+        execl([xserverPath UTF8String], "X", ":0", 
+              "-auth", [authFile UTF8String],
+              "-nolisten", "tcp", 
+              "vt09", 
+              (char *)NULL);
+        
+        // If we get here, exec failed
+        NSLog(@"[DEBUG] Failed to exec X server: %s", strerror(errno));
+        exit(1);
+    } else if (xserver_pid > 0) {
+        // Parent process
+        NSLog(@"[DEBUG] X server started with PID: %d", xserver_pid);
+        
+        // Store the PID and mark that we started it
+        xServerPid = xserver_pid;
+        didStartXServer = YES;
+        
+        // Wait for X server to start up properly with timeout
+        NSLog(@"[DEBUG] Waiting for X server to accept connections");
+        int attempts = 0;
+        int maxAttempts = 120; // 120 seconds timeout like the reference implementation
+        
+        while (attempts < maxAttempts) {
+            // Check if X server process is still running
+            int status;
+            pid_t result = waitpid(xserver_pid, &status, WNOHANG);
+            
+            if (result == xserver_pid) {
+                // X server died
+                NSLog(@"[DEBUG] X server died during startup");
+                didStartXServer = NO;
+                xServerPid = 0;
+                return NO;
+            }
+            
+            // Try to connect to X server
+            if ([self isXServerRunning]) {
+                NSLog(@"[DEBUG] X server successfully started and ready");
+                return YES;
+            }
+            
+            sleep(1);
+            attempts++;
+            
+            if (attempts % 10 == 0) {
+                NSLog(@"[DEBUG] Still waiting for X server (attempt %d/%d)", attempts, maxAttempts);
+            }
+        }
+        
+        NSLog(@"[DEBUG] X server failed to become ready within timeout");
+        // Kill the X server since it's not responding
+        if (kill(xServerPid, SIGTERM) == 0) {
+            sleep(2);
+            kill(xServerPid, SIGKILL);
+        }
+        didStartXServer = NO;
+        xServerPid = 0;
+        return NO;
+    } else {
+        NSLog(@"[DEBUG] Failed to fork for X server: %s", strerror(errno));
+        return NO;
+    }
+}
+
+- (void)ensureXServerRunning
+{
+    NSLog(@"[DEBUG] Ensuring X server is running");
+    
+    if ([self isXServerRunning]) {
+        NSLog(@"[DEBUG] X server is already running");
+        return;
+    }
+    
+    NSLog(@"[DEBUG] X server is not running, attempting to start it");
+    
+    if ([self startXServer]) {
+        NSLog(@"[DEBUG] Successfully started X server");
+    } else {
+        NSLog(@"[DEBUG] Failed to start X server - continuing anyway");
+        // We continue even if X server fails to start, as the user might want to
+        // use a different display manager or start X manually
+    }
+}
+
+- (void)stopXServerIfStartedByUs
+{
+    if (!didStartXServer || xServerPid <= 0) {
+        NSLog(@"[DEBUG] X server was not started by us, not stopping it");
+        return;
+    }
+    
+    NSLog(@"[DEBUG] Stopping X server that we started (PID: %d)", xServerPid);
+    
+    // Send SIGTERM first for graceful shutdown
+    if (kill(xServerPid, SIGTERM) == 0) {
+        NSLog(@"[DEBUG] Sent SIGTERM to X server, waiting for it to exit");
+        
+        // Wait up to 5 seconds for graceful shutdown
+        int attempts = 0;
+        while (attempts < 10) {
+            int status;
+            pid_t result = waitpid(xServerPid, &status, WNOHANG);
+            
+            if (result == xServerPid) {
+                NSLog(@"[DEBUG] X server exited gracefully");
+                didStartXServer = NO;
+                xServerPid = 0;
+                return;
+            } else if (result == -1) {
+                // Process doesn't exist anymore
+                NSLog(@"[DEBUG] X server process no longer exists");
+                didStartXServer = NO;
+                xServerPid = 0;
+                return;
+            }
+            
+            usleep(500000); // 0.5 seconds
+            attempts++;
+        }
+        
+        // If still running, send SIGKILL
+        NSLog(@"[DEBUG] X server didn't exit gracefully, sending SIGKILL");
+        if (kill(xServerPid, SIGKILL) == 0) {
+            NSLog(@"[DEBUG] Sent SIGKILL to X server");
+            waitpid(xServerPid, NULL, 0); // Wait for it to die
+        } else {
+            NSLog(@"[DEBUG] Failed to send SIGKILL to X server: %s", strerror(errno));
+        }
+    } else {
+        NSLog(@"[DEBUG] Failed to send SIGTERM to X server: %s", strerror(errno));
+    }
+    
+    didStartXServer = NO;
+    xServerPid = 0;
 }
 
 @end

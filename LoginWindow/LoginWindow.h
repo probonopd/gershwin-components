@@ -20,6 +20,8 @@
     pid_t sessionPid;
     uid_t sessionUid;
     gid_t sessionGid;
+    BOOL didStartXServer;
+    pid_t xServerPid;
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification;
@@ -35,5 +37,9 @@
 - (void)resetLoginWindow;
 - (BOOL)trySystemAction:(NSString *)actionType;
 - (void)killAllSessionProcesses:(uid_t)uid;
+- (BOOL)isXServerRunning;
+- (BOOL)startXServer;
+- (void)ensureXServerRunning;
+- (void)stopXServerIfStartedByUs;
 
 @end
