@@ -29,5 +29,6 @@
 - (void)showStatus:(NSString *)message;
 - (void)sessionChanged:(id)sender;
 - (void)resetLoginWindow;
+- (BOOL)trySystemAction:(NSString *)actionType;
 
 @end

@@ -262,17 +262,87 @@
     }
 }
 
+- (BOOL)trySystemAction:(NSString *)actionType 
+{
+    // These arrays can be expanded with more commands if needed for other systems
+    // or if the current commands fail. The order is important - we try the most
+    // common commands first, and if they fail, we try alternatives.
+    NSArray *commands;
+    if ([actionType isEqualToString:@"restart"]) {
+        commands = [NSArray arrayWithObjects:
+            [NSArray arrayWithObjects:@"/sbin/shutdown", @"-r", @"now", nil], nil
+        ];
+    } else if ([actionType isEqualToString:@"shutdown"]) {
+        commands = [NSArray arrayWithObjects:
+            [NSArray arrayWithObjects:@"/sbin/shutdown", @"-p", @"now", nil], nil
+        ];
+    } else {
+        return NO;
+    }
+        
+    for (NSArray *cmd in commands) {
+        NSLog(@"Attempting system action with command: %@", [cmd componentsJoinedByString:@" "]);
+        NSTask *task = [NSTask new];
+        [task autorelease];
+        [task setLaunchPath:[cmd objectAtIndex:0]];
+        if ([cmd count] > 1) {
+            [task setArguments:[cmd subarrayWithRange:NSMakeRange(1, [cmd count]-1)]];
+        }
+        
+        @try {
+            [task launch];
+            [task waitUntilExit];
+            
+            if ([task terminationStatus] == 0) {
+                NSLog(@"System action command launched successfully: %@", [cmd componentsJoinedByString:@" "]);
+                
+                // For restart/shutdown commands, if they succeed, the system should restart/shutdown
+                // and this application should never reach this point. If we reach here, it means
+                // the command succeeded but the system didn't restart/shutdown, which is an error.
+                
+                // Wait a bit to see if the system actually restarts/shuts down
+                NSLog(@"Waiting for system to %@...", actionType);
+                [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:5.0]];
+                
+                // If we reach here, the system didn't restart/shutdown even though the command succeeded
+                // This is a failure case - the command succeeded but didn't work
+                NSLog(@"System action command succeeded but system did not %@", actionType);
+                // Continue to try next command
+            } else {
+                NSLog(@"System action failed with command: %@, exit status: %d", [cmd componentsJoinedByString:@" "], [task terminationStatus]);
+                // Try next command
+            }
+        }
+        @catch (NSException *exception) {
+            NSLog(@"Exception while executing system action: %@", exception);
+            // Try next command
+        }
+    }
+    
+    return NO; // All commands failed
+}
+
 - (void)shutdownButtonPressed:(id)sender
 {
     NSAlert *alert = [[NSAlert alloc] init];
     [alert setMessageText:@"Shutdown Computer"];
-    [alert setInformativeText:@"Are you sure you want to shutdown the computer?"];
-    [alert addButtonWithTitle:@"Shutdown"];
+    [alert setInformativeText:@"Are you sure you want to shut down now?"];
+    [alert addButtonWithTitle:@"Shut Down"];
     [alert addButtonWithTitle:@"Cancel"];
     
     NSInteger result = [alert runModal];
+    [alert release];
     if (result == NSAlertFirstButtonReturn) {
-        system("sudo -A shutdown -h now");
+        NSLog(@"User confirmed shutdown");
+        BOOL success = [self trySystemAction:@"shutdown"];
+        if (!success) {
+            NSAlert *errorAlert = [[NSAlert alloc] init];
+            [errorAlert setMessageText:@"Error"];
+            [errorAlert setInformativeText:@"Failed to execute shutdown command. No suitable command found."];
+            [errorAlert addButtonWithTitle:@"OK"];
+            [errorAlert runModal];
+            [errorAlert release];
+        }
     }
 }
 
@@ -280,13 +350,23 @@
 {
     NSAlert *alert = [[NSAlert alloc] init];
     [alert setMessageText:@"Restart Computer"];
-    [alert setInformativeText:@"Are you sure you want to restart the computer?"];
+    [alert setInformativeText:@"Are you sure you want to restart now?"];
     [alert addButtonWithTitle:@"Restart"];
     [alert addButtonWithTitle:@"Cancel"];
     
     NSInteger result = [alert runModal];
+    [alert release];
     if (result == NSAlertFirstButtonReturn) {
-        system("sudo -A shutdown -r now");
+        NSLog(@"User confirmed restart");
+        BOOL success = [self trySystemAction:@"restart"];
+        if (!success) {
+            NSAlert *errorAlert = [[NSAlert alloc] init];
+            [errorAlert setMessageText:@"Error"];
+            [errorAlert setInformativeText:@"Failed to execute restart command. No suitable command found."];
+            [errorAlert addButtonWithTitle:@"OK"];
+            [errorAlert runModal];
+            [errorAlert release];
+        }
     }
 }
 
@@ -700,9 +780,9 @@
             NSLog(@"[DEBUG] Cleaned up child process");
         }
         
-        // Reset login window to initial state
-        [self resetLoginWindow];
-        NSLog(@"[DEBUG] Login window restored and activated");
+        // Exit LoginWindow after session ends
+        NSLog(@"[DEBUG] Session ended, exiting LoginWindow");
+        [NSApp terminate:self];
     } else {
         NSLog(@"[DEBUG] Fork failed");
         [self showStatus:@"Failed to start session"];
