@@ -27,6 +27,6 @@ Create or update the loginwindow.plist file with auto-login user
 sudo -A defaults write /System/Library/Preferences/loginwindow autoLoginUser User
 ```
 
-# Logs
+## Logs
 
 Logs are written to `/var/log/LoginWindow.log` if invoked from the rc script.
