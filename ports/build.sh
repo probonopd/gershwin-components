@@ -28,38 +28,49 @@ set -e
 
 HERE=$(dirname "$(readlink -f "$0")")
 
+print_step() {
+  echo "[build.sh] $1"
+}
+
 build_package()
 {
   PORT=$1
+  print_step "Installing build dependencies for $PORT"
   ( cd "${PORT}" && make build-depends-list | cut -c 12- | xargs pkg install -y ) 
+  print_step "Packaging $PORT"
   make -C "${PORT}" package
 }
 
-# TODO: Replace with a more robust solution to overlay the ports tree that doesn't require a unionfs mount
+print_step "Overlaying ports tree with unionfs mount"
 mount -t unionfs $(readlink -f .)/ports /usr/ports
+print_step "Changing directory to /usr/ports"
 cd /usr/ports
 
-# Build all ports in the current directory
+print_step "Finding all ports to build"
 PORTS=$(find "${HERE}" -type d -depth 3 | awk -F/ '{print $(NF-1) "/" $NF}') # Last two components of the path
 for PORT in ${PORTS}; do
-  if [ -d "${PORT}" ]; then
+    print_step "Building package for $PORT"
     build_package "${PORT}"
-  fi
 done
+print_step "Returning to $HERE"
 cd "${HERE}"
+print_step "Unmounting /usr/ports"
 umount /usr/ports
 
-# FreeBSD repository
+print_step "Configuring FreeBSD repository"
 ABI=$(pkg config abi) # E.g., FreeBSD:13:amd64
 mkdir -p "${ABI}"
+print_step "Moving all .pkg files to $ABI directory"
 find . -name '*.pkg' -exec mv {} "${ABI}/" \;
+print_step "Creating repository metadata for $ABI"
 pkg repo "${ABI}/"
 # index.html for the FreeBSD repository
+print_step "Generating index.html for repository"
 cd "${ABI}/"
 echo "<html><ul>" > index.html
 find . -depth 1 -exec echo '<li><a href="{}" download>{}</a></li>' \; | sed -e 's|\./||g' >> index.html
 echo "</ul></html>" >> index.html
 cd -
 
-# Move the directory that contains index.html to the directory above $HERE
+print_step "Moving repository directory to parent of $HERE"
 mv "${ABI}" "${HERE}/../"
