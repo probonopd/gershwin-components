@@ -69,6 +69,11 @@ cd ports/portstree || {
   exit 1
 }
 
+# Install all dependencies before building ports
+print_step "Installing run and build dependencies for all ports"
+make run-depends-list | sort | uniq | cut -d '/' -f 4- | xargs pkg install -y
+make build-depends-list | sort | uniq  | cut -d '/' -f 4- | xargs pkg install -y
+
 print_step "Finding all ports to build"
 PORTS=$(find "${HERE}" -type d -depth 3 | awk -F/ '{print $(NF-1) "/" $NF}') # Last two components of the path
 for PORT in ${PORTS}; do
