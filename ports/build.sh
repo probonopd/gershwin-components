@@ -60,3 +60,6 @@ echo "<html><ul>" > index.html
 find . -depth 1 -exec echo '<li><a href="{}" download>{}</a></li>' \; | sed -e 's|\./||g' >> index.html
 echo "</ul></html>" >> index.html
 cd -
+
+# Move the directory that contains index.html to the directory above $HERE
+mv "${ABI}" "${HERE}/../"
