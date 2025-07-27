@@ -1,88 +1,47 @@
-env:
-  CIRRUS_CLONE_DEPTH: 1
-  BATCH: 1
-  CCACHE_DIR: "/tmp/.ccache"
-  CCACHE_COMPRESS: 1
-  CCACHE_SIZE: "200M"
-  CCACHE_STATIC_PREFIX: "/usr/local"
-  CCACHE_NOSTATS: 1
-  CCACHE_TEMPDIR: "/tmp"
-  WITH_CCACHE_BUILD: "YES"
-  PORTS_BRANCH: "2025Q2"
+task:
+    alias: pkg
+    freebsd_instance:
+      cpu: 4
+      memory: 16G
+      matrix:
+        # image: freebsd-13-1-release-amd64
+        - image: freebsd-14-2-release-amd64-ufs
 
-# Enable build artifacts
-env:
-  CIRRUS_LOG_TIMESTAMP: true
+    env:
+      CIRRUS_CLONE_DEPTH: 1
+      GITHUB_TOKEN: ENCRYPTED[4835b73bc800439a58999faa57d56ee2c150b7c1fffe6a4bbb484120cf6a9cd4bf3a2a8cf0b772a6ee2ec8d91c3afc14]
+      BATCH: 1
+      CCACHE_DIR: "/tmp/.ccache"
+      CCACHE_COMPRESS: 1
+      CCACHE_SIZE: "200M"
+      CCACHE_STATIC_PREFIX: "/usr/local"
+      CCACHE_NOSTATS: 1
+      CCACHE_TEMPDIR: "/tmp"
+      WITH_CCACHE_BUILD: "YES"
+      # PORTS_BRANCH: "2023Q1"
+      PORTS_BRANCH: "2025Q2"
+    portstree_cache:
+      folder: /usr/ports/
+    ccache_cache:
+      folder: ${CCACHE_DIR}
+    pkg_cache:
+      folder: /var/cache/pkg/
+    timeout_in: 90m
 
-# Build task for amd64
-freebsd_amd64_task:
-  name: FreeBSD amd64 14.2
-  freebsd_instance:
-    image: freebsd-14-2-release-amd64-ufs
-    cpu: 4
-    memory: 8G
+    prerequisites_script:
+      - ASSUME_ALWAYS_YES=yes pkg bootstrap -f
+      - pkg install -y git-lite
 
-  portstree_cache:
-    folder: /usr/ports/
-  ccache_cache:
-    folder: ${CCACHE_DIR}
-  pkg_cache:
-    folder: /var/cache/pkg/
-  timeout_in: 90m
+    portstree_setup_script:
+      - if [ ! -f "/usr/ports/${PORTS_BRANCH}" ] ; then mkdir -p /usr/ports && fetch "https://github.com/freebsd/freebsd-ports/archive/refs/heads/${PORTS_BRANCH}.tar.gz" -o - | tar xf - -C /usr/ports --strip-components=1 && touch "/usr/ports/${PORTS_BRANCH}" ; fi
 
-  prerequisites_script:
-    - ASSUME_ALWAYS_YES=yes pkg bootstrap -f
-    - pkg install -y git-lite
+    ccache_setup_script:
+      - env IGNORE_OSVERSION=yes pkg install -y ccache-static
+      - ccache --max-size=${CCACHE_SIZE}
+      - echo "WITH_CCACHE_BUILD=yes" >> /etc/make.conf
 
-  portstree_setup_script:
-    - if [ ! -f "/usr/ports/${PORTS_BRANCH}" ] ; then mkdir -p /usr/ports && fetch "https://github.com/freebsd/freebsd-ports/archive/refs/heads/${PORTS_BRANCH}.tar.gz" -o - | tar xf - -C /usr/ports --strip-components=1 && touch "/usr/ports/${PORTS_BRANCH}" ; fi
-
-  ccache_setup_script:
-    - env IGNORE_OSVERSION=yes pkg install -y ccache-static
-    - ccache --max-size=${CCACHE_SIZE}
-    - echo "WITH_CCACHE_BUILD=yes" >> /etc/make.conf
-
-  makeconf_setup_script:
-    - echo 'OVERLAYS=/'"$(pwd)"'/' >> /etc/make.conf
-    - echo 'WITH_DEBUG=yes' >> /etc/make.conf
-    - echo 'DEBUG_FLAGS+= -O0' >> /etc/make.conf
-    - cat /etc/make.conf
-
-  install-run-deps_setup_script:
-    - |
-     make run-depends-list | sort | uniq | grep -v '^==\|xlibre' | cut -d '/' -f 4- | xargs pkg install -y
-
-  install-build-deps_setup_script:
-    - |
-     make build-depends-list | sort | uniq | grep -v '^==\|xlibre\|xorg-macros' | cut -d '/' -f 4- | xargs pkg install -y
-
-  stage_script:
-    - |
-     gmake stage
-
-  stage-qa_script:
-    - |
-     gmake stage-qa
-
-  check-plist_script:
-    - |
-     gmake check-plist
-
-  package_script:
-    - |
-     export PACKAGES="$(pwd)/pkgs/"
-     mkdir $PACKAGES
-     gmake package
-
-  build_postsetup_script:
-    - |
-     export PACKAGES="$(pwd)/pkgs/"
-     ABI="$(pkg config abi)"
-     mv $PACKAGES/All $PACKAGES/$ABI
-     pkg repo -l $PACKAGES/$ABI
-     pkg install -y tree
-     cd $PACKAGES/$ABI 
-     tree -h -D -C -H -./ --houtro=/dev/null -T 'Gershwin binaries for FreeBSD' ./ > ./index.html
-
-  pkgs_artifacts:
-    path: "./pkgs/**/*"
+    build_script:
+      - sh -ex ./ports/build.sh
+      
+    binary_artifacts:
+      path: "ports/FreeBSD:**/*"
