@@ -29,6 +29,9 @@ PLIST_FILES=	System/Library/Bundles/BootEnvironments.prefPane/BootEnvironments \
 PLIST_DIRS=	System/Library/Bundles/BootEnvironments.prefPane/Resources \
 		System/Library/Bundles/BootEnvironments.prefPane
 
+BUILD_DEPENDS=	tgmake:devel/gmake \
+		gnustep-base>=0:lang/gnustep-base \
+		gnustep-gui>=0:x11-toolkits/gnustep-gui
 RUN_DEPENDS=	bectl:sysutils/beadm
 
 .include <bsd.port.pre.mk>
