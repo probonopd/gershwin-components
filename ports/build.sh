@@ -37,6 +37,8 @@ build_package()
   PORT=$1
   print_step "Installing build dependencies for $PORT"
   ( cd "${PORT}" && make build-depends-list | cut -c 12- | xargs pkg install -y ) 
+  print_step "Generating checksum for $PORT"
+  make -C "${PORT}" makesum
   print_step "Packaging $PORT"
   make -C "${PORT}" package
 }
