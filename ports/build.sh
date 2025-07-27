@@ -40,7 +40,7 @@ mount -t unionfs $(readlink -f .) /usr/ports
 cd /usr/ports
 
 # Build all ports in the current directory
-PORTS=$(find ${HERE} -type d -depth 2 | cut -d "/" -f 2-99)
+PORTS=$(find "${HERE}" -type d -depth 3 | awk -F/ '{print $(NF-1) "/" $NF}') # Last two components of the path
 for PORT in ${PORTS}; do
   if [ -d "${PORT}" ]; then
     build_package "${PORT}"
