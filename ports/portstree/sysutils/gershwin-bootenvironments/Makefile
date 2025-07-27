@@ -11,7 +11,7 @@ LICENSE=	BSD2CLAUSE
 xxxUSES=		gershwin
 xxxUSE_GERSHWIN=	preferencepanes
 
-WRKSRC=		${WRKDIR}/${DISTNAME}/BootEnvironments
+WRKSRC=		${WRKDIR}/gershwin-prefpanes-main/BootEnvironments
 
 USE_GITHUB=	yes
 GH_ACCOUNT=	probonopd
