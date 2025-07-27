@@ -8,8 +8,8 @@ WWW=		https://github.com/probonopd/gershwin-prefpanes
 
 LICENSE=	BSD2CLAUSE
 
-USES=		gershwin
-USE_GERSHWIN=	preferencepanes
+xxxUSES=		gershwin
+xxxUSE_GERSHWIN=	preferencepanes
 
 WRKSRC=		${WRKDIR}/${DISTNAME}/BootEnvironments
 
