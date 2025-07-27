@@ -16,6 +16,7 @@ WRKSRC=		${WRKDIR}/${DISTNAME}/BootEnvironments
 USE_GITHUB=	yes
 GH_ACCOUNT=	probonopd
 GH_PROJECT=	gershwin-prefpanes
+GH_TAGNAME=	main
 
 BUILD_WRKSRC=	${WRKSRC}
 INSTALL_WRKSRC=	${WRKSRC}
