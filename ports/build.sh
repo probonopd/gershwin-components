@@ -42,7 +42,7 @@ build_package()
 }
 
 print_step "Overlaying ports tree with unionfs mount"
-mount -t unionfs $(readlink -f .)/ports /usr/ports
+mount -t unionfs $(readlink -f .)/ports/portstree /usr/ports
 print_step "Changing directory to /usr/ports"
 cd /usr/ports
 
