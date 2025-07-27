@@ -32,6 +32,20 @@ print_step() {
   echo "[build.sh] $1"
 }
 
+print_step "Configuring pkg repository"
+mkdir -p /usr/local/etc/pkg/repos
+cat > /usr/local/etc/pkg/repos/FreeBSD.conf << 'EOF'
+FreeBSD: {
+  url: "pkg+http://pkg.FreeBSD.org/${ABI}/quarterly",
+  mirror_type: "srv",
+  signature_type: "fingerprints",
+  fingerprints: "/usr/share/keys/pkg",
+  enabled: yes
+}
+EOF
+print_step "Updating package repository"
+pkg update -f
+
 build_package()
 {
   PORT=$1
@@ -46,8 +60,8 @@ build_package()
   make -C "${PORT}" package
 }
 
-print_step "Overlaying ports tree with unionfs mount"
-mount -t unionfs $(readlink -f .)/ports/portstree /usr/ports
+print_step "Configuring ports tree overlay"
+echo "OVERLAYS=$(readlink -f .)/ports/portstree" >> /etc/make.conf
 print_step "Changing directory to /usr/ports"
 cd /usr/ports
 
@@ -59,8 +73,8 @@ for PORT in ${PORTS}; do
 done
 print_step "Returning to $HERE"
 cd "${HERE}"
-print_step "Unmounting /usr/ports"
-umount /usr/ports
+print_step "Cleaning up make.conf"
+sed -i.bak '/^OVERLAYS=/d' /etc/make.conf
 
 print_step "Configuring FreeBSD repository"
 ABI=$(pkg config abi) # E.g., FreeBSD:13:amd64
