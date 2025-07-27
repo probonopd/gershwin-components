@@ -36,7 +36,10 @@ build_package()
 {
   PORT=$1
   print_step "Installing build dependencies for $PORT"
-  ( cd "${PORT}" && make build-depends-list | cut -c 12- | xargs pkg install -y ) 
+  # Use -r to use repository only, never build from source
+  ( cd "${PORT}" && make build-depends-list | cut -c 12- | xargs pkg install -y -r ) || {
+    print_step "Warning: Some dependencies for $PORT could not be installed from packages"
+  }
   print_step "Generating checksum for $PORT"
   make -C "${PORT}" makesum
   print_step "Packaging $PORT"
