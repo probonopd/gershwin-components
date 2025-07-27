@@ -144,6 +144,7 @@ BOOL startXServer(void)
         signal(SIGTTIN, SIG_IGN);
         signal(SIGTTOU, SIG_IGN);
         signal(SIGUSR1, SIG_IGN);  // X server ignores this signal, doesn't use it for readiness
+        signal(SIGHUP, SIG_IGN);
         
         // Create new process group
         setpgid(0, getpid());

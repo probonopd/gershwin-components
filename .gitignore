@@ -7,3 +7,4 @@ StartupDisk/efiboot-helper
 obj/
 examples/
 tmp
+tmp2

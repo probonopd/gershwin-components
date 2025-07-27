@@ -138,27 +138,17 @@ void signalHandler(int sig) {
     
     if ([sessions count] == 0) {
         NSLog(@"[DEBUG] No sessions found in .desktop files, adding defaults");
-        [sessions addObject:@"Gershwin (default)"];
-        [execs addObject:@"/System/Applications/GWorkspace.app/GWorkspace"];
+        [sessions addObject:@"Gershwin"];
+        [execs addObject:@"/usr/local/bin/gershwin-x11"];
         
+        /*
         // Check if mate-session is available
         if ([[NSFileManager defaultManager] fileExistsAtPath:@"/usr/local/bin/mate-session"]) {
             [sessions addObject:@"MATE"];
             [execs addObject:@"/usr/local/bin/mate-session"];
             NSLog(@"[DEBUG] Added MATE session");
         }
-        
-        // Check if window managers are available
-        if ([[NSFileManager defaultManager] fileExistsAtPath:@"/usr/local/bin/wmaker"]) {
-            [sessions addObject:@"WindowMaker"];
-            [execs addObject:@"/usr/local/bin/wmaker"];
-            NSLog(@"[DEBUG] Added WindowMaker");
-        }
-        if ([[NSFileManager defaultManager] fileExistsAtPath:@"/usr/bin/twm"]) {
-            [sessions addObject:@"TWM"];
-            [execs addObject:@"/usr/bin/twm"];
-            NSLog(@"[DEBUG] Added TWM");
-        }
+        */
     }
     
     availableSessions = [sessions copy];
@@ -605,34 +595,15 @@ void signalHandler(int sig) {
         if (lc != NULL) {
             NSLog(@"[DEBUG] Setting login class environment variables");
             
-            // Set language/locale environment
-            const char *lang = login_getcapstr(lc, "lang", NULL, NULL);
-            if (lang != NULL) {
-                setenv("LANG", lang, 1);
-                NSLog(@"[DEBUG] Set LANG=%s", lang);
+            // Iterate through all login class environment and set them
+            // These can be set in the file /etc/login.conf
+            const char *env_var;
+            for (env_var = login_getcapstr(lc, "env", NULL, NULL); env_var != NULL; env_var = login_getcapstr(lc, "env", env_var, NULL)) {
+                if (env_var && strlen(env_var) > 0) {
+                    putenv((char *)env_var);
+                    NSLog(@"[DEBUG] Set login class environment variable: %s", env_var);
+                }
             }
-            
-            // Set character set
-            const char *charset = login_getcapstr(lc, "charset", NULL, NULL);
-            if (charset != NULL) {
-                setenv("MM_CHARSET", charset, 1);
-                NSLog(@"[DEBUG] Set MM_CHARSET=%s", charset);
-            }
-            
-            // Set timezone
-            const char *timezone = login_getcapstr(lc, "timezone", NULL, NULL);
-            if (timezone != NULL) {
-                setenv("TZ", timezone, 1);
-                NSLog(@"[DEBUG] Set TZ=%s", timezone);
-            }
-            
-            // Set manual path
-            const char *manpath = login_getcapstr(lc, "manpath", NULL, NULL);
-            if (manpath != NULL) {
-                setenv("MANPATH", manpath, 1);
-                NSLog(@"[DEBUG] Set MANPATH=%s", manpath);
-            }
-            
             login_close(lc);
             NSLog(@"[DEBUG] Login class environment variables set");
         } else {
@@ -1800,14 +1771,14 @@ void signalHandler(int sig) {
             // Try to connect to X server
             if ([self isXServerRunning]) {
                 NSLog(@"[DEBUG] X server successfully started and ready");
-                return YES;
+            return YES;
             }
             
-            sleep(1);
+            usleep(200000); // Sleep for 0.2 seconds (200,000 microseconds)
             attempts++;
             
-            
             if (attempts % 10 == 0) {
+                sleep(1); // Sleep for 1 second every 10 attempts
                 NSLog(@"[DEBUG] Still waiting for X server (attempt %d/%d)", attempts, maxAttempts);
             }
         }
