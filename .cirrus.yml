@@ -44,4 +44,4 @@ task:
       - sh -ex ./ports/build.sh
       
     binary_artifacts:
-      path: "ports/FreeBSD:**/*"
+      path: "FreeBSD:**/*"
