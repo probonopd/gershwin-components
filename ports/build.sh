@@ -63,7 +63,11 @@ build_package()
 print_step "Configuring ports tree overlay"
 echo "OVERLAYS=$(readlink -f .)/ports/portstree" >> /etc/make.conf
 print_step "Changing directory to /usr/ports"
-cd /usr/ports
+# cd /usr/ports
+cd ports/portstree || {
+  print_step "Error: Could not change directory to ports/portstree"
+  exit 1
+}
 
 print_step "Finding all ports to build"
 PORTS=$(find "${HERE}" -type d -depth 3 | awk -F/ '{print $(NF-1) "/" $NF}') # Last two components of the path
