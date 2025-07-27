@@ -37,7 +37,6 @@ build_package()
 
 # TODO: Replace with a more robust solution to overlay the ports tree that doesn't require a unionfs mount
 mount -t unionfs $(readlink -f .) /usr/ports
-HERE="${PWD}"
 cd /usr/ports
 
 # Build all ports in the current directory
