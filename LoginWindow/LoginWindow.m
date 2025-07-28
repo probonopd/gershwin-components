@@ -184,7 +184,15 @@ void signalHandler(int sig) {
     [loginWindow setBackgroundColor:[NSColor colorWithCalibratedRed:0.95 green:0.95 blue:0.95 alpha:1.0]];
     [loginWindow setLevel:NSScreenSaverWindowLevel];
     [loginWindow setCanHide:NO];
-    [loginWindow center];
+
+    // Golden ratio vertical positioning
+    NSScreen *mainScreen = [NSScreen mainScreen];
+    NSRect screenFrame = [mainScreen frame];
+    CGFloat goldenRatio = 0.618;
+    CGFloat windowX = (screenFrame.size.width - windowFrame.size.width) / 2.0;
+    CGFloat windowY = screenFrame.origin.y + (screenFrame.size.height - windowFrame.size.height) * goldenRatio;
+    [loginWindow setFrameOrigin:NSMakePoint(windowX, windowY)];
+
     [loginWindow makeKeyAndOrderFront:self];
     [loginWindow makeMainWindow];
     [loginWindow setIgnoresMouseEvents:NO];
@@ -1518,7 +1526,13 @@ void signalHandler(int sig) {
     }
     
     // Ensure window is properly positioned and visible
-    [loginWindow center];
+    // Use golden ratio vertical positioning instead of centering
+    NSScreen *mainScreen = [NSScreen mainScreen];
+    NSRect screenFrame = [mainScreen frame];
+    CGFloat goldenRatio = 0.618;
+    CGFloat windowX = (screenFrame.size.width - [loginWindow frame].size.width) / 2.0;
+    CGFloat windowY = screenFrame.origin.y + (screenFrame.size.height - [loginWindow frame].size.height) * goldenRatio;
+    [loginWindow setFrameOrigin:NSMakePoint(windowX, windowY)];
     [loginWindow setLevel:NSScreenSaverWindowLevel];
     [loginWindow makeKeyAndOrderFront:self];
     [loginWindow makeMainWindow];
