@@ -1102,7 +1102,7 @@ NSDate *bootOrderChangedTime = nil;
     return icon;
 }
 
-- (void)tableView:(NSTableView *)aTableView willDisplayCell:(id aCell forTableColumn:(NSTableColumn *)aTableColumn row:(NSInteger)rowIndex
+- (void)tableView:(NSTableView *)aTableView willDisplayCell:(id)aCell forTableColumn:(NSTableColumn *)aTableColumn row:(NSInteger)rowIndex
 {
     NSLog(@"StartupDiskController: willDisplayCell called for row %ld, cell class: %@", (long)rowIndex, [aCell class]);
     
@@ -1285,3 +1285,5 @@ NSDate *bootOrderChangedTime = nil;
     [tableView release];
     [super dealloc];
 }
+
+@end
