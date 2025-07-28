@@ -42,7 +42,7 @@ task:
 
     build_script:
       # sh -ex ./ports/build.sh
-      sh -ex ./buildroots.sh
+      sh -e ./buildroots.sh
 
     binary_artifacts:
       path: "out/*"

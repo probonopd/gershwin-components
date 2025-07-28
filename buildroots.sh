@@ -1,8 +1,18 @@
 #!/bin/sh
-# POSIX sh script to build all preference panes and package them into tar.zst archives
+# Build all projects and package them into tar.zst archives
 
-# List of all project directories
+# Projects to build
 PROJECTS="BootEnvironments Display GlobalShortcuts StartupDisk LoginWindow globalshortcutsd"
+
+# If GNUSTEP_MAKEFILES is not set, source GNUstep.sh to set it up
+if [ -z "$GNUSTEP_MAKEFILES" ]; then
+    . /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
+fi
+
+export CC=clang
+export OBJC=clang
+export OBJCXX=clang++
+export CXX=clang++
 
 HERE="$(dirname "$(readlink -f "$0")")"
 
