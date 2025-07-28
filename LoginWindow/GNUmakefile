@@ -25,22 +25,16 @@ include $(GNUSTEP_MAKEFILES)/application.make
 
 # Install target
 install:: all
-	@echo "Installing LoginWindow to $(GNUSTEP_APPS_DIR)..."
-	mkdir -p $(GNUSTEP_APPS_DIR)
-	@if [ -e "$(GNUSTEP_APPS_DIR)/$(APP_NAME).app" ]; then \
-		echo "Moving existing LoginWindow.app to temporary location..."; \
-		mv "$(GNUSTEP_APPS_DIR)/$(APP_NAME).app" "/tmp/$(APP_NAME).app.backup.$$$$" || true; \
-	fi
-	cp -r $(APP_NAME).app $(GNUSTEP_APPS_DIR)/
-	chmod +x $(GNUSTEP_APPS_DIR)/$(APP_NAME).app/$(APP_NAME)
-	@echo "Installation complete."
-	@echo "LoginWindow.app installed to $(GNUSTEP_APPS_DIR)"
-	@if [ -e "/tmp/$(APP_NAME).app.backup.$$$$" ]; then \
-		echo "Old LoginWindow.app backup available at /tmp/$(APP_NAME).app.backup.$$$$"; \
-	fi
 	@echo "Installing rc.d script..."
-	sudo -A install -m 555 loginwindow /usr/local/etc/rc.d/loginwindow
-	@echo "rc.d script installed to /usr/local/etc/rc.d/loginwindow"
+	@if [ -n "$(DESTDIR)" ]; then \
+		echo "Installing to $(DESTDIR)/usr/local/etc/rc.d/loginwindow (staged install)"; \
+		mkdir -p $(DESTDIR)/usr/local/etc/rc.d; \
+		install -m 555 loginwindow $(DESTDIR)/usr/local/etc/rc.d/loginwindow; \
+	else \
+		echo "Installing to /usr/local/etc/rc.d/loginwindow (system install)"; \
+		sudo -A install -m 555 loginwindow /usr/local/etc/rc.d/loginwindow; \
+	fi
+	@echo "rc.d script installation complete."
 
 # Uninstall target
 uninstall::
