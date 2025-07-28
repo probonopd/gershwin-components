@@ -1,5 +1,5 @@
 PORTNAME=	gershwin-display
-PORTVERSION=	1.0
+DISTVERSION=	main
 CATEGORIES=	sysutils gnustep x11
 
 MAINTAINER=	ports@FreeBSD.org
@@ -12,7 +12,7 @@ USES=		gershwin
 USE_GERSHWIN=	preferencepanes
 USE_XORG=	xrandr
 
-WRKSRC=		${WRKDIR}/${DISTNAME}/Display
+WRKSRC=		${WRKDIR}/gershwin-prefpanes-main/Display
 
 USE_GITHUB=	yes
 GH_ACCOUNT=	probonopd
@@ -20,14 +20,6 @@ GH_PROJECT=	gershwin-prefpanes
 
 BUILD_WRKSRC=	${WRKSRC}
 INSTALL_WRKSRC=	${WRKSRC}
-
-PLIST_FILES=	System/Library/Bundles/Display.prefPane/Display \
-		System/Library/Bundles/Display.prefPane/Resources/Display.png \
-		System/Library/Bundles/Display.prefPane/Resources/DisplayInfo.plist \
-		System/Library/Bundles/Display.prefPane/stamp.make
-
-PLIST_DIRS=	System/Library/Bundles/Display.prefPane/Resources \
-		System/Library/Bundles/Display.prefPane
 
 RUN_DEPENDS=	xrandr:x11/xrandr
 

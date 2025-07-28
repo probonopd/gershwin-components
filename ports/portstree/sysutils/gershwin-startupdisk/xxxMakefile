@@ -1,5 +1,5 @@
 PORTNAME=	gershwin-startupdisk
-PORTVERSION=	1.0
+DISTVERSION=	main
 CATEGORIES=	sysutils gnustep
 
 MAINTAINER=	ports@FreeBSD.org
@@ -11,7 +11,7 @@ LICENSE=	BSD2CLAUSE
 USES=		gershwin
 USE_GERSHWIN=	preferencepanes
 
-WRKSRC=		${WRKDIR}/${DISTNAME}/StartupDisk
+WRKSRC=		${WRKDIR}/gershwin-prefpanes-main/StartupDisk
 
 USE_GITHUB=	yes
 GH_ACCOUNT=	probonopd
@@ -19,15 +19,6 @@ GH_PROJECT=	gershwin-prefpanes
 
 BUILD_WRKSRC=	${WRKSRC}
 INSTALL_WRKSRC=	${WRKSRC}
-
-PLIST_FILES=	System/Library/Bundles/StartupDisk.prefPane/StartupDisk \
-		System/Library/Bundles/StartupDisk.prefPane/Resources/StartupDisk.png \
-		System/Library/Bundles/StartupDisk.prefPane/Resources/StartupDiskInfo.plist \
-		System/Library/Bundles/StartupDisk.prefPane/Resources/efiboot-helper \
-		System/Library/Bundles/StartupDisk.prefPane/stamp.make
-
-PLIST_DIRS=	System/Library/Bundles/StartupDisk.prefPane/Resources \
-		System/Library/Bundles/StartupDisk.prefPane
 
 RUN_DEPENDS=	efibootmgr:sysutils/efibootmgr
 

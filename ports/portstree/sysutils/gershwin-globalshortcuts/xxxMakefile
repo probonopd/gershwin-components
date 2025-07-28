@@ -1,0 +1,36 @@
+PORTNAME=	gershwin-globalshortcuts
+DISTVERSION=	main
+CATEGORIES=	sysutils gnustep x11
+
+MAINTAINER=	ports@FreeBSD.org
+COMMENT=	GNUstep preference pane and daemon for global keyboard shortcuts
+WWW=		https://github.com/probonopd/gershwin-prefpanes
+
+LICENSE=	BSD2CLAUSE
+
+USES=		gershwin
+USE_GERSHWIN=	preferencepanes
+USE_XORG=	x11
+
+USE_GITHUB=	yes
+GH_ACCOUNT=	probonopd
+GH_PROJECT=	gershwin-prefpanes
+
+BUILD_WRKSRC=	${WRKSRC}
+INSTALL_WRKSRC=	${WRKSRC}
+USE_RC_SUBR=	globalshortcutsd
+
+.include <bsd.port.pre.mk>
+
+# Ensure we use the system GNUstep installation at /System
+GNUSTEP_SYSTEM_ROOT=	/System
+
+do-build:
+	cd ${BUILD_WRKSRC}/GlobalShortcuts && ${SETENV} ${MAKE_ENV} CC=clang19 OBJC=clang19 gmake
+	cd ${BUILD_WRKSRC}/globalshortcutsd && ${SETENV} ${MAKE_ENV} CC=clang19 OBJC=clang19 PREFIX= gmake
+
+do-install:
+	cd ${BUILD_WRKSRC}/GlobalShortcuts && ${SETENV} ${MAKE_ENV} DESTDIR=${STAGEDIR} gmake install
+	cd ${BUILD_WRKSRC}/globalshortcutsd && ${SETENV} ${MAKE_ENV} DESTDIR=${STAGEDIR} gmake install
+
+.include <bsd.port.post.mk>

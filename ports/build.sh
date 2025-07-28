@@ -28,13 +28,17 @@ set -e
 
 HERE=$(dirname "$(readlink -f "$0")")
 
+export CC=clang19
+export CXX=clang++19
+
 print_step() {
   echo "[build.sh] $1"
 }
 
 print_step "Configuring pkg repository"
-mkdir -p /usr/local/etc/pkg/repos
-cat > /usr/local/etc/pkg/repos/FreeBSD.conf << 'EOF'
+if [ ! -f /usr/local/etc/pkg/repos/FreeBSD.conf ]; then
+  mkdir -p /usr/local/etc/pkg/repos
+  cat > /usr/local/etc/pkg/repos/FreeBSD.conf << 'EOF'
 FreeBSD: {
   url: "pkg+http://pkg.FreeBSD.org/${ABI}/quarterly",
   mirror_type: "srv",
@@ -43,43 +47,89 @@ FreeBSD: {
   enabled: yes
 }
 EOF
+fi
 print_step "Updating package repository"
 pkg update -f
 
 build_package()
 {
-  PORT=$1
-  print_step "Installing build dependencies for $PORT"
-  # Use -r to use repository only, never build from source
-  ( cd "${PORT}" && make build-depends-list | cut -c 12- | xargs pkg install -y -r ) || {
-    print_step "Warning: Some dependencies for $PORT could not be installed from packages"
+  PORT=$(echo "$1" | awk -F'/' '{print $(NF-1) "/" $NF}') # Two last path elements
+
+  print_step "=========================="
+  print_step "Building package for $PORT"
+  print_step ""
+
+  cd "${HERE}/portstree/${PORT}" || {
+    print_step "Error: Could not change directory to $PORT"
+    return 1
   }
+
+  make clean
+  rm -f pkg-plist
+
+  print_step "Downloading sources for $PORT"
+  make stage
+
   print_step "Generating checksum for $PORT"
-  make -C "${PORT}" makesum
+  make makesum
+
+  print_step "Building $PORT"
+  make build BATCH=yes
+  if [ $? -ne 0 ]; then
+    print_step "Error: Build failed for $PORT"
+    return 1
+  fi
+
+  print_step "Generating plist for $PORT"
+  make makeplist BATCH=yes || {
+    print_step "Error: Failed to generate plist for $PORT"
+    return 1
+  }
+  # find "$PORT/work/stage" | sed "s|$PORT/work/stage/||" > pkg-plist
+
   print_step "Packaging $PORT"
-  make -C "${PORT}" package
+  make package BATCH=yes || {
+    print_step "Error: Packaging failed for $PORT"
+    return 1
+  }
+  print_step "Package for $PORT built successfully"
+  
+  ls "${HERE}/portstree/${PORT}"/work/pkg/*.pkg || {
+    print_step "Error: No package files found for $PORT"
+    return 1
+  }
+  print_step "=========================="
+  return 0
 }
 
 print_step "Configuring ports tree overlay"
-echo "OVERLAYS=$(readlink -f .)/ports/portstree" >> /etc/make.conf
-print_step "Changing directory to /usr/ports"
+echo "OVERLAYS=${HERE}/portstree" >> /etc/make.conf
+print_step "Changing directory to portstree"
 # cd /usr/ports
-cd ports/portstree || {
-  print_step "Error: Could not change directory to ports/portstree"
+cd "${HERE}/portstree" || {
+  print_step "Error: Could not change directory to portstree"
   exit 1
 }
 
 # Install all dependencies before building ports
-print_step "Installing run and build dependencies for all ports"
-make run-depends-list | sort | uniq | cut -d '/' -f 4- | xargs pkg install -y
-make build-depends-list | sort | uniq  | cut -d '/' -f 4- | xargs pkg install -y
 
-print_step "Finding all ports to build"
-PORTS=$(find "${HERE}" -type d -depth 3 | awk -F/ '{print $(NF-1) "/" $NF}') # Last two components of the path
-for PORT in ${PORTS}; do
+
+print_step "Installing dependencies for all ports"
+
+for PORT in $(find ${HERE} -depth 4 -type f -name Makefile | xargs dirname); do
+  if [ -f "${PORT}/Makefile" ]; then
+    print_step "Checking dependencies for ${PORT}"
+    ( cd "${PORT}" && make build-depends-list 2>/dev/null | sort | uniq | cut -d '/' -f 4- | xargs pkg install -y ) || {
+      print_step "Warning: Could not install dependencies for ${PORT}"
+    }
     print_step "Building package for $PORT"
-    build_package "${PORT}"
+    build_package "${PORT}" || {
+      print_step "Error: Failed to build package for ${PORT}"
+      exit 1
+    }
+  fi
 done
+
 print_step "Returning to $HERE"
 cd "${HERE}"
 print_step "Cleaning up make.conf"
@@ -90,7 +140,7 @@ ABI=$(pkg config abi) # E.g., FreeBSD:13:amd64
 mkdir -p "${ABI}"
 print_step "Moving all .pkg files to $ABI directory"
 find . -name '*.pkg' -exec mv {} "${ABI}/" \;
-print_step "Creating repository metadata for $ABI"
+print_step "Creating repositBATCH=yes ory metadata for $ABI"
 pkg repo "${ABI}/"
 # index.html for the FreeBSD repository
 print_step "Generating index.html for repository"

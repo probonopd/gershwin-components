@@ -8,3 +8,7 @@ obj/
 examples/
 tmp
 tmp2
+ports/portstree/sysutils/*/work/
+work/
+FreeBSD:*:*/
+distinfo

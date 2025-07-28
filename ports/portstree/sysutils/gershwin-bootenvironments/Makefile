@@ -21,15 +21,7 @@ GH_TAGNAME=	main
 BUILD_WRKSRC=	${WRKSRC}
 INSTALL_WRKSRC=	${WRKSRC}
 
-PLIST_FILES=	System/Library/Bundles/BootEnvironments.prefPane/BootEnvironments \
-		System/Library/Bundles/BootEnvironments.prefPane/Resources/BootEnvironments.png \
-		System/Library/Bundles/BootEnvironments.prefPane/Resources/BootEnvironmentsInfo.plist \
-		System/Library/Bundles/BootEnvironments.prefPane/stamp.make
-
-PLIST_DIRS=	System/Library/Bundles/BootEnvironments.prefPane/Resources \
-		System/Library/Bundles/BootEnvironments.prefPane
-
-BUILD_DEPENDS=	tgmake:devel/gmake \
+BUILD_DEPENDS=	gmake:devel/gmake \
 		gnustep-base>=0:lang/gnustep-base \
 		gnustep-gui>=0:x11-toolkits/gnustep-gui
 RUN_DEPENDS=	bectl:sysutils/beadm
