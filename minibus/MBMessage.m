@@ -314,27 +314,29 @@ static void appendAligned(NSMutableData *data, const void *bytes, NSUInteger len
         return nil;
     }
     
-    // Body length and serial
-    uint32_t bodyLength = *(uint32_t *)(bytes + pos);
-    if (!littleEndian) {
-        bodyLength = ntohl(bodyLength);
+    // Body length and serial (handle endianness properly)
+    uint32_t bodyLength, serial, headerFieldsLength;
+    
+    if (littleEndian) {
+        // Data is little-endian, convert to host order
+        bodyLength = *(uint32_t *)(bytes + pos);
+        pos += 4;
+        serial = *(uint32_t *)(bytes + pos);
+        pos += 4;
+        headerFieldsLength = *(uint32_t *)(bytes + pos);
+        pos += 4;
+    } else {
+        // Data is big-endian, convert to host order
+        bodyLength = ntohl(*(uint32_t *)(bytes + pos));
+        pos += 4;
+        serial = ntohl(*(uint32_t *)(bytes + pos));
+        pos += 4;
+        headerFieldsLength = ntohl(*(uint32_t *)(bytes + pos));
+        pos += 4;
     }
-    pos += 4;
-    uint32_t serial = *(uint32_t *)(bytes + pos);
-    if (!littleEndian) {
-        serial = ntohl(serial);
-    }
-    pos += 4;
+    
     message.serial = serial;
-    
     NSLog(@"messageFromData: bodyLength=%u, serial=%u", bodyLength, serial);
-    
-    // Header fields array length
-    uint32_t headerFieldsLength = *(uint32_t *)(bytes + pos);
-    if (!littleEndian) {
-        headerFieldsLength = ntohl(headerFieldsLength);
-    }
-    pos += 4;
     
     NSLog(@"messageFromData: headerFieldsLength=%u", headerFieldsLength);
     
@@ -357,8 +359,10 @@ static void appendAligned(NSMutableData *data, const void *bytes, NSUInteger len
         NSLog(@"messageFromData: parsing field code %d at pos %lu", fieldCode, (unsigned long)(pos-1));
         
         if (fieldCode == 0) {
-            NSLog(@"messageFromData: found end of header fields at pos %lu", (unsigned long)(pos-1));
-            break; // End of fields
+            // Field code 0 means padding, skip padding bytes
+            while (pos < headerFieldsEnd && bytes[pos] == 0) pos++;
+            if (pos >= headerFieldsEnd) break;
+            continue; // Continue to next field
         }
         
         // Variant signature - should be 1 byte length + signature + null + aligned value
