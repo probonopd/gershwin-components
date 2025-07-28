@@ -11,7 +11,7 @@ echo "Building all preference panes and tools..."
 
 # Install build dependencies
 echo "Installing build dependencies..."
-sudo pkg install -y gnustep-make gnustep-base gnustep-gui gnustep-back clang19 gmake || {
+sudo pkg install -y gnustep-make gnustep-base gnustep-gui gnustep-back gmake || {
     echo "Error: Failed to install build dependencies"
     exit 1
 }

@@ -1,4 +1,3 @@
-CC = clang19
 CFLAGS = -Wall -Wextra -O2
 TARGET = efiboot-helper
 SOURCE = efiboot-helper.c

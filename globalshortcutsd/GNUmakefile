@@ -10,10 +10,6 @@ globalshortcutsd_LDFLAGS += -lX11
 # Include X11 headers
 globalshortcutsd_CPPFLAGS += -I/usr/include/X11 -I/usr/local/include
 
-# Use clang19 as specified in instructions
-CC = clang19
-OBJC = clang19
-
 # Compiler flags for production builds
 globalshortcutsd_OBJCFLAGS += -Wall -Wextra -Werror -O2
 

@@ -15,10 +15,6 @@ MAKE_ENV+=		GNUSTEP_SYSTEM_ROOT=/System \
 			GNUSTEP_SYSTEM_LIBRARY=/System/Library \
 			BUNDLE_EXTENSION=.prefPane
 
-# Use clang19 as specified in instructions
-CC=			clang19
-OBJC=			clang19
-
 # Compiler flags to fix all warnings
 CFLAGS+=		-Wall -Wextra -Werror
 OBJCFLAGS+=		-Wall -Wextra -Werror
