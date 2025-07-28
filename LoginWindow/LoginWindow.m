@@ -177,7 +177,7 @@ void signalHandler(int sig) {
     NSString *computerName = [NSString stringWithUTF8String:hostname];
     loginWindow = [[NSWindow alloc] 
         initWithContentRect:windowFrame
-                  styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable)
+                  styleMask:(NSWindowStyleMaskTitled)
                     backing:NSBackingStoreBuffered
                       defer:NO];
     [loginWindow setTitle:computerName];
