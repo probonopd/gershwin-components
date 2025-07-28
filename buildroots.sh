@@ -4,8 +4,7 @@
 # List of all project directories
 PROJECTS="BootEnvironments Display GlobalShortcuts StartupDisk LoginWindow globalshortcutsd"
 
-# Base directory
-BASE_DIR="/home/User/gershwin-prefpanes"
+HERE="$(dirname "$(readlink -f "$0")")"
 
 echo "Building all preference panes and tools..."
 
@@ -19,7 +18,7 @@ echo "Build dependencies installed successfully"
 echo ""
 
 # Ensure we're in the base directory
-cd "$BASE_DIR"
+cd "$HERE"
 
 SUCCESS_COUNT=0
 FAIL_COUNT=0
@@ -28,13 +27,13 @@ for PROJECT in $PROJECTS; do
     echo "Building $PROJECT..."
     
     # Check if project directory exists
-    if [ ! -d "$BASE_DIR/$PROJECT" ]; then
-        echo "Warning: Directory $PROJECT does not exist in $BASE_DIR, skipping..."
+    if [ ! -d "$HERE/$PROJECT" ]; then
+        echo "Warning: Directory $PROJECT does not exist in $HERE, skipping..."
         FAIL_COUNT=$((FAIL_COUNT + 1))
         continue
     fi
     
-    cd "$BASE_DIR/$PROJECT"
+    cd "$HERE/$PROJECT"
     
     # Clean any existing root directory
     if [ -d root ]; then
@@ -69,13 +68,13 @@ echo ""
 
 # Create out directory and collect all zst files
 echo "Collecting archives into out/ directory..."
-mkdir -p "$BASE_DIR/out"
+mkdir -p "$HERE/out"
 
 COLLECTED_COUNT=0
 for PROJECT in $PROJECTS; do
-    if [ -f "$BASE_DIR/$PROJECT/${PROJECT}.tar.zst" ]; then
+    if [ -f "$HERE/$PROJECT/${PROJECT}.tar.zst" ]; then
         echo "  Copying ${PROJECT}.tar.zst to out/"
-        cp "$BASE_DIR/$PROJECT/${PROJECT}.tar.zst" "$BASE_DIR/out/"
+        cp "$HERE/$PROJECT/${PROJECT}.tar.zst" "$HERE/out/"
         COLLECTED_COUNT=$((COLLECTED_COUNT + 1))
     fi
 done
@@ -84,7 +83,7 @@ echo ""
 echo "Archives collected in out/ directory: $COLLECTED_COUNT"
 if [ "$COLLECTED_COUNT" -gt 0 ]; then
     echo "Contents of out/:"
-    ls -la "$BASE_DIR/out/"*.tar.zst 2>/dev/null | while read -r line; do
+    ls -la "$HERE/out/"*.tar.zst 2>/dev/null | while read -r line; do
         echo "  $line"
     done
 fi
