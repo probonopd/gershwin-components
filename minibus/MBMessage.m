@@ -314,25 +314,45 @@ static void appendAligned(NSMutableData *data, const void *bytes, NSUInteger len
         return nil;
     }
     
-    // Body length and serial (handle endianness properly)
+    // Debug: show more raw bytes from position 4
+    if (*offset + 32 <= [data length]) {
+        NSMutableString *hexStr = [NSMutableString string];
+        for (int i = 0; i < 32 && *offset + i < [data length]; i++) {
+            [hexStr appendFormat:@"%02x ", bytes[*offset + i]];
+        }
+        NSLog(@"Raw message bytes from offset %lu: %@", (unsigned long)*offset, hexStr);
+    }
+    
+    // Body length and serial - read individual bytes to check structure
+    if (pos + 12 > [data length]) {
+        NSLog(@"messageFromData: not enough data for full header");
+        return nil;
+    }
+    
+    // Check if this looks like a valid D-Bus message structure
+    // Body length should be small for a Hello message
+    uint32_t bodyLengthRaw = *(uint32_t *)(bytes + pos);
+    if (bodyLengthRaw > 1000000) { // Sanity check - huge body length suggests parsing error
+        NSLog(@"messageFromData: suspicious body length 0x%08x, this might be malformed", bodyLengthRaw);
+        // Try to recover by treating this as incomplete message
+        return nil;
+    }
+    
     uint32_t bodyLength, serial, headerFieldsLength;
     
-    if (littleEndian) {
-        // Data is little-endian, convert to host order
-        bodyLength = *(uint32_t *)(bytes + pos);
-        pos += 4;
-        serial = *(uint32_t *)(bytes + pos);
-        pos += 4;
-        headerFieldsLength = *(uint32_t *)(bytes + pos);
-        pos += 4;
-    } else {
-        // Data is big-endian, convert to host order
-        bodyLength = ntohl(*(uint32_t *)(bytes + pos));
-        pos += 4;
-        serial = ntohl(*(uint32_t *)(bytes + pos));
-        pos += 4;
-        headerFieldsLength = ntohl(*(uint32_t *)(bytes + pos));
-        pos += 4;
+    // Read raw bytes first
+    bodyLength = *(uint32_t *)(bytes + pos);
+    pos += 4;
+    serial = *(uint32_t *)(bytes + pos);
+    pos += 4;
+    headerFieldsLength = *(uint32_t *)(bytes + pos);
+    pos += 4;
+    
+    // Convert endianness if needed
+    if (!littleEndian) {
+        bodyLength = ntohl(bodyLength);
+        serial = ntohl(serial);
+        headerFieldsLength = ntohl(headerFieldsLength);
     }
     
     message.serial = serial;

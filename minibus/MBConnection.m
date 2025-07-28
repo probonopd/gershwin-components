@@ -38,6 +38,18 @@
         return NO;
     }
     
+    NSLog(@"Sending reply message: %@ (%lu bytes)", message, (unsigned long)[data length]);
+    
+    // Debug: show first 32 bytes of reply
+    if ([data length] > 0) {
+        const uint8_t *bytes = [data bytes];
+        NSMutableString *hexString = [NSMutableString string];
+        for (NSUInteger i = 0; i < MIN([data length], 32); i++) {
+            [hexString appendFormat:@"%02x ", bytes[i]];
+        }
+        NSLog(@"Reply bytes: %@", hexString);
+    }
+    
     return [MBTransport sendData:data onSocket:_socket];
 }
 
@@ -148,7 +160,8 @@
                     NSLog(@"Preserved message data: %@", hexString);
                 }
                 
-                [_readBuffer setData:messageData];
+                // Don't set buffer yet - this might be incomplete. Just clear for now.
+                [_readBuffer setData:[NSData data]];
             } else {
                 NSLog(@"BEGIN found, no message data to preserve");
                 [_readBuffer setData:[NSData data]];
