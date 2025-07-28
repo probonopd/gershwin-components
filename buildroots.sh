@@ -15,7 +15,7 @@ echo "Building all preference panes and tools..."
 
 # Install build dependencies
 echo "Installing build dependencies..."
-sudo pkg install -y gnustep-make gnustep-base gnustep-gui gnustep-back gmake || {
+sudo pkg install -y gnustep-make gnustep-base gnustep-gui gnustep-back gmake systempreferences || {
     echo "Error: Failed to install build dependencies"
     exit 1
 }
@@ -26,6 +26,27 @@ echo ""
 if [ -z "$GNUSTEP_MAKEFILES" ]; then
     . /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
 fi
+
+# Debug: Show GNUstep environment
+echo "GNUstep environment:"
+echo "  GNUSTEP_MAKEFILES=$GNUSTEP_MAKEFILES"
+echo "  GNUSTEP_SYSTEM_HEADERS=$GNUSTEP_SYSTEM_HEADERS"
+echo "  GNUSTEP_SYSTEM_LIBRARIES=$GNUSTEP_SYSTEM_LIBRARIES"
+echo ""
+
+# Check for PreferencePanes framework
+if [ -d "/System/Library/Frameworks/PreferencePanes.framework" ]; then
+    echo "Found PreferencePanes framework in /System/Library/Frameworks/"
+elif [ -d "$GNUSTEP_SYSTEM_HEADERS/PreferencePanes" ]; then
+    echo "Found PreferencePanes headers in $GNUSTEP_SYSTEM_HEADERS/PreferencePanes"
+else
+    echo "Warning: PreferencePanes framework not found, checking available frameworks..."
+    echo "Available frameworks in /System/Library/Frameworks/:"
+    ls -la /System/Library/Frameworks/ 2>/dev/null || echo "  Directory not found"
+    echo "Available headers in $GNUSTEP_SYSTEM_HEADERS/:"
+    ls -la "$GNUSTEP_SYSTEM_HEADERS/" 2>/dev/null || echo "  Directory not found"
+fi
+echo ""
 
 # Ensure we're in the base directory
 cd "$HERE"
