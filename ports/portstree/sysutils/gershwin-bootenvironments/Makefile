@@ -1,5 +1,5 @@
 PORTNAME=	gershwin-prefpanes
-DISTVERSION=	main
+DISTVERSION=	0.0.s${SNAPDATE}
 CATEGORIES=	sysutils gnustep
 
 MAINTAINER=	ports@FreeBSD.org

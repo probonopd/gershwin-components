@@ -28,11 +28,19 @@ set -e
 
 HERE=$(dirname "$(readlink -f "$0")")
 
-export CC=clang19
-export CXX=clang++19
+export CC=clang
+export CXX=clang++
 
 print_step() {
   echo "[build.sh] $1"
+}
+
+# Function to generate version from date like Gershwin does
+# This is possibly not how it should be done according to FreeBSD ports guidelines,
+# but it is a simple way to ensure each build has a unique version for now.
+generate_version() {
+  VERSION=$(date +%Y%m%d%H%M)
+  echo "$VERSION"
 }
 
 print_step "Configuring pkg repository"
@@ -64,11 +72,16 @@ build_package()
     return 1
   }
 
+  # Set SNAPDATE for version generation
+  SNAPDATE=$(generate_version)
+  print_step "Using SNAPDATE: $SNAPDATE"
+  export SNAPDATE
+
   make clean
   rm -f pkg-plist
 
   print_step "Downloading sources for $PORT"
-  make stage
+  make fetch
 
   print_step "Generating checksum for $PORT"
   make makesum
@@ -80,8 +93,15 @@ build_package()
     return 1
   fi
 
+  print_step "Installing to staging area for $PORT"
+  make stage BATCH=yes
+  if [ $? -ne 0 ]; then
+    print_step "Error: Staging failed for $PORT"
+    return 1
+  fi
+
   print_step "Generating plist for $PORT"
-  make makeplist BATCH=yes || {
+  make makeplist | tail -n +2 > pkg-plist || {
     print_step "Error: Failed to generate plist for $PORT"
     return 1
   }
@@ -98,6 +118,15 @@ build_package()
     print_step "Error: No package files found for $PORT"
     return 1
   }
+  # List contents of the package file(s)
+  for pkg_file in "${HERE}/portstree/${PORT}"/work/pkg/*.pkg; do
+    print_step "Contents of package file: $pkg_file"
+    tar -tzf "$pkg_file" || {
+      print_step "Error: Failed to list contents of package file $pkg_file"
+      return 1
+    }
+  done
+
   print_step "=========================="
   return 0
 }

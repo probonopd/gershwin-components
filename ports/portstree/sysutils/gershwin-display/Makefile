@@ -1,5 +1,5 @@
 PORTNAME=	gershwin-display
-DISTVERSION=	main
+DISTVERSION=	0.0.s${SNAPDATE}
 CATEGORIES=	sysutils gnustep x11
 
 MAINTAINER=	ports@FreeBSD.org
@@ -17,6 +17,7 @@ WRKSRC=		${WRKDIR}/gershwin-prefpanes-main/Display
 USE_GITHUB=	yes
 GH_ACCOUNT=	probonopd
 GH_PROJECT=	gershwin-prefpanes
+GH_TAGNAME=	main
 
 BUILD_WRKSRC=	${WRKSRC}
 INSTALL_WRKSRC=	${WRKSRC}
@@ -25,13 +26,10 @@ RUN_DEPENDS=	xrandr:x11/xrandr
 
 .include <bsd.port.pre.mk>
 
-# Ensure we use the system GNUstep installation at /System
-GNUSTEP_SYSTEM_ROOT=	/System
-
 do-build:
-	cd ${BUILD_WRKSRC} && ${SETENV} ${MAKE_ENV} gmake
+	cd ${BUILD_WRKSRC} && . /System/Library/Makefiles/GNUstep.sh && gmake
 
-do-install:
-	cd ${INSTALL_WRKSRC} && ${SETENV} ${MAKE_ENV} DESTDIR=${STAGEDIR} gmake install
+do-stage:
+	cd ${BUILD_WRKSRC} && . /System/Library/Makefiles/GNUstep.sh && gmake DESTDIR=${STAGEDIR} install
 
 .include <bsd.port.post.mk>

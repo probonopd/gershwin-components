@@ -21,3 +21,7 @@ this will lead to the user being asked to enter the password.
 
 * Run `/System/Applications/SystemPreferences.app/SystemPreferences` to test the preference pane after building it.
 This allows us to see the logging output.
+
+* Check the FreeBSD ports handbook for guidance on how to build ports
+
+* In general, check the FreeBSD documentation on the operating system
