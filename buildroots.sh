@@ -4,11 +4,6 @@
 # Projects to build
 PROJECTS="BootEnvironments Display GlobalShortcuts StartupDisk LoginWindow globalshortcutsd"
 
-# If GNUSTEP_MAKEFILES is not set, source GNUstep.sh to set it up
-if [ -z "$GNUSTEP_MAKEFILES" ]; then
-    . /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
-fi
-
 export CC=clang
 export OBJC=clang
 export OBJCXX=clang++
@@ -26,6 +21,11 @@ sudo pkg install -y gnustep-make gnustep-base gnustep-gui gnustep-back gmake || 
 }
 echo "Build dependencies installed successfully"
 echo ""
+
+# If GNUSTEP_MAKEFILES is not set, source GNUstep.sh to set it up
+if [ -z "$GNUSTEP_MAKEFILES" ]; then
+    . /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
+fi
 
 # Ensure we're in the base directory
 cd "$HERE"
