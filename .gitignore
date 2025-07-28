@@ -12,10 +12,10 @@ ports/portstree/sysutils/*/work/
 work/
 FreeBSD:*:*/
 distinfo
-LoginWindow/
 root/
 *.tar.zst
 *.tar.gz
 *.tar.xz
 *.tar.bz2
 *.tar
+LoginWindow/j
