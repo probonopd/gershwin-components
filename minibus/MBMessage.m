@@ -245,6 +245,7 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
         
         // Align to 1-byte boundary for signature (signatures are not aligned like strings)
         // Signature format: length byte + signature string + null terminator
+        // NOTE: No alignment needed for signature type 'g' - it's 1-byte aligned
         uint8_t sigStrLen = (uint8_t)[value lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
         [arrayData appendBytes:&sigStrLen length:1];
         [arrayData appendData:[value dataUsingEncoding:NSUTF8StringEncoding]];

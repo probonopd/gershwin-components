@@ -1,7 +1,7 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
 # Tools
-TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment hello-length-analysis debug-listnames
+TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment hello-length-analysis debug-listnames debug-message-format
 
 minibus_OBJC_FILES = main-daemon.m MBDaemon.m MBConnection.m MBMessage.m MBTransport.m MBClient.m
 minibus-test_OBJC_FILES = main-test.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
@@ -17,6 +17,7 @@ test-hello-reply-only_OBJC_FILES = test-hello-reply-only.m MBMessage.m MBTranspo
 test-alignment_OBJC_FILES = test-alignment.m MBMessage.m MBTransport.m
 hello-length-analysis_OBJC_FILES = hello-length-analysis.m MBMessage.m MBTransport.m
 debug-listnames_OBJC_FILES = debug-listnames.m MBMessage.m MBTransport.m
+debug-message-format_OBJC_FILES = debug-message-format.m MBMessage.m MBTransport.m
 
 # Compiler flags for production builds
 minibus_OBJCFLAGS += -Wall -Wextra -O2 -fblocks

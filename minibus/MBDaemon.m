@@ -271,6 +271,12 @@
         } else if ([message.member isEqualToString:@"GetNameOwner"]) {
             [self handleGetNameOwner:message fromConnection:connection];
             return;
+        } else if ([message.member isEqualToString:@"AddMatch"]) {
+            [self handleAddMatch:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"RemoveMatch"]) {
+            [self handleRemoveMatch:message fromConnection:connection];
+            return;
         }
     }
     
@@ -421,6 +427,32 @@
         error.sender = @"org.freedesktop.DBus";
         [connection sendMessage:error];
     }
+}
+
+- (void)handleAddMatch:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    // AddMatch is used to subscribe to D-Bus signals
+    // For now, just acknowledge success - signal routing is not fully implemented
+    NSLog(@"AddMatch request from %@: %@", connection.uniqueName, message.arguments);
+    
+    MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                    arguments:@[]];
+    reply.sender = @"org.freedesktop.DBus";
+    reply.destination = connection.uniqueName;
+    [connection sendMessage:reply];
+}
+
+- (void)handleRemoveMatch:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    // RemoveMatch is used to unsubscribe from D-Bus signals  
+    // For now, just acknowledge success - signal routing is not fully implemented
+    NSLog(@"RemoveMatch request from %@: %@", connection.uniqueName, message.arguments);
+    
+    MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                    arguments:@[]];
+    reply.sender = @"org.freedesktop.DBus";
+    reply.destination = connection.uniqueName;
+    [connection sendMessage:reply];
 }
 
 - (void)routeMessage:(MBMessage *)message fromConnection:(MBConnection *)connection
