@@ -45,6 +45,11 @@ typedef enum {
 - (BOOL)sendMessage:(MBMessage *)message;
 
 /**
+ * Send multiple messages atomically in a single write
+ */
+- (BOOL)sendMessages:(NSArray *)messages;
+
+/**
  * Read and process incoming data
  * Returns array of complete messages received
  */

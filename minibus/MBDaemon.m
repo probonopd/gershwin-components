@@ -243,7 +243,6 @@
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[uniqueName]];
     reply.sender = @"org.freedesktop.DBus";
-    [connection sendMessage:reply];
     
     // Send NameAcquired signal to the new connection
     MBMessage *nameAcquired = [MBMessage signalWithPath:@"/org/freedesktop/DBus"
@@ -252,7 +251,9 @@
                                               arguments:@[uniqueName]];
     nameAcquired.sender = @"org.freedesktop.DBus";
     nameAcquired.destination = uniqueName;
-    [connection sendMessage:nameAcquired];
+    
+    // Send Hello reply and NameAcquired signal atomically to prevent client disconnect
+    [connection sendMessages:@[reply, nameAcquired]];
     
     // Send NameOwnerChanged signal to all connections (including this one)
     MBMessage *nameOwnerChanged = [MBMessage signalWithPath:@"/org/freedesktop/DBus"

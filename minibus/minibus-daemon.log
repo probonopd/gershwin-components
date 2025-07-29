@@ -1,114 +1,1154 @@
-2025-07-29 14:53:34.018 minibus[20540:102070] MiniBus D-Bus daemon starting...
-2025-07-29 14:53:34.018 minibus[20540:102070] Using socket path: /tmp/minibus-socket
-2025-07-29 14:53:34.018 minibus[20540:102070] Created Unix domain server socket at /tmp/minibus-socket
-2025-07-29 14:53:34.018 minibus[20540:102070] MiniBus daemon started on /tmp/minibus-socket
-2025-07-29 14:53:34.018 minibus[20540:102070] MiniBus daemon running, waiting for connections...
-2025-07-29 14:54:02.218 minibus[20540:102070] Accepted new connection on socket 4
-2025-07-29 14:54:02.218 minibus[20540:102070] Created connection for socket 4
-2025-07-29 14:54:02.218 minibus[20540:102070] New connection added: <MBConnection socket=4 state=0 auth_state=0 unique=(null)>
-2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData called #1 for socket 4
-2025-07-29 14:54:02.218 minibus[20540:102070] Received 25 bytes on socket 4
-2025-07-29 14:54:02.218 minibus[20540:102070] Received 25 bytes on socket 4, total buffer: 25
-2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData: processing authentication
-2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication called #1 for socket 4
-2025-07-29 14:54:02.218 minibus[20540:102070] Moved 25 bytes from read buffer to auth buffer, auth buffer now has 25 bytes
-2025-07-29 14:54:02.218 minibus[20540:102070] Processing auth command: 'AUTH EXTERNAL 31303031' (state=0)
-2025-07-29 14:54:02.218 minibus[20540:102070] Sent OK response immediately: SUCCESS (37 bytes)
-2025-07-29 14:54:02.218 minibus[20540:102070] Prepared OK response, moving to WAITING_FOR_BEGIN state
-2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication finished, auth state: 2
-2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData called #2 for socket 4
-2025-07-29 14:54:02.218 minibus[20540:102070] Received 19 bytes on socket 4
-2025-07-29 14:54:02.218 minibus[20540:102070] Received 19 bytes on socket 4, total buffer: 19
-2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData: processing authentication
-2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication called #2 for socket 4
-2025-07-29 14:54:02.218 minibus[20540:102070] Moved 19 bytes from read buffer to auth buffer, auth buffer now has 19 bytes
-2025-07-29 14:54:02.218 minibus[20540:102070] Processing auth command: 'NEGOTIATE_UNIX_FD' (state=2)
-2025-07-29 14:54:02.218 minibus[20540:102070] Sent ERROR response immediately: SUCCESS (39 bytes)
-2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication finished, auth state: 2
-2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData called #3 for socket 4
-2025-07-29 14:54:02.218 minibus[20540:102070] Received 135 bytes on socket 4
-2025-07-29 14:54:02.218 minibus[20540:102070] Received 135 bytes on socket 4, total buffer: 135
-2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData: processing authentication
-2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication called #3 for socket 4
-2025-07-29 14:54:02.218 minibus[20540:102070] Moved 135 bytes from read buffer to auth buffer, auth buffer now has 135 bytes
-2025-07-29 14:54:02.218 minibus[20540:102070] Processing auth command: 'BEGIN' (state=2)
-2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin called for socket 4, auth state: 2
-2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: setting auth state to authenticated
-2025-07-29 14:54:02.218 minibus[20540:102070] Authentication completed for connection 4, now waiting for Hello
-2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: checking auth buffer, has 128 bytes
-2025-07-29 14:54:02.218 minibus[20540:102070] Moving 128 bytes from auth buffer to read buffer
-2025-07-29 14:54:02.218 minibus[20540:102070] Remaining auth data hex: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
-2025-07-29 14:54:02.218 minibus[20540:102070] Remaining data appears to be a D-Bus message
-2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: appending data to read buffer
-2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: clearing auth buffer
-2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: data transfer complete
-2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: returning YES
-2025-07-29 14:54:02.218 minibus[20540:102070] Processed auth command 1
-2025-07-29 14:54:02.218 minibus[20540:102070] Authentication completed, breaking out of command loop
-2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication finished, auth state: 3
-2025-07-29 14:54:02.218 minibus[20540:102070] Authentication completed, processing 128 bytes of message data
-2025-07-29 14:54:02.218 minibus[20540:102070] parseMessages called with 128 bytes in buffer
-2025-07-29 14:54:02.218 minibus[20540:102070] Buffer hex: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 
-2025-07-29 14:54:02.219 minibus[20540:102070] Parsing messages from 128 bytes of data
-2025-07-29 14:54:02.219 minibus[20540:102070] Message data hex: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
-2025-07-29 14:54:02.219 minibus[20540:102070] Trying to parse message at offset 0
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: starting parse at offset 0, data length 128
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: endian byte 0x6c ('l')
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: type=1, flags=0, version=1
-2025-07-29 14:54:02.219 minibus[20540:102070] Raw message bytes from offset 0: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: bodyLength=0, serial=1
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: headerFieldsLength=110
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing header fields from 16 to 126
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 1 at pos 16
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature length 1
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature 'o' (0x6f)
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: string length 21
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: field 1 = '/org/freedesktop/DBus'
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 0 at pos 46
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 6 at pos 48
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature length 1
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature 's' (0x73)
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: string length 20
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: field 6 = 'org.freedesktop.DBus'
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 0 at pos 77
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 2 at pos 80
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature length 1
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature 's' (0x73)
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: string length 20
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: field 2 = 'org.freedesktop.DBus'
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 0 at pos 109
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 3 at pos 112
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature length 1
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature 's' (0x73)
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: string length 5
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: field 3 = 'Hello'
-2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: final offset 128 (was 0)
-2025-07-29 14:54:02.219 minibus[20540:102070] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=Hello args=(null)>
-2025-07-29 14:54:02.219 minibus[20540:102070] Parsed 1 messages total
-2025-07-29 14:54:02.219 minibus[20540:102070] Parsed 1 D-Bus messages
-2025-07-29 14:54:02.219 minibus[20540:102070] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=Hello args=(null)> from <MBConnection socket=4 state=1 auth_state=3 unique=(null)>
-2025-07-29 14:54:02.219 minibus[20540:102070] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(":1.1")>
-2025-07-29 14:54:02.219 minibus[20540:102070] Serializing message type=2, replySerial=1
-2025-07-29 14:54:02.219 minibus[20540:102070] Adding uint32 field code=5, value=1
-2025-07-29 14:54:02.219 minibus[20540:102070] Serialized message to 81 bytes
-2025-07-29 14:54:02.219 minibus[20540:102070] Send result: SUCCESS
-2025-07-29 14:54:02.219 minibus[20540:102070] Sending message: <MBMessage type=4 dest=:1.1 path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=NameAcquired args=(":1.1")>
-2025-07-29 14:54:02.219 minibus[20540:102070] Serializing message type=4, replySerial=0
-2025-07-29 14:54:02.219 minibus[20540:102070] Serialized message to 177 bytes
-2025-07-29 14:54:02.219 minibus[20540:102070] Failed to send data on socket 4: Broken pipe
-2025-07-29 14:54:02.219 minibus[20540:102070] Send result: FAILED
-2025-07-29 14:54:02.219 minibus[20540:102070] Sending message: <MBMessage type=4 dest=(null) path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=NameOwnerChanged args=(":1.1", "", ":1.1")>
-2025-07-29 14:54:02.219 minibus[20540:102070] Serializing message type=4, replySerial=0
-2025-07-29 14:54:02.219 minibus[20540:102070] Serialized message to 183 bytes
-2025-07-29 14:54:02.219 minibus[20540:102070] Failed to send data on socket 4: Broken pipe
-2025-07-29 14:54:02.219 minibus[20540:102070] Send result: FAILED
-2025-07-29 14:54:02.219 minibus[20540:102070] Hello processed for connection <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>, assigned name :1.1
-2025-07-29 14:54:02.219 minibus[20540:102070] processIncomingData called #4 for socket 4
-2025-07-29 14:54:02.219 minibus[20540:102070] Connection closed by peer on socket 4
-2025-07-29 14:54:02.219 minibus[20540:102070] processIncomingData: no data received, closing connection
-2025-07-29 14:54:02.219 minibus[20540:102070] Closed socket 4
-2025-07-29 14:54:02.219 minibus[20540:102070] Connection removed: <MBConnection socket=-1 state=2 auth_state=3 unique=:1.1>
-2025-07-29 14:54:03.972 minibus[20540:102070] Received signal 15, shutting down...
-2025-07-29 14:54:03.972 minibus[20540:102070] Closed socket 3
-2025-07-29 14:54:03.972 minibus[20540:102070] MiniBus daemon stopped
-2025-07-29 14:54:03.972 minibus[20540:102070] MiniBus daemon exiting
+2025-07-29 15:27:28.658 minibus[49043:101609] MiniBus D-Bus daemon starting...
+2025-07-29 15:27:28.658 minibus[49043:101609] Using socket path: /tmp/minibus-socket
+2025-07-29 15:27:28.659 minibus[49043:101609] Created Unix domain server socket at /tmp/minibus-socket
+2025-07-29 15:27:28.659 minibus[49043:101609] MiniBus daemon started on /tmp/minibus-socket
+2025-07-29 15:27:28.659 minibus[49043:101609] MiniBus daemon running, waiting for connections...
+2025-07-29 15:27:37.656 minibus[49043:101609] Accepted new connection on socket 4
+2025-07-29 15:27:37.656 minibus[49043:101609] Created connection for socket 4
+2025-07-29 15:27:37.656 minibus[49043:101609] New connection added: <MBConnection socket=4 state=0 auth_state=0 unique=(null)>
+2025-07-29 15:27:37.656 minibus[49043:101609] processIncomingData called #1 for socket 4
+2025-07-29 15:27:37.656 minibus[49043:101609] Received 25 bytes on socket 4
+2025-07-29 15:27:37.656 minibus[49043:101609] Received 25 bytes on socket 4, total buffer: 25
+2025-07-29 15:27:37.656 minibus[49043:101609] processIncomingData: processing authentication
+2025-07-29 15:27:37.656 minibus[49043:101609] processAuthentication called #1 for socket 4
+2025-07-29 15:27:37.656 minibus[49043:101609] Moved 25 bytes from read buffer to auth buffer, auth buffer now has 25 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] processOneAuthCommand called, buffer has 25 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] Found complete command ending at position 23
+2025-07-29 15:27:37.656 minibus[49043:101609] Skipping initial null byte
+2025-07-29 15:27:37.656 minibus[49043:101609] Extracting command from position 1 to 23
+2025-07-29 15:27:37.656 minibus[49043:101609] Extracted command: 'AUTH EXTERNAL 31303031'
+2025-07-29 15:27:37.656 minibus[49043:101609] Removing command from buffer (range 0 to 25)
+2025-07-29 15:27:37.656 minibus[49043:101609] Buffer after removal has 0 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] Processing auth command: 'AUTH EXTERNAL 31303031' (state=0)
+2025-07-29 15:27:37.656 minibus[49043:101609] Sent OK response immediately: SUCCESS (37 bytes)
+2025-07-29 15:27:37.656 minibus[49043:101609] Prepared OK response, moving to WAITING_FOR_BEGIN state
+2025-07-29 15:27:37.656 minibus[49043:101609] Auth command processing result: FAILED
+2025-07-29 15:27:37.656 minibus[49043:101609] No more auth commands to process, breaking loop
+2025-07-29 15:27:37.656 minibus[49043:101609] processAuthentication finished, auth state: 2, remaining buffer: 0 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] processIncomingData called #2 for socket 4
+2025-07-29 15:27:37.656 minibus[49043:101609] Received 19 bytes on socket 4
+2025-07-29 15:27:37.656 minibus[49043:101609] Received 19 bytes on socket 4, total buffer: 19
+2025-07-29 15:27:37.656 minibus[49043:101609] processIncomingData: processing authentication
+2025-07-29 15:27:37.656 minibus[49043:101609] processAuthentication called #2 for socket 4
+2025-07-29 15:27:37.656 minibus[49043:101609] Moved 19 bytes from read buffer to auth buffer, auth buffer now has 19 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] processOneAuthCommand called, buffer has 19 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] Found complete command ending at position 17
+2025-07-29 15:27:37.656 minibus[49043:101609] Extracting command from position 0 to 17
+2025-07-29 15:27:37.656 minibus[49043:101609] Extracted command: 'NEGOTIATE_UNIX_FD'
+2025-07-29 15:27:37.656 minibus[49043:101609] Removing command from buffer (range 0 to 19)
+2025-07-29 15:27:37.656 minibus[49043:101609] Buffer after removal has 0 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] Processing auth command: 'NEGOTIATE_UNIX_FD' (state=2)
+2025-07-29 15:27:37.656 minibus[49043:101609] Sent AGREE_UNIX_FD response: SUCCESS
+2025-07-29 15:27:37.656 minibus[49043:101609] Auth command processing result: SUCCESS
+2025-07-29 15:27:37.656 minibus[49043:101609] Processed auth command 1
+2025-07-29 15:27:37.656 minibus[49043:101609] processOneAuthCommand called, buffer has 0 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] Auth buffer is empty, no commands to process
+2025-07-29 15:27:37.656 minibus[49043:101609] No more auth commands to process, breaking loop
+2025-07-29 15:27:37.656 minibus[49043:101609] processAuthentication finished, auth state: 2, remaining buffer: 0 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] processIncomingData called #3 for socket 4
+2025-07-29 15:27:37.656 minibus[49043:101609] Received 135 bytes on socket 4
+2025-07-29 15:27:37.656 minibus[49043:101609] Received 135 bytes on socket 4, total buffer: 135
+2025-07-29 15:27:37.656 minibus[49043:101609] processIncomingData: processing authentication
+2025-07-29 15:27:37.656 minibus[49043:101609] processAuthentication called #3 for socket 4
+2025-07-29 15:27:37.656 minibus[49043:101609] Moved 135 bytes from read buffer to auth buffer, auth buffer now has 135 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] processOneAuthCommand called, buffer has 135 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] Found complete command ending at position 5
+2025-07-29 15:27:37.656 minibus[49043:101609] Extracting command from position 0 to 5
+2025-07-29 15:27:37.656 minibus[49043:101609] Extracted command: 'BEGIN'
+2025-07-29 15:27:37.656 minibus[49043:101609] Removing command from buffer (range 0 to 7)
+2025-07-29 15:27:37.656 minibus[49043:101609] Buffer after removal has 128 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] Processing auth command: 'BEGIN' (state=2)
+2025-07-29 15:27:37.656 minibus[49043:101609] handleBegin called for socket 4, auth state: 2
+2025-07-29 15:27:37.656 minibus[49043:101609] handleBegin: setting auth state to authenticated
+2025-07-29 15:27:37.656 minibus[49043:101609] Authentication completed for connection 4, now waiting for Hello
+2025-07-29 15:27:37.656 minibus[49043:101609] handleBegin: checking auth buffer, has 128 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] Moving 128 bytes from auth buffer to read buffer
+2025-07-29 15:27:37.656 minibus[49043:101609] Remaining auth data hex: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:27:37.656 minibus[49043:101609] Remaining data appears to be a D-Bus message
+2025-07-29 15:27:37.656 minibus[49043:101609] handleBegin: appending data to read buffer
+2025-07-29 15:27:37.656 minibus[49043:101609] handleBegin: clearing auth buffer
+2025-07-29 15:27:37.656 minibus[49043:101609] handleBegin: data transfer complete
+2025-07-29 15:27:37.656 minibus[49043:101609] handleBegin: returning YES
+2025-07-29 15:27:37.656 minibus[49043:101609] Auth command processing result: SUCCESS
+2025-07-29 15:27:37.656 minibus[49043:101609] Processed auth command 1
+2025-07-29 15:27:37.656 minibus[49043:101609] Authentication completed, breaking out of command loop
+2025-07-29 15:27:37.656 minibus[49043:101609] processAuthentication finished, auth state: 3, remaining buffer: 0 bytes
+2025-07-29 15:27:37.656 minibus[49043:101609] Authentication completed, processing 128 bytes of message data
+2025-07-29 15:27:37.656 minibus[49043:101609] parseMessages called with 128 bytes in buffer
+2025-07-29 15:27:37.656 minibus[49043:101609] Buffer hex: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 
+2025-07-29 15:27:37.657 minibus[49043:101609] Parsing messages from 128 bytes of data
+2025-07-29 15:27:37.657 minibus[49043:101609] Message data hex: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:27:37.657 minibus[49043:101609] Trying to parse message at offset 0
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: starting parse at offset 0, data length 128
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: endian byte 0x6c ('l')
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: type=1, flags=0, version=1
+2025-07-29 15:27:37.657 minibus[49043:101609] Raw message bytes from offset 0: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: bodyLength=0, serial=1
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: headerFieldsLength=110
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: parsing header fields from 16 to 126
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: parsing field code 1 at pos 16
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: signature 'o' (0x6f)
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: string length 21
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: parsing field code 0 at pos 46
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: parsing field code 6 at pos 48
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: parsing field code 0 at pos 77
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: parsing field code 2 at pos 80
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: parsing field code 0 at pos 109
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: parsing field code 3 at pos 112
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: string length 5
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: field 3 = 'Hello'
+2025-07-29 15:27:37.657 minibus[49043:101609] messageFromData: final offset 128 (was 0)
+2025-07-29 15:27:37.657 minibus[49043:101609] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=Hello args=(null)>
+2025-07-29 15:27:37.657 minibus[49043:101609] Parsed 1 messages total
+2025-07-29 15:27:37.657 minibus[49043:101609] Parsed 1 D-Bus messages
+2025-07-29 15:27:37.657 minibus[49043:101609] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=Hello args=(null)> from <MBConnection socket=4 state=1 auth_state=3 unique=(null)>
+2025-07-29 15:27:37.657 minibus[49043:101609] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(":1.1")>
+2025-07-29 15:27:37.657 minibus[49043:101609] Serializing message type=2, replySerial=1
+2025-07-29 15:27:37.657 minibus[49043:101609] Adding uint32 field code=5, value=1
+2025-07-29 15:27:37.657 minibus[49043:101609] Serialized message to 81 bytes
+2025-07-29 15:27:37.657 minibus[49043:101609] Send result: SUCCESS
+2025-07-29 15:27:37.657 minibus[49043:101609] Sending message: <MBMessage type=4 dest=:1.1 path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=NameAcquired args=(":1.1")>
+2025-07-29 15:27:37.657 minibus[49043:101609] Serializing message type=4, replySerial=0
+2025-07-29 15:27:37.657 minibus[49043:101609] Serialized message to 177 bytes
+2025-07-29 15:27:37.657 minibus[49043:101609] Send result: SUCCESS
+2025-07-29 15:27:37.657 minibus[49043:101609] Sending message: <MBMessage type=4 dest=(null) path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=NameOwnerChanged args=(":1.1", "", ":1.1")>
+2025-07-29 15:27:37.657 minibus[49043:101609] Serializing message type=4, replySerial=0
+2025-07-29 15:27:37.657 minibus[49043:101609] Serialized message to 183 bytes
+2025-07-29 15:27:37.657 minibus[49043:101609] Failed to send data on socket 4: Broken pipe
+2025-07-29 15:27:37.657 minibus[49043:101609] Send result: FAILED
+2025-07-29 15:27:37.657 minibus[49043:101609] Hello processed for connection <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>, assigned name :1.1
+2025-07-29 15:27:37.657 minibus[49043:101609] processIncomingData called #4 for socket 4
+2025-07-29 15:27:37.657 minibus[49043:101609] Connection closed by peer on socket 4
+2025-07-29 15:27:37.657 minibus[49043:101609] processIncomingData: no data received, closing connection
+2025-07-29 15:27:37.657 minibus[49043:101609] Closed socket 4
+2025-07-29 15:27:37.657 minibus[49043:101609] Connection removed: <MBConnection socket=-1 state=2 auth_state=3 unique=:1.1>
+2025-07-29 15:28:58.573 minibus[49043:101609] Accepted new connection on socket 4
+2025-07-29 15:28:58.573 minibus[49043:101609] Created connection for socket 4
+2025-07-29 15:28:58.573 minibus[49043:101609] New connection added: <MBConnection socket=4 state=0 auth_state=0 unique=(null)>
+2025-07-29 15:28:58.573 minibus[49043:101609] processIncomingData called #1 for socket 4
+2025-07-29 15:28:58.574 minibus[49043:101609] Received 25 bytes on socket 4
+2025-07-29 15:28:58.574 minibus[49043:101609] Received 25 bytes on socket 4, total buffer: 25
+2025-07-29 15:28:58.574 minibus[49043:101609] processIncomingData: processing authentication
+2025-07-29 15:28:58.574 minibus[49043:101609] processAuthentication called #1 for socket 4
+2025-07-29 15:28:58.574 minibus[49043:101609] Moved 25 bytes from read buffer to auth buffer, auth buffer now has 25 bytes
+2025-07-29 15:28:58.574 minibus[49043:101609] processOneAuthCommand called, buffer has 25 bytes
+2025-07-29 15:28:58.574 minibus[49043:101609] Found complete command ending at position 23
+2025-07-29 15:28:58.574 minibus[49043:101609] Skipping initial null byte
+2025-07-29 15:28:58.574 minibus[49043:101609] Extracting command from position 1 to 23
+2025-07-29 15:28:58.574 minibus[49043:101609] Extracted command: 'AUTH EXTERNAL 31303031'
+2025-07-29 15:28:58.574 minibus[49043:101609] Removing command from buffer (range 0 to 25)
+2025-07-29 15:28:58.574 minibus[49043:101609] Buffer after removal has 0 bytes
+2025-07-29 15:28:58.574 minibus[49043:101609] Processing auth command: 'AUTH EXTERNAL 31303031' (state=0)
+2025-07-29 15:28:58.574 minibus[49043:101609] Sent OK response immediately: SUCCESS (37 bytes)
+2025-07-29 15:28:58.574 minibus[49043:101609] Prepared OK response, moving to WAITING_FOR_BEGIN state
+2025-07-29 15:28:58.574 minibus[49043:101609] Auth command processing result: FAILED
+2025-07-29 15:28:58.574 minibus[49043:101609] No more auth commands to process, breaking loop
+2025-07-29 15:28:58.574 minibus[49043:101609] processAuthentication finished, auth state: 2, remaining buffer: 0 bytes
+2025-07-29 15:28:58.675 minibus[49043:101609] processIncomingData called #2 for socket 4
+2025-07-29 15:28:58.675 minibus[49043:101609] Received 19 bytes on socket 4
+2025-07-29 15:28:58.675 minibus[49043:101609] Received 19 bytes on socket 4, total buffer: 19
+2025-07-29 15:28:58.675 minibus[49043:101609] processIncomingData: processing authentication
+2025-07-29 15:28:58.675 minibus[49043:101609] processAuthentication called #2 for socket 4
+2025-07-29 15:28:58.675 minibus[49043:101609] Moved 19 bytes from read buffer to auth buffer, auth buffer now has 19 bytes
+2025-07-29 15:28:58.675 minibus[49043:101609] processOneAuthCommand called, buffer has 19 bytes
+2025-07-29 15:28:58.675 minibus[49043:101609] Found complete command ending at position 17
+2025-07-29 15:28:58.675 minibus[49043:101609] Extracting command from position 0 to 17
+2025-07-29 15:28:58.675 minibus[49043:101609] Extracted command: 'NEGOTIATE_UNIX_FD'
+2025-07-29 15:28:58.675 minibus[49043:101609] Removing command from buffer (range 0 to 19)
+2025-07-29 15:28:58.676 minibus[49043:101609] Buffer after removal has 0 bytes
+2025-07-29 15:28:58.676 minibus[49043:101609] Processing auth command: 'NEGOTIATE_UNIX_FD' (state=2)
+2025-07-29 15:28:58.676 minibus[49043:101609] Sent AGREE_UNIX_FD response: SUCCESS
+2025-07-29 15:28:58.676 minibus[49043:101609] Auth command processing result: SUCCESS
+2025-07-29 15:28:58.676 minibus[49043:101609] Processed auth command 1
+2025-07-29 15:28:58.676 minibus[49043:101609] processOneAuthCommand called, buffer has 0 bytes
+2025-07-29 15:28:58.676 minibus[49043:101609] Auth buffer is empty, no commands to process
+2025-07-29 15:28:58.676 minibus[49043:101609] No more auth commands to process, breaking loop
+2025-07-29 15:28:58.676 minibus[49043:101609] processAuthentication finished, auth state: 2, remaining buffer: 0 bytes
+2025-07-29 15:28:58.779 minibus[49043:101609] processIncomingData called #3 for socket 4
+2025-07-29 15:28:58.779 minibus[49043:101609] Received 7 bytes on socket 4
+2025-07-29 15:28:58.779 minibus[49043:101609] Received 7 bytes on socket 4, total buffer: 7
+2025-07-29 15:28:58.779 minibus[49043:101609] processIncomingData: processing authentication
+2025-07-29 15:28:58.779 minibus[49043:101609] processAuthentication called #3 for socket 4
+2025-07-29 15:28:58.779 minibus[49043:101609] Moved 7 bytes from read buffer to auth buffer, auth buffer now has 7 bytes
+2025-07-29 15:28:58.779 minibus[49043:101609] processOneAuthCommand called, buffer has 7 bytes
+2025-07-29 15:28:58.780 minibus[49043:101609] Found complete command ending at position 5
+2025-07-29 15:28:58.780 minibus[49043:101609] Extracting command from position 0 to 5
+2025-07-29 15:28:58.780 minibus[49043:101609] Extracted command: 'BEGIN'
+2025-07-29 15:28:58.780 minibus[49043:101609] Removing command from buffer (range 0 to 7)
+2025-07-29 15:28:58.780 minibus[49043:101609] Buffer after removal has 0 bytes
+2025-07-29 15:28:58.780 minibus[49043:101609] Processing auth command: 'BEGIN' (state=2)
+2025-07-29 15:28:58.780 minibus[49043:101609] handleBegin called for socket 4, auth state: 2
+2025-07-29 15:28:58.780 minibus[49043:101609] handleBegin: setting auth state to authenticated
+2025-07-29 15:28:58.780 minibus[49043:101609] Authentication completed for connection 4, now waiting for Hello
+2025-07-29 15:28:58.780 minibus[49043:101609] handleBegin: checking auth buffer, has 0 bytes
+2025-07-29 15:28:58.780 minibus[49043:101609] handleBegin: no remaining data to transfer
+2025-07-29 15:28:58.780 minibus[49043:101609] handleBegin: returning YES
+2025-07-29 15:28:58.780 minibus[49043:101609] Auth command processing result: SUCCESS
+2025-07-29 15:28:58.780 minibus[49043:101609] Processed auth command 1
+2025-07-29 15:28:58.780 minibus[49043:101609] Authentication completed, breaking out of command loop
+2025-07-29 15:28:58.780 minibus[49043:101609] processAuthentication finished, auth state: 3, remaining buffer: 0 bytes
+2025-07-29 15:28:58.780 minibus[49043:101609] processIncomingData called #4 for socket 4
+2025-07-29 15:28:58.780 minibus[49043:101609] Received 128 bytes on socket 4
+2025-07-29 15:28:58.780 minibus[49043:101609] Received 128 bytes on socket 4, total buffer: 128
+2025-07-29 15:28:58.780 minibus[49043:101609] processIncomingData: processing D-Bus messages
+2025-07-29 15:28:58.780 minibus[49043:101609] parseMessages called with 128 bytes in buffer
+2025-07-29 15:28:58.780 minibus[49043:101609] Buffer hex: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 
+2025-07-29 15:28:58.780 minibus[49043:101609] Parsing messages from 128 bytes of data
+2025-07-29 15:28:58.780 minibus[49043:101609] Message data hex: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:28:58.780 minibus[49043:101609] Trying to parse message at offset 0
+2025-07-29 15:28:58.780 minibus[49043:101609] messageFromData: starting parse at offset 0, data length 128
+2025-07-29 15:28:58.780 minibus[49043:101609] messageFromData: endian byte 0x6c ('l')
+2025-07-29 15:28:58.780 minibus[49043:101609] messageFromData: type=1, flags=0, version=1
+2025-07-29 15:28:58.780 minibus[49043:101609] Raw message bytes from offset 0: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:28:58.780 minibus[49043:101609] messageFromData: bodyLength=0, serial=1
+2025-07-29 15:28:58.780 minibus[49043:101609] messageFromData: headerFieldsLength=110
+2025-07-29 15:28:58.780 minibus[49043:101609] messageFromData: parsing header fields from 16 to 126
+2025-07-29 15:28:58.780 minibus[49043:101609] messageFromData: parsing field code 1 at pos 16
+2025-07-29 15:28:58.780 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.780 minibus[49043:101609] messageFromData: signature 'o' (0x6f)
+2025-07-29 15:28:58.780 minibus[49043:101609] messageFromData: string length 21
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: parsing field code 0 at pos 46
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: parsing field code 6 at pos 48
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: parsing field code 0 at pos 77
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: parsing field code 2 at pos 80
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: parsing field code 0 at pos 109
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: parsing field code 3 at pos 112
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: string length 5
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: field 3 = 'Hello'
+2025-07-29 15:28:58.781 minibus[49043:101609] messageFromData: final offset 128 (was 0)
+2025-07-29 15:28:58.781 minibus[49043:101609] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=Hello args=(null)>
+2025-07-29 15:28:58.781 minibus[49043:101609] Parsed 1 messages total
+2025-07-29 15:28:58.781 minibus[49043:101609] Parsed 1 D-Bus messages
+2025-07-29 15:28:58.781 minibus[49043:101609] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=Hello args=(null)> from <MBConnection socket=4 state=1 auth_state=3 unique=(null)>
+2025-07-29 15:28:58.781 minibus[49043:101609] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(":1.2")>
+2025-07-29 15:28:58.781 minibus[49043:101609] Serializing message type=2, replySerial=1
+2025-07-29 15:28:58.781 minibus[49043:101609] Adding uint32 field code=5, value=1
+2025-07-29 15:28:58.781 minibus[49043:101609] Serialized message to 81 bytes
+2025-07-29 15:28:58.781 minibus[49043:101609] Send result: SUCCESS
+2025-07-29 15:28:58.781 minibus[49043:101609] Sending message: <MBMessage type=4 dest=:1.2 path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=NameAcquired args=(":1.2")>
+2025-07-29 15:28:58.781 minibus[49043:101609] Serializing message type=4, replySerial=0
+2025-07-29 15:28:58.781 minibus[49043:101609] Serialized message to 177 bytes
+2025-07-29 15:28:58.781 minibus[49043:101609] Send result: SUCCESS
+2025-07-29 15:28:58.782 minibus[49043:101609] Sending message: <MBMessage type=4 dest=(null) path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=NameOwnerChanged args=(":1.2", "", ":1.2")>
+2025-07-29 15:28:58.782 minibus[49043:101609] Serializing message type=4, replySerial=0
+2025-07-29 15:28:58.782 minibus[49043:101609] Serialized message to 183 bytes
+2025-07-29 15:28:58.782 minibus[49043:101609] Send result: SUCCESS
+2025-07-29 15:28:58.782 minibus[49043:101609] Hello processed for connection <MBConnection socket=4 state=2 auth_state=3 unique=:1.2>, assigned name :1.2
+2025-07-29 15:28:58.782 minibus[49043:101609] processIncomingData called #5 for socket 4
+2025-07-29 15:28:58.782 minibus[49043:101609] Received 184 bytes on socket 4
+2025-07-29 15:28:58.782 minibus[49043:101609] Received 184 bytes on socket 4, total buffer: 184
+2025-07-29 15:28:58.782 minibus[49043:101609] processIncomingData: processing D-Bus messages
+2025-07-29 15:28:58.782 minibus[49043:101609] parseMessages called with 184 bytes in buffer
+2025-07-29 15:28:58.782 minibus[49043:101609] Buffer hex: 6c 01 00 01 20 00 00 00 02 00 00 00 83 00 00 00 
+2025-07-29 15:28:58.782 minibus[49043:101609] Parsing messages from 184 bytes of data
+2025-07-29 15:28:58.782 minibus[49043:101609] Message data hex: 6c 01 00 01 20 00 00 00 02 00 00 00 83 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:28:58.782 minibus[49043:101609] Trying to parse message at offset 0
+2025-07-29 15:28:58.782 minibus[49043:101609] messageFromData: starting parse at offset 0, data length 184
+2025-07-29 15:28:58.782 minibus[49043:101609] messageFromData: endian byte 0x6c ('l')
+2025-07-29 15:28:58.782 minibus[49043:101609] messageFromData: type=1, flags=0, version=1
+2025-07-29 15:28:58.782 minibus[49043:101609] Raw message bytes from offset 0: 6c 01 00 01 20 00 00 00 02 00 00 00 83 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:28:58.782 minibus[49043:101609] messageFromData: bodyLength=32, serial=2
+2025-07-29 15:28:58.782 minibus[49043:101609] messageFromData: headerFieldsLength=131
+2025-07-29 15:28:58.782 minibus[49043:101609] messageFromData: parsing header fields from 16 to 147
+2025-07-29 15:28:58.782 minibus[49043:101609] messageFromData: parsing field code 1 at pos 16
+2025-07-29 15:28:58.782 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.782 minibus[49043:101609] messageFromData: signature 'o' (0x6f)
+2025-07-29 15:28:58.782 minibus[49043:101609] messageFromData: string length 21
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: parsing field code 0 at pos 46
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: parsing field code 6 at pos 48
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: parsing field code 0 at pos 77
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: parsing field code 2 at pos 80
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: parsing field code 0 at pos 109
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: parsing field code 3 at pos 112
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: string length 11
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: field 3 = 'RequestName'
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: parsing field code 0 at pos 132
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: parsing field code 8 at pos 136
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: string length 2
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: field 8 = 'su'
+2025-07-29 15:28:58.783 minibus[49043:101609] messageFromData: final offset 184 (was 0)
+2025-07-29 15:28:58.783 minibus[49043:101609] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=RequestName args=("com.example.TestService", 0)>
+2025-07-29 15:28:58.783 minibus[49043:101609] Parsed 1 messages total
+2025-07-29 15:28:58.783 minibus[49043:101609] Parsed 1 D-Bus messages
+2025-07-29 15:28:58.783 minibus[49043:101609] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=RequestName args=("com.example.TestService", 0)> from <MBConnection socket=4 state=2 auth_state=3 unique=:1.2>
+2025-07-29 15:28:58.783 minibus[49043:101609] Registered name com.example.TestService for connection <MBConnection socket=4 state=2 auth_state=3 unique=:1.2>
+2025-07-29 15:28:58.783 minibus[49043:101609] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(1)>
+2025-07-29 15:28:58.783 minibus[49043:101609] Serializing message type=2, replySerial=2
+2025-07-29 15:28:58.783 minibus[49043:101609] Adding uint32 field code=5, value=2
+2025-07-29 15:28:58.783 minibus[49043:101609] Serialized message to 76 bytes
+2025-07-29 15:28:58.783 minibus[49043:101609] Send result: SUCCESS
+2025-07-29 15:28:58.783 minibus[49043:101609] RequestName com.example.TestService for connection <MBConnection socket=4 state=2 auth_state=3 unique=:1.2>: SUCCESS
+2025-07-29 15:28:58.800 minibus[49043:101609] processIncomingData called #6 for socket 4
+2025-07-29 15:28:58.800 minibus[49043:101609] Received 136 bytes on socket 4
+2025-07-29 15:28:58.800 minibus[49043:101609] Received 136 bytes on socket 4, total buffer: 136
+2025-07-29 15:28:58.800 minibus[49043:101609] processIncomingData: processing D-Bus messages
+2025-07-29 15:28:58.800 minibus[49043:101609] parseMessages called with 136 bytes in buffer
+2025-07-29 15:28:58.800 minibus[49043:101609] Buffer hex: 6c 01 00 01 00 00 00 00 03 00 00 00 72 00 00 00 
+2025-07-29 15:28:58.800 minibus[49043:101609] Parsing messages from 136 bytes of data
+2025-07-29 15:28:58.800 minibus[49043:101609] Message data hex: 6c 01 00 01 00 00 00 00 03 00 00 00 72 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:28:58.800 minibus[49043:101609] Trying to parse message at offset 0
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: starting parse at offset 0, data length 136
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: endian byte 0x6c ('l')
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: type=1, flags=0, version=1
+2025-07-29 15:28:58.800 minibus[49043:101609] Raw message bytes from offset 0: 6c 01 00 01 00 00 00 00 03 00 00 00 72 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: bodyLength=0, serial=3
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: headerFieldsLength=114
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: parsing header fields from 16 to 130
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: parsing field code 1 at pos 16
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: signature 'o' (0x6f)
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: string length 21
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: parsing field code 0 at pos 46
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: parsing field code 6 at pos 48
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: parsing field code 0 at pos 77
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: parsing field code 2 at pos 80
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: parsing field code 0 at pos 109
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: parsing field code 3 at pos 112
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: string length 9
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: field 3 = 'ListNames'
+2025-07-29 15:28:58.800 minibus[49043:101609] messageFromData: final offset 136 (was 0)
+2025-07-29 15:28:58.800 minibus[49043:101609] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=ListNames args=(null)>
+2025-07-29 15:28:58.800 minibus[49043:101609] Parsed 1 messages total
+2025-07-29 15:28:58.800 minibus[49043:101609] Parsed 1 D-Bus messages
+2025-07-29 15:28:58.800 minibus[49043:101609] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=ListNames args=(null)> from <MBConnection socket=4 state=2 auth_state=3 unique=:1.2>
+2025-07-29 15:28:58.800 minibus[49043:101609] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(("com.example.TestService", ":1.2", "org.freedesktop.DBus"))>
+2025-07-29 15:28:58.800 minibus[49043:101609] Serializing message type=2, replySerial=3
+2025-07-29 15:28:58.800 minibus[49043:101609] Adding uint32 field code=5, value=3
+2025-07-29 15:28:58.800 minibus[49043:101609] Serialized message to 72 bytes
+2025-07-29 15:28:58.800 minibus[49043:101609] Send result: SUCCESS
+2025-07-29 15:28:58.801 minibus[49043:101609] processIncomingData called #7 for socket 4
+2025-07-29 15:28:58.801 minibus[49043:101609] Received 180 bytes on socket 4
+2025-07-29 15:28:58.801 minibus[49043:101609] Received 180 bytes on socket 4, total buffer: 180
+2025-07-29 15:28:58.801 minibus[49043:101609] processIncomingData: processing D-Bus messages
+2025-07-29 15:28:58.801 minibus[49043:101609] parseMessages called with 180 bytes in buffer
+2025-07-29 15:28:58.801 minibus[49043:101609] Buffer hex: 6c 01 00 01 1c 00 00 00 04 00 00 00 82 00 00 00 
+2025-07-29 15:28:58.801 minibus[49043:101609] Parsing messages from 180 bytes of data
+2025-07-29 15:28:58.801 minibus[49043:101609] Message data hex: 6c 01 00 01 1c 00 00 00 04 00 00 00 82 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:28:58.801 minibus[49043:101609] Trying to parse message at offset 0
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: starting parse at offset 0, data length 180
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: endian byte 0x6c ('l')
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: type=1, flags=0, version=1
+2025-07-29 15:28:58.801 minibus[49043:101609] Raw message bytes from offset 0: 6c 01 00 01 1c 00 00 00 04 00 00 00 82 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: bodyLength=28, serial=4
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: headerFieldsLength=130
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: parsing header fields from 16 to 146
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: parsing field code 1 at pos 16
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: signature 'o' (0x6f)
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: string length 21
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: parsing field code 0 at pos 46
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: parsing field code 6 at pos 48
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: parsing field code 0 at pos 77
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: parsing field code 2 at pos 80
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: parsing field code 0 at pos 109
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: parsing field code 3 at pos 112
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: string length 12
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: field 3 = 'GetNameOwner'
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: parsing field code 0 at pos 133
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: parsing field code 8 at pos 136
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: string length 1
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: field 8 = 's'
+2025-07-29 15:28:58.801 minibus[49043:101609] messageFromData: final offset 180 (was 0)
+2025-07-29 15:28:58.801 minibus[49043:101609] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=GetNameOwner args=("com.example.TestService")>
+2025-07-29 15:28:58.801 minibus[49043:101609] Parsed 1 messages total
+2025-07-29 15:28:58.801 minibus[49043:101609] Parsed 1 D-Bus messages
+2025-07-29 15:28:58.801 minibus[49043:101609] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=GetNameOwner args=("com.example.TestService")> from <MBConnection socket=4 state=2 auth_state=3 unique=:1.2>
+2025-07-29 15:28:58.801 minibus[49043:101609] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(":1.2")>
+2025-07-29 15:28:58.801 minibus[49043:101609] Serializing message type=2, replySerial=4
+2025-07-29 15:28:58.801 minibus[49043:101609] Adding uint32 field code=5, value=4
+2025-07-29 15:28:58.801 minibus[49043:101609] Serialized message to 81 bytes
+2025-07-29 15:28:58.801 minibus[49043:101609] Send result: SUCCESS
+2025-07-29 15:28:58.801 minibus[49043:101609] processIncomingData called #8 for socket 4
+2025-07-29 15:28:58.801 minibus[49043:101609] Received 332 bytes on socket 4
+2025-07-29 15:28:58.801 minibus[49043:101609] Received 332 bytes on socket 4, total buffer: 332
+2025-07-29 15:28:58.801 minibus[49043:101609] processIncomingData: processing D-Bus messages
+2025-07-29 15:28:58.802 minibus[49043:101609] parseMessages called with 332 bytes in buffer
+2025-07-29 15:28:58.802 minibus[49043:101609] Buffer hex: 6c 04 00 01 20 00 00 00 05 00 00 00 63 00 00 00 
+2025-07-29 15:28:58.802 minibus[49043:101609] Parsing messages from 332 bytes of data
+2025-07-29 15:28:58.802 minibus[49043:101609] Message data hex: 6c 04 00 01 20 00 00 00 05 00 00 00 63 00 00 00 01 01 6f 00 11 00 00 00 2f 63 6f 6d 2f 65 78 61 
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 0
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 0, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x6c ('l')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: type=4, flags=0, version=1
+2025-07-29 15:28:58.802 minibus[49043:101609] Raw message bytes from offset 0: 6c 04 00 01 20 00 00 00 05 00 00 00 63 00 00 00 01 01 6f 00 11 00 00 00 2f 63 6f 6d 2f 65 78 61 
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: bodyLength=32, serial=5
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: headerFieldsLength=99
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing header fields from 16 to 115
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 1 at pos 16
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature 'o' (0x6f)
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: string length 17
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: field 1 = '/com/example/Test'
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 0 at pos 42
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 2 at pos 48
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: string length 16
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: field 2 = 'com.example.Test'
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 0 at pos 73
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 3 at pos 80
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: string length 10
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: field 3 = 'TestSignal'
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 0 at pos 99
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 8 at pos 104
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: string length 2
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: field 8 = 'su'
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: final offset 152 (was 0)
+2025-07-29 15:28:58.802 minibus[49043:101609] Successfully parsed message: <MBMessage type=4 dest=(null) path=/com/example/Test iface=com.example.Test member=TestSignal args=("Hello from test client!", 42)>
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 152
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 152, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x6c ('l')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: type=1, flags=0, version=1
+2025-07-29 15:28:58.802 minibus[49043:101609] Raw message bytes from offset 152: 6c 01 00 01 1c 00 00 00 06 00 00 00 82 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: bodyLength=28, serial=6
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: headerFieldsLength=130
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing header fields from 168 to 298
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 1 at pos 168
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature 'o' (0x6f)
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: string length 21
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 0 at pos 198
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 6 at pos 200
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 0 at pos 229
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 2 at pos 232
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: string length 20
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 0 at pos 261
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 3 at pos 264
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: string length 11
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: field 3 = 'ReleaseName'
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 0 at pos 284
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: parsing field code 8 at pos 288
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature length 1
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: signature 's' (0x73)
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: string length 1
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: field 8 = 's'
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: final offset 180 (was 152)
+2025-07-29 15:28:58.802 minibus[49043:101609] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=ReleaseName args=(16777580, 28, 130, 7274753, 21, 1735552815)>
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 180
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 180, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x2f ('/')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: invalid endianness: 0x2f - advancing offset by 1
+2025-07-29 15:28:58.802 minibus[49043:101609] Failed to parse message at offset 181
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 181
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 181, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x66 ('f')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: invalid endianness: 0x66 - advancing offset by 1
+2025-07-29 15:28:58.802 minibus[49043:101609] Failed to parse message at offset 182
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 182
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 182, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x72 ('r')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: invalid endianness: 0x72 - advancing offset by 1
+2025-07-29 15:28:58.802 minibus[49043:101609] Failed to parse message at offset 183
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 183
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 183, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.802 minibus[49043:101609] Failed to parse message at offset 184
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 184
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 184, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.802 minibus[49043:101609] Failed to parse message at offset 185
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 185
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 185, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x64 ('d')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: invalid endianness: 0x64 - advancing offset by 1
+2025-07-29 15:28:58.802 minibus[49043:101609] Failed to parse message at offset 186
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 186
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 186, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.802 minibus[49043:101609] Failed to parse message at offset 187
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 187
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 187, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x73 ('s')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: invalid endianness: 0x73 - advancing offset by 1
+2025-07-29 15:28:58.802 minibus[49043:101609] Failed to parse message at offset 188
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 188
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 188, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x6b ('k')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: invalid endianness: 0x6b - advancing offset by 1
+2025-07-29 15:28:58.802 minibus[49043:101609] Failed to parse message at offset 189
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 189
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 189, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x74 ('t')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: invalid endianness: 0x74 - advancing offset by 1
+2025-07-29 15:28:58.802 minibus[49043:101609] Failed to parse message at offset 190
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 190
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 190, data length 332
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: endian byte 0x6f ('o')
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: invalid endianness: 0x6f - advancing offset by 1
+2025-07-29 15:28:58.802 minibus[49043:101609] Failed to parse message at offset 191
+2025-07-29 15:28:58.802 minibus[49043:101609] Trying to parse message at offset 191
+2025-07-29 15:28:58.802 minibus[49043:101609] messageFromData: starting parse at offset 191, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x70 ('p')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x70 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 192
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 192
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 192, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x2f ('/')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x2f - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 193
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 193
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 193, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x44 ('D')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x44 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 194
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 194
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 194, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x42 ('B')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: type=117, flags=115, version=0
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: unsupported protocol version: 0 - advancing offset by 4
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 198
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 198
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 198, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 199
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 199
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 199, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 200
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 200
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 200, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x06 ('')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x06 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 201
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 201
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 201, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x01 ('')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x01 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 202
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 202
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 202, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x73 ('s')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x73 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 203
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 203
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 203, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 204
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 204
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 204, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x14 ('')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x14 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 205
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 205
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 205, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 206
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 206
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 206, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 207
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 207
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 207, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 208
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 208
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 208, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x6f ('o')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x6f - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 209
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 209
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 209, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x72 ('r')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x72 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 210
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 210
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 210, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x67 ('g')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x67 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 211
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 211
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 211, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x2e ('.')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x2e - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 212
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 212
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 212, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x66 ('f')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x66 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 213
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 213
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 213, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x72 ('r')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x72 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 214
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 214
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 214, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 215
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 215
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 215, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 216
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 216
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 216, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x64 ('d')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x64 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 217
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 217
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 217, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 218
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 218
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 218, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x73 ('s')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x73 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 219
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 219
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 219, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x6b ('k')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x6b - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 220
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 220
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 220, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x74 ('t')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x74 - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 221
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 221
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: starting parse at offset 221, data length 332
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: endian byte 0x6f ('o')
+2025-07-29 15:28:58.803 minibus[49043:101609] messageFromData: invalid endianness: 0x6f - advancing offset by 1
+2025-07-29 15:28:58.803 minibus[49043:101609] Failed to parse message at offset 222
+2025-07-29 15:28:58.803 minibus[49043:101609] Trying to parse message at offset 222
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 222, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x70 ('p')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x70 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 223
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 223
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 223, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x2e ('.')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x2e - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 224
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 224
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 224, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x44 ('D')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x44 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 225
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 225
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 225, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x42 ('B')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: type=117, flags=115, version=0
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: unsupported protocol version: 0 - advancing offset by 4
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 229
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 229
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 229, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 230
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 230
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 230, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 231
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 231
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 231, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 232
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 232
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 232, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x02 ('')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x02 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 233
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 233
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 233, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x01 ('')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x01 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 234
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 234
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 234, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x73 ('s')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x73 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 235
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 235
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 235, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 236
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 236
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 236, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x14 ('')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x14 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 237
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 237
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 237, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 238
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 238
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 238, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 239
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 239
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 239, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 240
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 240
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 240, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x6f ('o')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x6f - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 241
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 241
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 241, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x72 ('r')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x72 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 242
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 242
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 242, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x67 ('g')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x67 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 243
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 243
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 243, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x2e ('.')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x2e - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 244
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 244
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 244, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x66 ('f')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x66 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 245
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 245
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 245, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x72 ('r')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x72 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 246
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 246
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 246, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 247
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 247
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 247, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 248
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 248
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 248, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x64 ('d')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x64 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 249
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 249
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 249, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 250
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 250
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 250, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x73 ('s')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x73 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 251
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 251
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 251, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x6b ('k')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x6b - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 252
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 252
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 252, data length 332
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: endian byte 0x74 ('t')
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: invalid endianness: 0x74 - advancing offset by 1
+2025-07-29 15:28:58.804 minibus[49043:101609] Failed to parse message at offset 253
+2025-07-29 15:28:58.804 minibus[49043:101609] Trying to parse message at offset 253
+2025-07-29 15:28:58.804 minibus[49043:101609] messageFromData: starting parse at offset 253, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x6f ('o')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x6f - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 254
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 254
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 254, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x70 ('p')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x70 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 255
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 255
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 255, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x2e ('.')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x2e - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 256
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 256
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 256, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x44 ('D')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x44 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 257
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 257
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 257, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x42 ('B')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: type=117, flags=115, version=0
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: unsupported protocol version: 0 - advancing offset by 4
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 261
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 261
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 261, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 262
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 262
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 262, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 263
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 263
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 263, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 264
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 264
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 264, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x03 ('')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x03 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 265
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 265
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 265, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x01 ('')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x01 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 266
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 266
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 266, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x73 ('s')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x73 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 267
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 267
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 267, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 268
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 268
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 268, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x0b ('')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x0b - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 269
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 269
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 269, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 270
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 270
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 270, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 271
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 271
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 271, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 272
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 272
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 272, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x52 ('R')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x52 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 273
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 273
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 273, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 274
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 274
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 274, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x6c ('l')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: type=101, flags=97, version=115
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: unsupported protocol version: 115 - advancing offset by 4
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 278
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 278
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 278, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 279
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 279
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 279, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x4e ('N')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x4e - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 280
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 280
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 280, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x61 ('a')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x61 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 281
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 281
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 281, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x6d ('m')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x6d - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 282
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 282
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 282, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 283
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 283
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 283, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 284
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 284
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 284, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 285
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 285
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 285, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 286
+2025-07-29 15:28:58.805 minibus[49043:101609] Trying to parse message at offset 286
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: starting parse at offset 286, data length 332
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.805 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.805 minibus[49043:101609] Failed to parse message at offset 287
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 287
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 287, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 288
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 288
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 288, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x08 ('')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x08 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 289
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 289
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 289, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x01 ('')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x01 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 290
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 290
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 290, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x73 ('s')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x73 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 291
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 291
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 291, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 292
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 292
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 292, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x01 ('')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x01 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 293
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 293
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 293, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 294
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 294
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 294, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 295
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 295
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 295, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 296
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 296
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 296, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x73 ('s')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x73 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 297
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 297
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 297, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 298
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 298
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 298, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 299
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 299
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 299, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 300
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 300
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 300, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 301
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 301
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 301, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 302
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 302
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 302, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 303
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 303
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 303, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.806 minibus[49043:101609] Failed to parse message at offset 304
+2025-07-29 15:28:58.806 minibus[49043:101609] Trying to parse message at offset 304
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: starting parse at offset 304, data length 332
+2025-07-29 15:28:58.806 minibus[49043:101609] messageFromData: endian byte 0x17 ('')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x17 - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 305
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 305
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 305, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 306
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 306
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 306, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 307
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 307
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 307, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x00 (' ')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x00 - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 308
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 308
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 308, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x63 ('c')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x63 - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 309
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 309
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 309, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x6f ('o')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x6f - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 310
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 310
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 310, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x6d ('m')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x6d - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 311
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 311
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 311, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x2e ('.')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x2e - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 312
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 312
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 312, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x65 ('e')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x65 - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 313
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 313
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 313, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x78 ('x')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x78 - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 314
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 314
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 314, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x61 ('a')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x61 - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 315
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 315
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 315, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x6d ('m')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x6d - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 316
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 316
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 316, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: endian byte 0x70 ('p')
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: invalid endianness: 0x70 - advancing offset by 1
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 317
+2025-07-29 15:28:58.807 minibus[49043:101609] Trying to parse message at offset 317
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: starting parse at offset 317, data length 332
+2025-07-29 15:28:58.807 minibus[49043:101609] messageFromData: not enough data for header (need 16 bytes, have 15)
+2025-07-29 15:28:58.807 minibus[49043:101609] Failed to parse message at offset 317
+2025-07-29 15:28:58.807 minibus[49043:101609] Offset didn't advance, breaking to prevent infinite loop
+2025-07-29 15:28:58.807 minibus[49043:101609] Parsed 2 messages total
+2025-07-29 15:28:58.807 minibus[49043:101609] Parsed 2 D-Bus messages
+2025-07-29 15:28:58.807 minibus[49043:101609] Processing message: <MBMessage type=4 dest=(null) path=/com/example/Test iface=com.example.Test member=TestSignal args=("Hello from test client!", 42)> from <MBConnection socket=4 state=2 auth_state=3 unique=:1.2>
+2025-07-29 15:28:58.807 minibus[49043:101609] Message has no destination, treating as org.freedesktop.DBus call
+2025-07-29 15:28:58.807 minibus[49043:101609] No destination found for org.freedesktop.DBus
+2025-07-29 15:28:58.807 minibus[49043:101609] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=ReleaseName args=(16777580, 28, 130, 7274753, 21, 1735552815)> from <MBConnection socket=4 state=2 auth_state=3 unique=:1.2>
+2025-07-29 15:28:58.808 minibus[49043:101609] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(2)>
+2025-07-29 15:28:58.808 minibus[49043:101609] Serializing message type=2, replySerial=6
+2025-07-29 15:28:58.808 minibus[49043:101609] Adding uint32 field code=5, value=6
+2025-07-29 15:28:58.808 minibus[49043:101609] Serialized message to 76 bytes
+2025-07-29 15:28:58.808 minibus[49043:101609] Send result: SUCCESS
+2025-07-29 15:28:58.808 minibus[49043:101609] processIncomingData called #9 for socket 4
+2025-07-29 15:28:58.808 minibus[49043:101609] Connection closed by peer on socket 4
+2025-07-29 15:28:58.808 minibus[49043:101609] processIncomingData: no data received, closing connection
+2025-07-29 15:28:58.808 minibus[49043:101609] Closed socket 4
+2025-07-29 15:28:58.808 minibus[49043:101609] Connection removed: <MBConnection socket=-1 state=2 auth_state=3 unique=:1.2>
+2025-07-29 15:32:21.227 minibus[49043:101609] Received signal 15, shutting down...
+2025-07-29 15:32:21.227 minibus[49043:101609] Closed socket 3
+2025-07-29 15:32:21.227 minibus[49043:101609] MiniBus daemon stopped
+2025-07-29 15:32:21.227 minibus[49043:101609] MiniBus daemon exiting

@@ -158,8 +158,14 @@ typedef enum {
     // 7. Ready for D-Bus messages
     
     int commandCount = 0;
-    int maxCommands = 5;  // Reduced limit to prevent infinite loops
-    while ([self processOneAuthCommand] && commandCount < maxCommands) {
+    int maxCommands = 10;  // Increased but still safe limit
+    while (commandCount < maxCommands) {
+        BOOL hasCommand = [self processOneAuthCommand];
+        if (!hasCommand) {
+            NSLog(@"No more auth commands to process, breaking loop");
+            break; // No more commands available
+        }
+        
         commandCount++;
         NSLog(@"Processed auth command %d", commandCount);
         
@@ -168,20 +174,35 @@ typedef enum {
             NSLog(@"Authentication completed, breaking out of command loop");
             break;
         }
+        
+        // Safety check: if auth buffer is getting too large, something is wrong
+        if ([_authIncoming length] > 10000) {
+            NSLog(@"ERROR: Auth buffer too large (%lu bytes), breaking to prevent memory issues", 
+                  (unsigned long)[_authIncoming length]);
+            break;
+        }
     }
     
     if (commandCount >= maxCommands) {
         NSLog(@"WARNING: Hit maximum auth command limit (%d), stopping processing", maxCommands);
     }
     
-    NSLog(@"processAuthentication finished, auth state: %d", _authState);
+    NSLog(@"processAuthentication finished, auth state: %d, remaining buffer: %lu bytes", 
+          _authState, (unsigned long)[_authIncoming length]);
     return (_authState == AUTH_STATE_AUTHENTICATED);
 }
 
 - (BOOL)processOneAuthCommand {
+    NSLog(@"processOneAuthCommand called, buffer has %lu bytes", (unsigned long)[_authIncoming length]);
+    
     // Find a complete command (ending in \r\n)
     const uint8_t *bytes = [_authIncoming bytes];
     NSUInteger length = [_authIncoming length];
+    
+    if (length == 0) {
+        NSLog(@"Auth buffer is empty, no commands to process");
+        return NO;
+    }
     
     NSUInteger cmdEnd = NSNotFound;
     for (NSUInteger i = 0; i < length - 1; i++) {
@@ -192,31 +213,41 @@ typedef enum {
     }
     
     if (cmdEnd == NSNotFound) {
+        NSLog(@"No complete command found (no \\r\\n), waiting for more data");
         return NO; // No complete command yet
     }
+    
+    NSLog(@"Found complete command ending at position %lu", (unsigned long)cmdEnd);
     
     // Extract the command (skip initial null byte if present)
     NSUInteger cmdStart = 0;
     if (length > 0 && bytes[0] == 0) {
         cmdStart = 1;
+        NSLog(@"Skipping initial null byte");
     }
     
     if (cmdStart >= cmdEnd) {
         // Empty command, skip it and stop processing (don't continue loop)
+        NSLog(@"Empty command found, removing from buffer");
         [_authIncoming replaceBytesInRange:NSMakeRange(0, cmdEnd + 2) withBytes:NULL length:0];
         return NO;
     }
     
+    NSLog(@"Extracting command from position %lu to %lu", (unsigned long)cmdStart, (unsigned long)cmdEnd);
     NSData *cmdData = [NSData dataWithBytes:bytes + cmdStart length:cmdEnd - cmdStart];
     NSString *command = [[NSString alloc] initWithData:cmdData encoding:NSUTF8StringEncoding];
     
+    NSLog(@"Extracted command: '%@'", command);
+    
     // Remove this command from buffer
+    NSLog(@"Removing command from buffer (range 0 to %lu)", (unsigned long)(cmdEnd + 2));
     [_authIncoming replaceBytesInRange:NSMakeRange(0, cmdEnd + 2) withBytes:NULL length:0];
+    NSLog(@"Buffer after removal has %lu bytes", (unsigned long)[_authIncoming length]);
     
     NSLog(@"Processing auth command: '%@' (state=%d)", command, _authState);
     
     BOOL result = [self handleAuthCommand:command];
-    [command release];
+    NSLog(@"Auth command processing result: %@", result ? @"SUCCESS" : @"FAILED");
     
     return result;
 }
@@ -434,6 +465,43 @@ typedef enum {
     }
     NSLog(@"Failed to serialize message");
     return NO;
+}
+
+- (BOOL)sendMessages:(NSArray *)messages
+{
+    if (_state != MBConnectionStateActive && _state != MBConnectionStateWaitingForHello) {
+        NSLog(@"Cannot send messages - connection not authenticated (state=%d)", (int)_state);
+        return NO;
+    }
+    
+    if ([messages count] == 0) {
+        return YES; // Nothing to send
+    }
+    
+    if ([messages count] == 1) {
+        return [self sendMessage:[messages objectAtIndex:0]];
+    }
+    
+    // Serialize all messages and combine into one data block
+    NSMutableData *combinedData = [NSMutableData data];
+    NSLog(@"Sending %lu messages atomically:", (unsigned long)[messages count]);
+    
+    for (MBMessage *message in messages) {
+        NSLog(@"  - %@", message);
+        NSData *messageData = [message serialize];
+        if (messageData) {
+            [combinedData appendData:messageData];
+            NSLog(@"    Serialized to %lu bytes", (unsigned long)[messageData length]);
+        } else {
+            NSLog(@"    Failed to serialize message");
+            return NO;
+        }
+    }
+    
+    NSLog(@"Combined message data: %lu bytes total", (unsigned long)[combinedData length]);
+    BOOL result = [MBTransport sendData:combinedData onSocket:_socket];
+    NSLog(@"Atomic send result: %@", result ? @"SUCCESS" : @"FAILED");
+    return result;
 }
 
 @synthesize socket = _socket;
