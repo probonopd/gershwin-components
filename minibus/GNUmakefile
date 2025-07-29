@@ -1,33 +1,50 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
-TOOL_NAME = minibus minibus-test simple-test
+# Tools
+TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus
 
 minibus_OBJC_FILES = main-daemon.m MBDaemon.m MBConnection.m MBMessage.m MBTransport.m MBClient.m
 minibus-test_OBJC_FILES = main-test.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
 simple-test_OBJC_FILES = simple-test.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
+simple-format-test_OBJC_FILES = simple-format-test.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
+byte-analyzer_OBJC_FILES = byte-analyzer.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
+test-real-dbus_OBJC_FILES = test-real-dbus.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
+test-hello-only_OBJC_FILES = test-hello-only.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
 
 # Compiler flags for production builds
 minibus_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
 minibus-test_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
 simple-test_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
+simple-format-test_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
+byte-analyzer_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
+test-real-dbus_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
 minibus-libdbus_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
+test-hello-only_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
 
 # Include paths
 minibus_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
 minibus-test_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
 simple-test_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
+simple-format-test_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
+byte-analyzer_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
+test-real-dbus_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
 minibus-libdbus_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
 
 # Library paths and links
 minibus_LDFLAGS += -L/usr/local/lib $(shell pkg-config --libs dbus-1)
 minibus-test_LDFLAGS += -L/usr/local/lib $(shell pkg-config --libs dbus-1)
 simple-test_LDFLAGS += -L/usr/local/lib $(shell pkg-config --libs dbus-1)
+simple-format-test_LDFLAGS += -L/usr/local/lib $(shell pkg-config --libs dbus-1)
+byte-analyzer_LDFLAGS += -L/usr/local/lib
+test-real-dbus_LDFLAGS += -L/usr/local/lib
 minibus-libdbus_LDFLAGS += -L/usr/local/lib $(shell pkg-config --libs dbus-1)
 
 minibus_TOOL_LIBS += -lobjc -lBlocksRuntime
 minibus-test_TOOL_LIBS += -lobjc -lBlocksRuntime
 simple-test_TOOL_LIBS += -lobjc -lBlocksRuntime
-minibus-libdbus_TOOL_LIBS += -lobjc -lBlocksRuntime
+simple-format-test_TOOL_LIBS += -lobjc -lBlocksRuntime
+byte-analyzer_TOOL_LIBS += -lobjc -lBlocksRuntime
+test-real-dbus_TOOL_LIBS += -lobjc -lBlocksRuntime
 
 include $(GNUSTEP_MAKEFILES)/tool.make
 

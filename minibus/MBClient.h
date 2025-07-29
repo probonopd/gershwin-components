@@ -28,6 +28,11 @@
 - (BOOL)connectToPath:(NSString *)socketPath;
 
 /**
+ * Connect to D-Bus daemon without sending Hello (for testing message format)
+ */
+- (BOOL)connectToPathWithoutHello:(NSString *)socketPath;
+
+/**
  * Disconnect from D-Bus daemon
  */
 - (void)disconnect;

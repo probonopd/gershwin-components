@@ -34,27 +34,52 @@
         return NO;
     }
     
-    // Perform simplified authentication
-    NSString *authCommand = @"AUTH EXTERNAL 31303031\r\nBEGIN\r\n";
-    NSData *authData = [authCommand dataUsingEncoding:NSUTF8StringEncoding];
-    NSLog(@"Sending auth data: %@", authCommand);
+    // Perform D-Bus authentication according to spec
+    // Step 1: Send null byte + AUTH command
+    NSMutableData *authData = [NSMutableData data];
+    uint8_t nullByte = 0;
+    [authData appendBytes:&nullByte length:1];
+    NSString *authCommand = @"AUTH EXTERNAL 31303031\r\n";
+    [authData appendData:[authCommand dataUsingEncoding:NSUTF8StringEncoding]];
+    
+    NSLog(@"Sending auth command: %@", authCommand);
     if (![MBTransport sendData:authData onSocket:_socket]) {
         NSLog(@"Failed to send authentication");
         [self disconnect];
         return NO;
     }
     
-    NSLog(@"Auth sent, waiting for response...");
-    
-    // Wait for auth response and consume it
+    // Step 2: Wait for OK response
+    NSLog(@"Waiting for OK response...");
     usleep(100000); // 100ms
     NSData *authResponse = [MBTransport receiveDataFromSocket:_socket];
-    if (authResponse && [authResponse length] > 0) {
-        NSLog(@"Auth response received (%lu bytes): %@", (unsigned long)[authResponse length], 
-              [[NSString alloc] initWithData:authResponse encoding:NSUTF8StringEncoding]);
-    } else {
+    if (!authResponse || [authResponse length] == 0) {
         NSLog(@"No auth response received");
+        [self disconnect];
+        return NO;
     }
+    
+    NSString *responseStr = [[NSString alloc] initWithData:authResponse encoding:NSUTF8StringEncoding];
+    NSLog(@"Auth response received (%lu bytes): %@", (unsigned long)[authResponse length], responseStr);
+    [responseStr autorelease];
+    
+    if (![responseStr hasPrefix:@"OK "]) {
+        NSLog(@"Authentication failed - expected OK, got: %@", responseStr);
+        [self disconnect];
+        return NO;
+    }
+    
+    // Step 3: Send BEGIN
+    NSString *beginCommand = @"BEGIN\r\n";
+    NSData *beginData = [beginCommand dataUsingEncoding:NSUTF8StringEncoding];
+    NSLog(@"Sending BEGIN command");
+    if (![MBTransport sendData:beginData onSocket:_socket]) {
+        NSLog(@"Failed to send BEGIN");
+        [self disconnect];
+        return NO;
+    }
+    
+    NSLog(@"Authentication completed successfully");
     
     // Send Hello message to get unique name
     MBMessage *helloMessage = [MBMessage methodCallWithDestination:@"org.freedesktop.DBus"
@@ -300,6 +325,71 @@
     }
     
     return [MBTransport sendData:data onSocket:_socket];
+}
+
+- (BOOL)connectToPathWithoutHello:(NSString *)socketPath
+{
+    if (_socket >= 0) {
+        [self disconnect];
+    }
+    
+    _socket = [MBTransport connectToUnixSocket:socketPath];
+    if (_socket < 0) {
+        NSLog(@"Failed to connect to D-Bus daemon at %@", socketPath);
+        return NO;
+    }
+    
+    // Perform D-Bus authentication according to spec
+    // Step 1: Send null byte + AUTH command
+    NSMutableData *authData = [NSMutableData data];
+    uint8_t nullByte = 0;
+    [authData appendBytes:&nullByte length:1];
+    NSString *authCommand = @"AUTH EXTERNAL 31303031\r\n";
+    [authData appendData:[authCommand dataUsingEncoding:NSUTF8StringEncoding]];
+    
+    NSLog(@"Sending auth command: %@", authCommand);
+    if (![MBTransport sendData:authData onSocket:_socket]) {
+        NSLog(@"Failed to send authentication");
+        [self disconnect];
+        return NO;
+    }
+    
+    // Step 2: Wait for OK response
+    NSLog(@"Waiting for OK response...");
+    usleep(100000); // 100ms
+    NSData *authResponse = [MBTransport receiveDataFromSocket:_socket];
+    if (!authResponse || [authResponse length] == 0) {
+        NSLog(@"No auth response received");
+        [self disconnect];
+        return NO;
+    }
+    
+    NSString *responseStr = [[NSString alloc] initWithData:authResponse encoding:NSUTF8StringEncoding];
+    NSLog(@"Auth response received (%lu bytes): %@", (unsigned long)[authResponse length], responseStr);
+    [responseStr autorelease];
+    
+    if (![responseStr hasPrefix:@"OK "]) {
+        NSLog(@"Authentication failed - expected OK, got: %@", responseStr);
+        [self disconnect];
+        return NO;
+    }
+    
+    // Step 3: Send BEGIN
+    NSString *beginCommand = @"BEGIN\r\n";
+    NSData *beginData = [beginCommand dataUsingEncoding:NSUTF8StringEncoding];
+    NSLog(@"Sending BEGIN command");
+    if (![MBTransport sendData:beginData onSocket:_socket]) {
+        NSLog(@"Failed to send BEGIN");
+        [self disconnect];
+        return NO;
+    }
+    
+    NSLog(@"Authentication completed successfully - ready for D-Bus messages");
+    
+    // Set a dummy unique name for testing
+    _uniqueName = @":test.connection";
+    
+    return YES;
 }
 
 @end

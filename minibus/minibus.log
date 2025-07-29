@@ -1,0 +1,380 @@
+2025-07-29 14:25:34.761 minibus[17865:100915] MiniBus D-Bus daemon starting...
+2025-07-29 14:25:34.761 minibus[17865:100915] Using socket path: /tmp/minibus-socket
+2025-07-29 14:25:34.761 minibus[17865:100915] Created Unix domain server socket at /tmp/minibus-socket
+2025-07-29 14:25:34.761 minibus[17865:100915] MiniBus daemon started on /tmp/minibus-socket
+2025-07-29 14:25:34.761 minibus[17865:100915] MiniBus daemon running, waiting for connections...
+2025-07-29 14:25:36.766 minibus[17865:100915] Accepted new connection on socket 4
+2025-07-29 14:25:36.766 minibus[17865:100915] Created connection for socket 4
+2025-07-29 14:25:36.766 minibus[17865:100915] New connection added: <MBConnection socket=4 state=0 auth_state=0 unique=(null)>
+2025-07-29 14:25:36.766 minibus[17865:100915] processIncomingData called #1 for socket 4
+2025-07-29 14:25:36.766 minibus[17865:100915] Received 25 bytes on socket 4
+2025-07-29 14:25:36.766 minibus[17865:100915] Received 25 bytes on socket 4, total buffer: 25
+2025-07-29 14:25:36.766 minibus[17865:100915] processIncomingData: processing authentication
+2025-07-29 14:25:36.766 minibus[17865:100915] processAuthentication called #1 for socket 4
+2025-07-29 14:25:36.766 minibus[17865:100915] Moved 25 bytes from read buffer to auth buffer, auth buffer now has 25 bytes
+2025-07-29 14:25:36.766 minibus[17865:100915] Processing auth command: 'AUTH EXTERNAL 31303031' (state=0)
+2025-07-29 14:25:36.766 minibus[17865:100915] Sent OK response immediately: SUCCESS (37 bytes)
+2025-07-29 14:25:36.766 minibus[17865:100915] Prepared OK response, moving to WAITING_FOR_BEGIN state
+2025-07-29 14:25:36.766 minibus[17865:100915] processAuthentication finished, auth state: 2
+2025-07-29 14:25:36.866 minibus[17865:100915] processIncomingData called #2 for socket 4
+2025-07-29 14:25:36.867 minibus[17865:100915] Received 7 bytes on socket 4
+2025-07-29 14:25:36.867 minibus[17865:100915] Received 7 bytes on socket 4, total buffer: 7
+2025-07-29 14:25:36.867 minibus[17865:100915] processIncomingData: processing authentication
+2025-07-29 14:25:36.867 minibus[17865:100915] processAuthentication called #2 for socket 4
+2025-07-29 14:25:36.867 minibus[17865:100915] Moved 7 bytes from read buffer to auth buffer, auth buffer now has 7 bytes
+2025-07-29 14:25:36.867 minibus[17865:100915] Processing auth command: 'BEGIN' (state=2)
+2025-07-29 14:25:36.867 minibus[17865:100915] handleBegin called for socket 4, auth state: 2
+2025-07-29 14:25:36.867 minibus[17865:100915] handleBegin: setting auth state to authenticated
+2025-07-29 14:25:36.867 minibus[17865:100915] Authentication completed for connection 4, now waiting for Hello
+2025-07-29 14:25:36.867 minibus[17865:100915] handleBegin: checking auth buffer, has 0 bytes
+2025-07-29 14:25:36.867 minibus[17865:100915] handleBegin: no remaining data to transfer
+2025-07-29 14:25:36.867 minibus[17865:100915] handleBegin: returning YES
+2025-07-29 14:25:36.867 minibus[17865:100915] Processed auth command 1
+2025-07-29 14:25:36.867 minibus[17865:100915] Authentication completed, breaking out of command loop
+2025-07-29 14:25:36.867 minibus[17865:100915] processAuthentication finished, auth state: 3
+2025-07-29 14:25:36.867 minibus[17865:100915] processIncomingData called #3 for socket 4
+2025-07-29 14:25:36.867 minibus[17865:100915] Received 144 bytes on socket 4
+2025-07-29 14:25:36.867 minibus[17865:100915] Received 144 bytes on socket 4, total buffer: 144
+2025-07-29 14:25:36.867 minibus[17865:100915] processIncomingData: processing D-Bus messages
+2025-07-29 14:25:36.867 minibus[17865:100915] parseMessages called with 144 bytes in buffer
+2025-07-29 14:25:36.867 minibus[17865:100915] Buffer hex: 6c 01 00 01 00 00 00 00 01 00 00 00 80 00 00 00 
+2025-07-29 14:25:36.867 minibus[17865:100915] Parsing messages from 144 bytes of data
+2025-07-29 14:25:36.867 minibus[17865:100915] Message data hex: 6c 01 00 01 00 00 00 00 01 00 00 00 80 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:25:36.867 minibus[17865:100915] Trying to parse message at offset 0
+2025-07-29 14:25:36.867 minibus[17865:100915] messageFromData: starting parse at offset 0, data length 144
+2025-07-29 14:25:36.867 minibus[17865:100915] messageFromData: endian byte 0x6c ('l')
+2025-07-29 14:25:36.867 minibus[17865:100915] messageFromData: type=1, flags=0, version=1
+2025-07-29 14:25:36.867 minibus[17865:100915] Raw message bytes from offset 0: 6c 01 00 01 00 00 00 00 01 00 00 00 80 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:25:36.867 minibus[17865:100915] messageFromData: bodyLength=0, serial=1
+2025-07-29 14:25:36.867 minibus[17865:100915] messageFromData: headerFieldsLength=128
+2025-07-29 14:25:36.867 minibus[17865:100915] messageFromData: parsing header fields from 16 to 144
+2025-07-29 14:25:36.867 minibus[17865:100915] messageFromData: parsing field code 1 at pos 16
+2025-07-29 14:25:36.867 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.867 minibus[17865:100915] messageFromData: signature 'o' (0x6f)
+2025-07-29 14:25:36.867 minibus[17865:100915] messageFromData: string length 21
+2025-07-29 14:25:36.867 minibus[17865:100915] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: parsing field code 0 at pos 46
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: parsing field code 2 at pos 48
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: string length 20
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: parsing field code 0 at pos 77
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: parsing field code 3 at pos 80
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: string length 5
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: field 3 = 'Hello'
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: parsing field code 0 at pos 94
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: parsing field code 6 at pos 96
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: string length 20
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: parsing field code 0 at pos 125
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: parsing field code 8 at pos 128
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: string length 0
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: field 8 = ''
+2025-07-29 14:25:36.868 minibus[17865:100915] messageFromData: final offset 144 (was 0)
+2025-07-29 14:25:36.868 minibus[17865:100915] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=Hello args=(null)>
+2025-07-29 14:25:36.868 minibus[17865:100915] Parsed 1 messages total
+2025-07-29 14:25:36.868 minibus[17865:100915] Parsed 1 D-Bus messages
+2025-07-29 14:25:36.868 minibus[17865:100915] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=Hello args=(null)> from <MBConnection socket=4 state=1 auth_state=3 unique=(null)>
+2025-07-29 14:25:36.868 minibus[17865:100915] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(":1.1")>
+2025-07-29 14:25:36.868 minibus[17865:100915] Serializing message type=2, replySerial=1
+2025-07-29 14:25:36.868 minibus[17865:100915] Adding uint32 field code=5, value=1
+2025-07-29 14:25:36.868 minibus[17865:100915] Serialized message to 81 bytes
+2025-07-29 14:25:36.868 minibus[17865:100915] Send result: SUCCESS
+2025-07-29 14:25:36.868 minibus[17865:100915] Sending message: <MBMessage type=4 dest=:1.1 path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=NameAcquired args=(":1.1")>
+2025-07-29 14:25:36.868 minibus[17865:100915] Serializing message type=4, replySerial=0
+2025-07-29 14:25:36.868 minibus[17865:100915] Serialized message to 177 bytes
+2025-07-29 14:25:36.868 minibus[17865:100915] Send result: SUCCESS
+2025-07-29 14:25:36.868 minibus[17865:100915] Sending message: <MBMessage type=4 dest=(null) path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=NameOwnerChanged args=(":1.1", "", ":1.1")>
+2025-07-29 14:25:36.868 minibus[17865:100915] Serializing message type=4, replySerial=0
+2025-07-29 14:25:36.869 minibus[17865:100915] Serialized message to 183 bytes
+2025-07-29 14:25:36.869 minibus[17865:100915] Send result: SUCCESS
+2025-07-29 14:25:36.869 minibus[17865:100915] Hello processed for connection <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>, assigned name :1.1
+2025-07-29 14:25:36.869 minibus[17865:100915] processIncomingData called #4 for socket 4
+2025-07-29 14:25:36.869 minibus[17865:100915] Received 184 bytes on socket 4
+2025-07-29 14:25:36.869 minibus[17865:100915] Received 184 bytes on socket 4, total buffer: 184
+2025-07-29 14:25:36.869 minibus[17865:100915] processIncomingData: processing D-Bus messages
+2025-07-29 14:25:36.869 minibus[17865:100915] parseMessages called with 184 bytes in buffer
+2025-07-29 14:25:36.869 minibus[17865:100915] Buffer hex: 6c 01 00 01 20 00 00 00 02 00 00 00 88 00 00 00 
+2025-07-29 14:25:36.869 minibus[17865:100915] Parsing messages from 184 bytes of data
+2025-07-29 14:25:36.869 minibus[17865:100915] Message data hex: 6c 01 00 01 20 00 00 00 02 00 00 00 88 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:25:36.869 minibus[17865:100915] Trying to parse message at offset 0
+2025-07-29 14:25:36.869 minibus[17865:100915] messageFromData: starting parse at offset 0, data length 184
+2025-07-29 14:25:36.869 minibus[17865:100915] messageFromData: endian byte 0x6c ('l')
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: type=1, flags=0, version=1
+2025-07-29 14:25:36.870 minibus[17865:100915] Raw message bytes from offset 0: 6c 01 00 01 20 00 00 00 02 00 00 00 88 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: bodyLength=32, serial=2
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: headerFieldsLength=136
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: parsing header fields from 16 to 152
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: parsing field code 1 at pos 16
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: signature 'o' (0x6f)
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: string length 21
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: parsing field code 0 at pos 46
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: parsing field code 2 at pos 48
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: string length 20
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: parsing field code 0 at pos 77
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: parsing field code 3 at pos 80
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: string length 11
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: field 3 = 'RequestName'
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: parsing field code 0 at pos 100
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: parsing field code 6 at pos 104
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: string length 20
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: parsing field code 0 at pos 133
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: parsing field code 8 at pos 136
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: string length 2
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: field 8 = 'su'
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: parsing field code 0 at pos 147
+2025-07-29 14:25:36.870 minibus[17865:100915] messageFromData: final offset 184 (was 0)
+2025-07-29 14:25:36.870 minibus[17865:100915] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=RequestName args=("com.example.TestService", 0)>
+2025-07-29 14:25:36.870 minibus[17865:100915] Parsed 1 messages total
+2025-07-29 14:25:36.870 minibus[17865:100915] Parsed 1 D-Bus messages
+2025-07-29 14:25:36.870 minibus[17865:100915] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=RequestName args=("com.example.TestService", 0)> from <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>
+2025-07-29 14:25:36.871 minibus[17865:100915] Registered name com.example.TestService for connection <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>
+2025-07-29 14:25:36.871 minibus[17865:100915] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(1)>
+2025-07-29 14:25:36.871 minibus[17865:100915] Serializing message type=2, replySerial=2
+2025-07-29 14:25:36.871 minibus[17865:100915] Adding uint32 field code=5, value=2
+2025-07-29 14:25:36.871 minibus[17865:100915] Serialized message to 76 bytes
+2025-07-29 14:25:36.871 minibus[17865:100915] Send result: SUCCESS
+2025-07-29 14:25:36.871 minibus[17865:100915] RequestName com.example.TestService for connection <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>: SUCCESS
+2025-07-29 14:25:36.888 minibus[17865:100915] processIncomingData called #5 for socket 4
+2025-07-29 14:25:36.888 minibus[17865:100915] Received 152 bytes on socket 4
+2025-07-29 14:25:36.888 minibus[17865:100915] Received 152 bytes on socket 4, total buffer: 152
+2025-07-29 14:25:36.888 minibus[17865:100915] processIncomingData: processing D-Bus messages
+2025-07-29 14:25:36.888 minibus[17865:100915] parseMessages called with 152 bytes in buffer
+2025-07-29 14:25:36.888 minibus[17865:100915] Buffer hex: 6c 01 00 01 00 00 00 00 03 00 00 00 88 00 00 00 
+2025-07-29 14:25:36.888 minibus[17865:100915] Parsing messages from 152 bytes of data
+2025-07-29 14:25:36.888 minibus[17865:100915] Message data hex: 6c 01 00 01 00 00 00 00 03 00 00 00 88 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:25:36.888 minibus[17865:100915] Trying to parse message at offset 0
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: starting parse at offset 0, data length 152
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: endian byte 0x6c ('l')
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: type=1, flags=0, version=1
+2025-07-29 14:25:36.888 minibus[17865:100915] Raw message bytes from offset 0: 6c 01 00 01 00 00 00 00 03 00 00 00 88 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: bodyLength=0, serial=3
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: headerFieldsLength=136
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: parsing header fields from 16 to 152
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: parsing field code 1 at pos 16
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: signature 'o' (0x6f)
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: string length 21
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: parsing field code 0 at pos 46
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: parsing field code 2 at pos 48
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: string length 20
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 14:25:36.888 minibus[17865:100915] messageFromData: parsing field code 0 at pos 77
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: parsing field code 3 at pos 80
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: string length 9
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: field 3 = 'ListNames'
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: parsing field code 0 at pos 98
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: parsing field code 6 at pos 104
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: string length 20
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: parsing field code 0 at pos 133
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: parsing field code 8 at pos 136
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: string length 0
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: field 8 = ''
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: final offset 152 (was 0)
+2025-07-29 14:25:36.889 minibus[17865:100915] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=ListNames args=(null)>
+2025-07-29 14:25:36.889 minibus[17865:100915] Parsed 1 messages total
+2025-07-29 14:25:36.889 minibus[17865:100915] Parsed 1 D-Bus messages
+2025-07-29 14:25:36.889 minibus[17865:100915] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=ListNames args=(null)> from <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>
+2025-07-29 14:25:36.889 minibus[17865:100915] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(("com.example.TestService", ":1.1", "org.freedesktop.DBus"))>
+2025-07-29 14:25:36.889 minibus[17865:100915] Serializing message type=2, replySerial=3
+2025-07-29 14:25:36.889 minibus[17865:100915] Adding uint32 field code=5, value=3
+2025-07-29 14:25:36.889 minibus[17865:100915] Serialized message to 72 bytes
+2025-07-29 14:25:36.889 minibus[17865:100915] Send result: SUCCESS
+2025-07-29 14:25:36.889 minibus[17865:100915] processIncomingData called #6 for socket 4
+2025-07-29 14:25:36.889 minibus[17865:100915] Received 180 bytes on socket 4
+2025-07-29 14:25:36.889 minibus[17865:100915] Received 180 bytes on socket 4, total buffer: 180
+2025-07-29 14:25:36.889 minibus[17865:100915] processIncomingData: processing D-Bus messages
+2025-07-29 14:25:36.889 minibus[17865:100915] parseMessages called with 180 bytes in buffer
+2025-07-29 14:25:36.889 minibus[17865:100915] Buffer hex: 6c 01 00 01 1c 00 00 00 04 00 00 00 88 00 00 00 
+2025-07-29 14:25:36.889 minibus[17865:100915] Parsing messages from 180 bytes of data
+2025-07-29 14:25:36.889 minibus[17865:100915] Message data hex: 6c 01 00 01 1c 00 00 00 04 00 00 00 88 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:25:36.889 minibus[17865:100915] Trying to parse message at offset 0
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: starting parse at offset 0, data length 180
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: endian byte 0x6c ('l')
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: type=1, flags=0, version=1
+2025-07-29 14:25:36.889 minibus[17865:100915] Raw message bytes from offset 0: 6c 01 00 01 1c 00 00 00 04 00 00 00 88 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: bodyLength=28, serial=4
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: headerFieldsLength=136
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: parsing header fields from 16 to 152
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: parsing field code 1 at pos 16
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: signature 'o' (0x6f)
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: string length 21
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: parsing field code 0 at pos 46
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: parsing field code 2 at pos 48
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: string length 20
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 14:25:36.889 minibus[17865:100915] messageFromData: parsing field code 0 at pos 77
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing field code 3 at pos 80
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: string length 12
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: field 3 = 'GetNameOwner'
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing field code 0 at pos 101
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing field code 6 at pos 104
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: string length 20
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing field code 0 at pos 133
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing field code 8 at pos 136
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: string length 1
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: field 8 = 's'
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing field code 0 at pos 146
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: final offset 180 (was 0)
+2025-07-29 14:25:36.890 minibus[17865:100915] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=GetNameOwner args=("com.example.TestService")>
+2025-07-29 14:25:36.890 minibus[17865:100915] Parsed 1 messages total
+2025-07-29 14:25:36.890 minibus[17865:100915] Parsed 1 D-Bus messages
+2025-07-29 14:25:36.890 minibus[17865:100915] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=GetNameOwner args=("com.example.TestService")> from <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>
+2025-07-29 14:25:36.890 minibus[17865:100915] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(":1.1")>
+2025-07-29 14:25:36.890 minibus[17865:100915] Serializing message type=2, replySerial=4
+2025-07-29 14:25:36.890 minibus[17865:100915] Adding uint32 field code=5, value=4
+2025-07-29 14:25:36.890 minibus[17865:100915] Serialized message to 81 bytes
+2025-07-29 14:25:36.890 minibus[17865:100915] Send result: SUCCESS
+2025-07-29 14:25:36.890 minibus[17865:100915] processIncomingData called #7 for socket 4
+2025-07-29 14:25:36.890 minibus[17865:100915] Received 152 bytes on socket 4
+2025-07-29 14:25:36.890 minibus[17865:100915] Received 152 bytes on socket 4, total buffer: 152
+2025-07-29 14:25:36.890 minibus[17865:100915] processIncomingData: processing D-Bus messages
+2025-07-29 14:25:36.890 minibus[17865:100915] parseMessages called with 152 bytes in buffer
+2025-07-29 14:25:36.890 minibus[17865:100915] Buffer hex: 6c 04 00 01 20 00 00 00 05 00 00 00 68 00 00 00 
+2025-07-29 14:25:36.890 minibus[17865:100915] Parsing messages from 152 bytes of data
+2025-07-29 14:25:36.890 minibus[17865:100915] Message data hex: 6c 04 00 01 20 00 00 00 05 00 00 00 68 00 00 00 01 01 6f 00 11 00 00 00 2f 63 6f 6d 2f 65 78 61 
+2025-07-29 14:25:36.890 minibus[17865:100915] Trying to parse message at offset 0
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: starting parse at offset 0, data length 152
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: endian byte 0x6c ('l')
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: type=4, flags=0, version=1
+2025-07-29 14:25:36.890 minibus[17865:100915] Raw message bytes from offset 0: 6c 04 00 01 20 00 00 00 05 00 00 00 68 00 00 00 01 01 6f 00 11 00 00 00 2f 63 6f 6d 2f 65 78 61 
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: bodyLength=32, serial=5
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: headerFieldsLength=104
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing header fields from 16 to 120
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing field code 1 at pos 16
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: signature 'o' (0x6f)
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: string length 17
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: field 1 = '/com/example/Test'
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing field code 0 at pos 42
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing field code 2 at pos 48
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: string length 16
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: field 2 = 'com.example.Test'
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing field code 0 at pos 73
+2025-07-29 14:25:36.890 minibus[17865:100915] messageFromData: parsing field code 3 at pos 80
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: string length 10
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: field 3 = 'TestSignal'
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 0 at pos 99
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 8 at pos 104
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: string length 2
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: field 8 = 'su'
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 0 at pos 115
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: final offset 152 (was 0)
+2025-07-29 14:25:36.891 minibus[17865:100915] Successfully parsed message: <MBMessage type=4 dest=(null) path=/com/example/Test iface=com.example.Test member=TestSignal args=("Hello from test client!", 42)>
+2025-07-29 14:25:36.891 minibus[17865:100915] Parsed 1 messages total
+2025-07-29 14:25:36.891 minibus[17865:100915] Parsed 1 D-Bus messages
+2025-07-29 14:25:36.891 minibus[17865:100915] Processing message: <MBMessage type=4 dest=(null) path=/com/example/Test iface=com.example.Test member=TestSignal args=("Hello from test client!", 42)> from <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>
+2025-07-29 14:25:36.891 minibus[17865:100915] Message has no destination, treating as org.freedesktop.DBus call
+2025-07-29 14:25:36.891 minibus[17865:100915] No destination found for org.freedesktop.DBus
+2025-07-29 14:25:36.891 minibus[17865:100915] processIncomingData called #8 for socket 4
+2025-07-29 14:25:36.891 minibus[17865:100915] Received 180 bytes on socket 4
+2025-07-29 14:25:36.891 minibus[17865:100915] Received 180 bytes on socket 4, total buffer: 180
+2025-07-29 14:25:36.891 minibus[17865:100915] processIncomingData: processing D-Bus messages
+2025-07-29 14:25:36.891 minibus[17865:100915] parseMessages called with 180 bytes in buffer
+2025-07-29 14:25:36.891 minibus[17865:100915] Buffer hex: 6c 01 00 01 1c 00 00 00 06 00 00 00 88 00 00 00 
+2025-07-29 14:25:36.891 minibus[17865:100915] Parsing messages from 180 bytes of data
+2025-07-29 14:25:36.891 minibus[17865:100915] Message data hex: 6c 01 00 01 1c 00 00 00 06 00 00 00 88 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:25:36.891 minibus[17865:100915] Trying to parse message at offset 0
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: starting parse at offset 0, data length 180
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: endian byte 0x6c ('l')
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: type=1, flags=0, version=1
+2025-07-29 14:25:36.891 minibus[17865:100915] Raw message bytes from offset 0: 6c 01 00 01 1c 00 00 00 06 00 00 00 88 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: bodyLength=28, serial=6
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: headerFieldsLength=136
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing header fields from 16 to 152
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 1 at pos 16
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature 'o' (0x6f)
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: string length 21
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 0 at pos 46
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 2 at pos 48
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: string length 20
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 0 at pos 77
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 3 at pos 80
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: string length 11
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: field 3 = 'ReleaseName'
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 0 at pos 100
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 6 at pos 104
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: string length 20
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 0 at pos 133
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 8 at pos 136
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature length 1
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: signature 's' (0x73)
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: string length 1
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: field 8 = 's'
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: parsing field code 0 at pos 146
+2025-07-29 14:25:36.891 minibus[17865:100915] messageFromData: final offset 180 (was 0)
+2025-07-29 14:25:36.891 minibus[17865:100915] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=ReleaseName args=("com.example.TestService")>
+2025-07-29 14:25:36.891 minibus[17865:100915] Parsed 1 messages total
+2025-07-29 14:25:36.891 minibus[17865:100915] Parsed 1 D-Bus messages
+2025-07-29 14:25:36.891 minibus[17865:100915] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=ReleaseName args=("com.example.TestService")> from <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>
+2025-07-29 14:25:36.891 minibus[17865:100915] Released name com.example.TestService from connection <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>
+2025-07-29 14:25:36.891 minibus[17865:100915] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(1)>
+2025-07-29 14:25:36.891 minibus[17865:100915] Serializing message type=2, replySerial=6
+2025-07-29 14:25:36.891 minibus[17865:100915] Adding uint32 field code=5, value=6
+2025-07-29 14:25:36.891 minibus[17865:100915] Serialized message to 76 bytes
+2025-07-29 14:25:36.891 minibus[17865:100915] Send result: SUCCESS
+2025-07-29 14:25:36.892 minibus[17865:100915] processIncomingData called #9 for socket 4
+2025-07-29 14:25:36.892 minibus[17865:100915] Connection closed by peer on socket 4
+2025-07-29 14:25:36.892 minibus[17865:100915] processIncomingData: no data received, closing connection
+2025-07-29 14:25:36.892 minibus[17865:100915] Closed socket 4
+2025-07-29 14:25:36.892 minibus[17865:100915] Connection removed: <MBConnection socket=-1 state=2 auth_state=3 unique=:1.1>
+2025-07-29 14:25:54.725 minibus[17865:100915] Received signal 15, shutting down...
+2025-07-29 14:25:54.725 minibus[17865:100915] Closed socket 3
+2025-07-29 14:25:54.725 minibus[17865:100915] MiniBus daemon stopped
+2025-07-29 14:25:54.725 minibus[17865:100915] MiniBus daemon exiting

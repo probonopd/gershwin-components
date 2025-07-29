@@ -1,0 +1,1 @@
+unix:path=/tmp/dbus-test.socket,guid=0b9d13996e1218d3fc3750596888c255

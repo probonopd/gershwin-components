@@ -1,0 +1,114 @@
+2025-07-29 14:53:34.018 minibus[20540:102070] MiniBus D-Bus daemon starting...
+2025-07-29 14:53:34.018 minibus[20540:102070] Using socket path: /tmp/minibus-socket
+2025-07-29 14:53:34.018 minibus[20540:102070] Created Unix domain server socket at /tmp/minibus-socket
+2025-07-29 14:53:34.018 minibus[20540:102070] MiniBus daemon started on /tmp/minibus-socket
+2025-07-29 14:53:34.018 minibus[20540:102070] MiniBus daemon running, waiting for connections...
+2025-07-29 14:54:02.218 minibus[20540:102070] Accepted new connection on socket 4
+2025-07-29 14:54:02.218 minibus[20540:102070] Created connection for socket 4
+2025-07-29 14:54:02.218 minibus[20540:102070] New connection added: <MBConnection socket=4 state=0 auth_state=0 unique=(null)>
+2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData called #1 for socket 4
+2025-07-29 14:54:02.218 minibus[20540:102070] Received 25 bytes on socket 4
+2025-07-29 14:54:02.218 minibus[20540:102070] Received 25 bytes on socket 4, total buffer: 25
+2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData: processing authentication
+2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication called #1 for socket 4
+2025-07-29 14:54:02.218 minibus[20540:102070] Moved 25 bytes from read buffer to auth buffer, auth buffer now has 25 bytes
+2025-07-29 14:54:02.218 minibus[20540:102070] Processing auth command: 'AUTH EXTERNAL 31303031' (state=0)
+2025-07-29 14:54:02.218 minibus[20540:102070] Sent OK response immediately: SUCCESS (37 bytes)
+2025-07-29 14:54:02.218 minibus[20540:102070] Prepared OK response, moving to WAITING_FOR_BEGIN state
+2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication finished, auth state: 2
+2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData called #2 for socket 4
+2025-07-29 14:54:02.218 minibus[20540:102070] Received 19 bytes on socket 4
+2025-07-29 14:54:02.218 minibus[20540:102070] Received 19 bytes on socket 4, total buffer: 19
+2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData: processing authentication
+2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication called #2 for socket 4
+2025-07-29 14:54:02.218 minibus[20540:102070] Moved 19 bytes from read buffer to auth buffer, auth buffer now has 19 bytes
+2025-07-29 14:54:02.218 minibus[20540:102070] Processing auth command: 'NEGOTIATE_UNIX_FD' (state=2)
+2025-07-29 14:54:02.218 minibus[20540:102070] Sent ERROR response immediately: SUCCESS (39 bytes)
+2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication finished, auth state: 2
+2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData called #3 for socket 4
+2025-07-29 14:54:02.218 minibus[20540:102070] Received 135 bytes on socket 4
+2025-07-29 14:54:02.218 minibus[20540:102070] Received 135 bytes on socket 4, total buffer: 135
+2025-07-29 14:54:02.218 minibus[20540:102070] processIncomingData: processing authentication
+2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication called #3 for socket 4
+2025-07-29 14:54:02.218 minibus[20540:102070] Moved 135 bytes from read buffer to auth buffer, auth buffer now has 135 bytes
+2025-07-29 14:54:02.218 minibus[20540:102070] Processing auth command: 'BEGIN' (state=2)
+2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin called for socket 4, auth state: 2
+2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: setting auth state to authenticated
+2025-07-29 14:54:02.218 minibus[20540:102070] Authentication completed for connection 4, now waiting for Hello
+2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: checking auth buffer, has 128 bytes
+2025-07-29 14:54:02.218 minibus[20540:102070] Moving 128 bytes from auth buffer to read buffer
+2025-07-29 14:54:02.218 minibus[20540:102070] Remaining auth data hex: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:54:02.218 minibus[20540:102070] Remaining data appears to be a D-Bus message
+2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: appending data to read buffer
+2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: clearing auth buffer
+2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: data transfer complete
+2025-07-29 14:54:02.218 minibus[20540:102070] handleBegin: returning YES
+2025-07-29 14:54:02.218 minibus[20540:102070] Processed auth command 1
+2025-07-29 14:54:02.218 minibus[20540:102070] Authentication completed, breaking out of command loop
+2025-07-29 14:54:02.218 minibus[20540:102070] processAuthentication finished, auth state: 3
+2025-07-29 14:54:02.218 minibus[20540:102070] Authentication completed, processing 128 bytes of message data
+2025-07-29 14:54:02.218 minibus[20540:102070] parseMessages called with 128 bytes in buffer
+2025-07-29 14:54:02.218 minibus[20540:102070] Buffer hex: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 
+2025-07-29 14:54:02.219 minibus[20540:102070] Parsing messages from 128 bytes of data
+2025-07-29 14:54:02.219 minibus[20540:102070] Message data hex: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:54:02.219 minibus[20540:102070] Trying to parse message at offset 0
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: starting parse at offset 0, data length 128
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: endian byte 0x6c ('l')
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: type=1, flags=0, version=1
+2025-07-29 14:54:02.219 minibus[20540:102070] Raw message bytes from offset 0: 6c 01 00 01 00 00 00 00 01 00 00 00 6e 00 00 00 01 01 6f 00 15 00 00 00 2f 6f 72 67 2f 66 72 65 
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: bodyLength=0, serial=1
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: headerFieldsLength=110
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing header fields from 16 to 126
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 1 at pos 16
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature length 1
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature 'o' (0x6f)
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: string length 21
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: field 1 = '/org/freedesktop/DBus'
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 0 at pos 46
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 6 at pos 48
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature length 1
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature 's' (0x73)
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: string length 20
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: field 6 = 'org.freedesktop.DBus'
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 0 at pos 77
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 2 at pos 80
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature length 1
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature 's' (0x73)
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: string length 20
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: field 2 = 'org.freedesktop.DBus'
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 0 at pos 109
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: parsing field code 3 at pos 112
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature length 1
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: signature 's' (0x73)
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: string length 5
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: field 3 = 'Hello'
+2025-07-29 14:54:02.219 minibus[20540:102070] messageFromData: final offset 128 (was 0)
+2025-07-29 14:54:02.219 minibus[20540:102070] Successfully parsed message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=Hello args=(null)>
+2025-07-29 14:54:02.219 minibus[20540:102070] Parsed 1 messages total
+2025-07-29 14:54:02.219 minibus[20540:102070] Parsed 1 D-Bus messages
+2025-07-29 14:54:02.219 minibus[20540:102070] Processing message: <MBMessage type=1 dest=org.freedesktop.DBus path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=Hello args=(null)> from <MBConnection socket=4 state=1 auth_state=3 unique=(null)>
+2025-07-29 14:54:02.219 minibus[20540:102070] Sending message: <MBMessage type=2 dest=(null) path=(null) iface=(null) member=(null) args=(":1.1")>
+2025-07-29 14:54:02.219 minibus[20540:102070] Serializing message type=2, replySerial=1
+2025-07-29 14:54:02.219 minibus[20540:102070] Adding uint32 field code=5, value=1
+2025-07-29 14:54:02.219 minibus[20540:102070] Serialized message to 81 bytes
+2025-07-29 14:54:02.219 minibus[20540:102070] Send result: SUCCESS
+2025-07-29 14:54:02.219 minibus[20540:102070] Sending message: <MBMessage type=4 dest=:1.1 path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=NameAcquired args=(":1.1")>
+2025-07-29 14:54:02.219 minibus[20540:102070] Serializing message type=4, replySerial=0
+2025-07-29 14:54:02.219 minibus[20540:102070] Serialized message to 177 bytes
+2025-07-29 14:54:02.219 minibus[20540:102070] Failed to send data on socket 4: Broken pipe
+2025-07-29 14:54:02.219 minibus[20540:102070] Send result: FAILED
+2025-07-29 14:54:02.219 minibus[20540:102070] Sending message: <MBMessage type=4 dest=(null) path=/org/freedesktop/DBus iface=org.freedesktop.DBus member=NameOwnerChanged args=(":1.1", "", ":1.1")>
+2025-07-29 14:54:02.219 minibus[20540:102070] Serializing message type=4, replySerial=0
+2025-07-29 14:54:02.219 minibus[20540:102070] Serialized message to 183 bytes
+2025-07-29 14:54:02.219 minibus[20540:102070] Failed to send data on socket 4: Broken pipe
+2025-07-29 14:54:02.219 minibus[20540:102070] Send result: FAILED
+2025-07-29 14:54:02.219 minibus[20540:102070] Hello processed for connection <MBConnection socket=4 state=2 auth_state=3 unique=:1.1>, assigned name :1.1
+2025-07-29 14:54:02.219 minibus[20540:102070] processIncomingData called #4 for socket 4
+2025-07-29 14:54:02.219 minibus[20540:102070] Connection closed by peer on socket 4
+2025-07-29 14:54:02.219 minibus[20540:102070] processIncomingData: no data received, closing connection
+2025-07-29 14:54:02.219 minibus[20540:102070] Closed socket 4
+2025-07-29 14:54:02.219 minibus[20540:102070] Connection removed: <MBConnection socket=-1 state=2 auth_state=3 unique=:1.1>
+2025-07-29 14:54:03.972 minibus[20540:102070] Received signal 15, shutting down...
+2025-07-29 14:54:03.972 minibus[20540:102070] Closed socket 3
+2025-07-29 14:54:03.972 minibus[20540:102070] MiniBus daemon stopped
+2025-07-29 14:54:03.972 minibus[20540:102070] MiniBus daemon exiting

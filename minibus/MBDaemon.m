@@ -245,6 +245,30 @@
     reply.sender = @"org.freedesktop.DBus";
     [connection sendMessage:reply];
     
+    // Send NameAcquired signal to the new connection
+    MBMessage *nameAcquired = [MBMessage signalWithPath:@"/org/freedesktop/DBus"
+                                              interface:@"org.freedesktop.DBus"
+                                                 member:@"NameAcquired"
+                                              arguments:@[uniqueName]];
+    nameAcquired.sender = @"org.freedesktop.DBus";
+    nameAcquired.destination = uniqueName;
+    [connection sendMessage:nameAcquired];
+    
+    // Send NameOwnerChanged signal to all connections (including this one)
+    MBMessage *nameOwnerChanged = [MBMessage signalWithPath:@"/org/freedesktop/DBus"
+                                                  interface:@"org.freedesktop.DBus"
+                                                     member:@"NameOwnerChanged"
+                                                  arguments:@[uniqueName, @"", uniqueName]];
+    nameOwnerChanged.sender = @"org.freedesktop.DBus";
+    // No destination means broadcast to all connections
+    
+    // Send to all active connections
+    for (MBConnection *conn in [_connections copy]) {
+        if (conn.state == MBConnectionStateActive) {
+            [conn sendMessage:nameOwnerChanged];
+        }
+    }
+    
     NSLog(@"Hello processed for connection %@, assigned name %@", connection, uniqueName);
 }
 
