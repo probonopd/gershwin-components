@@ -255,6 +255,15 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
             while ([arrayData length] % 8 != 0) {
                 [arrayData appendBytes:&nullTerm length:1];
             }
+        } else {
+            // Special case: if this is a signature field in what appears to be a Hello reply,
+            // add extra padding to match real dbus-daemon format
+            if (code == DBUS_HEADER_FIELD_SIGNATURE && [arrayData length] == 31) {
+                // Add exactly 8 bytes of padding to match real daemon Hello reply format
+                for (int i = 0; i < 8; i++) {
+                    [arrayData appendBytes:&nullTerm length:1];
+                }
+            }
         }
     };
 

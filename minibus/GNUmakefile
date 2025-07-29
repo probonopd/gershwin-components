@@ -1,7 +1,7 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
 # Tools
-TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment
+TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment hello-length-analysis
 
 minibus_OBJC_FILES = main-daemon.m MBDaemon.m MBConnection.m MBMessage.m MBTransport.m MBClient.m
 minibus-test_OBJC_FILES = main-test.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
@@ -15,6 +15,7 @@ compare-hello-format_OBJC_FILES = compare-hello-format.m MBMessage.m MBTransport
 test-hello-destination_OBJC_FILES = test-hello-destination.m MBMessage.m MBTransport.m
 test-hello-reply-only_OBJC_FILES = test-hello-reply-only.m MBMessage.m MBTransport.m
 test-alignment_OBJC_FILES = test-alignment.m MBMessage.m MBTransport.m
+hello-length-analysis_OBJC_FILES = hello-length-analysis.m MBMessage.m MBTransport.m
 
 # Compiler flags for production builds
 minibus_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
@@ -44,6 +45,7 @@ compare-hello-format_CPPFLAGS += -DGNUSTEP -I/usr/local/include
 test-hello-destination_CPPFLAGS += -DGNUSTEP -I/usr/local/include
 test-hello-reply-only_CPPFLAGS += -DGNUSTEP -I/usr/local/include
 test-alignment_CPPFLAGS += -DGNUSTEP -I/usr/local/include
+hello-length-analysis_CPPFLAGS += -DGNUSTEP -I/usr/local/include
 
 # Library paths and links
 minibus_LDFLAGS += -L/usr/local/lib $(shell pkg-config --libs dbus-1)
@@ -58,6 +60,7 @@ compare-hello-format_LDFLAGS += -L/usr/local/lib
 test-hello-destination_LDFLAGS += -L/usr/local/lib
 test-hello-reply-only_LDFLAGS += -L/usr/local/lib
 test-alignment_LDFLAGS += -L/usr/local/lib
+hello-length-analysis_LDFLAGS += -L/usr/local/lib
 
 minibus_TOOL_LIBS += -lobjc -lBlocksRuntime
 minibus-test_TOOL_LIBS += -lobjc -lBlocksRuntime
@@ -70,6 +73,7 @@ compare-hello-format_TOOL_LIBS += -lobjc -lBlocksRuntime
 test-hello-destination_TOOL_LIBS += -lobjc -lBlocksRuntime
 test-hello-reply-only_TOOL_LIBS += -lobjc -lBlocksRuntime
 test-alignment_TOOL_LIBS += -lobjc -lBlocksRuntime
+hello-length-analysis_TOOL_LIBS += -lobjc -lBlocksRuntime
 
 include $(GNUSTEP_MAKEFILES)/tool.make
 

@@ -7,7 +7,7 @@ int main(int argc, char *argv[]) {
         MBMessage *reply = [MBMessage methodReturnWithReplySerial:1
                                                         arguments:@[@":1.0"]];
         reply.destination = @":1.0";  // Reply is addressed to the client
-        reply.sender = @"org.freedesktop.DBus";  // Bus daemon is the sender
+        // Note: Real dbus-daemon Hello replies do NOT include sender field
         
         NSLog(@"Hello Reply Properties:");
         NSLog(@"  Type: %d", reply.type);
