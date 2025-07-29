@@ -35,5 +35,6 @@ timeout 5 dbus-send --session --dest=org.freedesktop.DBus --type=method_call --p
 * Why does it need padding?
 * Why do we need to care about endianness?
 * Why does it need XML files?
+* Why does it need signature fields?
 
-Comes from GNOME, designed by Red Hat employees, unfortunately KDE went along with it; now it is branded as freedesktop.org, suggesting everyone agreed on it
+Comes from GNOME, designed by Red Hat employees, unfortunately KDE went along with it; now it is branded as freedesktop.org, implying everyone agreed on it

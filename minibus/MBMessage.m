@@ -230,6 +230,34 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
         }
     };
     
+    // Helper to add a signature header field (uses 'g' type instead of 's')
+    void (^addSignatureField)(uint8_t, NSString *, BOOL) = ^(uint8_t code, NSString *value, BOOL isLast) {
+        if (!value || [value length] == 0) return;
+        
+        NSLog(@"Adding signature field code=%d, value='%@'", code, value);
+        [arrayData appendBytes:&code length:1];
+        uint8_t sigLen = 1;
+        [arrayData appendBytes:&sigLen length:1];
+        uint8_t signatureSig = DBUS_TYPE_SIGNATURE; // 'g'
+        [arrayData appendBytes:&signatureSig length:1];
+        uint8_t nullTerm = 0;
+        [arrayData appendBytes:&nullTerm length:1];
+        
+        // Align to 1-byte boundary for signature (signatures are not aligned like strings)
+        // Signature format: length byte + signature string + null terminator
+        uint8_t sigStrLen = (uint8_t)[value lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        [arrayData appendBytes:&sigStrLen length:1];
+        [arrayData appendData:[value dataUsingEncoding:NSUTF8StringEncoding]];
+        [arrayData appendBytes:&nullTerm length:1];
+        
+        // Align to 8-byte boundary for next struct element (but not if this is the last field)
+        if (!isLast) {
+            while ([arrayData length] % 8 != 0) {
+                [arrayData appendBytes:&nullTerm length:1];
+            }
+        }
+    };
+
     // Helper to add a uint32 header field
     void (^addUInt32Field)(uint8_t, uint32_t, BOOL) = ^(uint8_t code, uint32_t value, BOOL isLast) {
         if (value == 0) return;
@@ -288,7 +316,7 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     if (_errorName) addStringField(DBUS_HEADER_FIELD_ERROR_NAME, _errorName, errorNameIsLast);
     if (_replySerial > 0) addUInt32Field(DBUS_HEADER_FIELD_REPLY_SERIAL, (uint32_t)_replySerial, replySerialIsLast);
     if (_sender) addStringField(DBUS_HEADER_FIELD_SENDER, _sender, senderIsLast);
-    if (_signature && [_signature length] > 0) addStringField(DBUS_HEADER_FIELD_SIGNATURE, _signature, signatureIsLast);
+    if (_signature && [_signature length] > 0) addSignatureField(DBUS_HEADER_FIELD_SIGNATURE, _signature, signatureIsLast);
     
     // Return just the array data - the length is handled by the caller
     return arrayData;
@@ -503,6 +531,33 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
             switch (fieldCode) {
                 case DBUS_HEADER_FIELD_REPLY_SERIAL:
                     message.replySerial = value;
+                    break;
+            }
+        } else if (signature == 'g') { // signature
+            // Signature format: length byte + signature string + null terminator
+            if (pos >= headerFieldsEnd) {
+                NSLog(@"messageFromData: not enough data for signature length");
+                break;
+            }
+            
+            uint8_t sigLen = bytes[pos++];
+            NSLog(@"messageFromData: signature length %u", sigLen);
+            
+            if (sigLen > 255 || pos + sigLen + 1 > headerFieldsEnd) {
+                NSLog(@"messageFromData: signature too long or not enough data");
+                break;
+            }
+            
+            NSString *sigStr = [[NSString alloc] initWithBytes:bytes + pos
+                                                       length:sigLen
+                                                     encoding:NSUTF8StringEncoding];
+            pos += sigLen + 1; // +1 for null terminator
+            
+            NSLog(@"messageFromData: field %d signature = '%@'", fieldCode, sigStr);
+            
+            switch (fieldCode) {
+                case DBUS_HEADER_FIELD_SIGNATURE:
+                    message.signature = sigStr;
                     break;
             }
         } else {
