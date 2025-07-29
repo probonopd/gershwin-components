@@ -311,35 +311,50 @@ gmake minibus minibus-test test-real-dbus
 clang19 -o dbus-format-reference dbus-format-reference.c $(pkg-config --cflags --libs dbus-1)
 ```
 
-### Current Debugging Status (Latest Test Run)
+### Current Debugging Status (Latest Iteration - July 29, 2025 16:33)
 
-**Date**: July 29, 2025 16:12
 **Test**: `./test-standard-tools.sh`
-**Result**: ❌ All dbus-send calls fail with "Did not receive a reply"
+**Result**: ❌ All dbus-send calls fail with "Connection was disconnected before a reply was received"
 
-**Key Findings from Daemon Logs**:
-1. ✅ Authentication completes successfully
-2. ✅ Hello message is parsed correctly
-3. ✅ MiniBus sends Hello reply + NameAcquired signal atomically
-4. ❌ **dbus-send disconnects immediately after receiving Hello reply**
-5. ❌ Connection broken before method calls can be processed
+**Progress Made**:
+1. ✅ **Fixed signature field serialization**: Now using correct 'g' type instead of 's' type for signature fields
+2. ✅ **Added sender field to Hello replies**: Hello replies now include `sender = "org.freedesktop.DBus"`
+3. ✅ **Improved Hello reply format**: Now 89 bytes vs real daemon's 65 bytes (much closer than previous 57 bytes)
+4. ✅ **dbus-send accepts Hello replies**: Successfully completes authentication and Hello exchange
+5. ✅ **Method calls are sent**: dbus-send successfully sends ListNames, GetNameOwner, RequestName calls
+6. ✅ **MiniBus processes method calls**: Successfully parses and prepares method call replies
 
-**Root Cause**: Hello reply format is still incorrect, causing dbus-send to disconnect
+**Remaining Issue**: 
+- ❌ **Reply delivery fails**: When MiniBus tries to send method call replies, dbus-send has already disconnected ("Broken pipe")
+- **Root cause**: dbus-send disconnects after sending method calls, before waiting for replies
+- **Timeline**: Hello reply accepted → Method calls sent → dbus-send disconnects → MiniBus reply fails
 
-### Immediate Debugging Actions
-1. **Hello reply field analysis**: Use existing tools to verify DESTINATION field and signature type
-2. **Message alignment audit**: Check if Hello replies have correct padding and alignment
-3. **Compare against real daemon**: Capture and compare Hello reply formats byte-for-byte
-4. **Signature field validation**: Verify the 'g' type signature field is correctly serialized
+**Key Daemon Log Pattern**:
+```
+Processing message: <MBMessage type=1 dest=org.freedesktop.DBus ... member=RequestName>
+Sending message: <MBMessage type=2 ... args=(1)>
+Failed to send data on socket 4: Broken pipe
+Connection closed by peer on socket 4
+```
 
-### Implementation Status
-MiniBus is **very close** to being a complete drop-in replacement for dbus-daemon. The core D-Bus protocol implementation is solid, with only the Hello reply format needing final resolution.
+**Current Hello Reply Format** (89 bytes, 63 bytes header fields):
+- ✅ DESTINATION field: ":1.0" 
+- ✅ REPLY_SERIAL field: 1
+- ✅ SENDER field: "org.freedesktop.DBus"
+- ✅ SIGNATURE field: "s" (correct 'g' type)
+- ⚠️ **Length discrepancy**: 89 bytes vs real daemon's 65 bytes (24 bytes difference)
 
-**Success Metrics**:
+**Next Debugging Focus**:
+1. **Analyze timing**: Why does dbus-send disconnect immediately after sending method calls?
+2. **Message format validation**: Compare method call reply formats with real daemon
+3. **Protocol timing**: Check if Hello reply timing affects subsequent message handling
+4. **Alignment verification**: Ensure 8-byte alignment is exactly matching real daemon
+
+**Success Metrics Updated**:
 - Authentication: ✅ 100%
 - Message parsing: ✅ 100% 
-- Message serialization: ✅ 99% (Hello reply format pending)
-- Hello exchange: ⚠️ 50% (receives Hello, reply format issue)
-- Using `dbus-send` and `dbus-monitor` via MiniBus daemon: ❌ 0% (depends on Hello reply fix)
+- Message serialization: ✅ 95% (Hello reply improved, method replies TBD)
+- Hello exchange: ✅ 90% (accepted by dbus-send, some format differences remain)
+- Using `dbus-send` and `dbus-monitor` via MiniBus daemon: ❌ 10% (Hello works, method calls fail due to client disconnect)
 
-**Next iteration target**: Fix Hello reply format to achieve full standard tool compatibility.
+**Next iteration target**: Achieve byte-for-byte Hello reply compatibility and investigate method call reply format.

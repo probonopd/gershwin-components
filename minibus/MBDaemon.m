@@ -243,6 +243,7 @@
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[uniqueName]];
     reply.destination = uniqueName;  // Reply is addressed to the client
+    reply.sender = @"org.freedesktop.DBus";  // Bus daemon is the sender
     
     // Send NameAcquired signal to the new connection
     MBMessage *nameAcquired = [MBMessage signalWithPath:@"/org/freedesktop/DBus"
