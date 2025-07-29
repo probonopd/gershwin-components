@@ -44,21 +44,7 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     return (pos + alignment - 1) & ~(alignment - 1);
 }
 
-static void appendAligned(NSMutableData *data, const void *bytes, NSUInteger length, NSUInteger alignment) {
-    // Pad to alignment
-    NSUInteger currentLength = [data length];
-    NSUInteger alignedLength = alignTo(currentLength, alignment);
-    NSUInteger padding = alignedLength - currentLength;
-    
-    if (padding > 0) {
-        uint8_t zero = 0;
-        for (NSUInteger i = 0; i < padding; i++) {
-            [data appendBytes:&zero length:1];
-        }
-    }
-    
-    [data appendBytes:bytes length:length];
-}
+
 
 @implementation MBMessage
 
@@ -194,24 +180,31 @@ static void appendAligned(NSMutableData *data, const void *bytes, NSUInteger len
     void (^addStringField)(uint8_t, NSString *) = ^(uint8_t code, NSString *value) {
         if (!value) return;
         
+        // Struct: field code (1 byte) + variant (signature length + signature + value)
         [fieldsData appendBytes:&code length:1];
-        uint8_t variant = 1; // Signature for string = "s"
-        [fieldsData appendBytes:&variant length:1];
-        uint8_t strSig = 's';
+        
+        // Variant: signature length (1 byte) + signature + null + value
+        uint8_t sigLen = 1;
+        [fieldsData appendBytes:&sigLen length:1];
+        uint8_t strSig = (code == DBUS_HEADER_FIELD_PATH) ? 'o' : 's';
         [fieldsData appendBytes:&strSig length:1];
         uint8_t nullTerm = 0;
         [fieldsData appendBytes:&nullTerm length:1];
         
         // Align to 4-byte boundary for string length
         while ([fieldsData length] % 4 != 0) {
-            uint8_t padding = 0;
-            [fieldsData appendBytes:&padding length:1];
+            [fieldsData appendBytes:&nullTerm length:1];
         }
         
         uint32_t strLen = (uint32_t)[value lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
         [fieldsData appendBytes:&strLen length:4];
         [fieldsData appendData:[value dataUsingEncoding:NSUTF8StringEncoding]];
         [fieldsData appendBytes:&nullTerm length:1];
+        
+        // Align to 8-byte boundary for next struct
+        while ([fieldsData length] % 8 != 0) {
+            [fieldsData appendBytes:&nullTerm length:1];
+        }
     };
     
     // Helper to add a uint32 header field
@@ -219,8 +212,8 @@ static void appendAligned(NSMutableData *data, const void *bytes, NSUInteger len
         if (value == 0) return;
         
         [fieldsData appendBytes:&code length:1];
-        uint8_t variant = 1; // Signature for uint32 = "u"
-        [fieldsData appendBytes:&variant length:1];
+        uint8_t sigLen = 1;
+        [fieldsData appendBytes:&sigLen length:1];
         uint8_t uintSig = 'u';
         [fieldsData appendBytes:&uintSig length:1];
         uint8_t nullTerm = 0;
@@ -228,30 +221,28 @@ static void appendAligned(NSMutableData *data, const void *bytes, NSUInteger len
         
         // Align to 4-byte boundary for uint32
         while ([fieldsData length] % 4 != 0) {
-            uint8_t padding = 0;
-            [fieldsData appendBytes:&padding length:1];
+            [fieldsData appendBytes:&nullTerm length:1];
         }
         
         [fieldsData appendBytes:&value length:4];
+        
+        // Align to 8-byte boundary for next struct
+        while ([fieldsData length] % 8 != 0) {
+            [fieldsData appendBytes:&nullTerm length:1];
+        }
     };
     
-    // Add header fields
+    // Add header fields in the correct order
     addStringField(DBUS_HEADER_FIELD_PATH, _path);
     addStringField(DBUS_HEADER_FIELD_INTERFACE, _interface);
     addStringField(DBUS_HEADER_FIELD_MEMBER, _member);
     addStringField(DBUS_HEADER_FIELD_ERROR_NAME, _errorName);
+    addUInt32Field(DBUS_HEADER_FIELD_REPLY_SERIAL, (uint32_t)_replySerial);
     addStringField(DBUS_HEADER_FIELD_DESTINATION, _destination);
     addStringField(DBUS_HEADER_FIELD_SENDER, _sender);
     addStringField(DBUS_HEADER_FIELD_SIGNATURE, _signature);
-    addUInt32Field(DBUS_HEADER_FIELD_REPLY_SERIAL, (uint32_t)_replySerial);
     
-    // Wrap in array structure
-    NSMutableData *arrayData = [NSMutableData data];
-    uint32_t arrayLength = (uint32_t)[fieldsData length];
-    [arrayData appendBytes:&arrayLength length:4];
-    [arrayData appendData:fieldsData];
-    
-    return arrayData;
+    return fieldsData;
 }
 
 - (NSData *)serializeBody
@@ -333,8 +324,8 @@ static void appendAligned(NSMutableData *data, const void *bytes, NSUInteger len
     // Body length should be small for a Hello message
     uint32_t bodyLengthRaw = *(uint32_t *)(bytes + pos);
     if (bodyLengthRaw > 1000000) { // Sanity check - huge body length suggests parsing error
-        NSLog(@"messageFromData: suspicious body length 0x%08x, this might be malformed", bodyLengthRaw);
-        // Try to recover by treating this as incomplete message
+        NSLog(@"messageFromData: suspicious body length 0x%08x, this might be incomplete message", bodyLengthRaw);
+        // This is likely an incomplete message, return nil to wait for more data
         return nil;
     }
     
@@ -446,6 +437,20 @@ static void appendAligned(NSMutableData *data, const void *bytes, NSUInteger len
                     break;
                 case DBUS_HEADER_FIELD_SENDER:
                     message.sender = str;
+                    break;
+            }
+        } else if (signature == 'u') { // uint32
+            uint32_t value = *(uint32_t *)(bytes + pos);
+            if (!littleEndian) {
+                value = ntohl(value);
+            }
+            pos += 4;
+            
+            NSLog(@"messageFromData: field %d = %u", fieldCode, value);
+            
+            switch (fieldCode) {
+                case DBUS_HEADER_FIELD_REPLY_SERIAL:
+                    message.replySerial = value;
                     break;
             }
         } else {

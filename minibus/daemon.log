@@ -1,0 +1,28 @@
+2025-07-29 08:44:23.337 minibus[8506:102546] MiniBus D-Bus daemon starting...
+2025-07-29 08:44:23.337 minibus[8506:102546] Using socket path: /tmp/minibus-socket
+2025-07-29 08:44:23.337 minibus[8506:102546] Created Unix domain server socket at /tmp/minibus-socket
+2025-07-29 08:44:23.337 minibus[8506:102546] MiniBus daemon started on /tmp/minibus-socket
+2025-07-29 08:44:23.337 minibus[8506:102546] MiniBus daemon running, waiting for connections...
+2025-07-29 08:44:33.453 minibus[8506:102546] Accepted new connection on socket 4
+2025-07-29 08:44:33.454 minibus[8506:102546] New connection created for socket 4
+2025-07-29 08:44:33.454 minibus[8506:102546] New connection added: <MBConnection socket=4 state=0 unique=(null)>
+2025-07-29 08:44:33.454 minibus[8506:102546] Auth buffer: 'AUTH EXTERNAL 31303031
+'
+2025-07-29 08:44:33.454 minibus[8506:102546] Sent AUTH OK response: SUCCESS
+2025-07-29 08:44:33.454 minibus[8506:102546] Auth buffer: 'NEGOTIATE_UNIX_FD
+'
+2025-07-29 08:44:33.454 minibus[8506:102546] Sent NEGOTIATE_UNIX_FD rejection: SUCCESS
+2025-07-29 08:44:33.454 minibus[8506:102546] BEGIN found, preserving 87 bytes of message data
+2025-07-29 08:44:33.454 minibus[8506:102546] Preserved message data: 6c 01 01 01 6e 01 01 6f 15 2f 6f 72 67 2f 66 72 65 65 64 65 73 6b 74 6f 70 2f 44 42 75 73 06 01 
+2025-07-29 08:44:33.454 minibus[8506:102546] Authentication completed for connection 4
+2025-07-29 08:44:33.454 minibus[8506:102546] Authentication completed, state changed to WaitingForHello, buffer has 0 bytes
+2025-07-29 08:44:33.454 minibus[8506:102546] Parsing messages from 0 bytes of data
+2025-07-29 08:44:33.454 minibus[8506:102546] Parsed 0 messages total
+2025-07-29 08:44:43.456 minibus[8506:102546] Connection closed on socket 4
+2025-07-29 08:44:43.456 minibus[8506:102546] Connection closed on socket 4
+2025-07-29 08:44:43.456 minibus[8506:102546] Closed socket 4
+2025-07-29 08:44:43.456 minibus[8506:102546] Connection removed: <MBConnection socket=-1 state=1 unique=(null)>
+2025-07-29 08:45:14.057 minibus[8506:102546] Received signal 15, shutting down...
+2025-07-29 08:45:14.058 minibus[8506:102546] Closed socket 3
+2025-07-29 08:45:14.058 minibus[8506:102546] MiniBus daemon stopped
+2025-07-29 08:45:14.058 minibus[8506:102546] MiniBus daemon exiting

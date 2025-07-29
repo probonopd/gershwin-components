@@ -118,18 +118,21 @@
     ssize_t bytesRead = recv(socket, buffer, sizeof(buffer), 0);
     
     if (bytesRead < 0) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            NSLog(@"Failed to receive data from socket %d: %s", socket, strerror(errno));
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // No data available right now, but socket is still open
+            return [NSData data]; // Return empty data, not nil
         }
-        return nil;
+        NSLog(@"Failed to receive data from socket %d: %s", socket, strerror(errno));
+        return nil; // Real error
     }
     
     if (bytesRead == 0) {
-        // Connection closed
-        NSLog(@"Connection closed on socket %d", socket);
-        return [NSData data]; // Empty data indicates connection closed
+        // Connection closed by peer
+        NSLog(@"Connection closed by peer on socket %d", socket);
+        return nil; // Connection closed
     }
     
+    NSLog(@"Received %ld bytes on socket %d", bytesRead, socket);
     return [NSData dataWithBytes:buffer length:bytesRead];
 }
 

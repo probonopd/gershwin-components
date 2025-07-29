@@ -22,6 +22,7 @@ typedef enum {
     NSString *_uniqueName;
     MBDaemon *_daemon;
     NSMutableData *_readBuffer;
+    BOOL _authProcessed;  // Track if AUTH command was processed
 }
 
 @property (nonatomic, readonly) int socket;

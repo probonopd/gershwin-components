@@ -13,6 +13,7 @@
         _daemon = daemon;
         _state = MBConnectionStateWaitingForAuth;
         _readBuffer = [[NSMutableData alloc] init];
+        _authProcessed = NO;
         
         // Note: D-Bus spec says client sends null byte first, not server
         NSLog(@"New connection created for socket %d", _socket);
@@ -61,13 +62,15 @@
     
     // Read new data
     NSData *newData = [MBTransport receiveDataFromSocket:_socket];
-    if (!newData) {
-        return @[]; // No data or error
+    if (newData == nil) {
+        // Connection closed or real error - close this connection
+        NSLog(@"Connection closed on socket %d", _socket);
+        [self close];
+        return @[];
     }
     
     if ([newData length] == 0) {
-        // Connection closed
-        [self close];
+        // No data available right now, but connection is still open
         return @[];
     }
     
@@ -78,12 +81,10 @@
         if ([self handleAuthentication]) {
             _state = MBConnectionStateWaitingForHello;
             NSLog(@"Authentication completed, state changed to WaitingForHello, buffer has %lu bytes", (unsigned long)[_readBuffer length]);
-            // After auth, if there's data in buffer, it's message data from the auth process
-            // Don't clear it, just continue processing
-        }
-        // If auth not complete, we still return empty array
-        if (_state == MBConnectionStateWaitingForAuth) {
-            return @[];
+            // If there's message data in buffer after auth, process it now
+            // Don't return early - continue to message processing
+        } else {
+            return @[]; // Auth not complete yet
         }
     }
     
@@ -112,113 +113,124 @@
 
 - (BOOL)handleAuthentication
 {
-    // Remove any null bytes from the buffer (initial handshake) 
-    NSMutableData *cleanBuffer = [NSMutableData data];
-    const uint8_t *bytes = [_readBuffer bytes];
-    for (NSUInteger i = 0; i < [_readBuffer length]; i++) {
-        if (bytes[i] != 0) {
-            [cleanBuffer appendBytes:&bytes[i] length:1];
-        }
-    }
+    // First, find "BEGIN" in the raw buffer to separate auth from message data
+    const uint8_t *rawBytes = [_readBuffer bytes];
+    NSUInteger rawLength = [_readBuffer length];
     
-    // Look for "BEGIN\n" or "BEGIN\r\n" in the raw data to separate auth from message data
-    const uint8_t *cleanBytes = [cleanBuffer bytes];
-    NSUInteger cleanLength = [cleanBuffer length];
-    
-    // Search for "BEGIN" followed by newline
     const char *beginPattern = "BEGIN";
     NSUInteger beginPatternLen = strlen(beginPattern);
+    NSUInteger authEnd = NSNotFound;
+    NSUInteger messageStart = NSNotFound;
     
-    for (NSUInteger i = 0; i <= cleanLength - beginPatternLen; i++) {
-        if (memcmp(cleanBytes + i, beginPattern, beginPatternLen) == 0) {
-            // Found "BEGIN", now look for the newline after it
+    // Find "BEGIN" followed by newline in raw data
+    for (NSUInteger i = 0; i <= rawLength - beginPatternLen; i++) {
+        if (memcmp(rawBytes + i, beginPattern, beginPatternLen) == 0) {
+            // Found BEGIN, check if it's followed by newline
             NSUInteger afterBegin = i + beginPatternLen;
-            NSUInteger messageStart = NSNotFound;
             
-            // Skip any whitespace and find the newline
-            for (NSUInteger j = afterBegin; j < cleanLength; j++) {
-                if (cleanBytes[j] == '\n') {
-                    messageStart = j + 1;
-                    break;
-                } else if (cleanBytes[j] == '\r' && j + 1 < cleanLength && cleanBytes[j + 1] == '\n') {
-                    messageStart = j + 2;
-                    break;
-                }
-            }            if (messageStart != NSNotFound && messageStart < cleanLength) {
-                // Extract the message data after BEGIN\n
-                NSData *messageData = [NSData dataWithBytes:cleanBytes + messageStart 
-                                                     length:cleanLength - messageStart];
-                NSLog(@"BEGIN found, preserving %lu bytes of message data", (unsigned long)[messageData length]);
-                
-                // Debug: show what we're preserving
-                if ([messageData length] > 0) {
-                    const uint8_t *msgBytes = [messageData bytes];
-                    NSMutableString *hexString = [NSMutableString string];
-                    for (NSUInteger i = 0; i < MIN([messageData length], 32); i++) {
-                        [hexString appendFormat:@"%02x ", msgBytes[i]];
-                    }
-                    NSLog(@"Preserved message data: %@", hexString);
-                }
-                
-                // Don't set buffer yet - this might be incomplete. Just clear for now.
-                [_readBuffer setData:[NSData data]];
-            } else {
-                NSLog(@"BEGIN found, no message data to preserve");
-                [_readBuffer setData:[NSData data]];
+            // Skip whitespace after BEGIN
+            while (afterBegin < rawLength && (rawBytes[afterBegin] == ' ' || rawBytes[afterBegin] == '\t')) {
+                afterBegin++;
             }
             
-            NSLog(@"Authentication completed for connection %d", _socket);
-            return YES;
+            // Check for newline
+            if (afterBegin < rawLength && rawBytes[afterBegin] == '\r') {
+                if (afterBegin + 1 < rawLength && rawBytes[afterBegin + 1] == '\n') {
+                    authEnd = i;
+                    messageStart = afterBegin + 2; // After \r\n
+                } else {
+                    authEnd = i;
+                    messageStart = afterBegin + 1; // After \r
+                }
+                break;
+            } else if (afterBegin < rawLength && rawBytes[afterBegin] == '\n') {
+                authEnd = i;
+                messageStart = afterBegin + 1; // After \n
+                break;
+            }
         }
     }
     
-    // Convert to string only for text-based auth processing
-    NSString *bufferString = [[NSString alloc] initWithData:cleanBuffer encoding:NSUTF8StringEncoding];
-    if (!bufferString) {
-        bufferString = [[NSString alloc] initWithData:cleanBuffer encoding:NSISOLatin1StringEncoding];
-        if (!bufferString) {
-            if ([cleanBuffer length] > 0) {
-                NSLog(@"Received non-string auth data, length: %lu", (unsigned long)[cleanBuffer length]);
-                const uint8_t *cleanBytes = [cleanBuffer bytes];
-                NSMutableString *hexString = [NSMutableString string];
-                for (NSUInteger i = 0; i < MIN([cleanBuffer length], 32); i++) {
-                    [hexString appendFormat:@"%02x ", cleanBytes[i]];
-                }
-                NSLog(@"Auth data hex: %@", hexString);
-                [_readBuffer setData:[NSData data]];
+    if (authEnd == NSNotFound) {
+        // No complete BEGIN found yet - process auth commands so far
+        NSMutableData *authBuffer = [NSMutableData data];
+        for (NSUInteger i = 0; i < rawLength; i++) {
+            if (rawBytes[i] != 0) {
+                [authBuffer appendBytes:&rawBytes[i] length:1];
             }
+        }
+        
+        NSString *authString = [[NSString alloc] initWithData:authBuffer encoding:NSUTF8StringEncoding];
+        if (authString) {
+            NSArray *lines = [authString componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+            
+            for (NSString *line in lines) {
+                line = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                
+                if ([line hasPrefix:@"AUTH"]) {
+                    NSString *response = @"OK 12345678901234567890123456789012\r\n";
+                    NSData *responseData = [response dataUsingEncoding:NSUTF8StringEncoding];
+                    BOOL sent = [MBTransport sendData:responseData onSocket:_socket];
+                    NSLog(@"Sent AUTH OK response: %@", sent ? @"SUCCESS" : @"FAILED");
+                    _authProcessed = YES;
+                }
+                
+                if ([line hasPrefix:@"NEGOTIATE_UNIX_FD"]) {
+                    // For simplicity, just ignore Unix FD negotiation
+                    NSLog(@"NEGOTIATE_UNIX_FD ignored (no Unix FD support)");
+                }
+                
+                if ([line hasPrefix:@"CANCEL"] || [line hasPrefix:@"ERROR"]) {
+                    NSLog(@"Authentication cancelled or error for connection %d", _socket);
+                    [self close];
+                    return NO;
+                }
+            }
+        }
+        
+        return NO; // Not complete yet
+    }
+    
+    // We found BEGIN - extract auth part (before BEGIN) and clean it (remove null bytes)
+    NSMutableData *authBuffer = [NSMutableData data];
+    for (NSUInteger i = 0; i < authEnd; i++) {
+        if (rawBytes[i] != 0) {
+            [authBuffer appendBytes:&rawBytes[i] length:1];
+        }
+    }
+    
+    // Convert auth buffer to string for processing
+    NSString *authString = [[NSString alloc] initWithData:authBuffer encoding:NSUTF8StringEncoding];
+    if (!authString) {
+        authString = [[NSString alloc] initWithData:authBuffer encoding:NSISOLatin1StringEncoding];
+        if (!authString) {
+            NSLog(@"Failed to decode auth data");
             return NO;
         }
     }
     
-    NSLog(@"Auth buffer: '%@'", bufferString);
+    NSLog(@"Auth buffer: '%@'", authString);
     
-    // Look for complete auth lines ending in \r\n or just \n
-    NSArray *lines = [bufferString componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
-    
+    // Process auth commands
+    NSArray *lines = [authString componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
     BOOL hasProcessedAuth = NO;
     
     for (NSString *line in lines) {
         line = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         
         if ([line hasPrefix:@"AUTH"]) {
-            // Respond with OK and server GUID
             NSString *response = @"OK 12345678901234567890123456789012\r\n";
             NSData *responseData = [response dataUsingEncoding:NSUTF8StringEncoding];
             BOOL sent = [MBTransport sendData:responseData onSocket:_socket];
             NSLog(@"Sent AUTH OK response: %@", sent ? @"SUCCESS" : @"FAILED");
             hasProcessedAuth = YES;
-            continue;
+            _authProcessed = YES;
         }
         
         if ([line hasPrefix:@"NEGOTIATE_UNIX_FD"]) {
-            // For simplicity, reject Unix FD support
-            NSString *response = @"ERROR\r\n";
-            NSData *responseData = [response dataUsingEncoding:NSUTF8StringEncoding];
-            BOOL sent = [MBTransport sendData:responseData onSocket:_socket];
-            NSLog(@"Sent NEGOTIATE_UNIX_FD rejection: %@", sent ? @"SUCCESS" : @"FAILED");
-            hasProcessedAuth = YES;
-            continue;
+            // For simplicity, just ignore Unix FD negotiation (don't send ERROR)
+            // This means we don't support Unix FD passing but won't break the auth
+            NSLog(@"NEGOTIATE_UNIX_FD ignored (no Unix FD support)");
         }
         
         if ([line hasPrefix:@"CANCEL"] || [line hasPrefix:@"ERROR"]) {
@@ -228,19 +240,36 @@
         }
     }
     
-    // If we processed AUTH but no BEGIN yet, clear buffer but keep waiting
-    if (hasProcessedAuth) {
-        [_readBuffer setData:[NSData data]];
-    }
-    
-    // If buffer is getting too large without proper auth, reject
-    if ([_readBuffer length] > 512) {
-        NSLog(@"Authentication buffer too large, rejecting connection %d", _socket);
-        [self close];
+    if (!hasProcessedAuth && !_authProcessed) {
+        NSLog(@"No AUTH command processed yet");
         return NO;
     }
     
-    return NO; // Not complete yet
+    // Extract message data (after BEGIN\r\n) without modifying it
+    if (messageStart < rawLength) {
+        NSData *messageData = [NSData dataWithBytes:rawBytes + messageStart 
+                                             length:rawLength - messageStart];
+        NSLog(@"BEGIN found, preserving %lu bytes of message data", (unsigned long)[messageData length]);
+        
+        // Debug: show what we're preserving
+        if ([messageData length] > 0) {
+            const uint8_t *msgBytes = [messageData bytes];
+            NSMutableString *hexString = [NSMutableString string];
+            for (NSUInteger i = 0; i < MIN([messageData length], 32); i++) {
+                [hexString appendFormat:@"%02x ", msgBytes[i]];
+            }
+            NSLog(@"Preserved message data: %@", hexString);
+        }
+        
+        // Replace buffer with preserved message data
+        [_readBuffer setData:messageData];
+    } else {
+        NSLog(@"BEGIN found, no message data to preserve");
+        [_readBuffer setData:[NSData data]];
+    }
+    
+    NSLog(@"Authentication completed for connection %d", _socket);
+    return YES;
 }
 
 - (void)close

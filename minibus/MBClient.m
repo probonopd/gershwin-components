@@ -35,19 +35,25 @@
     }
     
     // Perform simplified authentication
-    NSString *authCommand = @"AUTH EXTERNAL\r\nBEGIN\r\n";
+    NSString *authCommand = @"AUTH EXTERNAL 31303031\r\nBEGIN\r\n";
     NSData *authData = [authCommand dataUsingEncoding:NSUTF8StringEncoding];
+    NSLog(@"Sending auth data: %@", authCommand);
     if (![MBTransport sendData:authData onSocket:_socket]) {
         NSLog(@"Failed to send authentication");
         [self disconnect];
         return NO;
     }
     
+    NSLog(@"Auth sent, waiting for response...");
+    
     // Wait for auth response and consume it
     usleep(100000); // 100ms
     NSData *authResponse = [MBTransport receiveDataFromSocket:_socket];
     if (authResponse && [authResponse length] > 0) {
-        NSLog(@"Auth response received: %@", [[NSString alloc] initWithData:authResponse encoding:NSUTF8StringEncoding]);
+        NSLog(@"Auth response received (%lu bytes): %@", (unsigned long)[authResponse length], 
+              [[NSString alloc] initWithData:authResponse encoding:NSUTF8StringEncoding]);
+    } else {
+        NSLog(@"No auth response received");
     }
     
     // Send Hello message to get unique name
@@ -58,11 +64,15 @@
                                                           arguments:@[]];
     helloMessage.serial = _nextSerial++;
     
+    NSLog(@"Sending Hello message: %@", helloMessage);
+    
     if (![self sendMessage:helloMessage]) {
         NSLog(@"Failed to send Hello message");
         [self disconnect];
         return NO;
     }
+    
+    NSLog(@"Hello message sent, waiting for reply...");
     
     // Wait for Hello reply
     NSTimeInterval timeout = 5.0;
@@ -276,6 +286,17 @@
     if (!data) {
         NSLog(@"Failed to serialize message");
         return NO;
+    }
+    
+    NSLog(@"Sending message data: %lu bytes", (unsigned long)[data length]);
+    // Debug: show first 32 bytes
+    if ([data length] > 0) {
+        const uint8_t *bytes = [data bytes];
+        NSMutableString *hexString = [NSMutableString string];
+        for (NSUInteger i = 0; i < MIN([data length], 32); i++) {
+            [hexString appendFormat:@"%02x ", bytes[i]];
+        }
+        NSLog(@"Message bytes: %@", hexString);
     }
     
     return [MBTransport sendData:data onSocket:_socket];
