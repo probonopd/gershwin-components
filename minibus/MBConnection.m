@@ -90,8 +90,8 @@ typedef enum {
     _processIncomingDataCallCount++;
     NSLog(@"processIncomingData called #%d for socket %d", _processIncomingDataCallCount, _socket);
     
-    if (_processIncomingDataCallCount > 100) {
-        NSLog(@"ERROR: processIncomingData called too many times, stopping to prevent infinite loop");
+    if (_processIncomingDataCallCount > 20) { // Reduced from 100 to 20
+        NSLog(@"ERROR: processIncomingData called too many times (%d), stopping to prevent CPU overload", _processIncomingDataCallCount);
         [self close];
         return [NSArray array];
     }
@@ -127,7 +127,12 @@ typedef enum {
     } else {
         // Process D-Bus messages (active or waiting for hello)
         NSLog(@"processIncomingData: processing D-Bus messages");
-        return [self parseMessages];
+        NSArray *messages = [self parseMessages];
+        if ([messages count] == 0) {
+            // No messages parsed - add small delay to prevent CPU spinning
+            usleep(1000); // 1ms delay
+        }
+        return messages;
     }
 }
 
@@ -139,6 +144,13 @@ typedef enum {
 - (BOOL)processAuthentication {
     _processAuthenticationCallCount++;
     NSLog(@"processAuthentication called #%d for socket %d", _processAuthenticationCallCount, _socket);
+    
+    // CPU protection: limit authentication processing calls
+    if (_processAuthenticationCallCount > 10) {
+        NSLog(@"ERROR: processAuthentication called too many times (%d), forcing disconnect to prevent CPU overload", _processAuthenticationCallCount);
+        [self close];
+        return NO;
+    }
     
     // Move new data from read buffer to auth buffer (BUG FIX: do not append _authIncoming to itself!)
     if ([_readBuffer length] > 0) {
@@ -158,7 +170,7 @@ typedef enum {
     // 7. Ready for D-Bus messages
     
     int commandCount = 0;
-    int maxCommands = 10;  // Increased but still safe limit
+    int maxCommands = 5;  // Reduced from 10 to 5 for CPU protection
     while (commandCount < maxCommands) {
         BOOL hasCommand = [self processOneAuthCommand];
         if (!hasCommand) {
@@ -433,8 +445,15 @@ typedef enum {
     if ([_readBuffer length] == 0) {
         return [NSArray array];
     }
-    
+
     NSLog(@"parseMessages called with %lu bytes in buffer", (unsigned long)[_readBuffer length]);
+    
+    // CPU protection: limit buffer size to prevent memory/CPU attacks
+    if ([_readBuffer length] > 1048576) { // 1MB limit
+        NSLog(@"Buffer too large (%lu bytes), clearing to prevent memory exhaustion", (unsigned long)[_readBuffer length]);
+        [_readBuffer setData:[NSData data]];
+        return [NSArray array];
+    }
     
     // Show first few bytes for debugging
     const uint8_t *bytes = [_readBuffer bytes];

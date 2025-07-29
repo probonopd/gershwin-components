@@ -500,13 +500,19 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     
     // Parse header fields (simplified but more robust)
     NSUInteger headerFieldsEnd = pos + headerFieldsLength;
+    NSUInteger maxFieldIterations = 50; // Prevent infinite loops in header parsing
+    NSUInteger fieldIterationCount = 0;
+    
     NSLog(@"messageFromData: parsing header fields from %lu to %lu", (unsigned long)pos, (unsigned long)headerFieldsEnd);
     
-    while (pos < headerFieldsEnd && pos + 8 <= [data length]) {
+    while (pos < headerFieldsEnd && pos + 8 <= [data length] && fieldIterationCount < maxFieldIterations) {
+        fieldIterationCount++;
+        NSUInteger oldPos = pos;
+        
         // Each header field is a struct: (BYTE fieldcode, VARIANT value)
         
         uint8_t fieldCode = bytes[pos++];
-        NSLog(@"messageFromData: parsing field code %d at pos %lu", fieldCode, (unsigned long)(pos-1));
+        NSLog(@"messageFromData: parsing field code %d at pos %lu (field iteration %lu)", fieldCode, (unsigned long)(pos-1), (unsigned long)fieldIterationCount);
         
         if (fieldCode == 0) {
             // Field code 0 means padding, skip padding bytes
@@ -530,50 +536,24 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
         char signature = bytes[pos];
         NSLog(@"messageFromData: signature '%c' (0x%02x)", signature, signature);
         pos += sigLen + 1; // signature + null terminator
-        
-        // For variants in header fields, the value follows immediately after the signature
-        // without additional alignment (the variant is already aligned as part of the struct)
-        NSLog(@"messageFromData: reading variant value at position %lu", (unsigned long)pos);
-        
-        if (pos + 4 > headerFieldsEnd) {
-            NSLog(@"messageFromData: not enough data for field value, skipping");
-            break;
-        }
-        
+        // DO NOT align here! D-Bus header field variant value follows immediately after signature null terminator
         // Parse value based on signature
         if (signature == 's' || signature == 'o') { // string or object path
-            // Debug: show raw bytes at this position
-            if (pos + 8 <= headerFieldsEnd) {
-                NSMutableString *hexStr = [NSMutableString string];
-                for (int i = 0; i < 8; i++) {
-                    [hexStr appendFormat:@"%02x ", bytes[pos + i]];
-                }
-                NSLog(@"messageFromData: raw bytes at pos %lu: %@", (unsigned long)pos, hexStr);
-            }
-            
             uint32_t strLen = *(uint32_t *)(bytes + pos);
-            uint32_t strLenOriginal = strLen;
             if (!littleEndian) {
                 strLen = ntohl(strLen); // Convert from network (big-endian) to host order
             }
             pos += 4;
-            
-            NSLog(@"messageFromData: string length %u (raw=0x%08x, littleEndian=%s)", 
-                  strLen, strLenOriginal, littleEndian ? "YES" : "NO");
-            
+            NSLog(@"messageFromData: string length %u", strLen);
             if (strLen > 1024 || pos + strLen + 1 > headerFieldsEnd) {
-                NSLog(@"messageFromData: string too long or not enough data (strLen=%u, pos=%lu, headerFieldsEnd=%lu)",
-                      strLen, (unsigned long)pos, (unsigned long)headerFieldsEnd);
+                NSLog(@"messageFromData: string too long or not enough data");
                 break;
             }
-            
             NSString *str = [[NSString alloc] initWithBytes:bytes + pos
                                                      length:strLen
                                                    encoding:NSUTF8StringEncoding];
             pos += strLen + 1; // +1 for null terminator
-            
             NSLog(@"messageFromData: field %d = '%@'", fieldCode, str);
-            
             switch (fieldCode) {
                 case DBUS_HEADER_FIELD_DESTINATION:
                     message.destination = str;
@@ -597,9 +577,7 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
                 value = ntohl(value);
             }
             pos += 4;
-            
             NSLog(@"messageFromData: field %d = %u", fieldCode, value);
-            
             switch (fieldCode) {
                 case DBUS_HEADER_FIELD_REPLY_SERIAL:
                     message.replySerial = value;
@@ -611,22 +589,17 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
                 NSLog(@"messageFromData: not enough data for signature length");
                 break;
             }
-            
             uint8_t sigLen = bytes[pos++];
             NSLog(@"messageFromData: signature length %u", sigLen);
-            
             if (sigLen > 255 || pos + sigLen + 1 > headerFieldsEnd) {
                 NSLog(@"messageFromData: signature too long or not enough data");
                 break;
             }
-            
             NSString *sigStr = [[NSString alloc] initWithBytes:bytes + pos
                                                        length:sigLen
                                                      encoding:NSUTF8StringEncoding];
             pos += sigLen + 1; // +1 for null terminator
-            
             NSLog(@"messageFromData: field %d signature = '%@'", fieldCode, sigStr);
-            
             switch (fieldCode) {
                 case DBUS_HEADER_FIELD_SIGNATURE:
                     message.signature = sigStr;
@@ -637,9 +610,21 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
             NSLog(@"messageFromData: skipping unknown signature '%c'", signature);
             pos += 8; // Skip some bytes and continue
         }
+        
+        // CPU protection: if we're not making progress, break
+        if (pos == oldPos) {
+            NSLog(@"Header field parsing stuck at position %lu, breaking", (unsigned long)pos);
+            break;
+        }
+        
+        // Additional protection: if we've hit the iteration limit
+        if (fieldIterationCount >= maxFieldIterations) {
+            NSLog(@"Hit maximum field iteration limit (%lu), stopping header field parsing", (unsigned long)maxFieldIterations);
+            break;
+        }
     }
     // Ensure we're at the end of header fields
-    pos = 16 + headerFieldsLength; // Skip to end of header fields
+    pos = *offset + 16 + headerFieldsLength; // Skip to end of header fields from original offset
     
     // Align to 8-byte boundary for body  
     pos = alignTo(pos, 8);
@@ -702,6 +687,8 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
 {
     NSMutableArray *messages = [NSMutableArray array];
     NSUInteger offset = 0;
+    NSUInteger maxIterations = 100; // Prevent infinite loops
+    NSUInteger iterationCount = 0;
     
     NSLog(@"Parsing messages from %lu bytes of data", (unsigned long)[data length]);
     
@@ -715,9 +702,11 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
         NSLog(@"Message data hex: %@", hexString);
     }
     
-    while (offset < [data length]) {
+    while (offset < [data length] && iterationCount < maxIterations) {
         NSUInteger oldOffset = offset;
-        NSLog(@"Trying to parse message at offset %lu", (unsigned long)offset);
+        iterationCount++;
+        
+        NSLog(@"Trying to parse message at offset %lu (iteration %lu)", (unsigned long)offset, (unsigned long)iterationCount);
         MBMessage *message = [self messageFromData:data offset:&offset];
         if (message) {
             NSLog(@"Successfully parsed message: %@", message);
@@ -729,10 +718,22 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
                 NSLog(@"Offset didn't advance, breaking to prevent infinite loop");
                 break;
             }
+            
+            // Additional safety: if we're making very small progress, skip ahead
+            if (offset - oldOffset < 4 && iterationCount > 10) {
+                NSLog(@"Making very slow progress, skipping ahead by 16 bytes");
+                offset = oldOffset + 16;
+            }
+        }
+        
+        // CPU protection: if we've done too many iterations, stop
+        if (iterationCount >= maxIterations) {
+            NSLog(@"Hit maximum iteration limit (%lu), stopping message parsing to prevent CPU overload", (unsigned long)maxIterations);
+            break;
         }
     }
     
-    NSLog(@"Parsed %lu messages total", (unsigned long)[messages count]);
+    NSLog(@"Parsed %lu messages total in %lu iterations", (unsigned long)[messages count], (unsigned long)iterationCount);
     return messages;
 }
 
