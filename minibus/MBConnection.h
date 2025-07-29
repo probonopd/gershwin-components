@@ -23,6 +23,10 @@ typedef enum {
     MBDaemon *_daemon;
     NSMutableData *_readBuffer;
     BOOL _authProcessed;  // Track if AUTH command was processed
+    
+    // Debug counters
+    int _processIncomingDataCallCount;
+    int _processAuthenticationCallCount;
 }
 
 @property (nonatomic, readonly) int socket;

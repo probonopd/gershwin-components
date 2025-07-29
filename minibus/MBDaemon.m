@@ -128,7 +128,11 @@
         
         // Check existing connections for data
         NSMutableArray *connectionsToRemove = [NSMutableArray array];
-        for (MBConnection *connection in _connections) {
+        
+        // Create a copy of connections array to avoid mutation during enumeration
+        NSArray *connectionsCopy = [NSArray arrayWithArray:_connections];
+        
+        for (MBConnection *connection in connectionsCopy) {
             if (connection.socket >= 0 && FD_ISSET(connection.socket, &readfds)) {
                 NSArray *messages = [connection processIncomingData];
                 
@@ -154,6 +158,13 @@
 
 - (void)handleNewConnection:(int)clientSocket
 {
+    // Set client socket to non-blocking mode
+    if (![MBTransport setSocketNonBlocking:clientSocket]) {
+        NSLog(@"Failed to set client socket to non-blocking mode");
+        close(clientSocket);
+        return;
+    }
+    
     MBConnection *connection = [[MBConnection alloc] initWithSocket:clientSocket daemon:self];
     [_connections addObject:connection];
     

@@ -10,20 +10,24 @@ simple-test_OBJC_FILES = simple-test.m MBClient.m MBConnection.m MBMessage.m MBT
 minibus_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
 minibus-test_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
 simple-test_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
+minibus-libdbus_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
 
 # Include paths
-minibus_CPPFLAGS += -DGNUSTEP -I/usr/local/include
-minibus-test_CPPFLAGS += -DGNUSTEP -I/usr/local/include
-simple-test_CPPFLAGS += -DGNUSTEP -I/usr/local/include
+minibus_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
+minibus-test_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
+simple-test_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
+minibus-libdbus_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
 
 # Library paths and links
-minibus_LDFLAGS += -L/usr/local/lib
-minibus-test_LDFLAGS += -L/usr/local/lib
-simple-test_LDFLAGS += -L/usr/local/lib
+minibus_LDFLAGS += -L/usr/local/lib $(shell pkg-config --libs dbus-1)
+minibus-test_LDFLAGS += -L/usr/local/lib $(shell pkg-config --libs dbus-1)
+simple-test_LDFLAGS += -L/usr/local/lib $(shell pkg-config --libs dbus-1)
+minibus-libdbus_LDFLAGS += -L/usr/local/lib $(shell pkg-config --libs dbus-1)
 
 minibus_TOOL_LIBS += -lobjc -lBlocksRuntime
 minibus-test_TOOL_LIBS += -lobjc -lBlocksRuntime
 simple-test_TOOL_LIBS += -lobjc -lBlocksRuntime
+minibus-libdbus_TOOL_LIBS += -lobjc -lBlocksRuntime
 
 include $(GNUSTEP_MAKEFILES)/tool.make
 

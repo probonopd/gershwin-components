@@ -128,6 +128,8 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
 
 - (NSData *)serialize
 {
+    NSLog(@"Serializing message type=%d, replySerial=%lu", (int)_type, (unsigned long)_replySerial);
+    
     NSMutableData *message = [NSMutableData data];
     
     // Serialize header fields first to get length
@@ -211,6 +213,7 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     void (^addUInt32Field)(uint8_t, uint32_t) = ^(uint8_t code, uint32_t value) {
         if (value == 0) return;
         
+        NSLog(@"Adding uint32 field code=%d, value=%u", code, value);
         [fieldsData appendBytes:&code length:1];
         uint8_t sigLen = 1;
         [fieldsData appendBytes:&sigLen length:1];
@@ -276,18 +279,20 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     
     if (*offset + 16 > [data length]) {
         NSLog(@"messageFromData: not enough data for header (need 16 bytes, have %lu)", (unsigned long)([data length] - *offset));
-        return nil; // Not enough data for header
+        return nil; // Not enough data for header - don't advance offset
     }
     
     const uint8_t *bytes = [data bytes];
     NSUInteger pos = *offset;
+    NSUInteger originalOffset = *offset;
     
     // Read fixed header
     uint8_t endian = bytes[pos++];
     NSLog(@"messageFromData: endian byte 0x%02x ('%c')", endian, endian);
     
     if (endian != DBUS_LITTLE_ENDIAN && endian != DBUS_BIG_ENDIAN) {
-        NSLog(@"messageFromData: invalid endianness: 0x%02x", endian);
+        NSLog(@"messageFromData: invalid endianness: 0x%02x - advancing offset by 1", endian);
+        *offset = originalOffset + 1; // Advance by 1 byte to skip invalid data
         return nil;
     }
     
@@ -301,7 +306,8 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     NSLog(@"messageFromData: type=%d, flags=%d, version=%d", message.type, flags, version);
     
     if (version != DBUS_MAJOR_PROTOCOL_VERSION) {
-        NSLog(@"messageFromData: unsupported protocol version: %d", version);
+        NSLog(@"messageFromData: unsupported protocol version: %d - advancing offset by 4", version);
+        *offset = originalOffset + 4; // Advance by 4 bytes to skip this header
         return nil;
     }
     
@@ -317,15 +323,15 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     // Body length and serial - read individual bytes to check structure
     if (pos + 12 > [data length]) {
         NSLog(@"messageFromData: not enough data for full header");
-        return nil;
+        return nil; // Not enough data - don't advance offset
     }
     
     // Check if this looks like a valid D-Bus message structure
     // Body length should be small for a Hello message
     uint32_t bodyLengthRaw = *(uint32_t *)(bytes + pos);
     if (bodyLengthRaw > 1000000) { // Sanity check - huge body length suggests parsing error
-        NSLog(@"messageFromData: suspicious body length 0x%08x, this might be incomplete message", bodyLengthRaw);
-        // This is likely an incomplete message, return nil to wait for more data
+        NSLog(@"messageFromData: suspicious body length 0x%08x - advancing offset by 16", bodyLengthRaw);
+        *offset = originalOffset + 16; // Advance by header size to skip this message
         return nil;
     }
     
@@ -537,6 +543,7 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     }
     
     while (offset < [data length]) {
+        NSUInteger oldOffset = offset;
         NSLog(@"Trying to parse message at offset %lu", (unsigned long)offset);
         MBMessage *message = [self messageFromData:data offset:&offset];
         if (message) {
@@ -544,7 +551,11 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
             [messages addObject:message];
         } else {
             NSLog(@"Failed to parse message at offset %lu", (unsigned long)offset);
-            break;
+            // Safety check: if offset hasn't advanced, break to prevent infinite loop
+            if (offset == oldOffset) {
+                NSLog(@"Offset didn't advance, breaking to prevent infinite loop");
+                break;
+            }
         }
     }
     
