@@ -28,4 +28,6 @@ timeout 5 dbus-send --session --dest=org.freedesktop.DBus --type=method_call --p
 * Way too complicated
 * Why does it have to do "security"? Why can't the underlying operating system just take care of who can and cannot read/write to the sockets
 * Why does it have to do "message serialization"? Why not send, e.g., JSON back and forth - the the clients encode and decode that
-* Comes from GNOME, designed by Red Hat employees, unfortunately KDE went along with it; now it is branded as freedesktop.org, suggesting everyone agreed on it
+* Why does it need padding?
+
+Comes from GNOME, designed by Red Hat employees, unfortunately KDE went along with it; now it is branded as freedesktop.org, suggesting everyone agreed on it

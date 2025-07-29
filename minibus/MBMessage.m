@@ -242,30 +242,37 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
         }
     };
     
-    // Add header fields in the same order as libdbus, only include fields that have values
-    if (_path) addStringField(DBUS_HEADER_FIELD_PATH, _path, NO);
-    if (_destination) addStringField(DBUS_HEADER_FIELD_DESTINATION, _destination, NO);
-    if (_interface) addStringField(DBUS_HEADER_FIELD_INTERFACE, _interface, NO);
-    if (_member) addStringField(DBUS_HEADER_FIELD_MEMBER, _member, NO);
-    if (_errorName) addStringField(DBUS_HEADER_FIELD_ERROR_NAME, _errorName, NO);
-    if (_replySerial > 0) addUInt32Field(DBUS_HEADER_FIELD_REPLY_SERIAL, (uint32_t)_replySerial, NO);
-    if (_sender) addStringField(DBUS_HEADER_FIELD_SENDER, _sender, NO);
-    if (_signature && [_signature length] > 0) addStringField(DBUS_HEADER_FIELD_SIGNATURE, _signature, YES);
+    // Add header fields in the same order as libdbus, determining the last field correctly
     
-    // Mark the last non-null field as the last one
-    // This is a bit tricky - we need to track which one is actually last
-    NSUInteger fieldCount = 0;
-    if (_path) fieldCount++;
-    if (_destination) fieldCount++;
-    if (_interface) fieldCount++;
-    if (_member) fieldCount++;
-    if (_errorName) fieldCount++;
-    if (_replySerial > 0) fieldCount++;
-    if (_sender) fieldCount++;
-    if (_signature && [_signature length] > 0) fieldCount++;
+    // First, determine which field will be the last one
+    BOOL hasSignature = (_signature && [_signature length] > 0);
+    BOOL hasSender = (_sender != nil);
+    BOOL hasReplySerial = (_replySerial > 0);
+    BOOL hasErrorName = (_errorName != nil);
+    BOOL hasMember = (_member != nil);
+    BOOL hasInterface = (_interface != nil);
+    BOOL hasDestination = (_destination != nil);
+    BOOL hasPath = (_path != nil);
     
-    // For simplicity, assume the last field added doesn't need trailing alignment
-    // The current implementation will work correctly for common cases
+    // Determine which is the last field (in reverse order of addition)
+    BOOL pathIsLast = hasPath && !hasDestination && !hasInterface && !hasMember && !hasErrorName && !hasReplySerial && !hasSender && !hasSignature;
+    BOOL destinationIsLast = hasDestination && !hasInterface && !hasMember && !hasErrorName && !hasReplySerial && !hasSender && !hasSignature;
+    BOOL interfaceIsLast = hasInterface && !hasMember && !hasErrorName && !hasReplySerial && !hasSender && !hasSignature;
+    BOOL memberIsLast = hasMember && !hasErrorName && !hasReplySerial && !hasSender && !hasSignature;
+    BOOL errorNameIsLast = hasErrorName && !hasReplySerial && !hasSender && !hasSignature;
+    BOOL replySerialIsLast = hasReplySerial && !hasSender && !hasSignature;
+    BOOL senderIsLast = hasSender && !hasSignature;
+    BOOL signatureIsLast = hasSignature;
+    
+    // Add fields with correct isLast flags
+    if (_path) addStringField(DBUS_HEADER_FIELD_PATH, _path, pathIsLast);
+    if (_destination) addStringField(DBUS_HEADER_FIELD_DESTINATION, _destination, destinationIsLast);
+    if (_interface) addStringField(DBUS_HEADER_FIELD_INTERFACE, _interface, interfaceIsLast);
+    if (_member) addStringField(DBUS_HEADER_FIELD_MEMBER, _member, memberIsLast);
+    if (_errorName) addStringField(DBUS_HEADER_FIELD_ERROR_NAME, _errorName, errorNameIsLast);
+    if (_replySerial > 0) addUInt32Field(DBUS_HEADER_FIELD_REPLY_SERIAL, (uint32_t)_replySerial, replySerialIsLast);
+    if (_sender) addStringField(DBUS_HEADER_FIELD_SENDER, _sender, senderIsLast);
+    if (_signature && [_signature length] > 0) addStringField(DBUS_HEADER_FIELD_SIGNATURE, _signature, signatureIsLast);
     
     // Return just the array data - the length is handled by the caller
     return arrayData;

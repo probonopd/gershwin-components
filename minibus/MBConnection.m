@@ -261,9 +261,13 @@ typedef enum {
         return [self sendError:@"Need to authenticate first"];
     }
     
-    // We don't support Unix FD passing, so send ERROR
-    [self sendError:@"Unix FD passing not supported"];
-    return NO;  // Don't continue processing after sending error
+    // Send AGREE_UNIX_FD to match real dbus-daemon behavior
+    // (We don't actually implement FD passing but clients expect this response)
+    NSString *response = @"AGREE_UNIX_FD\r\n";
+    NSData *responseData = [response dataUsingEncoding:NSUTF8StringEncoding];
+    BOOL sent = [MBTransport sendData:responseData onSocket:_socket];
+    NSLog(@"Sent AGREE_UNIX_FD response: %@", sent ? @"SUCCESS" : @"FAILED");
+    return sent;
 }
 
 - (BOOL)handleBegin {

@@ -19,3 +19,4 @@ root/
 *.tar.bz2
 *.tar
 LoginWindow/j
+*.log

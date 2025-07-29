@@ -34,7 +34,7 @@
         return NO;
     }
     
-    // Perform D-Bus authentication according to spec
+    // Perform D-Bus authentication according to spec (matching real dbus-send)
     // Step 1: Send null byte + AUTH command
     NSMutableData *authData = [NSMutableData data];
     uint8_t nullByte = 0;
@@ -69,7 +69,36 @@
         return NO;
     }
     
-    // Step 3: Send BEGIN
+    // Step 3: Negotiate Unix FD passing (like real dbus-send)
+    NSString *negotiateCommand = @"NEGOTIATE_UNIX_FD\r\n";
+    NSData *negotiateData = [negotiateCommand dataUsingEncoding:NSUTF8StringEncoding];
+    NSLog(@"Sending NEGOTIATE_UNIX_FD command");
+    if (![MBTransport sendData:negotiateData onSocket:_socket]) {
+        NSLog(@"Failed to send NEGOTIATE_UNIX_FD");
+        [self disconnect];
+        return NO;
+    }
+    
+    // Step 4: Wait for AGREE_UNIX_FD response
+    usleep(100000); // 100ms
+    NSData *fdResponse = [MBTransport receiveDataFromSocket:_socket];
+    if (!fdResponse || [fdResponse length] == 0) {
+        NSLog(@"No FD negotiation response received");
+        [self disconnect];
+        return NO;
+    }
+    
+    NSString *fdResponseStr = [[NSString alloc] initWithData:fdResponse encoding:NSUTF8StringEncoding];
+    NSLog(@"FD negotiation response: %@", fdResponseStr);
+    [fdResponseStr autorelease];
+    
+    if (![fdResponseStr hasPrefix:@"AGREE_UNIX_FD"]) {
+        NSLog(@"Unix FD negotiation failed - expected AGREE_UNIX_FD, got: %@", fdResponseStr);
+        [self disconnect];
+        return NO;
+    }
+    
+    // Step 5: Send BEGIN
     NSString *beginCommand = @"BEGIN\r\n";
     NSData *beginData = [beginCommand dataUsingEncoding:NSUTF8StringEncoding];
     NSLog(@"Sending BEGIN command");
@@ -339,7 +368,7 @@
         return NO;
     }
     
-    // Perform D-Bus authentication according to spec
+    // Perform D-Bus authentication according to spec (matching real dbus-send)
     // Step 1: Send null byte + AUTH command
     NSMutableData *authData = [NSMutableData data];
     uint8_t nullByte = 0;
@@ -374,7 +403,36 @@
         return NO;
     }
     
-    // Step 3: Send BEGIN
+    // Step 3: Negotiate Unix FD passing (like real dbus-send)
+    NSString *negotiateCommand = @"NEGOTIATE_UNIX_FD\r\n";
+    NSData *negotiateData = [negotiateCommand dataUsingEncoding:NSUTF8StringEncoding];
+    NSLog(@"Sending NEGOTIATE_UNIX_FD command");
+    if (![MBTransport sendData:negotiateData onSocket:_socket]) {
+        NSLog(@"Failed to send NEGOTIATE_UNIX_FD");
+        [self disconnect];
+        return NO;
+    }
+    
+    // Step 4: Wait for AGREE_UNIX_FD response
+    usleep(100000); // 100ms
+    NSData *fdResponse = [MBTransport receiveDataFromSocket:_socket];
+    if (!fdResponse || [fdResponse length] == 0) {
+        NSLog(@"No FD negotiation response received");
+        [self disconnect];
+        return NO;
+    }
+    
+    NSString *fdResponseStr = [[NSString alloc] initWithData:fdResponse encoding:NSUTF8StringEncoding];
+    NSLog(@"FD negotiation response: %@", fdResponseStr);
+    [fdResponseStr autorelease];
+    
+    if (![fdResponseStr hasPrefix:@"AGREE_UNIX_FD"]) {
+        NSLog(@"Unix FD negotiation failed - expected AGREE_UNIX_FD, got: %@", fdResponseStr);
+        [self disconnect];
+        return NO;
+    }
+    
+    // Step 5: Send BEGIN
     NSString *beginCommand = @"BEGIN\r\n";
     NSData *beginData = [beginCommand dataUsingEncoding:NSUTF8StringEncoding];
     NSLog(@"Sending BEGIN command");
