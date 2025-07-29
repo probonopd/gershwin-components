@@ -242,7 +242,7 @@
     // Send reply with unique name
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[uniqueName]];
-    reply.sender = @"org.freedesktop.DBus";
+    reply.destination = uniqueName;  // Reply is addressed to the client
     
     // Send NameAcquired signal to the new connection
     MBMessage *nameAcquired = [MBMessage signalWithPath:@"/org/freedesktop/DBus"

@@ -140,6 +140,15 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     uint8_t endian = DBUS_LITTLE_ENDIAN;
     uint8_t type = (uint8_t)_type;
     uint8_t flags = 0;
+    
+    // Set NO_REPLY_EXPECTED flag for method returns, errors, and signals
+    // since these message types don't expect replies
+    if (_type == MBMessageTypeMethodReturn || 
+        _type == MBMessageTypeError || 
+        _type == MBMessageTypeSignal) {
+        flags |= 0x1; // NO_REPLY_EXPECTED
+    }
+    
     uint8_t version = DBUS_MAJOR_PROTOCOL_VERSION;
     uint32_t bodyLength = (uint32_t)[body length];
     uint32_t serial = (uint32_t)(_serial ? _serial : 1);
@@ -191,7 +200,14 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
         // Variant: signature length (1 byte) + signature + null + value
         uint8_t sigLen = 1;
         [arrayData appendBytes:&sigLen length:1];
-        uint8_t strSig = (code == DBUS_HEADER_FIELD_PATH) ? 'o' : 's';
+        uint8_t strSig;
+        if (code == DBUS_HEADER_FIELD_PATH) {
+            strSig = 'o';  // Object path
+        } else if (code == DBUS_HEADER_FIELD_SIGNATURE) {
+            strSig = 'g';  // Signature
+        } else {
+            strSig = 's';  // String
+        }
         [arrayData appendBytes:&strSig length:1];
         uint8_t nullTerm = 0;
         [arrayData appendBytes:&nullTerm length:1];

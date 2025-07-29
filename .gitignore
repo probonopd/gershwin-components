@@ -20,3 +20,6 @@ root/
 *.tar
 LoginWindow/j
 *.log
+minibus/analyze-hello-reply
+minibus/compare-hello-format
+minibus/test-hello-destination

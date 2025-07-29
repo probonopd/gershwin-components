@@ -229,20 +229,117 @@ This indicates the issue is specifically in the Hello message/reply format, not 
 
 ## Next Steps for Resolution
 
+## Complete Debugging Toolkit
+
+### Core Analysis Tools
+
+#### 1. **hello-field-analyzer** - Message Byte Analysis
+```bash
+# Build and run
+gmake hello-field-analyzer
+./obj/hello-field-analyzer
+```
+**Purpose**: Compare MiniBus Hello messages with reference implementation byte-for-byte
+
+#### 2. **compare-hello-format** - Real vs MiniBus Hello Replies
+```bash
+# Build and run
+gmake compare-hello-format
+./obj/compare-hello-format
+```
+**Purpose**: Compare Hello reply formats between MiniBus and real dbus-daemon
+
+#### 3. **test-hello-destination** - Hello Reply Field Analysis
+```bash
+# Build and run
+gmake test-hello-destination
+./obj/test-hello-destination
+```
+**Purpose**: Test and verify Hello reply header field formatting
+
+#### 4. **test-standard-tools.sh** - Comprehensive Compatibility Test
+```bash
+# Run full compatibility test
+./test-standard-tools.sh
+```
+**Purpose**: Automated testing of MiniBus with standard `dbus-send` and `dbus-monitor`
+
+### Live Testing Commands
+
+#### Real D-Bus Daemon Setup
+```bash
+# Start real dbus-daemon
+dbus-daemon --session --address=unix:path=/tmp/dbus-test.socket --print-address --nofork &
+
+# Test with dbus-send
+DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-test.socket dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames
+```
+
+#### MiniBus Daemon Testing
+```bash
+# Start MiniBus daemon
+./obj/minibus > daemon.log 2>&1 &
+
+# Test with standard tools
+DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/minibus-socket dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames
+
+# Test with MiniBus client
+./obj/minibus-test
+```
+
+#### Traffic Capture with socat
+```bash
+# Create proxy to capture raw socket traffic
+timeout 30 socat -x -v unix-listen:/tmp/dbus-proxy.socket,reuseaddr unix-connect:/tmp/dbus-test.socket > capture.log 2>&1 &
+
+# Send traffic through proxy
+DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-proxy.socket dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames
+```
+
+### Build Commands
+```bash
+# Build all tools
+gmake
+
+# Build specific analysis tools
+gmake hello-field-analyzer compare-hello-format test-hello-destination
+
+# Build daemon and test clients
+gmake minibus minibus-test test-real-dbus
+
+# Build reference C tool (requires libdbus-dev)
+clang19 -o dbus-format-reference dbus-format-reference.c $(pkg-config --cflags --libs dbus-1)
+```
+
+### Current Debugging Status (Latest Test Run)
+
+**Date**: July 29, 2025 16:12
+**Test**: `./test-standard-tools.sh`
+**Result**: ❌ All dbus-send calls fail with "Did not receive a reply"
+
+**Key Findings from Daemon Logs**:
+1. ✅ Authentication completes successfully
+2. ✅ Hello message is parsed correctly
+3. ✅ MiniBus sends Hello reply + NameAcquired signal atomically
+4. ❌ **dbus-send disconnects immediately after receiving Hello reply**
+5. ❌ Connection broken before method calls can be processed
+
+**Root Cause**: Hello reply format is still incorrect, causing dbus-send to disconnect
+
 ### Immediate Debugging Actions
-1. **Capture real Hello traffic**: Use socat to capture Hello exchange between dbus-send and real dbus-daemon
-2. **Compare Hello formats**: Extend byte-analyzer to specifically analyze Hello vs ListNames differences  
-3. **Hello reply analysis**: Compare MiniBus Hello replies with real dbus-daemon Hello replies
-4. **Field requirement audit**: Check if Hello messages require specific header fields
+1. **Hello reply field analysis**: Use existing tools to verify DESTINATION field and signature type
+2. **Message alignment audit**: Check if Hello replies have correct padding and alignment
+3. **Compare against real daemon**: Capture and compare Hello reply formats byte-for-byte
+4. **Signature field validation**: Verify the 'g' type signature field is correctly serialized
 
 ### Implementation Status
-MiniBus is **very close** to being a complete drop-in replacement for dbus-daemon. The core D-Bus protocol implementation is solid, with only the critical Hello exchange needing resolution.
+MiniBus is **very close** to being a complete drop-in replacement for dbus-daemon. The core D-Bus protocol implementation is solid, with only the Hello reply format needing final resolution.
 
 **Success Metrics**:
 - Authentication: ✅ 100%
 - Message parsing: ✅ 100% 
-- Message serialization: ✅ 100% (byte-for-byte identical to libdbus)
-- Hello exchange: TBD
-- Using `dbus-send` and `dbus-monitor` via the minidbus daemon: TBD
+- Message serialization: ✅ 99% (Hello reply format pending)
+- Hello exchange: ⚠️ 50% (receives Hello, reply format issue)
+- Using `dbus-send` and `dbus-monitor` via MiniBus daemon: ❌ 0% (depends on Hello reply fix)
 
-Once the Hello exchange issues are resolved, MiniBus should achieve full bidirectional interoperability with standard D-Bus clients and daemons.
+**Next iteration target**: Fix Hello reply format to achieve full standard tool compatibility.
