@@ -21,7 +21,8 @@ MiniBus successfully handles standard D-Bus tool interactions.
 **Verified working functionality:**
 - ✅ **Authentication** (SASL EXTERNAL with Unix credentials)  
 - ✅ **Hello exchange** (proper unique name assignment)
-- ✅ **Core bus methods** (Hello, ListNames, GetNameOwner)
+- ✅ **Core bus methods** (Hello, ListNames, GetNameOwner, RequestName, ReleaseName)
+- ✅ **Signal subscription** (AddMatch, RemoveMatch methods)
 - ✅ **Message serialization** (follows D-Bus specification)
 - ✅ **Connection lifecycle** (authentication → Hello → method calls)
 - ✅ **Error handling** (proper error responses)
@@ -31,6 +32,7 @@ MiniBus successfully handles standard D-Bus tool interactions.
 - ✅ **MiniBus ↔ MiniBus**: Full interoperability (100%)
 - ✅ **dbus-send → MiniBus**: Core methods work (authentication, Hello, ListNames)
 - ✅ **dbus-monitor → MiniBus**: Full monitoring support via BecomeMonitor
+- ✅ **xfce4-panel → MiniBus**: Launches with minibus as D-Bus daemon
 - ✅ **Protocol compliance**: Follows D-Bus specification requirements
 
 ## Quick Start
@@ -75,6 +77,7 @@ Core D-Bus bus interface methods implemented:
 - `ListNames` - Service discovery
 - `GetNameOwner` - Service ownership queries
 - `RequestName` / `ReleaseName` - Service registration
+- `AddMatch` / `RemoveMatch` - Signal subscription management
 
 ### Monitoring Interface
 
@@ -96,6 +99,25 @@ dbus-send --bus=unix:path=/tmp/minibus-socket --dest=org.freedesktop.DBus --type
 # Monitor D-Bus traffic
 dbus-monitor --address "unix:path=/tmp/minibus-socket"
 ```
+
+### Real Application Testing
+
+MiniBus successfully supports real desktop applications:
+
+```bash
+# Start MiniBus
+./obj/minibus &
+
+# Run xfce4-panel using MiniBus as the session bus
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/tmp/minibus-socket"
+xfce4-panel --disable-wm-check
+```
+
+**xfce4-panel compatibility verified:**
+- ✅ **Service registration**: Successfully registers `org.xfce.Panel` service
+- ✅ **Signal subscription**: Uses AddMatch/RemoveMatch for event handling  
+- ✅ **Multi-message transactions**: Handles complex startup sequences
+- ✅ **Clean operation**: Runs without crashes or excessive resource usage
 
 ### Traffic Analysis
 Used `socat` for byte-level protocol analysis:

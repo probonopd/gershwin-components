@@ -44,6 +44,17 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     return (pos + alignment - 1) & ~(alignment - 1);
 }
 
+// Helper function to calculate absolute alignment position in message
+// This accounts for the fact that variant values must be aligned relative to message start
+static NSUInteger alignToMessageStart(NSUInteger currentPos, NSUInteger alignment, NSUInteger messageStartOffset) {
+    // Calculate position relative to message start
+    NSUInteger relativePos = currentPos - messageStartOffset;
+    // Align the relative position
+    NSUInteger alignedRelativePos = (relativePos + alignment - 1) & ~(alignment - 1);
+    // Convert back to absolute position
+    return messageStartOffset + alignedRelativePos;
+}
+
 
 
 @implementation MBMessage
@@ -235,7 +246,11 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
         if (!value || [value length] == 0) return;
         
         NSLog(@"Adding signature field code=%d, value='%@'", code, value);
+        
+        // Field code (1 byte)
         [arrayData appendBytes:&code length:1];
+        
+        // Variant: signature length + signature + null + aligned value
         uint8_t sigLen = 1;
         [arrayData appendBytes:&sigLen length:1];
         uint8_t signatureSig = DBUS_TYPE_SIGNATURE; // 'g'
@@ -243,27 +258,18 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
         uint8_t nullTerm = 0;
         [arrayData appendBytes:&nullTerm length:1];
         
-        // Align to 1-byte boundary for signature (signatures are not aligned like strings)
-        // Signature format: length byte + signature string + null terminator
-        // NOTE: No alignment needed for signature type 'g' - it's 1-byte aligned
-        uint8_t sigStrLen = (uint8_t)[value lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        // The signature value follows immediately since 'g' has 1-byte alignment
+        // Format for signature type: length_byte + data + null_terminator
+        NSData *sigData = [value dataUsingEncoding:NSUTF8StringEncoding];
+        uint8_t sigStrLen = (uint8_t)[sigData length];
         [arrayData appendBytes:&sigStrLen length:1];
-        [arrayData appendData:[value dataUsingEncoding:NSUTF8StringEncoding]];
+        [arrayData appendData:sigData];
         [arrayData appendBytes:&nullTerm length:1];
         
         // Align to 8-byte boundary for next struct element (but not if this is the last field)
         if (!isLast) {
             while ([arrayData length] % 8 != 0) {
                 [arrayData appendBytes:&nullTerm length:1];
-            }
-        } else {
-            // Special case: if this is a signature field in what appears to be a Hello reply,
-            // add extra padding to match real dbus-daemon format
-            if (code == DBUS_HEADER_FIELD_SIGNATURE && [arrayData length] == 31) {
-                // Add exactly 8 bytes of padding to match real daemon Hello reply format
-                for (int i = 0; i < 8; i++) {
-                    [arrayData appendBytes:&nullTerm length:1];
-                }
             }
         }
     };
