@@ -3,6 +3,8 @@
 *.obj
 *.prefPane/
 *.core
+*.txt
+*.log
 StartupDisk/efiboot-helper
 obj/
 examples/
@@ -23,3 +25,4 @@ LoginWindow/j
 minibus/analyze-hello-reply
 minibus/compare-hello-format
 minibus/test-hello-destination
+minibus/minibus-daemon.log

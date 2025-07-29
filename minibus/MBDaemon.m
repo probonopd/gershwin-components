@@ -201,6 +201,17 @@
         return;
     }
     
+    // All other messages require the client to be registered (have sent Hello)
+    if (connection.state != MBConnectionStateActive) {
+        NSLog(@"Rejecting message from unregistered client: %@", message);
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.AccessDenied"
+                                        replySerial:message.serial
+                                            message:@"Client tried to send a message other than Hello without being registered"];
+        error.sender = @"org.freedesktop.DBus";
+        [connection sendMessage:error];
+        return;
+    }
+    
     // Handle name service methods
     if ([message.interface isEqualToString:@"org.freedesktop.DBus"]) {
         if ([message.member isEqualToString:@"RequestName"]) {
@@ -242,34 +253,13 @@
     // Send reply with unique name
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[uniqueName]];
+    // Real daemon Hello replies have destination=client, sender=bus
     reply.destination = uniqueName;  // Reply is addressed to the client
-    // Note: Real dbus-daemon Hello replies do NOT include sender field
+    reply.sender = @"org.freedesktop.DBus";  // Reply comes from the bus
     
-    // Send NameAcquired signal to the new connection
-    MBMessage *nameAcquired = [MBMessage signalWithPath:@"/org/freedesktop/DBus"
-                                              interface:@"org.freedesktop.DBus"
-                                                 member:@"NameAcquired"
-                                              arguments:@[uniqueName]];
-    nameAcquired.sender = @"org.freedesktop.DBus";
-    nameAcquired.destination = uniqueName;
-    
-    // Send Hello reply and NameAcquired signal atomically to prevent client disconnect
-    [connection sendMessages:@[reply, nameAcquired]];
-    
-    // Send NameOwnerChanged signal to all connections (including this one)
-    MBMessage *nameOwnerChanged = [MBMessage signalWithPath:@"/org/freedesktop/DBus"
-                                                  interface:@"org.freedesktop.DBus"
-                                                     member:@"NameOwnerChanged"
-                                                  arguments:@[uniqueName, @"", uniqueName]];
-    nameOwnerChanged.sender = @"org.freedesktop.DBus";
-    // No destination means broadcast to all connections
-    
-    // Send to all active connections
-    for (MBConnection *conn in [_connections copy]) {
-        if (conn.state == MBConnectionStateActive) {
-            [conn sendMessage:nameOwnerChanged];
-        }
-    }
+    // Send ONLY the Hello reply - don't send NameAcquired signal with it
+    // Standard tools like dbus-send expect exactly one message in response to Hello
+    [connection sendMessage:reply];
     
     NSLog(@"Hello processed for connection %@, assigned name %@", connection, uniqueName);
 }
@@ -322,7 +312,13 @@
 
 - (void)handleListNames:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
-    NSMutableArray *names = [NSMutableArray arrayWithArray:[_nameOwners allKeys]];
+    NSMutableArray *names = [NSMutableArray array];
+    
+    // Add bus name FIRST (like reference implementation)
+    [names addObject:@"org.freedesktop.DBus"];
+    
+    // Add well-known names
+    [names addObjectsFromArray:[_nameOwners allKeys]];
     
     // Add unique names
     for (MBConnection *conn in _connections) {
@@ -331,12 +327,10 @@
         }
     }
     
-    // Add bus name
-    [names addObject:@"org.freedesktop.DBus"];
-    
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[names]];
     reply.sender = @"org.freedesktop.DBus";
+    reply.destination = connection.uniqueName;  // Reply is addressed to the client
     [connection sendMessage:reply];
 }
 

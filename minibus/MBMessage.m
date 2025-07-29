@@ -307,25 +307,26 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     BOOL hasDestination = (_destination != nil);
     BOOL hasPath = (_path != nil);
     
-    // Determine which is the last field (in reverse order of addition)
-    BOOL pathIsLast = hasPath && !hasDestination && !hasInterface && !hasMember && !hasErrorName && !hasReplySerial && !hasSender && !hasSignature;
-    BOOL destinationIsLast = hasDestination && !hasInterface && !hasMember && !hasErrorName && !hasReplySerial && !hasSender && !hasSignature;
-    BOOL interfaceIsLast = hasInterface && !hasMember && !hasErrorName && !hasReplySerial && !hasSender && !hasSignature;
-    BOOL memberIsLast = hasMember && !hasErrorName && !hasReplySerial && !hasSender && !hasSignature;
-    BOOL errorNameIsLast = hasErrorName && !hasReplySerial && !hasSender && !hasSignature;
-    BOOL replySerialIsLast = hasReplySerial && !hasSender && !hasSignature;
-    BOOL senderIsLast = hasSender && !hasSignature;
-    BOOL signatureIsLast = hasSignature;
+    // Determine which is the last field (in the new order: PATH, DESTINATION, INTERFACE, MEMBER, ERROR_NAME, REPLY_SERIAL, SIGNATURE, SENDER)
+    BOOL pathIsLast = hasPath && !hasDestination && !hasInterface && !hasMember && !hasErrorName && !hasReplySerial && !hasSignature && !hasSender;
+    BOOL destinationIsLast = hasDestination && !hasInterface && !hasMember && !hasErrorName && !hasReplySerial && !hasSignature && !hasSender;
+    BOOL interfaceIsLast = hasInterface && !hasMember && !hasErrorName && !hasReplySerial && !hasSignature && !hasSender;
+    BOOL memberIsLast = hasMember && !hasErrorName && !hasReplySerial && !hasSignature && !hasSender;
+    BOOL errorNameIsLast = hasErrorName && !hasReplySerial && !hasSignature && !hasSender;
+    BOOL replySerialIsLast = hasReplySerial && !hasSignature && !hasSender;
+    BOOL signatureIsLast = hasSignature && !hasSender;
+    BOOL senderIsLast = hasSender;
     
-    // Add fields with correct isLast flags
+    // Add fields in the specific order that matches real dbus-daemon for Hello replies
+    // Real daemon Hello reply order: DESTINATION, REPLY_SERIAL, SIGNATURE, SENDER
     if (_path) addStringField(DBUS_HEADER_FIELD_PATH, _path, pathIsLast);
     if (_destination) addStringField(DBUS_HEADER_FIELD_DESTINATION, _destination, destinationIsLast);
     if (_interface) addStringField(DBUS_HEADER_FIELD_INTERFACE, _interface, interfaceIsLast);
     if (_member) addStringField(DBUS_HEADER_FIELD_MEMBER, _member, memberIsLast);
     if (_errorName) addStringField(DBUS_HEADER_FIELD_ERROR_NAME, _errorName, errorNameIsLast);
     if (_replySerial > 0) addUInt32Field(DBUS_HEADER_FIELD_REPLY_SERIAL, (uint32_t)_replySerial, replySerialIsLast);
-    if (_sender) addStringField(DBUS_HEADER_FIELD_SENDER, _sender, senderIsLast);
     if (_signature && [_signature length] > 0) addSignatureField(DBUS_HEADER_FIELD_SIGNATURE, _signature, signatureIsLast);
+    if (_sender) addStringField(DBUS_HEADER_FIELD_SENDER, _sender, senderIsLast);
     
     // Return just the array data - the length is handled by the caller
     return arrayData;
@@ -350,6 +351,32 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
         } else if ([arg isKindOfClass:[NSNumber class]]) {
             uint32_t value = [arg unsignedIntValue];
             [bodyData appendBytes:&value length:4];
+        } else if ([arg isKindOfClass:[NSArray class]]) {
+            // Serialize array of strings
+            NSArray *array = (NSArray *)arg;
+            uint32_t arrayLen = 0;
+            
+            // First pass: calculate total array length
+            for (NSString *item in array) {
+                if ([item isKindOfClass:[NSString class]]) {
+                    uint32_t itemLen = (uint32_t)[item lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+                    arrayLen += 4 + itemLen + 1; // length + string + null terminator
+                }
+            }
+            
+            // Write array length
+            [bodyData appendBytes:&arrayLen length:4];
+            
+            // Second pass: write array elements
+            for (NSString *item in array) {
+                if ([item isKindOfClass:[NSString class]]) {
+                    uint32_t itemLen = (uint32_t)[item lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+                    [bodyData appendBytes:&itemLen length:4];
+                    [bodyData appendData:[item dataUsingEncoding:NSUTF8StringEncoding]];
+                    uint8_t nullTerm = 0;
+                    [bodyData appendBytes:&nullTerm length:1];
+                }
+            }
         }
     }
     
