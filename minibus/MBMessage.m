@@ -636,8 +636,8 @@ static NSUInteger alignToMessageStart(NSUInteger currentPos, NSUInteger alignmen
     // Align to 8-byte boundary for body  
     pos = alignTo(pos, 8);
     
-    // Parse body (simplified - just strings and numbers)
-    if (bodyLength > 0) {
+    // Parse body using signature
+    if (bodyLength > 0 && message.signature) {
         // Check if we have enough data for the body
         if (pos + bodyLength > [data length]) {
             NSLog(@"messageFromData: not enough data for body (need %u more bytes)", 
@@ -647,6 +647,103 @@ static NSUInteger alignToMessageStart(NSUInteger currentPos, NSUInteger alignmen
         
         NSMutableArray *arguments = [NSMutableArray array];
         NSUInteger bodyEnd = pos + bodyLength;
+        const char *sig = [message.signature UTF8String];
+        NSUInteger sigIndex = 0;
+        NSUInteger sigLen = [message.signature length];
+        
+        NSLog(@"messageFromData: parsing body with signature '%@'", message.signature);
+        
+        while (pos < bodyEnd && sigIndex < sigLen) {
+            char sigChar = sig[sigIndex];
+            NSLog(@"messageFromData: parsing argument %lu with signature char '%c' at pos %lu", (unsigned long)sigIndex, sigChar, (unsigned long)pos);
+            
+            switch (sigChar) {
+                case 's': { // String
+                    if (pos + 4 > bodyEnd) {
+                        NSLog(@"messageFromData: not enough data for string length");
+                        goto done_parsing;
+                    }
+                    
+                    uint32_t strLen = *(uint32_t *)(bytes + pos);
+                    if (!littleEndian) {
+                        strLen = ntohl(strLen);
+                    }
+                    pos += 4;
+                    
+                    if (pos + strLen + 1 > bodyEnd) {
+                        NSLog(@"messageFromData: not enough data for string content (need %u bytes)", strLen + 1);
+                        goto done_parsing;
+                    }
+                    
+                    NSString *str = [[NSString alloc] initWithBytes:bytes + pos
+                                                             length:strLen
+                                                           encoding:NSUTF8StringEncoding];
+                    if (str) {
+                        [arguments addObject:str];
+                        NSLog(@"messageFromData: parsed string argument: '%@'", str);
+                    } else {
+                        NSLog(@"messageFromData: failed to parse string");
+                        [arguments addObject:@""];
+                    }
+                    pos += strLen + 1; // +1 for null terminator
+                    break;
+                }
+                
+                case 'u': { // uint32
+                    if (pos + 4 > bodyEnd) {
+                        NSLog(@"messageFromData: not enough data for uint32");
+                        goto done_parsing;
+                    }
+                    
+                    uint32_t num = *(uint32_t *)(bytes + pos);
+                    if (!littleEndian) {
+                        num = ntohl(num);
+                    }
+                    [arguments addObject:@(num)];
+                    NSLog(@"messageFromData: parsed uint32 argument: %u", num);
+                    pos += 4;
+                    break;
+                }
+                
+                case 'i': { // int32
+                    if (pos + 4 > bodyEnd) {
+                        NSLog(@"messageFromData: not enough data for int32");
+                        goto done_parsing;
+                    }
+                    
+                    int32_t num = *(int32_t *)(bytes + pos);
+                    if (!littleEndian) {
+                        num = ntohl(num);
+                    }
+                    [arguments addObject:@(num)];
+                    NSLog(@"messageFromData: parsed int32 argument: %d", num);
+                    pos += 4;
+                    break;
+                }
+                
+                default:
+                    NSLog(@"messageFromData: unsupported signature char '%c', skipping", sigChar);
+                    // Skip unknown types by advancing minimally
+                    if (pos + 4 <= bodyEnd) {
+                        pos += 4;
+                    } else {
+                        goto done_parsing;
+                    }
+                    break;
+            }
+            
+            sigIndex++;
+        }
+        
+        done_parsing:
+        message.arguments = arguments;
+        pos = bodyEnd; // Ensure we're at the end of the body
+    } else if (bodyLength > 0) {
+        // Fallback: no signature, try to parse as before
+        NSMutableArray *arguments = [NSMutableArray array];
+        NSUInteger bodyEnd = pos + bodyLength;
+        
+        NSLog(@"messageFromData: no signature available, using fallback parsing");
         
         while (pos < bodyEnd) {
             if (pos + 4 > bodyEnd) break;
@@ -682,7 +779,7 @@ static NSUInteger alignToMessageStart(NSUInteger currentPos, NSUInteger alignmen
         }
         
         message.arguments = arguments;
-        pos = bodyEnd; // Ensure we're at the end of the body
+        pos = bodyEnd;
     }
     
     NSLog(@"messageFromData: final offset %lu (was %lu)", (unsigned long)pos, (unsigned long)*offset);
