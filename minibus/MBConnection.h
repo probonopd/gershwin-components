@@ -9,7 +9,8 @@
 typedef enum {
     MBConnectionStateWaitingForAuth,
     MBConnectionStateWaitingForHello,
-    MBConnectionStateActive
+    MBConnectionStateActive,
+    MBConnectionStateMonitor
 } MBConnectionState;
 
 /**

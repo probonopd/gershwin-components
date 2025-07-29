@@ -450,7 +450,9 @@ typedef enum {
 
 - (BOOL)sendMessage:(MBMessage *)message
 {
-    if (_state != MBConnectionStateActive && _state != MBConnectionStateWaitingForHello) {
+    if (_state != MBConnectionStateActive && 
+        _state != MBConnectionStateWaitingForHello && 
+        _state != MBConnectionStateMonitor) {
         NSLog(@"Cannot send message - connection not authenticated (state=%d)", (int)_state);
         return NO;
     }
@@ -469,7 +471,9 @@ typedef enum {
 
 - (BOOL)sendMessages:(NSArray *)messages
 {
-    if (_state != MBConnectionStateActive && _state != MBConnectionStateWaitingForHello) {
+    if (_state != MBConnectionStateActive && 
+        _state != MBConnectionStateWaitingForHello && 
+        _state != MBConnectionStateMonitor) {
         NSLog(@"Cannot send messages - connection not authenticated (state=%d)", (int)_state);
         return NO;
     }

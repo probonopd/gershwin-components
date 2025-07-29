@@ -18,6 +18,7 @@
 @interface MBDaemon : NSObject
 {
     NSMutableArray *_connections;
+    NSMutableArray *_monitorConnections;  // Separate list for monitor connections
     NSMutableDictionary *_nameOwners;  // Maps bus names to connection objects
     NSMutableDictionary *_connectionNames; // Maps connections to their unique names
     NSString *_socketPath;
@@ -83,6 +84,11 @@
  * Generate unique connection name
  */
 - (NSString *)generateUniqueNameForConnection:(MBConnection *)connection;
+
+/**
+ * Convert connection to monitor (for dbus-monitor support)
+ */
+- (void)handleBecomeMonitor:(MBMessage *)message fromConnection:(MBConnection *)connection;
 
 @end
 

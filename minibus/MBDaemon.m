@@ -13,6 +13,7 @@
     if (self) {
         _socketPath = [socketPath copy];
         _connections = [[NSMutableArray alloc] init];
+        _monitorConnections = [[NSMutableArray alloc] init];
         _nameOwners = [[NSMutableDictionary alloc] init];
         _connectionNames = [[NSMutableDictionary alloc] init];
         _serverSocket = -1;
@@ -58,6 +59,13 @@
         [connection close];
     }
     [_connections removeAllObjects];
+    
+    // Close all monitor connections
+    for (MBConnection *connection in _monitorConnections) {
+        [connection close];
+    }
+    [_monitorConnections removeAllObjects];
+    
     [_nameOwners removeAllObjects];
     [_connectionNames removeAllObjects];
     
@@ -91,6 +99,16 @@
         
         // Add all client sockets to select set
         for (MBConnection *connection in _connections) {
+            if (connection.socket >= 0) {
+                FD_SET(connection.socket, &readfds);
+                if (connection.socket > maxfd) {
+                    maxfd = connection.socket;
+                }
+            }
+        }
+        
+        // Add all monitor sockets to select set
+        for (MBConnection *connection in _monitorConnections) {
             if (connection.socket >= 0) {
                 FD_SET(connection.socket, &readfds);
                 if (connection.socket > maxfd) {
@@ -152,6 +170,33 @@
         // Remove closed connections
         for (MBConnection *connection in connectionsToRemove) {
             [self removeConnection:connection];
+        }
+        
+        // Check monitor connections for data (they don't send messages, just receive)
+        NSMutableArray *monitorConnectionsToRemove = [NSMutableArray array];
+        NSArray *monitorConnectionsCopy = [NSArray arrayWithArray:_monitorConnections];
+        
+        for (MBConnection *connection in monitorConnectionsCopy) {
+            if (connection.socket >= 0 && FD_ISSET(connection.socket, &readfds)) {
+                NSArray *messages = [connection processIncomingData];
+                
+                if (connection.socket < 0) {
+                    // Monitor connection closed
+                    [monitorConnectionsToRemove addObject:connection];
+                    continue;
+                }
+                
+                // Monitor connections shouldn't send messages, but if they do, ignore them
+                if ([messages count] > 0) {
+                    NSLog(@"Monitor connection attempted to send message - ignoring");
+                }
+            }
+        }
+        
+        // Remove closed monitor connections
+        for (MBConnection *connection in monitorConnectionsToRemove) {
+            [_monitorConnections removeObject:connection];
+            NSLog(@"Monitor connection removed: %@", connection);
         }
     }
 }
@@ -229,6 +274,14 @@
         }
     }
     
+    // Handle monitoring interface methods
+    if ([message.interface isEqualToString:@"org.freedesktop.DBus.Monitoring"]) {
+        if ([message.member isEqualToString:@"BecomeMonitor"]) {
+            [self handleBecomeMonitor:message fromConnection:connection];
+            return;
+        }
+    }
+    
     // Route message to destination
     [self routeMessage:message fromConnection:connection];
 }
@@ -260,6 +313,9 @@
     // Send ONLY the Hello reply - don't send NameAcquired signal with it
     // Standard tools like dbus-send expect exactly one message in response to Hello
     [connection sendMessage:reply];
+    
+    // Broadcast Hello reply to monitors
+    [self broadcastToMonitors:reply];
     
     NSLog(@"Hello processed for connection %@, assigned name %@", connection, uniqueName);
 }
@@ -364,6 +420,9 @@
 
 - (void)routeMessage:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
+    // Broadcast to monitors first (before any modification)
+    [self broadcastToMonitors:message];
+    
     // Set sender if not already set
     if (!message.sender && connection.uniqueName) {
         message.sender = connection.uniqueName;
@@ -396,6 +455,10 @@
     if (destConnection) {
         [destConnection sendMessage:message];
         NSLog(@"Routed message to %@", destConnection);
+        
+        // If this generates a reply, monitors should see that too
+        // (this will be handled when the reply is processed)
+        
     } else {
         NSLog(@"No destination found for %@", message.destination);
         
@@ -405,6 +468,10 @@
                                             replySerial:message.serial
                                                 message:@"Service not found"];
             error.sender = @"org.freedesktop.DBus";
+            
+            // Broadcast error to monitors too
+            [self broadcastToMonitors:error];
+            
             [connection sendMessage:error];
         }
     }
@@ -447,6 +514,67 @@
     NSString *uniqueName = [NSString stringWithFormat:@":1.%lu", (unsigned long)_nextUniqueId++];
     _connectionNames[@(connection.socket)] = uniqueName;
     return uniqueName;
+}
+
+- (void)handleBecomeMonitor:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    NSLog(@"BecomeMonitor request from connection %@", connection);
+    
+    // TODO: In a real implementation, we should check if the connection is privileged
+    // For now, we'll allow any connection to become a monitor
+    
+    // Convert the connection to a monitor
+    connection.state = MBConnectionStateMonitor;
+    
+    // Remove from regular connections and add to monitor connections
+    [_connections removeObject:connection];
+    [_monitorConnections addObject:connection];
+    
+    // Remove all names owned by this connection (monitors can't own names)
+    NSMutableArray *namesToRelease = [NSMutableArray array];
+    for (NSString *name in _nameOwners) {
+        if (_nameOwners[name] == connection) {
+            [namesToRelease addObject:name];
+        }
+    }
+    for (NSString *name in namesToRelease) {
+        [_nameOwners removeObjectForKey:name];
+    }
+    
+    // Remove unique name tracking
+    [_connectionNames removeObjectForKey:@(connection.socket)];
+    
+    // Send empty reply (success)
+    MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                    arguments:@[]];  // Empty arguments array
+    reply.destination = connection.uniqueName;  // Use old unique name for reply
+    reply.sender = @"org.freedesktop.DBus";
+    
+    [connection sendMessage:reply];
+    
+    NSLog(@"Connection %@ converted to monitor", connection);
+}
+
+- (void)broadcastToMonitors:(MBMessage *)message
+{
+    // Send message to all monitor connections
+    for (MBConnection *monitor in _monitorConnections) {
+        // Create a copy of the message for monitoring
+        MBMessage *monitorMessage = [[MBMessage alloc] init];
+        monitorMessage.type = message.type;
+        monitorMessage.destination = message.destination;
+        monitorMessage.sender = message.sender;
+        monitorMessage.interface = message.interface;
+        monitorMessage.member = message.member;
+        monitorMessage.path = message.path;
+        monitorMessage.signature = message.signature;
+        monitorMessage.serial = message.serial;
+        monitorMessage.replySerial = message.replySerial;
+        monitorMessage.arguments = message.arguments;
+        
+        [monitor sendMessage:monitorMessage];
+        [monitorMessage release];
+    }
 }
 
 @end

@@ -25,10 +25,12 @@ MiniBus successfully handles standard D-Bus tool interactions.
 - ✅ **Message serialization** (follows D-Bus specification)
 - ✅ **Connection lifecycle** (authentication → Hello → method calls)
 - ✅ **Error handling** (proper error responses)
+- ✅ **Monitoring interface** (BecomeMonitor method for dbus-monitor support)
 
 **Tool Compatibility Status:**
 - ✅ **MiniBus ↔ MiniBus**: Full interoperability (100%)
 - ✅ **dbus-send → MiniBus**: Core methods work (authentication, Hello, ListNames)
+- ✅ **dbus-monitor → MiniBus**: Full monitoring support via BecomeMonitor
 - ✅ **Protocol compliance**: Follows D-Bus specification requirements
 
 ## Quick Start
@@ -74,6 +76,13 @@ Core D-Bus bus interface methods implemented:
 - `GetNameOwner` - Service ownership queries
 - `RequestName` / `ReleaseName` - Service registration
 
+### Monitoring Interface
+
+MiniBus implements the D-Bus monitoring specification:
+- `org.freedesktop.DBus.Monitoring.BecomeMonitor` - Convert connection to monitor
+- Full `dbus-monitor` compatibility for traffic observation
+- Monitor connections receive all bus traffic for debugging/analysis
+
 ## Testing and Verification
 
 ### Standard Tool Testing
@@ -83,6 +92,9 @@ dbus-send --bus=unix:path=/tmp/minibus-socket --dest=org.freedesktop.DBus --type
 
 # Name ownership
 dbus-send --bus=unix:path=/tmp/minibus-socket --dest=org.freedesktop.DBus --type=method_call --print-reply / org.freedesktop.DBus.GetNameOwner string:"org.freedesktop.DBus"
+
+# Monitor D-Bus traffic
+dbus-monitor --address "unix:path=/tmp/minibus-socket"
 ```
 
 ### Traffic Analysis
