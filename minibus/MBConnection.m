@@ -331,13 +331,42 @@ typedef enum {
             // Check if this looks like a D-Bus message (starts with endian byte)
             if (bytes[0] == 'l' || bytes[0] == 'B') {
                 NSLog(@"Remaining data appears to be a D-Bus message");
+                NSLog(@"handleBegin: appending data to read buffer");
+                [_readBuffer appendData:_authIncoming];
             } else {
-                NSLog(@"WARNING: Remaining data does not look like a D-Bus message");
+                NSLog(@"WARNING: Remaining data does not look like a D-Bus message, discarding");
+                // Search for valid D-Bus message start
+                NSUInteger validOffset = NSNotFound;
+                for (NSUInteger i = 0; i < [_authIncoming length]; i++) {
+                    if (bytes[i] == 'l' || bytes[i] == 'B') {
+                        // Found potential D-Bus message, validate further
+                        if (i + 4 < [_authIncoming length]) {
+                            uint8_t type = bytes[i + 1];
+                            uint8_t version = bytes[i + 3];
+                            if (type >= 1 && type <= 4 && version == 1) {
+                                validOffset = i;
+                                NSLog(@"Found valid D-Bus message at offset %lu", (unsigned long)i);
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if (validOffset != NSNotFound) {
+                    NSData *validData = [NSData dataWithBytes:bytes + validOffset 
+                                                       length:[_authIncoming length] - validOffset];
+                    NSLog(@"handleBegin: appending %lu bytes of valid data to read buffer", 
+                          (unsigned long)[validData length]);
+                    [_readBuffer appendData:validData];
+                } else {
+                    NSLog(@"handleBegin: no valid D-Bus data found, not moving anything");
+                }
             }
+        } else {
+            NSLog(@"handleBegin: appending small data to read buffer");
+            [_readBuffer appendData:_authIncoming];
         }
         
-        NSLog(@"handleBegin: appending data to read buffer");
-        [_readBuffer appendData:_authIncoming];
         NSLog(@"handleBegin: clearing auth buffer");
         [_authIncoming setData:[NSData data]];
         NSLog(@"handleBegin: data transfer complete");

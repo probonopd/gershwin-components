@@ -401,8 +401,31 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
     NSLog(@"messageFromData: endian byte 0x%02x ('%c')", endian, endian);
     
     if (endian != DBUS_LITTLE_ENDIAN && endian != DBUS_BIG_ENDIAN) {
-        NSLog(@"messageFromData: invalid endianness: 0x%02x - advancing offset by 1", endian);
-        *offset = originalOffset + 1; // Advance by 1 byte to skip invalid data
+        NSLog(@"messageFromData: invalid endianness: 0x%02x - searching for next valid message", endian);
+        
+        // Search for the next valid D-Bus message header
+        NSUInteger searchOffset = originalOffset + 1;
+        NSUInteger maxSearchBytes = MIN(1024, [data length] - searchOffset); // Don't search too far
+        
+        for (NSUInteger i = 0; i < maxSearchBytes; i++) {
+            uint8_t testEndian = bytes[searchOffset + i];
+            if (testEndian == DBUS_LITTLE_ENDIAN || testEndian == DBUS_BIG_ENDIAN) {
+                // Found potential valid endian, check if it looks like a real message header
+                if (searchOffset + i + 16 <= [data length]) {
+                    uint8_t type = bytes[searchOffset + i + 1];
+                    uint8_t version = bytes[searchOffset + i + 3];
+                    if (type >= 1 && type <= 4 && version == DBUS_MAJOR_PROTOCOL_VERSION) {
+                        NSLog(@"Found potential valid message at offset %lu", (unsigned long)(searchOffset + i));
+                        *offset = searchOffset + i;
+                        return nil; // Try parsing from this new offset
+                    }
+                }
+            }
+        }
+        
+        // No valid message found, skip the rest of the data
+        NSLog(@"No valid D-Bus message found, skipping to end of data");
+        *offset = [data length];
         return nil;
     }
     
@@ -508,8 +531,9 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
         NSLog(@"messageFromData: signature '%c' (0x%02x)", signature, signature);
         pos += sigLen + 1; // signature + null terminator
         
-        // Align to 4-byte boundary for value
-        while (pos % 4 != 0 && pos < headerFieldsEnd) pos++;
+        // For variants in header fields, the value follows immediately after the signature
+        // without additional alignment (the variant is already aligned as part of the struct)
+        NSLog(@"messageFromData: reading variant value at position %lu", (unsigned long)pos);
         
         if (pos + 4 > headerFieldsEnd) {
             NSLog(@"messageFromData: not enough data for field value, skipping");
@@ -518,16 +542,28 @@ static NSUInteger alignTo(NSUInteger pos, NSUInteger alignment) {
         
         // Parse value based on signature
         if (signature == 's' || signature == 'o') { // string or object path
+            // Debug: show raw bytes at this position
+            if (pos + 8 <= headerFieldsEnd) {
+                NSMutableString *hexStr = [NSMutableString string];
+                for (int i = 0; i < 8; i++) {
+                    [hexStr appendFormat:@"%02x ", bytes[pos + i]];
+                }
+                NSLog(@"messageFromData: raw bytes at pos %lu: %@", (unsigned long)pos, hexStr);
+            }
+            
             uint32_t strLen = *(uint32_t *)(bytes + pos);
+            uint32_t strLenOriginal = strLen;
             if (!littleEndian) {
                 strLen = ntohl(strLen); // Convert from network (big-endian) to host order
             }
             pos += 4;
             
-            NSLog(@"messageFromData: string length %u", strLen);
+            NSLog(@"messageFromData: string length %u (raw=0x%08x, littleEndian=%s)", 
+                  strLen, strLenOriginal, littleEndian ? "YES" : "NO");
             
             if (strLen > 1024 || pos + strLen + 1 > headerFieldsEnd) {
-                NSLog(@"messageFromData: string too long or not enough data");
+                NSLog(@"messageFromData: string too long or not enough data (strLen=%u, pos=%lu, headerFieldsEnd=%lu)",
+                      strLen, (unsigned long)pos, (unsigned long)headerFieldsEnd);
                 break;
             }
             

@@ -382,12 +382,17 @@
             [names addObject:conn.uniqueName];
         }
     }
+
+    NSLog(@"ListNames: returning %lu names: %@", (unsigned long)[names count], names);
     
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[names]];
     reply.sender = @"org.freedesktop.DBus";
     reply.destination = connection.uniqueName;  // Reply is addressed to the client
-    [connection sendMessage:reply];
+    
+    NSLog(@"ListNames: sending reply to %@", connection.uniqueName);
+    BOOL success = [connection sendMessage:reply];
+    NSLog(@"ListNames: send result: %@", success ? @"SUCCESS" : @"FAILED");
 }
 
 - (void)handleGetNameOwner:(MBMessage *)message fromConnection:(MBConnection *)connection
