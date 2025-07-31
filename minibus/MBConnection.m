@@ -90,7 +90,7 @@ typedef enum {
     _processIncomingDataCallCount++;
     NSLog(@"processIncomingData called #%d for socket %d", _processIncomingDataCallCount, _socket);
     
-    if (_processIncomingDataCallCount > 50) { // Increased limit for complex clients like xfce4-panel
+    if (_processIncomingDataCallCount > 5000) { // Increased limit for complex clients like xfce4-panel
         NSLog(@"ERROR: processIncomingData called too many times (%d), stopping to prevent CPU overload", _processIncomingDataCallCount);
         [self close];
         return [NSArray array];

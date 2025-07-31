@@ -238,10 +238,13 @@
 - (void)processMessage:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
     NSLog(@"Processing message: %@ from %@", message, connection);
+    NSLog(@"Message details: type=%d interface='%@' member='%@' path='%@' destination='%@'", 
+          (int)message.type, message.interface, message.member, message.path, message.destination);
     
     // Handle Hello message
     if ([message.interface isEqualToString:@"org.freedesktop.DBus"] &&
         [message.member isEqualToString:@"Hello"]) {
+        NSLog(@"Recognized Hello message!");
         [self handleHelloMessage:message fromConnection:connection];
         return;
     }
@@ -276,6 +279,25 @@
             return;
         } else if ([message.member isEqualToString:@"RemoveMatch"]) {
             [self handleRemoveMatch:message fromConnection:connection];
+            return;
+        }
+    }
+    
+    // Handle standard D-Bus interfaces (org.freedesktop.DBus.Peer)
+    if ([message.interface isEqualToString:@"org.freedesktop.DBus.Peer"]) {
+        if ([message.member isEqualToString:@"Ping"]) {
+            [self handlePing:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"GetMachineId"]) {
+            [self handleGetMachineId:message fromConnection:connection];
+            return;
+        }
+    }
+    
+    // Handle standard D-Bus interfaces (org.freedesktop.DBus.Introspectable)
+    if ([message.interface isEqualToString:@"org.freedesktop.DBus.Introspectable"]) {
+        if ([message.member isEqualToString:@"Introspect"]) {
+            [self handleIntrospect:message fromConnection:connection];
             return;
         }
     }
@@ -612,6 +634,95 @@
         [monitor sendMessage:monitorMessage];
         [monitorMessage release];
     }
+}
+
+#pragma mark - Standard D-Bus Interface Implementations
+
+- (void)handlePing:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    // org.freedesktop.DBus.Peer.Ping() - just return success
+    MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                    arguments:@[]];
+    reply.destination = connection.uniqueName;
+    reply.sender = @"org.freedesktop.DBus";
+    [connection sendMessage:reply];
+    
+    NSLog(@"Ping handled for connection %@", connection);
+}
+
+- (void)handleGetMachineId:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    // org.freedesktop.DBus.Peer.GetMachineId() - return a machine ID
+    // For simplicity, generate a fixed UUID-like string based on system info
+    NSString *machineId = @"deadbeefdeadbeefdeadbeefdeadbeef"; // Simple fixed ID for testing
+    
+    MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                    arguments:@[machineId]];
+    reply.destination = connection.uniqueName;
+    reply.sender = @"org.freedesktop.DBus";
+    [connection sendMessage:reply];
+    
+    NSLog(@"GetMachineId handled for connection %@ - returned %@", connection, machineId);
+}
+
+- (void)handleIntrospect:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    // org.freedesktop.DBus.Introspectable.Introspect() - return XML description
+    NSString *introspectionXML = @"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                                 @"<node>\n"
+                                 @"  <interface name=\"org.freedesktop.DBus\">\n"
+                                 @"    <method name=\"Hello\">\n"
+                                 @"      <arg direction=\"out\" type=\"s\"/>\n"
+                                 @"    </method>\n"
+                                 @"    <method name=\"RequestName\">\n"
+                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
+                                 @"      <arg direction=\"in\" type=\"u\"/>\n"
+                                 @"      <arg direction=\"out\" type=\"u\"/>\n"
+                                 @"    </method>\n"
+                                 @"    <method name=\"ReleaseName\">\n"
+                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
+                                 @"      <arg direction=\"out\" type=\"u\"/>\n"
+                                 @"    </method>\n"
+                                 @"    <method name=\"ListNames\">\n"
+                                 @"      <arg direction=\"out\" type=\"as\"/>\n"
+                                 @"    </method>\n"
+                                 @"    <method name=\"GetNameOwner\">\n"
+                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
+                                 @"      <arg direction=\"out\" type=\"s\"/>\n"
+                                 @"    </method>\n"
+                                 @"    <method name=\"AddMatch\">\n"
+                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
+                                 @"    </method>\n"
+                                 @"    <method name=\"RemoveMatch\">\n"
+                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
+                                 @"    </method>\n"
+                                 @"  </interface>\n"
+                                 @"  <interface name=\"org.freedesktop.DBus.Peer\">\n"
+                                 @"    <method name=\"Ping\"/>\n"
+                                 @"    <method name=\"GetMachineId\">\n"
+                                 @"      <arg direction=\"out\" type=\"s\"/>\n"
+                                 @"    </method>\n"
+                                 @"  </interface>\n"
+                                 @"  <interface name=\"org.freedesktop.DBus.Introspectable\">\n"
+                                 @"    <method name=\"Introspect\">\n"
+                                 @"      <arg direction=\"out\" type=\"s\"/>\n"
+                                 @"    </method>\n"
+                                 @"  </interface>\n"
+                                 @"  <interface name=\"org.freedesktop.DBus.Monitoring\">\n"
+                                 @"    <method name=\"BecomeMonitor\">\n"
+                                 @"      <arg direction=\"in\" type=\"as\"/>\n"
+                                 @"      <arg direction=\"in\" type=\"u\"/>\n"
+                                 @"    </method>\n"
+                                 @"  </interface>\n"
+                                 @"</node>\n";
+    
+    MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                    arguments:@[introspectionXML]];
+    reply.destination = connection.uniqueName;
+    reply.sender = @"org.freedesktop.DBus";
+    [connection sendMessage:reply];
+    
+    NSLog(@"Introspect handled for connection %@", connection);
 }
 
 @end

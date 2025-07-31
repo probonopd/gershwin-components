@@ -90,6 +90,13 @@
  */
 - (void)handleBecomeMonitor:(MBMessage *)message fromConnection:(MBConnection *)connection;
 
+/**
+ * Handle standard D-Bus interface methods
+ */
+- (void)handlePing:(MBMessage *)message fromConnection:(MBConnection *)connection;
+- (void)handleGetMachineId:(MBMessage *)message fromConnection:(MBConnection *)connection;
+- (void)handleIntrospect:(MBMessage *)message fromConnection:(MBConnection *)connection;
+
 @end
 
 #endif // MB_DAEMON_H

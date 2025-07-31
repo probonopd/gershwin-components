@@ -18,6 +18,7 @@ int main(int argc, char *argv[]) {
         // Create MiniBus Hello reply
         MBMessage *reply = [MBMessage methodReturnWithReplySerial:1 arguments:@[@":1.0"]];
         reply.sender = @"org.freedesktop.DBus";
+        reply.destination = @":1.0";  // Real Hello replies include the destination
         NSData *minibusData = [reply serialize];
         
         // Create MiniBus NameAcquired signal
