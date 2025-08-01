@@ -1,7 +1,7 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
 # Tools
-TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment hello-length-analysis debug-listnames debug-message-format debug-listnames-serialization test-array-parsing test-requestname debug-hello-reply test-gdbus-proxy test-start-service test-message-parsing debug-message-parsing debug-parsing-issue test-service test-activation-client test-auto-activation debug-nameowner-signal test-glib-simple debug-parsing-detailed test-second-message test-full-buffer test-startservice test-startservice-direct debug-offset-469 test-comprehensive-types
+TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment hello-length-analysis debug-listnames debug-message-format debug-listnames-serialization test-array-parsing test-requestname debug-hello-reply test-gdbus-proxy test-start-service test-message-parsing debug-message-parsing debug-parsing-issue test-service test-activation-client test-auto-activation debug-nameowner-signal test-glib-simple debug-parsing-detailed test-second-message test-full-buffer test-startservice test-startservice-direct debug-offset-469 test-comprehensive-types test-struct-types debug-struct-serialization debug-struct-signature debug-struct-parsing test-enhanced-introspection test-real-introspection
 
 minibus_OBJC_FILES = main-daemon.m MBDaemon.m MBConnection.m MBMessage.m MBTransport.m MBClient.m MBServiceManager.m MBServiceFile.m
 minibus-test_OBJC_FILES = main-test.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
@@ -39,6 +39,12 @@ test-startservice_OBJC_FILES = test-startservice.m MBMessage.m MBTransport.m
 test-startservice-direct_OBJC_FILES = test-startservice-direct.m
 debug-offset-469_OBJC_FILES = debug-offset-469.m MBMessage.m MBTransport.m
 test-comprehensive-types_OBJC_FILES = test-comprehensive-types.m MBMessage.m MBTransport.m
+test-struct-types_OBJC_FILES = test-struct-types.m MBMessage.m MBTransport.m
+debug-struct-serialization_OBJC_FILES = debug-struct-serialization.m MBMessage.m MBTransport.m
+debug-struct-signature_OBJC_FILES = debug-struct-signature.m MBMessage.m MBTransport.m
+debug-struct-parsing_OBJC_FILES = debug-struct-parsing.m MBMessage.m MBTransport.m
+test-enhanced-introspection_OBJC_FILES = test-enhanced-introspection.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
+test-real-introspection_OBJC_FILES = test-real-introspection.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
 
 # Compiler flags for production builds
 minibus_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
@@ -113,7 +119,7 @@ test-array-parsing_TOOL_LIBS += -lobjc -lBlocksRuntime
 test-gdbus-proxy_TOOL_LIBS += -lobjc -lBlocksRuntime $(shell pkg-config --libs glib-2.0 gio-2.0)
 test-start-service_TOOL_LIBS += -lobjc -lBlocksRuntime $(shell pkg-config --libs glib-2.0 gio-2.0)
 
-debug-message-parsing_TOOL_LIBS += -lobjc -lBlocksRuntime $(shell pkg-config --libs glib-2.0 gio-2.0)
+test-glib-simple_TOOL_LIBS += -lobjc -lBlocksRuntime $(shell pkg-config --libs glib-2.0 gio-2.0)
 
 debug-listnames-serialization_CPPFLAGS += -DGNUSTEP -I/usr/local/include
 

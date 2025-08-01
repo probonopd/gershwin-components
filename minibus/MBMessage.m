@@ -157,7 +157,35 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             NSArray *array = (NSArray *)arg;
             if ([array count] > 0) {
                 id firstElement = [array objectAtIndex:0];
-                if ([firstElement isKindOfClass:[NSString class]]) {
+                
+                // Check if this looks like a struct by examining contents
+                // A struct array typically contains mixed types (not all the same)
+                BOOL looksLikeStruct = NO;
+                if ([array count] > 1) {
+                    Class firstClass = [firstElement class];
+                    for (NSUInteger i = 1; i < [array count]; i++) {
+                        if (![[array objectAtIndex:i] isKindOfClass:firstClass]) {
+                            looksLikeStruct = YES;
+                            break;
+                        }
+                    }
+                }
+                
+                if (looksLikeStruct) {
+                    // Generate struct signature (sus) for string-uint32-string pattern
+                    [signature appendString:@"("];
+                    for (id element in array) {
+                        if ([element isKindOfClass:[NSString class]]) {
+                            [signature appendString:@"s"];
+                        } else if ([element isKindOfClass:[NSNumber class]]) {
+                            // Default numbers to uint32 in structs
+                            [signature appendString:@"u"];
+                        } else {
+                            [signature appendString:@"v"]; // Variant for other types
+                        }
+                    }
+                    [signature appendString:@")"];
+                } else if ([firstElement isKindOfClass:[NSString class]]) {
                     [signature appendString:@"as"]; // Array of strings
                 } else if ([firstElement isKindOfClass:[NSDictionary class]]) {
                     [signature appendString:@"a{sv}"]; // Array of string-variant dictionaries
@@ -447,19 +475,75 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             }
             
         } else if ([arg isKindOfClass:[NSArray class]]) {
-            // Serialize arrays
+            // Check if this should be serialized as a STRUCT or regular array
             NSArray *array = (NSArray *)arg;
+            BOOL isStruct = (_signature && [_signature containsString:@"("]);
             
-            // Align to 4 bytes for array length
-            addPadding(bodyData, 4);
-            
-            // Placeholder for array length - we'll update this later
-            NSUInteger lengthPosition = [bodyData length];
-            uint32_t placeholder = 0;
-            [bodyData appendBytes:&placeholder length:4];
-            
-            // Determine element alignment and serialize content
-            if ([array count] > 0) {
+            if (isStruct) {
+                // Serialize as STRUCT - align to 8-byte boundary
+                NSLog(@"DEBUG: Serializing STRUCT with %lu fields", [array count]);
+                
+                addPadding(bodyData, 8);
+                
+                // Serialize each field in the struct
+                for (id field in array) {
+                    if ([field isKindOfClass:[NSString class]]) {
+                        // String field
+                        NSString *str = (NSString *)field;
+                        addPadding(bodyData, 4);
+                        uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+                        [bodyData appendBytes:&strLen length:4];
+                        [bodyData appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
+                        uint8_t nullTerm = 0;
+                        [bodyData appendBytes:&nullTerm length:1];
+                        
+                    } else if ([field isKindOfClass:[NSNumber class]]) {
+                        NSNumber *num = (NSNumber *)field;
+                        const char *objCType = [num objCType];
+                        
+                        if (strcmp(objCType, @encode(BOOL)) == 0) {
+                            // Boolean field
+                            addPadding(bodyData, 4);
+                            uint32_t boolVal = [num boolValue] ? 1 : 0;
+                            [bodyData appendBytes:&boolVal length:4];
+                            
+                        } else if (strcmp(objCType, @encode(uint32_t)) == 0 ||
+                                   strcmp(objCType, @encode(unsigned int)) == 0) {
+                            // uint32 field
+                            addPadding(bodyData, 4);
+                            uint32_t uint32Val = [num unsignedIntValue];
+                            [bodyData appendBytes:&uint32Val length:4];
+                            
+                        } else if (strcmp(objCType, @encode(int32_t)) == 0 ||
+                                   strcmp(objCType, @encode(int)) == 0) {
+                            // int32 field
+                            addPadding(bodyData, 4);
+                            int32_t int32Val = [num intValue];
+                            [bodyData appendBytes:&int32Val length:4];
+                            
+                        } else {
+                            // Default to uint32
+                            addPadding(bodyData, 4);
+                            uint32_t value = [num unsignedIntValue];
+                            [bodyData appendBytes:&value length:4];
+                        }
+                    } else {
+                        // Other field types - skip for now
+                        NSLog(@"DEBUG: Skipping unsupported struct field type: %@", [field class]);
+                    }
+                }
+            } else {
+                // Serialize as regular arrays
+                // Align to 4 bytes for array length
+                addPadding(bodyData, 4);
+                
+                // Placeholder for array length - we'll update this later
+                NSUInteger lengthPosition = [bodyData length];
+                uint32_t placeholder = 0;
+                [bodyData appendBytes:&placeholder length:4];
+                
+                // Determine element alignment and serialize content
+                if ([array count] > 0) {
                 id firstElement = [array objectAtIndex:0];
                 
                 if ([firstElement isKindOfClass:[NSString class]]) {
@@ -519,6 +603,7 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                 // Empty array
                 uint32_t actualArrayLength = 0;
                 [bodyData replaceBytesInRange:NSMakeRange(lengthPosition, 4) withBytes:&actualArrayLength];
+            }
             }
             
         } else if ([arg isKindOfClass:[NSDictionary class]]) {
@@ -622,6 +707,80 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             [data appendBytes:&uint32Val length:4];
         }
         
+    } else if ([value isKindOfClass:[NSArray class]]) {
+        // Check if this is a struct array
+        NSArray *array = (NSArray *)value;
+        
+        // For variant serialization, treat arrays with mixed types as structs
+        BOOL looksLikeStruct = NO;
+        if ([array count] > 1) {
+            Class firstClass = [[array objectAtIndex:0] class];
+            for (NSUInteger i = 1; i < [array count]; i++) {
+                if (![[array objectAtIndex:i] isKindOfClass:firstClass]) {
+                    looksLikeStruct = YES;
+                    break;
+                }
+            }
+        }
+        
+        if (looksLikeStruct) {
+            // Serialize as struct variant - generate signature dynamically
+            NSMutableString *structSig = [NSMutableString stringWithString:@"("];
+            for (id element in array) {
+                if ([element isKindOfClass:[NSString class]]) {
+                    [structSig appendString:@"s"];
+                } else if ([element isKindOfClass:[NSNumber class]]) {
+                    [structSig appendString:@"u"]; // Default to uint32
+                } else {
+                    [structSig appendString:@"v"]; // Variant for others
+                }
+            }
+            [structSig appendString:@")"];
+            
+            // Write variant signature
+            uint8_t sigLen = (uint8_t)[structSig lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+            [data appendBytes:&sigLen length:1];
+            [data appendData:[structSig dataUsingEncoding:NSUTF8StringEncoding]];
+            uint8_t nullTerm = 0;
+            [data appendBytes:&nullTerm length:1];
+            
+            // Align to 8 bytes for struct
+            addPadding(data, 8);
+            
+            // Serialize struct fields
+            for (id element in array) {
+                if ([element isKindOfClass:[NSString class]]) {
+                    NSString *str = (NSString *)element;
+                    addPadding(data, 4);
+                    uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+                    [data appendBytes:&strLen length:4];
+                    [data appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
+                    [data appendBytes:&nullTerm length:1];
+                    
+                } else if ([element isKindOfClass:[NSNumber class]]) {
+                    addPadding(data, 4);
+                    uint32_t uint32Val = [(NSNumber *)element unsignedIntValue];
+                    [data appendBytes:&uint32Val length:4];
+                }
+            }
+        } else {
+            // Regular array - serialize as array variant (simplified)
+            // For now, just treat as string representation
+            NSString *str = [value description];
+            uint8_t sigLen = 1;
+            [data appendBytes:&sigLen length:1];
+            uint8_t typeSig = DBUS_TYPE_STRING;
+            [data appendBytes:&typeSig length:1];
+            uint8_t nullTerm = 0;
+            [data appendBytes:&nullTerm length:1];
+            
+            addPadding(data, 4);
+            uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+            [data appendBytes:&strLen length:4];
+            [data appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
+            [data appendBytes:&nullTerm length:1];
+        }
+        
     } else {
         // Default to string representation
         NSString *str = [value description];
@@ -675,7 +834,7 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     }
     
     // Read remaining header fields with proper endianness handling
-    uint8_t flags = bytes[pos + 2];
+    // uint8_t flags = bytes[pos + 2];  // Reserved for future use
     uint8_t protocolVersion = bytes[pos + 3];
     
     // Validate protocol version
@@ -1605,6 +1764,121 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             }
             pos += strLen + 1;
             
+        } else if (typeChar == '(') {
+            // STRUCT - starts with '(' and ends with ')' - align to 8-byte boundary
+            pos = alignTo(pos, 8);
+            
+            NSLog(@"DEBUG parseArguments: parsing STRUCT starting at pos %lu", pos);
+            
+            // Find the matching closing parenthesis
+            NSUInteger structStart = i + 1;
+            NSUInteger structEnd = structStart;
+            NSUInteger parenCount = 1;
+            while (structEnd < [signature length] && parenCount > 0) {
+                unichar c = [signature characterAtIndex:structEnd];
+                if (c == '(') parenCount++;
+                else if (c == ')') parenCount--;
+                structEnd++;
+            }
+            
+            if (parenCount == 0 && structEnd > structStart) {
+                NSString *structSig = [signature substringWithRange:NSMakeRange(structStart, structEnd - structStart - 1)];
+                NSLog(@"DEBUG parseArguments: struct signature='%@'", structSig);
+                
+                // Parse the struct fields recursively
+                // NSUInteger structStartPos = pos;  // Reserved for debugging
+                NSMutableArray *structFields = [NSMutableArray array];
+                
+                for (NSUInteger j = 0; j < [structSig length]; j++) {
+                    unichar fieldType = [structSig characterAtIndex:j];
+                    
+                    // Parse each field according to its type
+                    id fieldValue = nil;
+                    
+                    if (fieldType == 's') {
+                        // String field
+                        pos = alignTo(pos, 4);
+                        if (pos + 4 > [bodyData length]) break;
+                        
+                        uint32_t strLen = *(uint32_t *)(bytes + pos);
+                        if (endianness == DBUS_LITTLE_ENDIAN) {
+                            strLen = NSSwapLittleIntToHost(strLen);
+                        } else if (endianness == DBUS_BIG_ENDIAN) {
+                            strLen = NSSwapBigIntToHost(strLen);
+                        }
+                        pos += 4;
+                        
+                        if (strLen <= 65536 && pos + strLen + 1 <= [bodyData length]) {
+                            fieldValue = [[NSString alloc] initWithBytes:(bytes + pos)
+                                                                  length:strLen
+                                                                encoding:NSUTF8StringEncoding];
+                            pos += strLen + 1;
+                            if (fieldValue) {
+                                [structFields addObject:fieldValue];
+                                [fieldValue release];
+                            } else {
+                                [structFields addObject:@"<invalid-utf8>"];
+                            }
+                        }
+                        
+                    } else if (fieldType == 'u') {
+                        // uint32 field
+                        pos = alignTo(pos, 4);
+                        if (pos + 4 <= [bodyData length]) {
+                            uint32_t value = *(uint32_t *)(bytes + pos);
+                            if (endianness == DBUS_LITTLE_ENDIAN) {
+                                value = NSSwapLittleIntToHost(value);
+                            } else if (endianness == DBUS_BIG_ENDIAN) {
+                                value = NSSwapBigIntToHost(value);
+                            }
+                            [structFields addObject:@(value)];
+                            pos += 4;
+                        }
+                        
+                    } else if (fieldType == 'i') {
+                        // int32 field
+                        pos = alignTo(pos, 4);
+                        if (pos + 4 <= [bodyData length]) {
+                            int32_t value = *(int32_t *)(bytes + pos);
+                            if (endianness == DBUS_LITTLE_ENDIAN) {
+                                value = NSSwapLittleIntToHost(value);
+                            } else if (endianness == DBUS_BIG_ENDIAN) {
+                                value = NSSwapBigIntToHost(value);
+                            }
+                            [structFields addObject:@(value)];
+                            pos += 4;
+                        }
+                        
+                    } else if (fieldType == 'b') {
+                        // boolean field
+                        pos = alignTo(pos, 4);
+                        if (pos + 4 <= [bodyData length]) {
+                            uint32_t boolVal = *(uint32_t *)(bytes + pos);
+                            if (endianness == DBUS_LITTLE_ENDIAN) {
+                                boolVal = NSSwapLittleIntToHost(boolVal);
+                            } else if (endianness == DBUS_BIG_ENDIAN) {
+                                boolVal = NSSwapBigIntToHost(boolVal);
+                            }
+                            [structFields addObject:@(boolVal != 0)];
+                            pos += 4;
+                        }
+                        
+                    } else {
+                        // Other types - add placeholder for now
+                        NSLog(@"DEBUG parseArguments: unsupported struct field type '%c'", fieldType);
+                        [structFields addObject:[NSNull null]];
+                    }
+                }
+                
+                NSLog(@"DEBUG parseArguments: parsed struct with %lu fields", [structFields count]);
+                [arguments addObject:structFields];
+                i = structEnd - 1; // Will be incremented by main loop
+            } else {
+                // Malformed struct signature
+                NSLog(@"ERROR: Malformed struct signature starting at position %lu", i);
+                [arguments addObject:@[]];
+            }
+            
         } else {
             // Unknown type, skip
             NSLog(@"DEBUG parseArguments: unknown type '%c', stopping parse", typeChar);
@@ -1631,7 +1905,7 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         return nil;
     }
     
-    NSUInteger originalPos = *pos;
+    // NSUInteger originalPos = *pos;  // Reserved for debugging
     unichar typeChar = [signature characterAtIndex:0];
     
     switch (typeChar) {
@@ -1748,6 +2022,21 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                                                    encoding:NSUTF8StringEncoding];
             *pos += strLen + 1;
             return [str autorelease];
+        }
+        
+        case 'r': {
+            // STRUCT - parse according to D-Bus spec, aligned to 8-byte boundary
+            *pos = alignTo(*pos, 8);
+            
+            // For a struct in a variant, we need to parse it as a complete signature
+            // Since we only have the 'r' type, we'll create a generic struct placeholder
+            NSMutableArray *structArray = [NSMutableArray array];
+            
+            // Parse as a simple struct with basic fields - in real usage, 
+            // the signature would specify the complete struct signature
+            // For now, return an empty array to indicate a struct
+            NSLog(@"DEBUG: STRUCT type 'r' encountered in variant, creating placeholder");
+            return structArray;
         }
         
         default:

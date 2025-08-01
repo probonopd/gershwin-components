@@ -1150,122 +1150,170 @@
 - (void)handleIntrospect:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
     // org.freedesktop.DBus.Introspectable.Introspect() - return XML description
-    NSString *introspectionXML = @"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                                 @"<node>\n"
-                                 @"  <interface name=\"org.freedesktop.DBus\">\n"
-                                 @"    <method name=\"Hello\">\n"
-                                 @"      <arg direction=\"out\" type=\"s\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"RequestName\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"in\" type=\"u\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"u\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"ReleaseName\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"u\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"ListNames\">\n"
-                                 @"      <arg direction=\"out\" type=\"as\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"GetNameOwner\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"s\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"StartServiceByName\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"in\" type=\"u\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"u\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"AddMatch\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"RemoveMatch\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"NameHasOwner\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"b\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"ListActivatableNames\">\n"
-                                 @"      <arg direction=\"out\" type=\"as\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"ListQueuedOwners\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"as\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"GetConnectionUnixUser\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"u\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"GetConnectionUnixProcessID\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"u\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"GetAdtAuditSessionData\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"ay\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"GetConnectionSELinuxSecurityContext\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"ay\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"ReloadConfig\">\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"GetId\">\n"
-                                 @"      <arg direction=\"out\" type=\"s\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <signal name=\"NameOwnerChanged\">\n"
-                                 @"      <arg type=\"s\"/>\n"
-                                 @"      <arg type=\"s\"/>\n"
-                                 @"      <arg type=\"s\"/>\n"
-                                 @"    </signal>\n"
-                                 @"    <signal name=\"NameLost\">\n"
-                                 @"      <arg type=\"s\"/>\n"
-                                 @"    </signal>\n"
-                                 @"    <signal name=\"NameAcquired\">\n"
-                                 @"      <arg type=\"s\"/>\n"
-                                 @"    </signal>\n"
-                                 @"  </interface>\n"
-                                 @"  <interface name=\"org.freedesktop.DBus.Peer\">\n"
-                                 @"    <method name=\"Ping\"/>\n"
-                                 @"    <method name=\"GetMachineId\">\n"
-                                 @"      <arg direction=\"out\" type=\"s\"/>\n"
-                                 @"    </method>\n"
-                                 @"  </interface>\n"
-                                 @"  <interface name=\"org.freedesktop.DBus.Introspectable\">\n"
-                                 @"    <method name=\"Introspect\">\n"
-                                 @"      <arg direction=\"out\" type=\"s\"/>\n"
-                                 @"    </method>\n"
-                                 @"  </interface>\n"
-                                 @"  <interface name=\"org.freedesktop.DBus.Properties\">\n"
-                                 @"    <method name=\"Get\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"v\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"Set\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"in\" type=\"v\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <method name=\"GetAll\">\n"
-                                 @"      <arg direction=\"in\" type=\"s\"/>\n"
-                                 @"      <arg direction=\"out\" type=\"a{sv}\"/>\n"
-                                 @"    </method>\n"
-                                 @"    <signal name=\"PropertiesChanged\">\n"
-                                 @"      <arg type=\"s\"/>\n"
-                                 @"      <arg type=\"a{sv}\"/>\n"
-                                 @"      <arg type=\"as\"/>\n"
-                                 @"    </signal>\n"
-                                 @"  </interface>\n"
-                                 @"  <interface name=\"org.freedesktop.DBus.Monitoring\">\n"
-                                 @"    <method name=\"BecomeMonitor\">\n"
-                                 @"      <arg direction=\"in\" type=\"as\"/>\n"
-                                 @"      <arg direction=\"in\" type=\"u\"/>\n"
-                                 @"    </method>\n"
-                                 @"  </interface>\n"
-                                 @"</node>\n";
+    // Enhanced introspection with more complete D-Bus daemon interface
+    
+    NSMutableString *introspectionXML = [NSMutableString stringWithString:
+                                        @"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                                        @"<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\"\n"
+                                        @"\"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">\n"
+                                        @"<node>\n"];
+    
+    // Standard D-Bus daemon interface
+    [introspectionXML appendString:
+     @"  <interface name=\"org.freedesktop.DBus\">\n"
+     @"    <method name=\"Hello\">\n"
+     @"      <arg direction=\"out\" name=\"unique_name\" type=\"s\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"RequestName\">\n"
+     @"      <arg direction=\"in\" name=\"name\" type=\"s\"/>\n"
+     @"      <arg direction=\"in\" name=\"flags\" type=\"u\"/>\n"
+     @"      <arg direction=\"out\" name=\"result\" type=\"u\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"ReleaseName\">\n"
+     @"      <arg direction=\"in\" name=\"name\" type=\"s\"/>\n"
+     @"      <arg direction=\"out\" name=\"result\" type=\"u\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"ListNames\">\n"
+     @"      <arg direction=\"out\" name=\"names\" type=\"as\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"ListActivatableNames\">\n"
+     @"      <arg direction=\"out\" name=\"activatable_names\" type=\"as\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"GetNameOwner\">\n"
+     @"      <arg direction=\"in\" name=\"name\" type=\"s\"/>\n"
+     @"      <arg direction=\"out\" name=\"unique_name\" type=\"s\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"NameHasOwner\">\n"
+     @"      <arg direction=\"in\" name=\"name\" type=\"s\"/>\n"
+     @"      <arg direction=\"out\" name=\"has_owner\" type=\"b\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"StartServiceByName\">\n"
+     @"      <arg direction=\"in\" name=\"name\" type=\"s\"/>\n"
+     @"      <arg direction=\"in\" name=\"flags\" type=\"u\"/>\n"
+     @"      <arg direction=\"out\" name=\"result\" type=\"u\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"GetConnectionUnixUser\">\n"
+     @"      <arg direction=\"in\" name=\"connection_name\" type=\"s\"/>\n"
+     @"      <arg direction=\"out\" name=\"unix_user_id\" type=\"u\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"GetConnectionUnixProcessID\">\n"
+     @"      <arg direction=\"in\" name=\"connection_name\" type=\"s\"/>\n"
+     @"      <arg direction=\"out\" name=\"unix_process_id\" type=\"u\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"GetId\">\n"
+     @"      <arg direction=\"out\" name=\"unique_id\" type=\"s\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"AddMatch\">\n"
+     @"      <arg direction=\"in\" name=\"rule\" type=\"s\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"RemoveMatch\">\n"
+     @"      <arg direction=\"in\" name=\"rule\" type=\"s\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"GetAdtAuditSessionData\">\n"
+     @"      <arg direction=\"in\" name=\"connection_name\" type=\"s\"/>\n"
+     @"      <arg direction=\"out\" name=\"audit_data\" type=\"ay\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"GetConnectionSELinuxSecurityContext\">\n"
+     @"      <arg direction=\"in\" name=\"connection_name\" type=\"s\"/>\n"
+     @"      <arg direction=\"out\" name=\"security_context\" type=\"ay\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"GetConnectionCredentials\">\n"
+     @"      <arg direction=\"in\" name=\"connection_name\" type=\"s\"/>\n"
+     @"      <arg direction=\"out\" name=\"credentials\" type=\"a{sv}\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"ReloadConfig\">\n"
+     @"    </method>\n"
+     @"    <method name=\"UpdateActivationEnvironment\">\n"
+     @"      <arg direction=\"in\" name=\"environment\" type=\"a{ss}\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"ListQueuedOwners\">\n"
+     @"      <arg direction=\"in\" name=\"name\" type=\"s\"/>\n"
+     @"      <arg direction=\"out\" name=\"queued_owners\" type=\"as\"/>\n"
+     @"    </method>\n"
+     @"    <signal name=\"NameOwnerChanged\">\n"
+     @"      <arg name=\"name\" type=\"s\"/>\n"
+     @"      <arg name=\"old_owner\" type=\"s\"/>\n"
+     @"      <arg name=\"new_owner\" type=\"s\"/>\n"
+     @"    </signal>\n"
+     @"    <signal name=\"NameLost\">\n"
+     @"      <arg name=\"name\" type=\"s\"/>\n"
+     @"    </signal>\n"
+     @"    <signal name=\"NameAcquired\">\n"
+     @"      <arg name=\"name\" type=\"s\"/>\n"
+     @"    </signal>\n"
+     @"  </interface>\n"];
+    
+    // D-Bus Peer interface
+    [introspectionXML appendString:
+     @"  <interface name=\"org.freedesktop.DBus.Peer\">\n"
+     @"    <method name=\"Ping\"/>\n"
+     @"    <method name=\"GetMachineId\">\n"
+     @"      <arg direction=\"out\" name=\"machine_uuid\" type=\"s\"/>\n"
+     @"    </method>\n"
+     @"  </interface>\n"];
+    
+    // D-Bus Introspectable interface
+    [introspectionXML appendString:
+     @"  <interface name=\"org.freedesktop.DBus.Introspectable\">\n"
+     @"    <method name=\"Introspect\">\n"
+     @"      <arg direction=\"out\" name=\"introspection_xml\" type=\"s\"/>\n"
+     @"    </method>\n"
+     @"  </interface>\n"];
+    
+    // D-Bus Properties interface
+    [introspectionXML appendString:
+     @"  <interface name=\"org.freedesktop.DBus.Properties\">\n"
+     @"    <method name=\"Get\">\n"
+     @"      <arg direction=\"in\" name=\"interface_name\" type=\"s\"/>\n"
+     @"      <arg direction=\"in\" name=\"property_name\" type=\"s\"/>\n"
+     @"      <arg direction=\"out\" name=\"value\" type=\"v\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"Set\">\n"
+     @"      <arg direction=\"in\" name=\"interface_name\" type=\"s\"/>\n"
+     @"      <arg direction=\"in\" name=\"property_name\" type=\"s\"/>\n"
+     @"      <arg direction=\"in\" name=\"value\" type=\"v\"/>\n"
+     @"    </method>\n"
+     @"    <method name=\"GetAll\">\n"
+     @"      <arg direction=\"in\" name=\"interface_name\" type=\"s\"/>\n"
+     @"      <arg direction=\"out\" name=\"properties\" type=\"a{sv}\"/>\n"
+     @"    </method>\n"
+     @"    <signal name=\"PropertiesChanged\">\n"
+     @"      <arg name=\"interface_name\" type=\"s\"/>\n"
+     @"      <arg name=\"changed_properties\" type=\"a{sv}\"/>\n"
+     @"      <arg name=\"invalidated_properties\" type=\"as\"/>\n"
+     @"    </signal>\n"
+     @"  </interface>\n"];
+    
+    // D-Bus Monitoring interface
+    [introspectionXML appendString:
+     @"  <interface name=\"org.freedesktop.DBus.Monitoring\">\n"
+     @"    <method name=\"BecomeMonitor\">\n"
+     @"      <arg direction=\"in\" name=\"rules\" type=\"as\"/>\n"
+     @"      <arg direction=\"in\" name=\"flags\" type=\"u\"/>\n"
+     @"    </method>\n"
+     @"  </interface>\n"];
+    
+    // Add child nodes for active services
+    @synchronized(_nameOwners) {
+        NSArray *sortedNames = [[_nameOwners allKeys] sortedArrayUsingSelector:@selector(compare:)];
+        for (NSString *name in sortedNames) {
+            if (![name hasPrefix:@":"]) { // Only well-known names, not unique names
+                // Escape XML special characters in service names
+                NSString *escapedName = [name stringByReplacingOccurrencesOfString:@"&" withString:@"&amp;"];
+                escapedName = [escapedName stringByReplacingOccurrencesOfString:@"<" withString:@"&lt;"];
+                escapedName = [escapedName stringByReplacingOccurrencesOfString:@">" withString:@"&gt;"];
+                escapedName = [escapedName stringByReplacingOccurrencesOfString:@"\"" withString:@"&quot;"];
+                escapedName = [escapedName stringByReplacingOccurrencesOfString:@"'" withString:@"&apos;"];
+                
+                [introspectionXML appendFormat:@"  <node name=\"%@\"/>\n", escapedName];
+            }
+        }
+    }
+    
+    [introspectionXML appendString:@"</node>\n"];
+    
+    NSLog(@"DEBUG: Generated introspection XML (%lu chars) for connection %@", 
+          [introspectionXML length], connection.uniqueName);
     
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[introspectionXML]];
@@ -1273,7 +1321,7 @@
     reply.sender = @"org.freedesktop.DBus";
     [connection sendMessage:reply];
     
-    NSLog(@"Introspect handled for connection %@", connection);
+    NSLog(@"Enhanced Introspect handled for connection %@", connection);
 }
 
 #pragma mark - Additional org.freedesktop.DBus Method Implementations
