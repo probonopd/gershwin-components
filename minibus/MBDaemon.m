@@ -583,7 +583,7 @@
         NSLog(@"StartServiceByName: org.freedesktop.DBus is always running (we are the bus daemon)");
         
         MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
-                                                        arguments:@[@1]]; // DBUS_START_REPLY_ALREADY_RUNNING = 1
+                                                        arguments:@[[NSNumber numberWithUnsignedInt:1]]]; // DBUS_START_REPLY_ALREADY_RUNNING = 1
         reply.sender = @"org.freedesktop.DBus";
         reply.destination = connection.uniqueName;
         [connection sendMessage:reply];
@@ -597,7 +597,7 @@
         NSLog(@"StartServiceByName: service '%@' already running as %@", serviceName, owner.uniqueName);
         
         MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
-                                                        arguments:@[@1]]; // DBUS_START_REPLY_ALREADY_RUNNING = 1
+                                                        arguments:@[[NSNumber numberWithUnsignedInt:1]]]; // DBUS_START_REPLY_ALREADY_RUNNING = 1
         reply.sender = @"org.freedesktop.DBus";
         reply.destination = connection.uniqueName;
         [connection sendMessage:reply];
@@ -609,7 +609,7 @@
         NSLog(@"StartServiceByName: service '%@' is already being activated", serviceName);
         
         MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
-                                                        arguments:@[@2]]; // DBUS_START_REPLY_SUCCESS = 2 (activation started)
+                                                        arguments:@[[NSNumber numberWithUnsignedInt:2]]]; // DBUS_START_REPLY_SUCCESS = 2 (activation started)
         reply.sender = @"org.freedesktop.DBus";
         reply.destination = connection.uniqueName;
         [connection sendMessage:reply];
@@ -628,7 +628,7 @@
             NSLog(@"StartServiceByName: successfully started activation for service '%@'", serviceName);
             
             MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
-                                                            arguments:@[@2]]; // DBUS_START_REPLY_SUCCESS = 2
+                                                            arguments:@[[NSNumber numberWithUnsignedInt:2]]]; // DBUS_START_REPLY_SUCCESS = 2
             reply.sender = @"org.freedesktop.DBus";
             reply.destination = connection.uniqueName;
             [connection sendMessage:reply];
@@ -729,6 +729,7 @@
     
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[names]];
+    reply.signature = @"as"; // Override signature to be array of strings
     reply.sender = @"org.freedesktop.DBus";
     reply.destination = connection.uniqueName;  // Reply is addressed to the client
     
