@@ -1121,6 +1121,17 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         }
         
         NSData *bodyData = [NSData dataWithBytes:(bytes + bodyStart) length:bodyLength];
+        
+        // DEBUG: Log the first few bytes of body data for debugging  
+        if (debugParsing || bodyLength <= 50) {
+            const uint8_t *bodyBytes = [bodyData bytes];
+            NSMutableString *bodyHex = [NSMutableString string];
+            for (NSUInteger i = 0; i < MIN(bodyLength, 16); i++) {
+                [bodyHex appendFormat:@"%02x ", bodyBytes[i]];
+            }
+            NSLog(@"DEBUG: Body data (%u bytes) starts: %@", bodyLength, bodyHex);
+        }
+        
         message.arguments = [self parseArgumentsFromBodyData:bodyData signature:message.signature endianness:endianness];
         
         // If argument parsing failed (resulted in empty array when signature expects arguments), reject the message
@@ -1317,11 +1328,16 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             uint32_t strLen = *(uint32_t *)(bytes + pos);
             
             // Apply correct endianness conversion based on message header
+            // Note: NSSwapLittleIntToHost converts FROM little endian TO host
+            // NSSwapBigIntToHost converts FROM big endian TO host
             if (endianness == DBUS_LITTLE_ENDIAN) {
                 strLen = NSSwapLittleIntToHost(strLen);
             } else if (endianness == DBUS_BIG_ENDIAN) {
                 strLen = NSSwapBigIntToHost(strLen);
             }
+            
+            NSLog(@"DEBUG parseArguments: raw strLen bytes: %02x %02x %02x %02x, converted: %u", 
+                  bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3], strLen);
             
             pos += 4;
             
