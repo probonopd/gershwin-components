@@ -1,7 +1,7 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
 # Tools
-TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment hello-length-analysis debug-listnames debug-message-format debug-listnames-serialization test-array-parsing test-requestname debug-hello-reply test-gdbus-proxy test-start-service test-message-parsing debug-message-parsing debug-parsing-issue test-service test-activation-client test-auto-activation
+TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment hello-length-analysis debug-listnames debug-message-format debug-listnames-serialization test-array-parsing test-requestname debug-hello-reply test-gdbus-proxy test-start-service test-message-parsing debug-message-parsing debug-parsing-issue test-service test-activation-client test-auto-activation debug-nameowner-signal test-glib-simple debug-parsing-detailed test-second-message test-full-buffer
 
 minibus_OBJC_FILES = main-daemon.m MBDaemon.m MBConnection.m MBMessage.m MBTransport.m MBClient.m MBServiceManager.m MBServiceFile.m
 minibus-test_OBJC_FILES = main-test.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
@@ -30,6 +30,11 @@ debug-parsing-issue_OBJC_FILES = debug-parsing-issue.m MBMessage.m MBTransport.m
 test-service_OBJC_FILES = test-service.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
 test-activation-client_OBJC_FILES = test-activation-client.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
 test-auto-activation_OBJC_FILES = test-auto-activation.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
+debug-nameowner-signal_OBJC_FILES = debug-nameowner-signal.m MBMessage.m MBTransport.m
+test-glib-simple_C_FILES = test-glib-simple.c
+debug-parsing-detailed_OBJC_FILES = debug-parsing-detailed.m MBMessage.m MBTransport.m
+test-second-message_OBJC_FILES = test-second-message.m MBMessage.m MBTransport.m
+test-full-buffer_OBJC_FILES = test-full-buffer.m MBMessage.m MBTransport.m
 
 # Compiler flags for production builds
 minibus_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
@@ -49,6 +54,7 @@ test-array-parsing_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
 test-gdbus-proxy_OBJCFLAGS += -Wall -Wextra -O2 -fblocks $(shell pkg-config --cflags glib-2.0 gio-2.0)
 test-start-service_OBJCFLAGS += -Wall -Wextra -O2 -fblocks $(shell pkg-config --cflags glib-2.0 gio-2.0)
 debug-message-parsing_OBJCFLAGS += -Wall -Wextra -O2 -fblocks $(shell pkg-config --cflags glib-2.0 gio-2.0)
+test-glib-simple_CFLAGS += -Wall -Wextra -O2 $(shell pkg-config --cflags glib-2.0 gio-2.0)
 
 # Include paths
 minibus_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)

@@ -1520,28 +1520,17 @@
     
     // For org.freedesktop.DBus interface, return the standard properties
     if ([interfaceName isEqualToString:@"org.freedesktop.DBus"]) {
-        // Features property - list of features supported by this daemon
-        NSArray *features = @[]; // MiniBus doesn't support advanced features yet
-        
-        // Interfaces property - list of interfaces provided by /org/freedesktop/DBus
-        NSArray *interfaces = @[
-            @"org.freedesktop.DBus.Introspectable",
-            @"org.freedesktop.DBus.Peer", 
-            @"org.freedesktop.DBus.Properties"
-        ];
-        
-        NSDictionary *properties = @{
-            @"Features": features,
-            @"Interfaces": interfaces
-        };
+        // For now, return an empty dictionary since our serializer doesn't support a{sv} properly
+        // TODO: Implement proper D-Bus dictionary serialization
         
         MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
-                                                        arguments:@[properties]];
+                                                        arguments:@[]];
+        reply.signature = @"a{sv}";  // Set correct signature manually
         reply.sender = @"org.freedesktop.DBus";
         reply.destination = connection.uniqueName;
         [connection sendMessage:reply];
         
-        NSLog(@"Properties.GetAll for interface '%@' - returned Features and Interfaces", interfaceName);
+        NSLog(@"Properties.GetAll for interface '%@' - returned empty dictionary (serialization limitation)", interfaceName);
     } else {
         NSLog(@"Unimplemented: Properties.GetAll for interface '%@' - interface not supported", interfaceName);
         

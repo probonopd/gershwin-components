@@ -298,6 +298,16 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
 
 - (NSData *)serializeBody
 {
+    // Special case: if signature indicates array type but no arguments, serialize empty array
+    if ((!_arguments || [_arguments count] == 0) && _signature && [_signature hasPrefix:@"a"]) {
+        NSMutableData *bodyData = [NSMutableData data];
+        // Align to 4 bytes for array length
+        addPadding(bodyData, 4);
+        uint32_t arrayLength = 0;  // Empty array
+        [bodyData appendBytes:&arrayLength length:4];
+        return bodyData;
+    }
+    
     if (!_arguments || [_arguments count] == 0) {
         return [NSData data];
     }
@@ -420,6 +430,21 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         return nil;
     }
     
+    // Additional validation: ensure we're not dealing with clearly corrupted values
+    if (fieldsLength > [data length] || bodyLength > [data length]) {
+        return nil;
+    }
+    
+    // Calculate message length correctly
+    NSUInteger headerFieldsEnd = pos + 16 + fieldsLength;
+    NSUInteger bodyStart = alignTo(headerFieldsEnd, 8);
+    NSUInteger messageLength = (bodyStart - pos) + bodyLength; // Relative to message start
+    
+    // Enhanced validation - reject clearly corrupted messages
+    if (pos + messageLength > [data length] || messageLength > 2097152) { // Max 2MB total message
+        return nil;
+    }
+    
     // Validate serial number (must be non-zero for valid messages)
     if (serial == 0) {
         return nil;
@@ -431,15 +456,6 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     if (debugParsing || pos > 0) {
         printf("Fixed header at pos %lu: endian=%c type=%u bodyLen=%u serial=%u fieldsLen=%u\n",
                pos, endianness, messageType, bodyLength, serial, fieldsLength);
-    }
-    
-    // Calculate total message length
-    NSUInteger headerFieldsEnd = pos + 16 + fieldsLength;
-    NSUInteger bodyStart = alignTo(headerFieldsEnd, 8);
-    NSUInteger totalLength = bodyStart + bodyLength;
-    
-    if (totalLength > [data length]) {
-        return nil;
     }
     
     // Create message object
@@ -663,7 +679,7 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         printf("Original position in buffer: %lu\n", pos);
         printf("Fields section: %lu to %lu (length=%u)\n", pos + 16, pos + 16 + fieldsLength, fieldsLength);
         printf("Raw message data:\n");
-        for (NSUInteger i = pos; i < MIN(pos + totalLength, [data length]); i += 16) {
+        for (NSUInteger i = pos; i < MIN(pos + messageLength, [data length]); i += 16) {
             printf("%04lx: ", i);
             for (NSUInteger j = 0; j < 16 && i + j < [data length]; j++) {
                 printf("%02x ", bytes[i + j]);
@@ -672,8 +688,8 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         }
         printf("Header: endian=%c type=%u bodyLen=%u serial=%lu fieldsLen=%u\n",
                endianness, messageType, bodyLength, (unsigned long)message.serial, fieldsLength);
-        printf("HeaderFieldsEnd=%lu BodyStart=%lu TotalLength=%lu\n", 
-               headerFieldsEnd, bodyStart, totalLength);
+        printf("HeaderFieldsEnd=%lu BodyStart=%lu MessageLength=%lu\n", 
+               headerFieldsEnd, bodyStart, messageLength);
         
         // Let's manually parse the first header field to debug
         NSUInteger debugPos = pos + 16;
@@ -685,7 +701,7 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     
     // Skip to next message
     if (offset) {
-        *offset = pos + totalLength;
+        *offset = pos + messageLength;
     }
     
     return message;
@@ -793,6 +809,18 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         return @[];
     }
     
+    // Validate bodyData length is reasonable (prevent massive data processing)
+    if ([bodyData length] > 1048576) { // Max 1MB body
+        NSLog(@"ERROR: Body data too large (%lu bytes), rejecting", [bodyData length]);
+        return @[];
+    }
+    
+    // Validate endianness
+    if (endianness != DBUS_LITTLE_ENDIAN && endianness != DBUS_BIG_ENDIAN) {
+        NSLog(@"ERROR: Invalid endianness %u, rejecting", endianness);
+        return @[];
+    }
+    
     const uint8_t *bytes = [bodyData bytes];
     NSUInteger pos = 0;
     NSMutableArray *arguments = [NSMutableArray array];
@@ -824,6 +852,13 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                 NSLog(@"ERROR: Argument string length %u exceeds maximum allowed (%u), truncating", 
                       strLen, MAX_DBUS_STRING_LENGTH);
                 break; // Skip rest of arguments to prevent memory issues
+            }
+            
+            // Additional validation: ensure string length doesn't exceed remaining buffer
+            if (strLen > [bodyData length] - pos) {
+                NSLog(@"ERROR: String length %u exceeds remaining buffer (%lu), truncating", 
+                      strLen, [bodyData length] - pos);
+                break;
             }
             
             if (pos + strLen + 1 > [bodyData length]) break;

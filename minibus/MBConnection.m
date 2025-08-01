@@ -472,6 +472,23 @@ typedef enum {
 
     NSLog(@"parseMessages called with %lu bytes in buffer", (unsigned long)[_readBuffer length]);
     
+    // DEBUGGING: Dump full buffer when we get large problematic buffers
+    if ([_readBuffer length] > 800) {
+        NSLog(@"=== LARGE BUFFER DETECTED (%lu bytes) - DUMPING FOR ANALYSIS ===", (unsigned long)[_readBuffer length]);
+        const uint8_t *debugBytes = [_readBuffer bytes];
+        for (NSUInteger i = 0; i < [_readBuffer length] && i < 1024; i += 16) {
+            NSMutableString *hexLine = [NSMutableString string];
+            NSMutableString *asciiLine = [NSMutableString string];
+            for (NSUInteger j = 0; j < 16 && i + j < [_readBuffer length]; j++) {
+                uint8_t byte = debugBytes[i + j];
+                [hexLine appendFormat:@"%02x ", byte];
+                [asciiLine appendFormat:@"%c", (byte >= 32 && byte < 127) ? byte : '.'];
+            }
+            NSLog(@"  %04lx: %-48s %@", i, [hexLine UTF8String], asciiLine);
+        }
+        NSLog(@"=== END BUFFER DUMP ===");
+    }
+    
     // CPU protection: limit buffer size to prevent memory/CPU attacks
     if ([_readBuffer length] > 262144) { // 256KB limit - reduced from 1MB
         NSLog(@"Buffer too large (%lu bytes), clearing to prevent memory exhaustion", (unsigned long)[_readBuffer length]);
