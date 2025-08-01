@@ -1462,15 +1462,46 @@
     NSString *interfaceName = message.arguments[0];
     NSString *propertyName = message.arguments[1];
     
-    NSLog(@"Unimplemented: Properties.Get for interface '%@' property '%@' - requires property introspection", 
-          interfaceName, propertyName);
-    
-    MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.UnknownProperty"
-                                    replySerial:message.serial
-                                        message:[NSString stringWithFormat:@"Property %@.%@ not found", interfaceName, propertyName]];
-    error.sender = @"org.freedesktop.DBus";
-    error.destination = connection.uniqueName;
-    [connection sendMessage:error];
+    if ([interfaceName isEqualToString:@"org.freedesktop.DBus"]) {
+        id propertyValue = nil;
+        
+        if ([propertyName isEqualToString:@"Features"]) {
+            propertyValue = @[]; // MiniBus doesn't support advanced features yet
+        } else if ([propertyName isEqualToString:@"Interfaces"]) {
+            propertyValue = @[
+                @"org.freedesktop.DBus.Introspectable",
+                @"org.freedesktop.DBus.Peer", 
+                @"org.freedesktop.DBus.Properties"
+            ];
+        } else {
+            NSLog(@"Unknown property: %@.%@", interfaceName, propertyName);
+            MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.UnknownProperty"
+                                        replySerial:message.serial
+                                            message:[NSString stringWithFormat:@"Property %@ not found", propertyName]];
+            error.sender = @"org.freedesktop.DBus";
+            error.destination = connection.uniqueName;
+            [connection sendMessage:error];
+            return;
+        }
+        
+        MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                        arguments:@[propertyValue]];
+        reply.sender = @"org.freedesktop.DBus";
+        reply.destination = connection.uniqueName;
+        [connection sendMessage:reply];
+        
+        NSLog(@"Properties.Get for interface '%@' property '%@' - returned value", interfaceName, propertyName);
+    } else {
+        NSLog(@"Unimplemented: Properties.Get for interface '%@' property '%@' - requires property introspection", 
+              interfaceName, propertyName);
+        
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.UnknownInterface"
+                                        replySerial:message.serial
+                                            message:[NSString stringWithFormat:@"Interface %@ not found", interfaceName]];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+    }
 }
 
 - (void)handlePropertiesGetAll:(MBMessage *)message fromConnection:(MBConnection *)connection
@@ -1487,10 +1518,22 @@
     
     NSString *interfaceName = message.arguments[0];
     
-    // For org.freedesktop.DBus interface, we could return some basic properties
+    // For org.freedesktop.DBus interface, return the standard properties
     if ([interfaceName isEqualToString:@"org.freedesktop.DBus"]) {
-        // Return an empty dictionary for now - a full implementation would include Features, Interfaces properties
-        NSDictionary *properties = @{};
+        // Features property - list of features supported by this daemon
+        NSArray *features = @[]; // MiniBus doesn't support advanced features yet
+        
+        // Interfaces property - list of interfaces provided by /org/freedesktop/DBus
+        NSArray *interfaces = @[
+            @"org.freedesktop.DBus.Introspectable",
+            @"org.freedesktop.DBus.Peer", 
+            @"org.freedesktop.DBus.Properties"
+        ];
+        
+        NSDictionary *properties = @{
+            @"Features": features,
+            @"Interfaces": interfaces
+        };
         
         MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                         arguments:@[properties]];
@@ -1498,7 +1541,7 @@
         reply.destination = connection.uniqueName;
         [connection sendMessage:reply];
         
-        NSLog(@"Properties.GetAll for interface '%@' - returned empty dict", interfaceName);
+        NSLog(@"Properties.GetAll for interface '%@' - returned Features and Interfaces", interfaceName);
     } else {
         NSLog(@"Unimplemented: Properties.GetAll for interface '%@' - interface not supported", interfaceName);
         

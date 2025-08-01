@@ -93,6 +93,11 @@ typedef enum {
  */
 + (NSArray *)messagesFromData:(NSData *)data consumedBytes:(NSUInteger *)consumedBytes;
 
+/**
+ * Parse arguments from body data with specific endianness
+ */
++ (NSArray *)parseArgumentsFromBodyData:(NSData *)bodyData signature:(NSString *)signature endianness:(uint8_t)endianness;
+
 @end
 
 #endif // MB_MESSAGE_H

@@ -415,8 +415,8 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         fieldsLength = NSSwapBigIntToHost(fieldsLength);
     }
     
-    // Validate lengths for sanity - more strict bounds
-    if (fieldsLength > 32768 || bodyLength > 16777216) { // Max 32KB for fields, 16MB for body
+    // Validate lengths for sanity - strict bounds to prevent memory exhaustion
+    if (fieldsLength > 8192 || bodyLength > 1048576) { // Max 8KB for fields, 1MB for body
         return nil;
     }
     
@@ -542,6 +542,18 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                 printf("String length: %u, remaining space: %lu\n", strLen, fieldsEnd - fieldsPos);
             }
             
+            // Impose strict limits on string length to prevent memory exhaustion attacks
+            const uint32_t MAX_DBUS_STRING_LENGTH = 65536; // 64KB max for any D-Bus string
+            if (strLen > MAX_DBUS_STRING_LENGTH) {
+                if (debugParsing || pos > 0) {
+                    printf("ERROR: String length %u exceeds maximum allowed (%u), rejecting message\n", 
+                           strLen, MAX_DBUS_STRING_LENGTH);
+                }
+                [signature release];
+                [message release];
+                return nil;
+            }
+            
             if (fieldsPos + strLen + 1 > fieldsEnd) {
                 if (debugParsing || pos > 0) {
                     printf("ERROR: Not enough space for string data at %lu (need %u+1, have %lu)\n", 
@@ -640,7 +652,7 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     // Parse message body
     if (bodyLength > 0 && message.signature) {
         NSData *bodyData = [NSData dataWithBytes:(bytes + bodyStart) length:bodyLength];
-        message.arguments = [self parseArgumentsFromBodyData:bodyData signature:message.signature];
+        message.arguments = [self parseArgumentsFromBodyData:bodyData signature:message.signature endianness:endianness];
     } else {
         message.arguments = @[];
     }
@@ -775,7 +787,7 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     return [self messageFromData:data offset:NULL];
 }
 
-+ (NSArray *)parseArgumentsFromBodyData:(NSData *)bodyData signature:(NSString *)signature
++ (NSArray *)parseArgumentsFromBodyData:(NSData *)bodyData signature:(NSString *)signature endianness:(uint8_t)endianness
 {
     if (!bodyData || [bodyData length] == 0 || !signature || [signature length] == 0) {
         return @[];
@@ -796,16 +808,36 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             if (pos + 4 > [bodyData length]) break;
             
             uint32_t strLen = *(uint32_t *)(bytes + pos);
-            strLen = NSSwapLittleIntToHost(strLen); // Assume little-endian
+            
+            // Apply correct endianness conversion based on message header
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                strLen = NSSwapLittleIntToHost(strLen);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                strLen = NSSwapBigIntToHost(strLen);
+            }
+            
             pos += 4;
+            
+            // Impose strict limits on string length to prevent memory exhaustion
+            const uint32_t MAX_DBUS_STRING_LENGTH = 65536; // 64KB max for any D-Bus string
+            if (strLen > MAX_DBUS_STRING_LENGTH) {
+                NSLog(@"ERROR: Argument string length %u exceeds maximum allowed (%u), truncating", 
+                      strLen, MAX_DBUS_STRING_LENGTH);
+                break; // Skip rest of arguments to prevent memory issues
+            }
             
             if (pos + strLen + 1 > [bodyData length]) break;
             
             NSString *value = [[NSString alloc] initWithBytes:(bytes + pos) 
                                                        length:strLen 
                                                      encoding:NSUTF8StringEncoding];
-            [arguments addObject:value];
-            [value release];
+            if (value) {
+                [arguments addObject:value];
+                [value release];
+            } else {
+                // Invalid UTF-8, use a placeholder
+                [arguments addObject:@"<invalid-utf8>"];
+            }
             pos += strLen + 1; // +1 for null terminator
             
         } else if (typeChar == 'u') {
@@ -815,7 +847,14 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             if (pos + 4 > [bodyData length]) break;
             
             uint32_t value = *(uint32_t *)(bytes + pos);
-            value = NSSwapLittleIntToHost(value);
+            
+            // Apply correct endianness conversion
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                value = NSSwapLittleIntToHost(value);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                value = NSSwapBigIntToHost(value);
+            }
+            
             [arguments addObject:@(value)];
             pos += 4;
             
@@ -826,7 +865,13 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             if (pos + 4 > [bodyData length]) break;
             
             int32_t value = *(int32_t *)(bytes + pos);
-            value = NSSwapLittleIntToHost(value);
+            
+            // Apply correct endianness conversion
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                value = NSSwapLittleIntToHost(value);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                value = NSSwapBigIntToHost(value);
+            }
             [arguments addObject:@(value)];
             pos += 4;
             
@@ -837,6 +882,12 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     }
     
     return [arguments copy];
+}
+
+// Backwards-compatible method that assumes little-endian (for existing code)
++ (NSArray *)parseArgumentsFromBodyData:(NSData *)bodyData signature:(NSString *)signature
+{
+    return [self parseArgumentsFromBodyData:bodyData signature:signature endianness:DBUS_LITTLE_ENDIAN];
 }
 
 @end
