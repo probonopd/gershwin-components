@@ -4,6 +4,10 @@
 #import <sys/socket.h>
 #import <sys/ucred.h>
 
+// D-Bus protocol constants
+#define DBUS_LITTLE_ENDIAN 'l'
+#define DBUS_BIG_ENDIAN 'B'
+
 typedef enum {
     AUTH_STATE_WAITING_FOR_AUTH = 0,
     AUTH_STATE_WAITING_FOR_DATA,
@@ -333,7 +337,7 @@ typedef enum {
         
         // Debug: check if remaining data looks like auth data
         const uint8_t *bytes = [_authIncoming bytes];
-        if ([_authIncoming length] > 10) {
+        if ([_authIncoming length] > 4) {
             NSMutableString *hexString = [NSMutableString string];
             for (NSUInteger i = 0; i < MIN([_authIncoming length], 32); i++) {
                 [hexString appendFormat:@"%02x ", bytes[i]];
@@ -342,11 +346,27 @@ typedef enum {
             
             // Check if this looks like a D-Bus message (starts with endian byte)
             if (bytes[0] == 'l' || bytes[0] == 'B') {
-                NSLog(@"Remaining data appears to be a D-Bus message");
-                NSLog(@"handleBegin: appending data to read buffer");
-                [_readBuffer appendData:_authIncoming];
+                // Additional validation: check if it looks like a complete D-Bus header
+                if ([_authIncoming length] >= 16) {
+                    uint8_t type = bytes[1];
+                    uint8_t version = bytes[3];
+                    if (type >= 1 && type <= 4 && version == 1) {
+                        NSLog(@"Remaining data appears to be a valid D-Bus message");
+                        NSLog(@"handleBegin: appending data to read buffer");
+                        [_readBuffer appendData:_authIncoming];
+                    } else {
+                        NSLog(@"Remaining data looks like D-Bus but has invalid header fields (type=%d, version=%d)", type, version);
+                        // Still append it but warn
+                        [_readBuffer appendData:_authIncoming];
+                    }
+                } else {
+                    NSLog(@"Remaining data starts with endian byte but is too short for D-Bus header");
+                    [_readBuffer appendData:_authIncoming];
+                }
             } else {
-                NSLog(@"WARNING: Remaining data does not look like a D-Bus message, discarding");
+                NSLog(@"WARNING: Remaining data does not look like a D-Bus message (first byte=0x%02x '%c'), searching for valid data", 
+                      bytes[0], (bytes[0] >= 32 && bytes[0] < 127) ? bytes[0] : '?');
+                
                 // Search for valid D-Bus message start
                 NSUInteger validOffset = NSNotFound;
                 for (NSUInteger i = 0; i < [_authIncoming length]; i++) {
@@ -371,17 +391,21 @@ typedef enum {
                           (unsigned long)[validData length]);
                     [_readBuffer appendData:validData];
                 } else {
-                    NSLog(@"handleBegin: no valid D-Bus data found, not moving anything");
+                    NSLog(@"handleBegin: no valid D-Bus data found in remaining %lu bytes, discarding", 
+                          (unsigned long)[_authIncoming length]);
+                    // Don't append invalid data - this prevents the parsing issues
                 }
             }
         } else {
-            NSLog(@"handleBegin: appending small data to read buffer");
+            NSLog(@"handleBegin: remaining data is very short (%lu bytes), appending as-is", 
+                  (unsigned long)[_authIncoming length]);
             [_readBuffer appendData:_authIncoming];
         }
         
         NSLog(@"handleBegin: clearing auth buffer");
         [_authIncoming setData:[NSData data]];
-        NSLog(@"handleBegin: data transfer complete");
+        NSLog(@"handleBegin: data transfer complete, read buffer now has %lu bytes", 
+              (unsigned long)[_readBuffer length]);
     } else {
         NSLog(@"handleBegin: no remaining data to transfer");
     }
@@ -449,16 +473,16 @@ typedef enum {
     NSLog(@"parseMessages called with %lu bytes in buffer", (unsigned long)[_readBuffer length]);
     
     // CPU protection: limit buffer size to prevent memory/CPU attacks
-    if ([_readBuffer length] > 1048576) { // 1MB limit
+    if ([_readBuffer length] > 262144) { // 256KB limit - reduced from 1MB
         NSLog(@"Buffer too large (%lu bytes), clearing to prevent memory exhaustion", (unsigned long)[_readBuffer length]);
         [_readBuffer setData:[NSData data]];
         return [NSArray array];
     }
     
-    // If buffer grows too large during parsing issues, truncate it
-    if ([_readBuffer length] > 65536) { // 64KB limit for problematic data
+    // If buffer grows beyond normal limits during parsing issues, truncate it more aggressively
+    if ([_readBuffer length] > 32768) { // 32KB limit for problematic data - reduced from 64KB
         NSLog(@"Buffer size (%lu bytes) exceeds normal limits, truncating to prevent issues", (unsigned long)[_readBuffer length]);
-        NSData *truncatedData = [NSData dataWithBytes:[_readBuffer bytes] length:65536];
+        NSData *truncatedData = [NSData dataWithBytes:[_readBuffer bytes] length:32768];
         [_readBuffer setData:truncatedData];
     }
     
@@ -469,6 +493,41 @@ typedef enum {
         [hexString appendFormat:@"%02x ", bytes[i]];
     }
     NSLog(@"Buffer hex: %@", hexString);
+    
+    // Early validation: if buffer doesn't start with valid endian byte, search for one
+    if ([_readBuffer length] > 0 && bytes[0] != DBUS_LITTLE_ENDIAN && bytes[0] != DBUS_BIG_ENDIAN) {
+        NSLog(@"Buffer doesn't start with valid D-Bus endian byte (0x%02x), searching for valid start", bytes[0]);
+        
+        NSUInteger validOffset = NSNotFound;
+        for (NSUInteger i = 0; i < MIN([_readBuffer length], 256); i++) { // Only search first 256 bytes
+            if (bytes[i] == DBUS_LITTLE_ENDIAN || bytes[i] == DBUS_BIG_ENDIAN) {
+                // Found potential start, validate if it looks like a D-Bus header
+                if (i + 4 < [_readBuffer length]) {
+                    uint8_t type = bytes[i + 1];
+                    uint8_t version = bytes[i + 3];
+                    if (type >= 1 && type <= 4 && version == 1) {
+                        validOffset = i;
+                        NSLog(@"Found potential valid D-Bus message start at offset %lu", (unsigned long)i);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (validOffset != NSNotFound && validOffset > 0) {
+            // Remove invalid data before the valid start
+            NSData *validData = [NSData dataWithBytes:bytes + validOffset 
+                                               length:[_readBuffer length] - validOffset];
+            [_readBuffer setData:validData];
+            NSLog(@"Discarded %lu bytes of invalid data, buffer now has %lu bytes", 
+                  (unsigned long)validOffset, (unsigned long)[_readBuffer length]);
+        } else if (validOffset == NSNotFound) {
+            // No valid D-Bus data found, clear the buffer
+            NSLog(@"No valid D-Bus data found in buffer, clearing %lu bytes", (unsigned long)[_readBuffer length]);
+            [_readBuffer setData:[NSData data]];
+            return [NSArray array];
+        }
+    }
     
     @try {
         NSUInteger consumedBytes = 0;
