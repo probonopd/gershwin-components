@@ -455,6 +455,13 @@ typedef enum {
         return [NSArray array];
     }
     
+    // If buffer grows too large during parsing issues, truncate it
+    if ([_readBuffer length] > 65536) { // 64KB limit for problematic data
+        NSLog(@"Buffer size (%lu bytes) exceeds normal limits, truncating to prevent issues", (unsigned long)[_readBuffer length]);
+        NSData *truncatedData = [NSData dataWithBytes:[_readBuffer bytes] length:65536];
+        [_readBuffer setData:truncatedData];
+    }
+    
     // Show first few bytes for debugging
     const uint8_t *bytes = [_readBuffer bytes];
     NSMutableString *hexString = [NSMutableString string];
@@ -464,13 +471,28 @@ typedef enum {
     NSLog(@"Buffer hex: %@", hexString);
     
     @try {
-        NSArray *messages = [MBMessage messagesFromData:_readBuffer];
+        NSUInteger consumedBytes = 0;
+        NSArray *messages = [MBMessage messagesFromData:_readBuffer consumedBytes:&consumedBytes];
+        
         if ([messages count] > 0) {
-            NSLog(@"Parsed %lu D-Bus messages", (unsigned long)[messages count]);
-            [_readBuffer setData:[NSData data]];
-        } else {
-            NSLog(@"No messages parsed, keeping buffer for next attempt");
+            NSLog(@"Parsed %lu D-Bus messages, consumed %lu bytes", (unsigned long)[messages count], consumedBytes);
         }
+        
+        // Remove consumed bytes from buffer
+        if (consumedBytes > 0) {
+            NSUInteger remainingBytes = [_readBuffer length] - consumedBytes;
+            if (remainingBytes > 0) {
+                NSData *remainingData = [NSData dataWithBytes:((uint8_t *)[_readBuffer bytes] + consumedBytes) 
+                                                       length:remainingBytes];
+                [_readBuffer setData:remainingData];
+                NSLog(@"Kept %lu unconsumed bytes in buffer", remainingBytes);
+            } else {
+                [_readBuffer setData:[NSData data]];
+            }
+        } else if ([messages count] == 0) {
+            NSLog(@"No messages parsed, keeping buffer (%lu bytes) for next attempt", (unsigned long)[_readBuffer length]);
+        }
+        
         return messages;
     }
     @catch (NSException *exception) {

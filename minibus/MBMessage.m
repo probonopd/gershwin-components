@@ -376,6 +376,19 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     // Read fixed header (16 bytes)
     uint8_t endianness = bytes[pos];
     uint8_t messageType = bytes[pos + 1];
+    
+    // Validate endianness marker
+    if (endianness != DBUS_LITTLE_ENDIAN && endianness != DBUS_BIG_ENDIAN) {
+        NSLog(@"Invalid endianness marker %02x at position %lu", endianness, pos);
+        return nil;
+    }
+    
+    // Validate message type
+    if (messageType < 1 || messageType > 4) {
+        NSLog(@"Invalid message type %u at position %lu", messageType, pos);
+        return nil;
+    }
+    
     uint32_t bodyLength = *(uint32_t *)(bytes + pos + 4);
     uint32_t serial = *(uint32_t *)(bytes + pos + 8);
     uint32_t fieldsLength = *(uint32_t *)(bytes + pos + 12);
@@ -385,6 +398,25 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         bodyLength = NSSwapLittleIntToHost(bodyLength);
         serial = NSSwapLittleIntToHost(serial);
         fieldsLength = NSSwapLittleIntToHost(fieldsLength);
+    } else if (endianness == DBUS_BIG_ENDIAN) {
+        bodyLength = NSSwapBigIntToHost(bodyLength);
+        serial = NSSwapBigIntToHost(serial);
+        fieldsLength = NSSwapBigIntToHost(fieldsLength);
+    }
+    
+    // Validate lengths for sanity
+    if (fieldsLength > 65536 || bodyLength > 67108864) { // Max 64KB for fields, 64MB for body
+        NSLog(@"Suspicious message lengths: fieldsLength=%u bodyLength=%u at position %lu", 
+              fieldsLength, bodyLength, pos);
+        return nil;
+    }
+    
+    // Debug: Enable debugging for specific problematic message
+    BOOL debugParsing = (serial == 3 || serial == 2); // Debug specific serials
+    
+    if (debugParsing || pos > 0) {
+        printf("Fixed header at pos %lu: endian=%c type=%u bodyLen=%u serial=%u fieldsLen=%u\n",
+               pos, endianness, messageType, bodyLength, serial, fieldsLength);
     }
     
     // Calculate total message length
@@ -401,54 +433,120 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     message.type = messageType;
     message.serial = serial;
     
-    // Parse header fields
+    if (debugParsing) {
+        printf("Parsing message serial %u at offset %lu (total %lu bytes):\n", serial, pos, [data length]);
+        for (NSUInteger i = pos; i < MIN(pos + 200, [data length]); i += 16) {
+            printf("%04lx: ", i);
+            for (NSUInteger j = 0; j < 16 && i + j < [data length]; j++) {
+                printf("%02x ", bytes[i + j]);
+            }
+            printf("\n");
+        }
+    }
+    
+    // Parse header fields array
     NSUInteger fieldsPos = pos + 16;
     NSUInteger fieldsEnd = fieldsPos + fieldsLength;
     
+    if (debugParsing || pos > 0) {
+        printf("Header fields section: %lu to %lu (at pos %lu)\n", fieldsPos, fieldsEnd, pos);
+    }
+    
+    // Header fields are an array of structs: a(yv)
+    // Array length is already known (fieldsLength)
+    // Each struct element is aligned to 8-byte boundary from start of the message
     while (fieldsPos < fieldsEnd) {
-        // Each header field is a struct: (BYTE code, VARIANT value)
-        // Align to 8-byte boundary for struct
-        fieldsPos = alignTo(fieldsPos, 8);
+        // Each struct in the array must be 8-byte aligned relative to message start
+        NSUInteger posFromMessageStart = fieldsPos - pos;
+        NSUInteger alignedPosFromMessageStart = alignTo(posFromMessageStart, 8);
+        fieldsPos = pos + alignedPosFromMessageStart;
         
-        if (fieldsPos + 1 > fieldsEnd) break;
+        if (debugParsing || pos > 0) {
+            printf("Aligning field: posFromMessageStart=%lu -> alignedPos=%lu, fieldsPos=%lu\n", 
+                   posFromMessageStart, alignedPosFromMessageStart, fieldsPos);
+        }
+        
+        if (fieldsPos >= fieldsEnd) break;
+        if (fieldsPos + 2 > fieldsEnd) break; // Need at least field code + sig length
         
         uint8_t fieldCode = bytes[fieldsPos];
         fieldsPos += 1;
         
-        // Read variant signature length (1 byte)
-        if (fieldsPos + 1 > fieldsEnd) break;
+        // Read variant signature length 
         uint8_t sigLen = bytes[fieldsPos];
         fieldsPos += 1;
         
         if (fieldsPos + sigLen + 1 > fieldsEnd) break;
         
-        // Read signature (sigLen bytes + null terminator)
+        // Read variant signature
         NSString *signature = [[NSString alloc] initWithBytes:(bytes + fieldsPos) 
                                                        length:sigLen 
                                                      encoding:NSUTF8StringEncoding];
         fieldsPos += sigLen + 1; // +1 for null terminator
         
-        // Parse the variant data based on signature type
+        if (debugParsing || (pos > 0 && (fieldCode > 8 || fieldCode == 0))) {
+            printf("Field %u: sig='%s' at fieldsPos %lu (abs %lu, msg pos %lu)\n", 
+                   fieldCode, [signature UTF8String], fieldsPos, fieldsPos, pos);
+        }
+        
+        // Parse variant value based on signature
         if ([signature isEqualToString:@"s"] || [signature isEqualToString:@"o"]) {
-            // String or object path - align to 4-byte boundary
-            fieldsPos = alignTo(fieldsPos, 4);
+            // String/ObjectPath: uint32 length + string + null
+            // The variant value (uint32 length) should be aligned to 4-byte boundary
+            // IMPORTANT: Alignment is relative to the start of the message, not absolute position
+            NSUInteger relativePos = fieldsPos - pos;
+            NSUInteger alignedRelativePos = alignTo(relativePos, 4);
+            fieldsPos = pos + alignedRelativePos;
             
-            if (fieldsPos + 4 > fieldsEnd) break;
+            if (debugParsing || pos > 0) {
+                printf("Parsing string field %u: relativePos=%lu, alignedRelativePos=%lu, fieldsPos=%lu\n", 
+                       fieldCode, relativePos, alignedRelativePos, fieldsPos);
+                if (fieldsPos + 4 <= fieldsEnd) {
+                    printf("Reading length from bytes: %02x %02x %02x %02x at position %lu\n",
+                           bytes[fieldsPos], bytes[fieldsPos+1], bytes[fieldsPos+2], bytes[fieldsPos+3], fieldsPos);
+                }
+            }
+            
+            if (fieldsPos + 4 > fieldsEnd) {
+                if (debugParsing || pos > 0) {
+                    printf("ERROR: Not enough space for string length at %lu (need 4, have %lu)\n", 
+                           fieldsPos, fieldsEnd - fieldsPos);
+                }
+                [signature release];
+                break;
+            }
             
             uint32_t strLen = *(uint32_t *)(bytes + fieldsPos);
             if (endianness == DBUS_LITTLE_ENDIAN) {
                 strLen = NSSwapLittleIntToHost(strLen);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                strLen = NSSwapBigIntToHost(strLen);
             }
             fieldsPos += 4;
             
-            if (fieldsPos + strLen + 1 > fieldsEnd) break;
+            if (debugParsing || pos > 0) {
+                printf("String length: %u, remaining space: %lu\n", strLen, fieldsEnd - fieldsPos);
+            }
+            
+            if (fieldsPos + strLen + 1 > fieldsEnd) {
+                if (debugParsing || pos > 0) {
+                    printf("ERROR: Not enough space for string data at %lu (need %u+1, have %lu)\n", 
+                           fieldsPos, strLen, fieldsEnd - fieldsPos);
+                }
+                [signature release];
+                break;
+            }
             
             NSString *value = [[NSString alloc] initWithBytes:(bytes + fieldsPos) 
                                                        length:strLen 
                                                      encoding:NSUTF8StringEncoding];
             fieldsPos += strLen + 1; // +1 for null terminator
             
-            // Set the appropriate field
+            if (debugParsing || pos > 0) {
+                printf("Parsed field %u value: '%s'\n", fieldCode, [value UTF8String]);
+            }
+            
+            // Set appropriate field
             switch (fieldCode) {
                 case DBUS_HEADER_FIELD_PATH:
                     message.path = value;
@@ -471,29 +569,44 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             }
             
             [value release];
-        } else if ([signature isEqualToString:@"u"]) {
-            // uint32 - align to 4-byte boundary
-            fieldsPos = alignTo(fieldsPos, 4);
             
-            if (fieldsPos + 4 > fieldsEnd) break;
+        } else if ([signature isEqualToString:@"u"]) {
+            // uint32 - align to 4-byte boundary relative to message start
+            NSUInteger relativePos = fieldsPos - pos;
+            NSUInteger alignedRelativePos = alignTo(relativePos, 4);
+            fieldsPos = pos + alignedRelativePos;
+            
+            if (fieldsPos + 4 > fieldsEnd) {
+                [signature release];
+                break;
+            }
             
             uint32_t value = *(uint32_t *)(bytes + fieldsPos);
             if (endianness == DBUS_LITTLE_ENDIAN) {
                 value = NSSwapLittleIntToHost(value);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                value = NSSwapBigIntToHost(value);
             }
             fieldsPos += 4;
             
             if (fieldCode == DBUS_HEADER_FIELD_REPLY_SERIAL) {
                 message.replySerial = value;
             }
+            
         } else if ([signature isEqualToString:@"g"]) {
-            // signature - 1-byte aligned (no padding)
-            if (fieldsPos + 1 > fieldsEnd) break;
+            // Signature: byte length + signature + null
+            if (fieldsPos + 1 > fieldsEnd) {
+                [signature release];
+                break;
+            }
             
             uint8_t sigLen2 = bytes[fieldsPos];
             fieldsPos += 1;
             
-            if (fieldsPos + sigLen2 + 1 > fieldsEnd) break;
+            if (fieldsPos + sigLen2 + 1 > fieldsEnd) {
+                [signature release];
+                break;
+            }
             
             NSString *value = [[NSString alloc] initWithBytes:(bytes + fieldsPos) 
                                                        length:sigLen2 
@@ -510,34 +623,173 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         [signature release];
     }
     
+    // Parse message body
+    if (bodyLength > 0 && message.signature) {
+        NSData *bodyData = [NSData dataWithBytes:(bytes + bodyStart) length:bodyLength];
+        message.arguments = [self parseArgumentsFromBodyData:bodyData signature:message.signature];
+    } else {
+        message.arguments = @[];
+    }
+    
+    // Debug: Check if this message has null critical fields (indicates parsing failure)
+    if (!message.destination && !message.interface && !message.member) {
+        printf("PARSING ERROR - Message serial %lu has all null fields!\n", (unsigned long)message.serial);
+        printf("Original position in buffer: %lu\n", pos);
+        printf("Fields section: %lu to %lu (length=%u)\n", pos + 16, pos + 16 + fieldsLength, fieldsLength);
+        printf("Raw message data:\n");
+        for (NSUInteger i = pos; i < MIN(pos + totalLength, [data length]); i += 16) {
+            printf("%04lx: ", i);
+            for (NSUInteger j = 0; j < 16 && i + j < [data length]; j++) {
+                printf("%02x ", bytes[i + j]);
+            }
+            printf("\n");
+        }
+        printf("Header: endian=%c type=%u bodyLen=%u serial=%lu fieldsLen=%u\n",
+               endianness, messageType, bodyLength, (unsigned long)message.serial, fieldsLength);
+        printf("HeaderFieldsEnd=%lu BodyStart=%lu TotalLength=%lu\n", 
+               headerFieldsEnd, bodyStart, totalLength);
+        
+        // Let's manually parse the first header field to debug
+        NSUInteger debugPos = pos + 16;
+        if (debugPos + 4 < [data length]) {
+            printf("First header field bytes: %02x %02x %02x %02x\n", 
+                   bytes[debugPos], bytes[debugPos+1], bytes[debugPos+2], bytes[debugPos+3]);
+        }
+    }
+    
     // Skip to next message
     if (offset) {
-        *offset = totalLength;
+        *offset = pos + totalLength;
     }
     
     return message;
 }
 
-+ (NSArray *)messagesFromData:(NSData *)data
++ (NSArray *)messagesFromData:(NSData *)data consumedBytes:(NSUInteger *)consumedBytes
 {
     NSMutableArray *messages = [NSMutableArray array];
     NSUInteger offset = 0;
+    NSUInteger lastSuccessfulOffset = 0;
+    NSUInteger consecutiveFailures = 0;
+    const NSUInteger MAX_CONSECUTIVE_FAILURES = 32; // Don't skip more than 32 bytes in a row
     
     while (offset < [data length]) {
         NSUInteger oldOffset = offset;
         MBMessage *message = [self messageFromData:data offset:&offset];
-        if (!message || offset == oldOffset) {
-            break; // Parsing failed or no progress made
+        if (!message) {
+            consecutiveFailures++;
+            
+            // Check if we have enough data for a complete message
+            if (oldOffset + 16 <= [data length]) {
+                // We have at least a header, but parsing failed
+                // If we've had too many consecutive failures, stop trying
+                if (consecutiveFailures > MAX_CONSECUTIVE_FAILURES) {
+                    NSLog(@"Too many consecutive parsing failures (%lu), stopping at offset %lu", 
+                          consecutiveFailures, oldOffset);
+                    break;
+                }
+                
+                // This means the data is corrupted, skip ahead by 1 byte and try again
+                NSLog(@"Failed to parse message at offset %lu, skipping 1 byte", oldOffset);
+                offset = oldOffset + 1;
+                continue;
+            } else {
+                // Not enough data for a complete header, wait for more data
+                break;
+            }
+        }
+        
+        // Successfully parsed a message
+        consecutiveFailures = 0;
+        
+        if (offset == oldOffset) {
+            // No progress made, prevent infinite loop
+            NSLog(@"No progress in message parsing at offset %lu", offset);
+            break;
         }
         [messages addObject:message];
+        lastSuccessfulOffset = offset;
+    }
+    
+    if (consumedBytes) {
+        *consumedBytes = lastSuccessfulOffset;
     }
     
     return [messages copy];
 }
 
++ (NSArray *)messagesFromData:(NSData *)data
+{
+    return [self messagesFromData:data consumedBytes:NULL];
+}
+
 + (instancetype)parseFromData:(NSData *)data
 {
     return [self messageFromData:data offset:NULL];
+}
+
++ (NSArray *)parseArgumentsFromBodyData:(NSData *)bodyData signature:(NSString *)signature
+{
+    if (!bodyData || [bodyData length] == 0 || !signature || [signature length] == 0) {
+        return @[];
+    }
+    
+    const uint8_t *bytes = [bodyData bytes];
+    NSUInteger pos = 0;
+    NSMutableArray *arguments = [NSMutableArray array];
+    
+    // Parse each signature character
+    for (NSUInteger i = 0; i < [signature length]; i++) {
+        unichar typeChar = [signature characterAtIndex:i];
+        
+        if (typeChar == 's') {
+            // String - align to 4-byte boundary
+            pos = alignTo(pos, 4);
+            
+            if (pos + 4 > [bodyData length]) break;
+            
+            uint32_t strLen = *(uint32_t *)(bytes + pos);
+            strLen = NSSwapLittleIntToHost(strLen); // Assume little-endian
+            pos += 4;
+            
+            if (pos + strLen + 1 > [bodyData length]) break;
+            
+            NSString *value = [[NSString alloc] initWithBytes:(bytes + pos) 
+                                                       length:strLen 
+                                                     encoding:NSUTF8StringEncoding];
+            [arguments addObject:value];
+            [value release];
+            pos += strLen + 1; // +1 for null terminator
+            
+        } else if (typeChar == 'u') {
+            // uint32 - align to 4-byte boundary
+            pos = alignTo(pos, 4);
+            
+            if (pos + 4 > [bodyData length]) break;
+            
+            uint32_t value = *(uint32_t *)(bytes + pos);
+            value = NSSwapLittleIntToHost(value);
+            [arguments addObject:@(value)];
+            pos += 4;
+            
+        } else if (typeChar == 'i') {
+            // int32 - align to 4-byte boundary
+            pos = alignTo(pos, 4);
+            
+            if (pos + 4 > [bodyData length]) break;
+            
+            int32_t value = *(int32_t *)(bytes + pos);
+            value = NSSwapLittleIntToHost(value);
+            [arguments addObject:@(value)];
+            pos += 4;
+            
+        } else {
+            // Unknown type, skip
+            break;
+        }
+    }
+    
+    return [arguments copy];
 }
 
 @end

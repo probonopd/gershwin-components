@@ -309,11 +309,25 @@
     
     [_readBuffer appendData:newData];
     
-    // Parse messages
-    NSArray *messages = [MBMessage messagesFromData:_readBuffer];
-    if ([messages count] > 0) {
-        // Remove processed data (simplified)
-        [_readBuffer setData:[NSData data]];
+    // Parse messages and track consumed bytes
+    NSMutableArray *messages = [NSMutableArray array];
+    NSUInteger offset = 0;
+    NSUInteger consumedBytes = 0;
+    
+    while (offset < [_readBuffer length]) {
+        NSUInteger oldOffset = offset;
+        MBMessage *message = [MBMessage messageFromData:_readBuffer offset:&offset];
+        if (!message || offset == oldOffset) {
+            break; // Parsing failed or no progress made
+        }
+        [messages addObject:message];
+        consumedBytes = offset;
+    }
+    
+    // Remove only the consumed bytes from the buffer
+    if (consumedBytes > 0) {
+        NSData *remaining = [_readBuffer subdataWithRange:NSMakeRange(consumedBytes, [_readBuffer length] - consumedBytes)];
+        [_readBuffer setData:remaining];
         
         // Handle async replies
         for (MBMessage *message in messages) {

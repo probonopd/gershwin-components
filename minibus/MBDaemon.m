@@ -5,6 +5,24 @@
 #import <sys/select.h>
 #import <unistd.h>
 
+// D-Bus RequestName reply constants
+#define DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER    1
+#define DBUS_REQUEST_NAME_REPLY_IN_QUEUE         2
+#define DBUS_REQUEST_NAME_REPLY_EXISTS           3
+#define DBUS_REQUEST_NAME_REPLY_ALREADY_OWNER    4
+
+// D-Bus RequestName flag constants
+#define DBUS_NAME_FLAG_ALLOW_REPLACEMENT   0x1
+#define DBUS_NAME_FLAG_REPLACE_EXISTING    0x2
+#define DBUS_NAME_FLAG_DO_NOT_QUEUE        0x4
+
+@interface MBDaemon ()
+// Add properties for match rule tracking
+@property (nonatomic, strong) NSMutableDictionary *matchRules; // connection -> array of match rules
+@property (nonatomic, strong) NSMutableDictionary *nameOwnerships; // name -> MBNameOwnership (NSDictionary)
+@property (nonatomic, strong) NSMutableDictionary *nameQueues; // name -> array of connections waiting
+@end
+
 @implementation MBDaemon
 
 - (instancetype)initWithSocketPath:(NSString *)socketPath
@@ -14,11 +32,13 @@
         _socketPath = [socketPath copy];
         _connections = [[NSMutableArray alloc] init];
         _monitorConnections = [[NSMutableArray alloc] init];
-        _nameOwners = [[NSMutableDictionary alloc] init];
+        _nameOwnerships = [[NSMutableDictionary alloc] init]; // name -> NSDictionary
         _connectionNames = [[NSMutableDictionary alloc] init];
         _serverSocket = -1;
         _running = NO;
         _nextUniqueId = 1;
+        _matchRules = [[NSMutableDictionary alloc] init];
+        _nameQueues = [[NSMutableDictionary alloc] init];
     }
     return self;
 }
@@ -66,8 +86,8 @@
     }
     [_monitorConnections removeAllObjects];
     
-    [_nameOwners removeAllObjects];
     [_connectionNames removeAllObjects];
+    [_nameOwnerships removeAllObjects];
     
     // Close server socket
     if (_serverSocket >= 0) {
@@ -218,16 +238,20 @@
 
 - (void)removeConnection:(MBConnection *)connection
 {
-    // Remove from name ownership
+    // Remove from name ownership - use the new nameOwnerships structure
     NSMutableArray *namesToRelease = [NSMutableArray array];
-    for (NSString *name in _nameOwners) {
-        if (_nameOwners[name] == connection) {
+    for (NSString *name in _nameOwnerships) {
+        NSMutableDictionary *ownership = _nameOwnerships[name];
+        if (ownership[@"primary_owner"] == connection) {
             [namesToRelease addObject:name];
         }
     }
     for (NSString *name in namesToRelease) {
-        [_nameOwners removeObjectForKey:name];
+        [self releaseName:name fromConnection:connection];
     }
+    
+    // Clean up match rules for this connection
+    [self cleanupMatchRulesForConnection:connection];
     
     [_connectionNames removeObjectForKey:@(connection.socket)];
     [_connections removeObject:connection];
@@ -237,9 +261,43 @@
 
 - (void)processMessage:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
-    NSLog(@"Processing message: %@ from %@", message, connection);
-    NSLog(@"Message details: type=%d interface='%@' member='%@' path='%@' destination='%@'", 
-          (int)message.type, message.interface, message.member, message.path, message.destination);
+    // Set sender if not already set
+    if (!message.sender && connection.uniqueName) {
+        message.sender = connection.uniqueName;
+    }
+    
+    // Add debugging for problematic messages
+    if (!message.destination || !message.interface || !message.member) {
+        NSLog(@"DEBUG: Problematic message - type=%u serial=%lu", message.type, (unsigned long)message.serial);
+        NSLog(@"       destination='%@' interface='%@' member='%@' path='%@'", 
+              message.destination, message.interface, message.member, message.path);
+        if (message.arguments && [message.arguments count] > 0) {
+            NSLog(@"       arguments: %@", message.arguments);
+        }
+        if (message.signature) {
+            NSLog(@"       signature: '%@'", message.signature);
+        }
+    }
+
+    if (!message.destination) {
+        // No destination means this is likely a malformed message
+        NSLog(@"Message has no destination - interface: '%@', member: '%@', path: '%@'", 
+              message.interface, message.member, message.path);
+        
+        // Send error back if this was a method call
+        if (message.type == MBMessageTypeMethodCall) {
+            MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.Failed"
+                                            replySerial:message.serial
+                                                message:@"Message has no destination"];
+            error.sender = @"org.freedesktop.DBus";
+            
+            // Broadcast error to monitors too
+            [self broadcastToMonitors:error];
+            
+            [connection sendMessage:error];
+        }
+        return;
+    }
     
     // Handle Hello message
     if ([message.interface isEqualToString:@"org.freedesktop.DBus"] &&
@@ -262,6 +320,7 @@
     
     // Handle name service methods
     if ([message.interface isEqualToString:@"org.freedesktop.DBus"]) {
+        NSLog(@"Received D-Bus method call: member='%@', args=%@", message.member, message.arguments);
         if ([message.member isEqualToString:@"RequestName"]) {
             [self handleRequestName:message fromConnection:connection];
             return;
@@ -274,11 +333,61 @@
         } else if ([message.member isEqualToString:@"GetNameOwner"]) {
             [self handleGetNameOwner:message fromConnection:connection];
             return;
+        } else if ([message.member isEqualToString:@"StartServiceByName"]) {
+            [self handleStartServiceByName:message fromConnection:connection];
+            return;
         } else if ([message.member isEqualToString:@"AddMatch"]) {
             [self handleAddMatch:message fromConnection:connection];
             return;
         } else if ([message.member isEqualToString:@"RemoveMatch"]) {
             [self handleRemoveMatch:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"NameHasOwner"]) {
+            [self handleNameHasOwner:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"ListActivatableNames"]) {
+            [self handleListActivatableNames:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"ListQueuedOwners"]) {
+            [self handleListQueuedOwners:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"GetConnectionUnixUser"]) {
+            [self handleGetConnectionUnixUser:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"GetConnectionUnixProcessID"]) {
+            [self handleGetConnectionUnixProcessID:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"GetAdtAuditSessionData"]) {
+            [self handleGetAdtAuditSessionData:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"GetConnectionSELinuxSecurityContext"]) {
+            [self handleGetConnectionSELinuxSecurityContext:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"ReloadConfig"]) {
+            [self handleReloadConfig:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"GetId"]) {
+            [self handleGetId:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"GetConnectionCredentials"]) {
+            [self handleGetConnectionCredentials:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"UpdateActivationEnvironment"]) {
+            [self handleUpdateActivationEnvironment:message fromConnection:connection];
+            return;
+        }
+    }
+    
+    // Handle Properties interface
+    if ([message.interface isEqualToString:@"org.freedesktop.DBus.Properties"]) {
+        if ([message.member isEqualToString:@"Get"]) {
+            [self handlePropertiesGet:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"GetAll"]) {
+            [self handlePropertiesGetAll:message fromConnection:connection];
+            return;
+        } else if ([message.member isEqualToString:@"Set"]) {
+            [self handlePropertiesSet:message fromConnection:connection];
             return;
         }
     }
@@ -350,26 +459,114 @@
 
 - (void)handleRequestName:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
-    if ([message.arguments count] < 1) {
+    if ([message.arguments count] < 2) {
         MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.InvalidArgs"
                                         replySerial:message.serial
-                                            message:@"Missing name argument"];
+                                            message:@"Missing name or flags argument"];
         error.sender = @"org.freedesktop.DBus";
         [connection sendMessage:error];
         return;
     }
     
     NSString *name = message.arguments[0];
-    BOOL success = [self registerName:name forConnection:connection];
+    NSUInteger flags = [message.arguments[1] unsignedIntegerValue];
     
-    // Send reply
-    NSUInteger result = success ? 1 : 2; // 1 = DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER, 2 = EXISTS
+    // Validate name
+    if ([name isEqualToString:@"org.freedesktop.DBus"]) {
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.InvalidArgs"
+                                        replySerial:message.serial
+                                            message:@"Cannot acquire reserved name org.freedesktop.DBus"];
+        error.sender = @"org.freedesktop.DBus";
+        [connection sendMessage:error];
+        return;
+    }
+    
+    NSUInteger result = [self acquireName:name forConnection:connection withFlags:flags];
+    
+    // Send reply with proper D-Bus return code
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[@(result)]];
     reply.sender = @"org.freedesktop.DBus";
+    reply.destination = connection.uniqueName;
     [connection sendMessage:reply];
     
-    NSLog(@"RequestName %@ for connection %@: %@", name, connection, success ? @"SUCCESS" : @"FAILED");
+    // If name was successfully acquired (primary owner), send NameAcquired signal
+    if (result == DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER) {
+        MBMessage *signal = [[MBMessage alloc] init];
+        signal.type = MBMessageTypeSignal;
+        signal.interface = @"org.freedesktop.DBus";
+        signal.member = @"NameAcquired";
+        signal.path = @"/org/freedesktop/DBus";
+        signal.destination = connection.uniqueName;
+        signal.sender = @"org.freedesktop.DBus";
+        signal.arguments = @[name];
+        signal.signature = @"s";
+        
+        [connection sendMessage:signal];
+        [self broadcastToMonitors:signal];
+        [signal release];
+        
+        NSLog(@"Sent NameAcquired signal for %@ to %@", name, connection.uniqueName);
+    }
+    
+    NSLog(@"RequestName %@ for connection %@ with flags 0x%lx: result %lu", 
+          name, connection.uniqueName, (unsigned long)flags, (unsigned long)result);
+}
+
+- (void)handleStartServiceByName:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    if ([message.arguments count] < 2) {
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.InvalidArgs"
+                                        replySerial:message.serial
+                                            message:@"Missing name or flags argument"];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+        return;
+    }
+    
+    NSString *serviceName = message.arguments[0];
+    NSUInteger flags = [message.arguments[1] unsignedIntegerValue];
+    
+    NSLog(@"StartServiceByName request for service '%@' with flags %lu from %@", 
+          serviceName, (unsigned long)flags, connection.uniqueName);
+    
+    // Special case: org.freedesktop.DBus is always "already running" since WE are the bus daemon
+    if ([serviceName isEqualToString:@"org.freedesktop.DBus"]) {
+        NSLog(@"StartServiceByName: org.freedesktop.DBus is always running (we are the bus daemon)");
+        
+        MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                        arguments:@[@1]]; // DBUS_START_REPLY_ALREADY_RUNNING = 1
+        reply.sender = @"org.freedesktop.DBus";
+        reply.destination = connection.uniqueName;
+        [connection sendMessage:reply];
+        return;
+    }
+    
+    // Check if service is already running
+    MBConnection *owner = [self ownerOfName:serviceName];
+    if (owner && owner.uniqueName) {
+        // Service already running
+        NSLog(@"StartServiceByName: service '%@' already running as %@", serviceName, owner.uniqueName);
+        
+        MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                        arguments:@[@1]]; // DBUS_START_REPLY_ALREADY_RUNNING = 1
+        reply.sender = @"org.freedesktop.DBus";
+        reply.destination = connection.uniqueName;
+        [connection sendMessage:reply];
+        return;
+    }
+    
+    // For other services, we don't actually start services (no .service file support)
+    // We'll return "service not found" like a minimal bus implementation
+    NSLog(@"StartServiceByName: service '%@' not found (no service activation support)", serviceName);
+    
+    MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.ServiceUnknown"
+                                    replySerial:message.serial
+                                        message:[NSString stringWithFormat:@"The name %@ was not provided by any .service files", serviceName]];
+    error.sender = @"org.freedesktop.DBus";
+    error.destination = connection.uniqueName;
+    [connection sendMessage:error];
 }
 
 - (void)handleReleaseName:(MBMessage *)message fromConnection:(MBConnection *)connection
@@ -384,6 +581,11 @@
     }
     
     NSString *name = message.arguments[0];
+    
+    // Check if this connection owns the name
+    NSMutableDictionary *ownership = self.nameOwnerships[name];
+    BOOL wasOwner = (ownership && ownership[@"primary_owner"] == connection);
+    
     BOOL success = [self releaseName:name fromConnection:connection];
     
     // Send reply
@@ -391,7 +593,27 @@
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[@(result)]];
     reply.sender = @"org.freedesktop.DBus";
+    reply.destination = connection.uniqueName;
     [connection sendMessage:reply];
+    
+    // If the connection was the owner and successfully released, send NameLost signal
+    if (success && wasOwner) {
+        MBMessage *signal = [[MBMessage alloc] init];
+        signal.type = MBMessageTypeSignal;
+        signal.interface = @"org.freedesktop.DBus";
+        signal.member = @"NameLost";
+        signal.path = @"/org/freedesktop/DBus";
+        signal.destination = connection.uniqueName;
+        signal.sender = @"org.freedesktop.DBus";
+        signal.arguments = @[name];
+        signal.signature = @"s";
+        
+        [connection sendMessage:signal];
+        [self broadcastToMonitors:signal];
+        [signal release];
+        
+        NSLog(@"Sent NameLost signal for %@ to %@", name, connection.uniqueName);
+    }
 }
 
 - (void)handleListNames:(MBMessage *)message fromConnection:(MBConnection *)connection
@@ -401,8 +623,13 @@
     // Add bus name FIRST (like reference implementation)
     [names addObject:@"org.freedesktop.DBus"];
     
-    // Add well-known names
-    [names addObjectsFromArray:[_nameOwners allKeys]];
+    // Add well-known names from nameOwnerships
+    for (NSString *name in _nameOwnerships) {
+        NSMutableDictionary *ownership = _nameOwnerships[name];
+        if (ownership[@"primary_owner"] != nil) {
+            [names addObject:name];
+        }
+    }
     
     // Add unique names
     for (MBConnection *conn in _connections) {
@@ -453,10 +680,47 @@
 
 - (void)handleAddMatch:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
-    // AddMatch is used to subscribe to D-Bus signals
-    // For now, just acknowledge success - signal routing is not fully implemented
-    NSLog(@"AddMatch request from %@: %@", connection.uniqueName, message.arguments);
+    if ([message.arguments count] < 1) {
+        NSLog(@"AddMatch: Missing arguments");
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.InvalidArgs"
+                                        replySerial:message.serial
+                                            message:@"Missing match rule argument"];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+        return;
+    }
     
+    NSString *matchRule = message.arguments[0];
+    NSLog(@"AddMatch request from %@: '%@'", connection.uniqueName, matchRule);
+    
+    // Parse and validate the match rule (basic validation)
+    if (![self isValidMatchRule:matchRule]) {
+        NSLog(@"AddMatch: Invalid match rule: '%@'", matchRule);
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.MatchRuleInvalid"
+                                        replySerial:message.serial
+                                            message:@"Invalid match rule"];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+        return;
+    }
+    
+    // Store the match rule for this connection
+    NSMutableArray *connectionRules = self.matchRules[connection.uniqueName];
+    if (!connectionRules) {
+        connectionRules = [[NSMutableArray alloc] init];
+        self.matchRules[connection.uniqueName] = connectionRules;
+    }
+    
+    // Check for duplicates (D-Bus allows this but it's good to track)
+    if (![connectionRules containsObject:matchRule]) {
+        [connectionRules addObject:matchRule];
+    }
+    
+    NSLog(@"AddMatch: Successfully added rule '%@' for %@", matchRule, connection.uniqueName);
+    
+    // Send success response
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[]];
     reply.sender = @"org.freedesktop.DBus";
@@ -466,10 +730,40 @@
 
 - (void)handleRemoveMatch:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
-    // RemoveMatch is used to unsubscribe from D-Bus signals  
-    // For now, just acknowledge success - signal routing is not fully implemented
-    NSLog(@"RemoveMatch request from %@: %@", connection.uniqueName, message.arguments);
+    if ([message.arguments count] < 1) {
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.InvalidArgs"
+                                        replySerial:message.serial
+                                            message:@"Missing match rule argument"];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+        return;
+    }
     
+    NSString *matchRule = message.arguments[0];
+    NSLog(@"RemoveMatch request from %@: %@", connection.uniqueName, matchRule);
+    
+    // Find and remove the match rule for this connection
+    NSMutableArray *connectionRules = self.matchRules[connection.uniqueName];
+    if (!connectionRules || ![connectionRules containsObject:matchRule]) {
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.MatchRuleNotFound"
+                                        replySerial:message.serial
+                                            message:@"Match rule not found"];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+        return;
+    }
+    
+    // Remove the first occurrence of the match rule
+    [connectionRules removeObject:matchRule];
+    
+    // Clean up empty rule arrays
+    if (connectionRules.count == 0) {
+        [self.matchRules removeObjectForKey:connection.uniqueName];
+    }
+    
+    // Send success response
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                     arguments:@[]];
     reply.sender = @"org.freedesktop.DBus";
@@ -487,12 +781,37 @@
         message.sender = connection.uniqueName;
     }
     
+    // Add debugging for problematic messages
+    if (!message.destination || !message.interface || !message.member) {
+        NSLog(@"DEBUG: Problematic message - type=%u serial=%lu", message.type, (unsigned long)message.serial);
+        NSLog(@"       destination='%@' interface='%@' member='%@' path='%@'", 
+              message.destination, message.interface, message.member, message.path);
+        if (message.arguments && [message.arguments count] > 0) {
+            NSLog(@"       arguments: %@", message.arguments);
+        }
+        if (message.signature) {
+            NSLog(@"       signature: '%@'", message.signature);
+        }
+    }
+
     if (!message.destination) {
-        NSLog(@"Message has no destination, treating as org.freedesktop.DBus call");
-        // For testing, assume any message without destination is for the bus
-        message.destination = @"org.freedesktop.DBus";
-        message.interface = @"org.freedesktop.DBus";
-        message.member = @"GetNameOwner";
+        // No destination means this is likely a malformed message
+        NSLog(@"Message has no destination - interface: '%@', member: '%@', path: '%@'", 
+              message.interface, message.member, message.path);
+        
+        // Send error back if this was a method call
+        if (message.type == MBMessageTypeMethodCall) {
+            MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.Failed"
+                                            replySerial:message.serial
+                                                message:@"Message has no destination"];
+            error.sender = @"org.freedesktop.DBus";
+            
+            // Broadcast error to monitors too
+            [self broadcastToMonitors:error];
+            
+            [connection sendMessage:error];
+        }
+        return;
     }
     
     // Find destination connection
@@ -541,38 +860,89 @@
     if (!name || [name length] == 0) {
         return NO;
     }
-    
-    // Check if name already owned
-    if (_nameOwners[name]) {
-        return NO; // Name already taken
+    NSMutableDictionary *ownership = self.nameOwnerships[name];
+    if (!ownership) {
+        ownership = [@{ @"primary_owner": connection,
+                        @"queue": [NSMutableArray array],
+                        @"allow_replacement": @(NO) } mutableCopy];
+        self.nameOwnerships[name] = ownership;
+        return YES;
     }
-    
-    _nameOwners[name] = connection;
-    NSLog(@"Registered name %@ for connection %@", name, connection);
+    if (ownership[@"primary_owner"] != nil) {
+        return NO;
+    }
+    ownership[@"primary_owner"] = connection;
     return YES;
 }
 
+// Helper method to release a name from a connection
 - (BOOL)releaseName:(NSString *)name fromConnection:(MBConnection *)connection
 {
-    if (!name || _nameOwners[name] != connection) {
+    NSMutableDictionary *ownership = self.nameOwnerships[name];
+    if (!ownership || ownership[@"primary_owner"] != connection) {
         return NO;
     }
     
-    [_nameOwners removeObjectForKey:name];
-    NSLog(@"Released name %@ from connection %@", name, connection);
+    NSString *oldOwner = connection.uniqueName;
+    NSMutableArray *queue = ownership[@"queue"];
+    NSString *newOwner = @""; // Empty string means no owner
+    
+    if ([queue count] > 0) {
+        // There's someone in the queue to take over
+        MBConnection *nextOwner = queue[0];
+        [queue removeObjectAtIndex:0];
+        ownership[@"primary_owner"] = nextOwner;
+        newOwner = nextOwner.uniqueName;
+        
+        // Send NameAcquired signal to the new owner
+        MBMessage *signal = [[MBMessage alloc] init];
+        signal.type = MBMessageTypeSignal;
+        signal.interface = @"org.freedesktop.DBus";
+        signal.member = @"NameAcquired";
+        signal.path = @"/org/freedesktop/DBus";
+        signal.destination = nextOwner.uniqueName;
+        signal.sender = @"org.freedesktop.DBus";
+        signal.arguments = @[name];
+        signal.signature = @"s";
+        
+        [nextOwner sendMessage:signal];
+        [self broadcastToMonitors:signal];
+        [signal release];
+        
+        NSLog(@"Sent NameAcquired signal for %@ to new owner %@", name, nextOwner.uniqueName);
+    } else {
+        // No one in queue, remove the ownership entirely
+        [self.nameOwnerships removeObjectForKey:name];
+    }
+    
+    // Send NameOwnerChanged signal to everyone
+    MBMessage *ownerChangedSignal = [[MBMessage alloc] init];
+    ownerChangedSignal.type = MBMessageTypeSignal;
+    ownerChangedSignal.interface = @"org.freedesktop.DBus";
+    ownerChangedSignal.member = @"NameOwnerChanged";
+    ownerChangedSignal.path = @"/org/freedesktop/DBus";
+    ownerChangedSignal.sender = @"org.freedesktop.DBus";
+    ownerChangedSignal.arguments = @[name, oldOwner, newOwner];
+    ownerChangedSignal.signature = @"sss";
+    
+    // Broadcast to all connections
+    for (MBConnection *conn in _connections) {
+        if (conn.state == MBConnectionStateActive) {
+            [conn sendMessage:ownerChangedSignal];
+        }
+    }
+    [self broadcastToMonitors:ownerChangedSignal];
+    [ownerChangedSignal release];
+    
+    NSLog(@"Released name %@ from %@, new owner: %@", name, oldOwner, newOwner.length > 0 ? newOwner : @"(none)");
     return YES;
 }
 
+// Helper method to get owner of a name
 - (MBConnection *)ownerOfName:(NSString *)name
 {
-    return _nameOwners[name];
-}
-
-- (NSString *)generateUniqueNameForConnection:(MBConnection *)connection
-{
-    NSString *uniqueName = [NSString stringWithFormat:@":1.%lu", (unsigned long)_nextUniqueId++];
-    _connectionNames[@(connection.socket)] = uniqueName;
-    return uniqueName;
+    NSMutableDictionary *ownership = self.nameOwnerships[name];
+    return ownership ? ownership[@"primary_owner"] : nil;
 }
 
 - (void)handleBecomeMonitor:(MBMessage *)message fromConnection:(MBConnection *)connection
@@ -589,15 +959,16 @@
     [_connections removeObject:connection];
     [_monitorConnections addObject:connection];
     
-    // Remove all names owned by this connection (monitors can't own names)
+    // Remove all names owned by this connection from nameOwnerships
     NSMutableArray *namesToRelease = [NSMutableArray array];
-    for (NSString *name in _nameOwners) {
-        if (_nameOwners[name] == connection) {
+    for (NSString *name in _nameOwnerships) {
+        NSMutableDictionary *ownership = _nameOwnerships[name];
+        if (ownership[@"primary_owner"] == connection) {
             [namesToRelease addObject:name];
         }
     }
     for (NSString *name in namesToRelease) {
-        [_nameOwners removeObjectForKey:name];
+        [self releaseName:name fromConnection:connection];
     }
     
     // Remove unique name tracking
@@ -723,6 +1094,455 @@
     [connection sendMessage:reply];
     
     NSLog(@"Introspect handled for connection %@", connection);
+}
+
+#pragma mark - Additional org.freedesktop.DBus Method Implementations
+
+- (void)handleNameHasOwner:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    if ([message.arguments count] < 1) {
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.InvalidArgs"
+                                        replySerial:message.serial
+                                            message:@"Missing name argument"];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+        return;
+    }
+    
+    NSString *name = message.arguments[0];
+    MBConnection *owner = [self ownerOfName:name];
+    
+    BOOL hasOwner = (owner != nil) || [name isEqualToString:@"org.freedesktop.DBus"];
+    
+    MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                    arguments:@[@(hasOwner)]];
+    reply.sender = @"org.freedesktop.DBus";
+    reply.destination = connection.uniqueName;
+    [connection sendMessage:reply];
+    
+    NSLog(@"NameHasOwner %@ for connection %@: %@", name, connection.uniqueName, hasOwner ? @"true" : @"false");
+}
+
+- (void)handleListActivatableNames:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    // For a minimal implementation, we don't support service activation
+    // Just return the bus name itself as activatable
+    NSArray *activatableNames = @[@"org.freedesktop.DBus"];
+    
+    MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                    arguments:@[activatableNames]];
+    reply.sender = @"org.freedesktop.DBus";
+    reply.destination = connection.uniqueName;
+    [connection sendMessage:reply];
+    
+    NSLog(@"ListActivatableNames for connection %@: returning %lu names", 
+          connection.uniqueName, (unsigned long)[activatableNames count]);
+}
+
+- (void)handleListQueuedOwners:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    if ([message.arguments count] < 1) {
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.InvalidArgs"
+                                        replySerial:message.serial
+                                            message:@"Missing name argument"];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+        return;
+    }
+    
+    NSString *name = message.arguments[0];
+    
+    // For now, we don't implement name queueing, so just return the current owner if any
+    NSMutableArray *queuedOwners = [NSMutableArray array];
+    MBConnection *owner = [self ownerOfName:name];
+    if (owner && owner.uniqueName) {
+        [queuedOwners addObject:owner.uniqueName];
+    } else if ([name isEqualToString:@"org.freedesktop.DBus"]) {
+        [queuedOwners addObject:@"org.freedesktop.DBus"];
+    }
+    
+    MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                    arguments:@[queuedOwners]];
+    reply.sender = @"org.freedesktop.DBus";
+    reply.destination = connection.uniqueName;
+    [connection sendMessage:reply];
+    
+    NSLog(@"ListQueuedOwners %@ for connection %@: %lu owners", 
+          name, connection.uniqueName, (unsigned long)[queuedOwners count]);
+}
+
+- (void)handleGetId:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    // Return a fixed bus ID for simplicity
+    NSString *busId = @"deadbeefdeadbeefdeadbeefdeadbeef12345678";
+    
+    MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                    arguments:@[busId]];
+    reply.sender = @"org.freedesktop.DBus";
+    reply.destination = connection.uniqueName;
+    [connection sendMessage:reply];
+    
+    NSLog(@"GetId handled for connection %@ - returned %@", connection.uniqueName, busId);
+}
+
+- (void)handleReloadConfig:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    // For a minimal implementation, we don't have a config file to reload
+    // Just return success
+    MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                    arguments:@[]];
+    reply.sender = @"org.freedesktop.DBus";
+    reply.destination = connection.uniqueName;
+    [connection sendMessage:reply];
+    
+    NSLog(@"ReloadConfig handled for connection %@ - no-op success", connection.uniqueName);
+}
+
+#pragma mark - Complex org.freedesktop.DBus Method Stubs
+
+- (void)handleUpdateActivationEnvironment:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    NSLog(@"Unimplemented: UpdateActivationEnvironment - requires activation service support and environment management");
+    
+    MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.NotSupported"
+                                    replySerial:message.serial
+                                        message:@"UpdateActivationEnvironment not implemented in MiniBus"];
+    error.sender = @"org.freedesktop.DBus";
+    error.destination = connection.uniqueName;
+    [connection sendMessage:error];
+}
+
+- (void)handleGetConnectionUnixUser:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    NSLog(@"Unimplemented: GetConnectionUnixUser - requires credential tracking and socket credential extraction");
+    
+    MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.NotSupported"
+                                    replySerial:message.serial
+                                        message:@"GetConnectionUnixUser not implemented in MiniBus"];
+    error.sender = @"org.freedesktop.DBus";
+    error.destination = connection.uniqueName;
+    [connection sendMessage:error];
+}
+
+- (void)handleGetConnectionUnixProcessID:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    NSLog(@"Unimplemented: GetConnectionUnixProcessID - requires process ID tracking and socket credential extraction");
+    
+    MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.NotSupported"
+                                    replySerial:message.serial
+                                        message:@"GetConnectionUnixProcessID not implemented in MiniBus"];
+    error.sender = @"org.freedesktop.DBus";
+    error.destination = connection.uniqueName;
+    [connection sendMessage:error];
+}
+
+- (void)handleGetAdtAuditSessionData:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    NSLog(@"Unimplemented: GetAdtAuditSessionData - requires ADT audit support (Solaris-specific)");
+    
+    MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.NotSupported"
+                                    replySerial:message.serial
+                                        message:@"GetAdtAuditSessionData not implemented in MiniBus (platform-specific)"];
+    error.sender = @"org.freedesktop.DBus";
+    error.destination = connection.uniqueName;
+    [connection sendMessage:error];
+}
+
+- (void)handleGetConnectionSELinuxSecurityContext:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    NSLog(@"Unimplemented: GetConnectionSELinuxSecurityContext - requires SELinux integration and credential tracking");
+    
+    MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.NotSupported"
+                                    replySerial:message.serial
+                                        message:@"GetConnectionSELinuxSecurityContext not implemented in MiniBus"];
+    error.sender = @"org.freedesktop.DBus";
+    error.destination = connection.uniqueName;
+    [connection sendMessage:error];
+}
+
+- (void)handleGetConnectionCredentials:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    NSLog(@"Unimplemented: GetConnectionCredentials - requires comprehensive credential tracking (UID, PID, SELinux, etc.)");
+    
+    MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.NotSupported"
+                                    replySerial:message.serial
+                                        message:@"GetConnectionCredentials not implemented in MiniBus"];
+    error.sender = @"org.freedesktop.DBus";
+    error.destination = connection.uniqueName;
+    [connection sendMessage:error];
+}
+
+#pragma mark - org.freedesktop.DBus.Properties Method Implementations
+
+- (void)handlePropertiesGet:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    if ([message.arguments count] < 2) {
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.InvalidArgs"
+                                        replySerial:message.serial
+                                            message:@"Missing interface or property argument"];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+        return;
+    }
+    
+    NSString *interfaceName = message.arguments[0];
+    NSString *propertyName = message.arguments[1];
+    
+    NSLog(@"Unimplemented: Properties.Get for interface '%@' property '%@' - requires property introspection", 
+          interfaceName, propertyName);
+    
+    MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.UnknownProperty"
+                                    replySerial:message.serial
+                                        message:[NSString stringWithFormat:@"Property %@.%@ not found", interfaceName, propertyName]];
+    error.sender = @"org.freedesktop.DBus";
+    error.destination = connection.uniqueName;
+    [connection sendMessage:error];
+}
+
+- (void)handlePropertiesGetAll:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    if ([message.arguments count] < 1) {
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.InvalidArgs"
+                                        replySerial:message.serial
+                                            message:@"Missing interface argument"];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+        return;
+    }
+    
+    NSString *interfaceName = message.arguments[0];
+    
+    // For org.freedesktop.DBus interface, we could return some basic properties
+    if ([interfaceName isEqualToString:@"org.freedesktop.DBus"]) {
+        // Return an empty dictionary for now - a full implementation would include Features, Interfaces properties
+        NSDictionary *properties = @{};
+        
+        MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                        arguments:@[properties]];
+        reply.sender = @"org.freedesktop.DBus";
+        reply.destination = connection.uniqueName;
+        [connection sendMessage:reply];
+        
+        NSLog(@"Properties.GetAll for interface '%@' - returned empty dict", interfaceName);
+    } else {
+        NSLog(@"Unimplemented: Properties.GetAll for interface '%@' - interface not supported", interfaceName);
+        
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.UnknownInterface"
+                                    replySerial:message.serial
+                                        message:[NSString stringWithFormat:@"Interface %@ not found", interfaceName]];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+    }
+}
+
+- (void)handlePropertiesSet:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    if ([message.arguments count] < 3) {
+        MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.InvalidArgs"
+                                        replySerial:message.serial
+                                            message:@"Missing interface, property, or value argument"];
+        error.sender = @"org.freedesktop.DBus";
+        error.destination = connection.uniqueName;
+        [connection sendMessage:error];
+        return;
+    }
+    
+    NSString *interfaceName = message.arguments[0];
+    NSString *propertyName = message.arguments[1];
+    // NSString *value = message.arguments[2]; // Value to set
+    
+    NSLog(@"Unimplemented: Properties.Set for interface '%@' property '%@' - properties are read-only in MiniBus", 
+          interfaceName, propertyName);
+    
+    MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.PropertyReadOnly"
+                                    replySerial:message.serial
+                                        message:[NSString stringWithFormat:@"Property %@.%@ cannot be set", interfaceName, propertyName]];
+    error.sender = @"org.freedesktop.DBus";
+    error.destination = connection.uniqueName;
+    [connection sendMessage:error];
+}
+
+#pragma mark - Helper Methods
+
+// Helper method to validate match rules (basic validation)
+- (BOOL)isValidMatchRule:(NSString *)matchRule
+{
+    if (!matchRule) {
+        return NO;
+    }
+    
+    // Allow empty match rules (matches everything)
+    if (matchRule.length == 0) {
+        return YES;
+    }
+    
+    // Basic validation - check for common match rule patterns
+    // A proper implementation would parse the full match rule syntax
+    // For now, just check that it doesn't contain obviously invalid characters
+    NSCharacterSet *invalidChars = [NSCharacterSet characterSetWithCharactersInString:@"\r\n\0"];
+    if ([matchRule rangeOfCharacterFromSet:invalidChars].location != NSNotFound) {
+        return NO;
+    }
+    
+    // Very permissive - accept most reasonable strings
+    // Real D-Bus match rules have formats like: type='signal',interface='org.example.Foo'
+    return YES;
+}
+
+// Helper method to acquire names with proper flag handling
+- (NSUInteger)acquireName:(NSString *)name forConnection:(MBConnection *)connection withFlags:(NSUInteger)flags
+{
+    // Reserved name check
+    if ([name isEqualToString:@"org.freedesktop.DBus"]) {
+        return DBUS_REQUEST_NAME_REPLY_EXISTS;
+    }
+    
+    NSMutableDictionary *ownership = self.nameOwnerships[name];
+    if (!ownership) {
+        // Create new ownership record
+        ownership = [@{ @"primary_owner": connection,
+                        @"queue": [NSMutableArray array],
+                        @"allow_replacement": @(flags & DBUS_NAME_FLAG_ALLOW_REPLACEMENT ? YES : NO) } mutableCopy];
+        self.nameOwnerships[name] = ownership;
+        
+        // Send NameOwnerChanged signal (from no owner to new owner)
+        [self sendNameOwnerChangedSignal:name oldOwner:@"" newOwner:connection.uniqueName];
+        
+        return DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER;
+    }
+    
+    MBConnection *currentOwner = ownership[@"primary_owner"];
+    NSMutableArray *queue = ownership[@"queue"];
+    BOOL allowReplacement = [ownership[@"allow_replacement"] boolValue];
+    
+    if (currentOwner == connection) {
+        // Update flags for existing owner
+        ownership[@"allow_replacement"] = @(flags & DBUS_NAME_FLAG_ALLOW_REPLACEMENT ? YES : NO);
+        return DBUS_REQUEST_NAME_REPLY_ALREADY_OWNER;
+    }
+    
+    // Handle replacement
+    if (flags & DBUS_NAME_FLAG_REPLACE_EXISTING) {
+        if (allowReplacement) {
+            // Replace current owner
+            NSString *oldOwnerName = currentOwner.uniqueName;
+            
+            // Remove connection from queue if it was there
+            [queue removeObject:connection];
+            
+            // Set as new primary owner
+            ownership[@"primary_owner"] = connection;
+            ownership[@"allow_replacement"] = @(flags & DBUS_NAME_FLAG_ALLOW_REPLACEMENT ? YES : NO);
+            
+            // Put old owner in queue if it doesn't have DO_NOT_QUEUE flag
+            BOOL oldOwnerAllowsQueue = ![ownership[@"do_not_queue"] boolValue]; // Use old owner's flag
+            if (oldOwnerAllowsQueue) {
+                [queue insertObject:currentOwner atIndex:0];
+            }
+            
+            // Send NameLost signal to old owner
+            MBMessage *nameLostSignal = [[MBMessage alloc] init];
+            nameLostSignal.type = MBMessageTypeSignal;
+            nameLostSignal.interface = @"org.freedesktop.DBus";
+            nameLostSignal.member = @"NameLost";
+            nameLostSignal.path = @"/org/freedesktop/DBus";
+            nameLostSignal.destination = currentOwner.uniqueName;
+            nameLostSignal.sender = @"org.freedesktop.DBus";
+            nameLostSignal.arguments = @[name];
+            nameLostSignal.signature = @"s";
+            
+            [currentOwner sendMessage:nameLostSignal];
+            [self broadcastToMonitors:nameLostSignal];
+            [nameLostSignal release];
+            
+            // Send NameOwnerChanged signal
+            [self sendNameOwnerChangedSignal:name oldOwner:oldOwnerName newOwner:connection.uniqueName];
+            
+            return DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER;
+        } else {
+            // Not allowed to replace
+            if (flags & DBUS_NAME_FLAG_DO_NOT_QUEUE) {
+                return DBUS_REQUEST_NAME_REPLY_EXISTS;
+            } else {
+                if (![queue containsObject:connection]) {
+                    [queue addObject:connection];
+                }
+                return DBUS_REQUEST_NAME_REPLY_IN_QUEUE;
+            }
+        }
+    }
+    
+    // Name exists, not requesting replacement
+    if (flags & DBUS_NAME_FLAG_DO_NOT_QUEUE) {
+        return DBUS_REQUEST_NAME_REPLY_EXISTS;
+    } else {
+        if (![queue containsObject:connection]) {
+            [queue addObject:connection];
+        }
+        return DBUS_REQUEST_NAME_REPLY_IN_QUEUE;
+    }
+}
+
+// Helper method to send NameOwnerChanged signal
+- (void)sendNameOwnerChangedSignal:(NSString *)name oldOwner:(NSString *)oldOwner newOwner:(NSString *)newOwner
+{
+    MBMessage *signal = [[MBMessage alloc] init];
+    signal.type = MBMessageTypeSignal;
+    signal.interface = @"org.freedesktop.DBus";
+    signal.member = @"NameOwnerChanged";
+    signal.path = @"/org/freedesktop/DBus";
+    signal.sender = @"org.freedesktop.DBus";
+    signal.arguments = @[name, oldOwner, newOwner];
+    signal.signature = @"sss";
+    
+    // Broadcast to all connections
+    for (MBConnection *conn in _connections) {
+        if (conn.state == MBConnectionStateActive) {
+            [conn sendMessage:signal];
+        }
+    }
+    [self broadcastToMonitors:signal];
+    [signal release];
+    
+    NSLog(@"Sent NameOwnerChanged signal: %@ from '%@' to '%@'", name, oldOwner, newOwner);
+}
+
+// Helper method to clean up match rules when connection closes
+- (void)cleanupMatchRulesForConnection:(MBConnection *)connection
+{
+    if (connection.uniqueName) {
+        [self.matchRules removeObjectForKey:connection.uniqueName];
+    }
+}
+
+// Helper method to unregister a name from a connection
+- (void)unregisterName:(NSString *)name fromConnection:(MBConnection *)connection
+{
+    if (!name) {
+        return;
+    }
+    
+    NSMutableDictionary *ownership = self.nameOwnerships[name];
+    if (!ownership || ownership[@"primary_owner"] != connection) {
+        return;
+    }
+    
+    // Release the name properly using the existing releaseName logic
+    [self releaseName:name fromConnection:connection];
+    
+    NSLog(@"Unregistered name %@ from connection %@", name, connection);
+}
+
+- (NSString *)generateUniqueNameForConnection:(MBConnection *)connection
+{
+    NSString *uniqueName = [NSString stringWithFormat:@":1.%lu", (unsigned long)_nextUniqueId++];
+    _connectionNames[@(connection.socket)] = uniqueName;
+    return uniqueName;
 }
 
 @end

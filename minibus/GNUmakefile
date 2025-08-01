@@ -1,7 +1,7 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
 # Tools
-TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment hello-length-analysis debug-listnames debug-message-format debug-listnames-serialization test-array-parsing
+TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment hello-length-analysis debug-listnames debug-message-format debug-listnames-serialization test-array-parsing test-requestname debug-hello-reply test-gdbus-proxy test-start-service test-message-parsing debug-message-parsing debug-parsing-issue
 
 minibus_OBJC_FILES = main-daemon.m MBDaemon.m MBConnection.m MBMessage.m MBTransport.m MBClient.m
 minibus-test_OBJC_FILES = main-test.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
@@ -20,6 +20,13 @@ debug-listnames_OBJC_FILES = debug-listnames.m MBMessage.m MBTransport.m
 debug-message-format_OBJC_FILES = debug-message-format.m MBMessage.m MBTransport.m
 debug-listnames-serialization_OBJC_FILES = debug-listnames-serialization.m MBMessage.m MBTransport.m
 test-array-parsing_OBJC_FILES = test-array-parsing.m MBMessage.m
+test-requestname_OBJC_FILES = test-requestname.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
+debug-hello-reply_OBJC_FILES = debug-hello-reply.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
+test-gdbus-proxy_OBJC_FILES = test-gdbus-proxy.m
+test-start-service_OBJC_FILES = test-start-service.m
+test-message-parsing_OBJC_FILES = test-message-parsing.m MBMessage.m MBTransport.m
+debug-message-parsing_OBJC_FILES = debug-message-parsing.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
+debug-parsing-issue_OBJC_FILES = debug-parsing-issue.m MBMessage.m MBTransport.m
 
 # Compiler flags for production builds
 minibus_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
@@ -36,6 +43,9 @@ test-hello-destination_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
 test-hello-reply-only_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
 test-alignment_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
 test-array-parsing_OBJCFLAGS += -Wall -Wextra -O2 -fblocks
+test-gdbus-proxy_OBJCFLAGS += -Wall -Wextra -O2 -fblocks $(shell pkg-config --cflags glib-2.0 gio-2.0)
+test-start-service_OBJCFLAGS += -Wall -Wextra -O2 -fblocks $(shell pkg-config --cflags glib-2.0 gio-2.0)
+debug-message-parsing_OBJCFLAGS += -Wall -Wextra -O2 -fblocks $(shell pkg-config --cflags glib-2.0 gio-2.0)
 
 # Include paths
 minibus_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags dbus-1)
@@ -52,6 +62,9 @@ test-hello-reply-only_CPPFLAGS += -DGNUSTEP -I/usr/local/include
 test-alignment_CPPFLAGS += -DGNUSTEP -I/usr/local/include
 hello-length-analysis_CPPFLAGS += -DGNUSTEP -I/usr/local/include
 test-array-parsing_CPPFLAGS += -DGNUSTEP -I/usr/local/include
+test-requestname_CPPFLAGS += -DGNUSTEP -I/usr/local/include
+test-gdbus-proxy_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags glib-2.0 gio-2.0)
+test-start-service_CPPFLAGS += -DGNUSTEP -I/usr/local/include $(shell pkg-config --cflags glib-2.0 gio-2.0)
 
 # Library paths and links
 minibus_LDFLAGS += -L/usr/local/lib $(shell pkg-config --libs dbus-1)
@@ -68,6 +81,7 @@ test-hello-reply-only_LDFLAGS += -L/usr/local/lib
 test-alignment_LDFLAGS += -L/usr/local/lib
 hello-length-analysis_LDFLAGS += -L/usr/local/lib
 test-array-parsing_LDFLAGS += -L/usr/local/lib
+test-requestname_LDFLAGS = -lgnustep-base -lobjc
 
 minibus_TOOL_LIBS += -lobjc -lBlocksRuntime
 minibus-test_TOOL_LIBS += -lobjc -lBlocksRuntime
@@ -83,6 +97,10 @@ test-alignment_TOOL_LIBS += -lobjc -lBlocksRuntime
 hello-length-analysis_TOOL_LIBS += -lobjc -lBlocksRuntime
 debug-listnames-serialization_TOOL_LIBS += -lobjc -lBlocksRuntime
 test-array-parsing_TOOL_LIBS += -lobjc -lBlocksRuntime
+test-gdbus-proxy_TOOL_LIBS += -lobjc -lBlocksRuntime $(shell pkg-config --libs glib-2.0 gio-2.0)
+test-start-service_TOOL_LIBS += -lobjc -lBlocksRuntime $(shell pkg-config --libs glib-2.0 gio-2.0)
+
+debug-message-parsing_TOOL_LIBS += -lobjc -lBlocksRuntime $(shell pkg-config --libs glib-2.0 gio-2.0)
 
 debug-listnames-serialization_CPPFLAGS += -DGNUSTEP -I/usr/local/include
 

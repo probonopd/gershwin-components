@@ -88,6 +88,11 @@ typedef enum {
  */
 + (NSArray *)messagesFromData:(NSData *)data;
 
+/**
+ * Parse multiple messages from buffer with consumed byte tracking
+ */
++ (NSArray *)messagesFromData:(NSData *)data consumedBytes:(NSUInteger *)consumedBytes;
+
 @end
 
 #endif // MB_MESSAGE_H
