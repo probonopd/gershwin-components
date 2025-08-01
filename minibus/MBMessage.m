@@ -120,9 +120,59 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         if ([arg isKindOfClass:[NSString class]]) {
             [signature appendString:@"s"];
         } else if ([arg isKindOfClass:[NSNumber class]]) {
-            [signature appendString:@"u"];
+            // Try to detect the number type
+            NSNumber *num = (NSNumber *)arg;
+            const char *objCType = [num objCType];
+            
+            if (strcmp(objCType, @encode(BOOL)) == 0 || 
+                strcmp(objCType, @encode(bool)) == 0) {
+                [signature appendString:@"b"]; // Boolean
+            } else if (strcmp(objCType, @encode(uint8_t)) == 0 ||
+                       strcmp(objCType, @encode(char)) == 0) {
+                [signature appendString:@"y"]; // Byte
+            } else if (strcmp(objCType, @encode(int16_t)) == 0) {
+                [signature appendString:@"n"]; // int16
+            } else if (strcmp(objCType, @encode(uint16_t)) == 0) {
+                [signature appendString:@"q"]; // uint16
+            } else if (strcmp(objCType, @encode(int32_t)) == 0 ||
+                       strcmp(objCType, @encode(int)) == 0) {
+                [signature appendString:@"i"]; // int32
+            } else if (strcmp(objCType, @encode(uint32_t)) == 0 ||
+                       strcmp(objCType, @encode(unsigned int)) == 0) {
+                [signature appendString:@"u"]; // uint32
+            } else if (strcmp(objCType, @encode(int64_t)) == 0 ||
+                       strcmp(objCType, @encode(long long)) == 0) {
+                [signature appendString:@"x"]; // int64
+            } else if (strcmp(objCType, @encode(uint64_t)) == 0 ||
+                       strcmp(objCType, @encode(unsigned long long)) == 0) {
+                [signature appendString:@"t"]; // uint64
+            } else if (strcmp(objCType, @encode(double)) == 0) {
+                [signature appendString:@"d"]; // double
+            } else if (strcmp(objCType, @encode(float)) == 0) {
+                [signature appendString:@"d"]; // float promoted to double
+            } else {
+                [signature appendString:@"u"]; // Default to uint32
+            }
         } else if ([arg isKindOfClass:[NSArray class]]) {
-            [signature appendString:@"as"]; // Array of strings for simplicity
+            NSArray *array = (NSArray *)arg;
+            if ([array count] > 0) {
+                id firstElement = [array objectAtIndex:0];
+                if ([firstElement isKindOfClass:[NSString class]]) {
+                    [signature appendString:@"as"]; // Array of strings
+                } else if ([firstElement isKindOfClass:[NSDictionary class]]) {
+                    [signature appendString:@"a{sv}"]; // Array of string-variant dictionaries
+                } else if ([firstElement isKindOfClass:[NSNumber class]]) {
+                    [signature appendString:@"au"]; // Array of uint32
+                } else {
+                    [signature appendString:@"av"]; // Array of variants
+                }
+            } else {
+                [signature appendString:@"as"]; // Empty array defaults to strings
+            }
+        } else if ([arg isKindOfClass:[NSDictionary class]]) {
+            [signature appendString:@"a{sv}"]; // Dictionary as array of string-variant pairs
+        } else if ([arg isKindOfClass:[NSNull class]]) {
+            [signature appendString:@"v"]; // Null as variant
         } else {
             [signature appendString:@"v"]; // Variant for unknown types
         }
@@ -324,13 +374,80 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             [bodyData appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
             uint8_t nullTerm = 0;
             [bodyData appendBytes:&nullTerm length:1];
+            
         } else if ([arg isKindOfClass:[NSNumber class]]) {
-            // Align to 4 bytes for uint32
-            addPadding(bodyData, 4);
-            uint32_t value = [arg unsignedIntValue];
-            [bodyData appendBytes:&value length:4];
+            NSNumber *num = (NSNumber *)arg;
+            const char *objCType = [num objCType];
+            
+            if (strcmp(objCType, @encode(BOOL)) == 0 || 
+                strcmp(objCType, @encode(bool)) == 0) {
+                // Boolean - stored as uint32
+                addPadding(bodyData, 4);
+                uint32_t boolVal = [num boolValue] ? 1 : 0;
+                [bodyData appendBytes:&boolVal length:4];
+                
+            } else if (strcmp(objCType, @encode(uint8_t)) == 0 ||
+                       strcmp(objCType, @encode(char)) == 0) {
+                // Byte - no alignment
+                uint8_t byteVal = [num unsignedCharValue];
+                [bodyData appendBytes:&byteVal length:1];
+                
+            } else if (strcmp(objCType, @encode(int16_t)) == 0) {
+                // int16 - 2-byte aligned
+                addPadding(bodyData, 2);
+                int16_t int16Val = [num shortValue];
+                [bodyData appendBytes:&int16Val length:2];
+                
+            } else if (strcmp(objCType, @encode(uint16_t)) == 0) {
+                // uint16 - 2-byte aligned
+                addPadding(bodyData, 2);
+                uint16_t uint16Val = [num unsignedShortValue];
+                [bodyData appendBytes:&uint16Val length:2];
+                
+            } else if (strcmp(objCType, @encode(int32_t)) == 0 ||
+                       strcmp(objCType, @encode(int)) == 0) {
+                // int32 - 4-byte aligned
+                addPadding(bodyData, 4);
+                int32_t int32Val = [num intValue];
+                [bodyData appendBytes:&int32Val length:4];
+                
+            } else if (strcmp(objCType, @encode(uint32_t)) == 0 ||
+                       strcmp(objCType, @encode(unsigned int)) == 0) {
+                // uint32 - 4-byte aligned
+                addPadding(bodyData, 4);
+                uint32_t uint32Val = [num unsignedIntValue];
+                [bodyData appendBytes:&uint32Val length:4];
+                
+            } else if (strcmp(objCType, @encode(int64_t)) == 0 ||
+                       strcmp(objCType, @encode(long long)) == 0) {
+                // int64 - 8-byte aligned
+                addPadding(bodyData, 8);
+                int64_t int64Val = [num longLongValue];
+                [bodyData appendBytes:&int64Val length:8];
+                
+            } else if (strcmp(objCType, @encode(uint64_t)) == 0 ||
+                       strcmp(objCType, @encode(unsigned long long)) == 0) {
+                // uint64 - 8-byte aligned
+                addPadding(bodyData, 8);
+                uint64_t uint64Val = [num unsignedLongLongValue];
+                [bodyData appendBytes:&uint64Val length:8];
+                
+            } else if (strcmp(objCType, @encode(double)) == 0 ||
+                       strcmp(objCType, @encode(float)) == 0) {
+                // double - 8-byte aligned
+                addPadding(bodyData, 8);
+                double doubleVal = [num doubleValue];
+                [bodyData appendBytes:&doubleVal length:8];
+                
+            } else {
+                // Default to uint32
+                addPadding(bodyData, 4);
+                uint32_t value = [num unsignedIntValue];
+                [bodyData appendBytes:&value length:4];
+            }
+            
         } else if ([arg isKindOfClass:[NSArray class]]) {
-            // Serialize array of strings
+            // Serialize arrays
             NSArray *array = (NSArray *)arg;
             
             // Align to 4 bytes for array length
@@ -341,30 +458,186 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             uint32_t placeholder = 0;
             [bodyData appendBytes:&placeholder length:4];
             
-            // Align array contents to element alignment (4 bytes for strings)
-            addPadding(bodyData, 4);
-            NSUInteger arrayContentStart = [bodyData length];
-            
-            // Write array elements
-            for (NSString *item in array) {
-                if ([item isKindOfClass:[NSString class]]) {
-                    // Align each string to 4 bytes
+            // Determine element alignment and serialize content
+            if ([array count] > 0) {
+                id firstElement = [array objectAtIndex:0];
+                
+                if ([firstElement isKindOfClass:[NSString class]]) {
+                    // Array of strings - 4-byte alignment for each string
                     addPadding(bodyData, 4);
-                    uint32_t itemLen = (uint32_t)[item lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-                    [bodyData appendBytes:&itemLen length:4];
-                    [bodyData appendData:[item dataUsingEncoding:NSUTF8StringEncoding]];
-                    uint8_t nullTerm = 0;
-                    [bodyData appendBytes:&nullTerm length:1];
+                    NSUInteger arrayContentStart = [bodyData length];
+                    
+                    for (NSString *item in array) {
+                        if ([item isKindOfClass:[NSString class]]) {
+                            addPadding(bodyData, 4);
+                            uint32_t itemLen = (uint32_t)[item lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+                            [bodyData appendBytes:&itemLen length:4];
+                            [bodyData appendData:[item dataUsingEncoding:NSUTF8StringEncoding]];
+                            uint8_t nullTerm = 0;
+                            [bodyData appendBytes:&nullTerm length:1];
+                        }
+                    }
+                    
+                    uint32_t actualArrayLength = (uint32_t)([bodyData length] - arrayContentStart);
+                    [bodyData replaceBytesInRange:NSMakeRange(lengthPosition, 4) withBytes:&actualArrayLength];
+                    
+                } else if ([firstElement isKindOfClass:[NSDictionary class]]) {
+                    // Array of dictionaries a{sv} - 8-byte alignment for dict entries
+                    addPadding(bodyData, 8);
+                    NSUInteger arrayContentStart = [bodyData length];
+                    
+                    for (NSDictionary *dict in array) {
+                        if ([dict isKindOfClass:[NSDictionary class]]) {
+                            for (NSString *key in dict) {
+                                // Each dictionary entry is 8-byte aligned
+                                addPadding(bodyData, 8);
+                                
+                                // Serialize key (string)
+                                addPadding(bodyData, 4);
+                                uint32_t keyLen = (uint32_t)[key lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+                                [bodyData appendBytes:&keyLen length:4];
+                                [bodyData appendData:[key dataUsingEncoding:NSUTF8StringEncoding]];
+                                uint8_t nullTerm = 0;
+                                [bodyData appendBytes:&nullTerm length:1];
+                                
+                                // Serialize value as variant
+                                id value = [dict objectForKey:key];
+                                [MBMessage serializeVariant:value toData:bodyData];
+                            }
+                        }
+                    }
+                    
+                    uint32_t actualArrayLength = (uint32_t)([bodyData length] - arrayContentStart);
+                    [bodyData replaceBytesInRange:NSMakeRange(lengthPosition, 4) withBytes:&actualArrayLength];
+                    
+                } else {
+                    // Other array types - just put empty array for now
+                    uint32_t actualArrayLength = 0;
+                    [bodyData replaceBytesInRange:NSMakeRange(lengthPosition, 4) withBytes:&actualArrayLength];
                 }
+            } else {
+                // Empty array
+                uint32_t actualArrayLength = 0;
+                [bodyData replaceBytesInRange:NSMakeRange(lengthPosition, 4) withBytes:&actualArrayLength];
             }
             
-            // Update array length field with actual content length
+        } else if ([arg isKindOfClass:[NSDictionary class]]) {
+            // Serialize dictionary as array of key-value pairs a{sv}
+            NSDictionary *dict = (NSDictionary *)arg;
+            
+            addPadding(bodyData, 4);
+            NSUInteger lengthPosition = [bodyData length];
+            uint32_t placeholder = 0;
+            [bodyData appendBytes:&placeholder length:4];
+            
+            addPadding(bodyData, 8);
+            NSUInteger arrayContentStart = [bodyData length];
+            
+            for (NSString *key in dict) {
+                addPadding(bodyData, 8);
+                
+                // Serialize key
+                addPadding(bodyData, 4);
+                uint32_t keyLen = (uint32_t)[key lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+                [bodyData appendBytes:&keyLen length:4];
+                [bodyData appendData:[key dataUsingEncoding:NSUTF8StringEncoding]];
+                uint8_t nullTerm = 0;
+                [bodyData appendBytes:&nullTerm length:1];
+                
+                // Serialize value as variant
+                id value = [dict objectForKey:key];
+                [MBMessage serializeVariant:value toData:bodyData];
+            }
+            
             uint32_t actualArrayLength = (uint32_t)([bodyData length] - arrayContentStart);
             [bodyData replaceBytesInRange:NSMakeRange(lengthPosition, 4) withBytes:&actualArrayLength];
         }
     }
     
     return bodyData;
+}
+
++ (void)serializeVariant:(id)value toData:(NSMutableData *)data
+{
+    if ([value isKindOfClass:[NSString class]]) {
+        // String variant
+        uint8_t sigLen = 1;
+        [data appendBytes:&sigLen length:1];
+        uint8_t typeSig = DBUS_TYPE_STRING;
+        [data appendBytes:&typeSig length:1];
+        uint8_t nullTerm = 0;
+        [data appendBytes:&nullTerm length:1];
+        
+        // String value
+        NSString *str = (NSString *)value;
+        addPadding(data, 4);
+        uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        [data appendBytes:&strLen length:4];
+        [data appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
+        [data appendBytes:&nullTerm length:1];
+        
+    } else if ([value isKindOfClass:[NSNumber class]]) {
+        NSNumber *num = (NSNumber *)value;
+        const char *objCType = [num objCType];
+        
+        if (strcmp(objCType, @encode(BOOL)) == 0 || 
+            strcmp(objCType, @encode(bool)) == 0) {
+            // Boolean variant
+            uint8_t sigLen = 1;
+            [data appendBytes:&sigLen length:1];
+            uint8_t typeSig = DBUS_TYPE_BOOLEAN;
+            [data appendBytes:&typeSig length:1];
+            uint8_t nullTerm = 0;
+            [data appendBytes:&nullTerm length:1];
+            
+            addPadding(data, 4);
+            uint32_t boolVal = [num boolValue] ? 1 : 0;
+            [data appendBytes:&boolVal length:4];
+            
+        } else if (strcmp(objCType, @encode(double)) == 0 ||
+                   strcmp(objCType, @encode(float)) == 0) {
+            // Double variant
+            uint8_t sigLen = 1;
+            [data appendBytes:&sigLen length:1];
+            uint8_t typeSig = DBUS_TYPE_DOUBLE;
+            [data appendBytes:&typeSig length:1];
+            uint8_t nullTerm = 0;
+            [data appendBytes:&nullTerm length:1];
+            
+            addPadding(data, 8);
+            double doubleVal = [num doubleValue];
+            [data appendBytes:&doubleVal length:8];
+            
+        } else {
+            // Default to uint32 variant
+            uint8_t sigLen = 1;
+            [data appendBytes:&sigLen length:1];
+            uint8_t typeSig = DBUS_TYPE_UINT32;
+            [data appendBytes:&typeSig length:1];
+            uint8_t nullTerm = 0;
+            [data appendBytes:&nullTerm length:1];
+            
+            addPadding(data, 4);
+            uint32_t uint32Val = [num unsignedIntValue];
+            [data appendBytes:&uint32Val length:4];
+        }
+        
+    } else {
+        // Default to string representation
+        NSString *str = [value description];
+        uint8_t sigLen = 1;
+        [data appendBytes:&sigLen length:1];
+        uint8_t typeSig = DBUS_TYPE_STRING;
+        [data appendBytes:&typeSig length:1];
+        uint8_t nullTerm = 0;
+        [data appendBytes:&nullTerm length:1];
+        
+        addPadding(data, 4);
+        uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        [data appendBytes:&strLen length:4];
+        [data appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
+        [data appendBytes:&nullTerm length:1];
+    }
 }
 
 // Implement the missing parsing methods
@@ -1016,19 +1289,17 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                 break;
             }
             
-            // For now, parse simple arrays. Complex nested structures need more work.
-            // Get the element type from the signature (next character after 'a')
+            // Parse complex array types including a{sv}
             if (i + 1 < [signature length]) {
                 unichar elementType = [signature characterAtIndex:i + 1];
                 NSLog(@"DEBUG parseArguments: array element type='%c'", elementType);
                 
                 if (elementType == 's') {
-                    // Array of strings - parse each string
+                    // Array of strings
                     NSMutableArray *stringArray = [NSMutableArray array];
                     NSUInteger arrayEnd = pos + arrayLen;
                     
                     while (pos < arrayEnd) {
-                        // Align to 4-byte boundary for string length
                         pos = alignTo(pos, 4);
                         if (pos + 4 > arrayEnd) break;
                         
@@ -1049,39 +1320,290 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                             [stringArray addObject:str];
                             [str release];
                         }
-                        pos += strLen + 1; // +1 for null terminator
+                        pos += strLen + 1;
                     }
                     
                     [arguments addObject:stringArray];
-                    i++; // Skip the element type character in signature
+                    i++; // Skip element type
+                    
+                } else if (elementType == '{') {
+                    // Dictionary array a{...} - parse as array of dictionaries
+                    NSMutableArray *dictArray = [NSMutableArray array];
+                    NSUInteger arrayEnd = pos + arrayLen;
+                    
+                    // Find the complete signature for the dictionary entry
+                    NSUInteger dictStart = i + 2;
+                    NSUInteger dictEnd = dictStart;
+                    NSUInteger braceCount = 1;
+                    while (dictEnd < [signature length] && braceCount > 0) {
+                        unichar c = [signature characterAtIndex:dictEnd];
+                        if (c == '{') braceCount++;
+                        else if (c == '}') braceCount--;
+                        dictEnd++;
+                    }
+                    
+                    if (braceCount == 0 && dictEnd > dictStart) {
+                        NSString *dictSig = [signature substringWithRange:NSMakeRange(dictStart, dictEnd - dictStart - 1)];
+                        NSLog(@"DEBUG parseArguments: dictionary signature='%@'", dictSig);
+                        
+                        // Parse each dictionary entry (8-byte aligned)
+                        while (pos < arrayEnd) {
+                            pos = alignTo(pos, 8); // Dictionary entries are 8-byte aligned
+                            if (pos >= arrayEnd) break;
+                            
+                            NSMutableDictionary *dictEntry = [NSMutableDictionary dictionary];
+                            
+                            // Parse dictionary entry based on signature
+                            if ([dictSig hasPrefix:@"sv"]) {
+                                // String key, variant value
+                                pos = alignTo(pos, 4);
+                                if (pos + 4 > arrayEnd) break;
+                                
+                                uint32_t keyLen = *(uint32_t *)(bytes + pos);
+                                if (endianness == DBUS_LITTLE_ENDIAN) {
+                                    keyLen = NSSwapLittleIntToHost(keyLen);
+                                } else {
+                                    keyLen = NSSwapBigIntToHost(keyLen);
+                                }
+                                pos += 4;
+                                
+                                if (pos + keyLen + 1 > arrayEnd) break;
+                                
+                                NSString *key = [[NSString alloc] initWithBytes:(bytes + pos)
+                                                                         length:keyLen
+                                                                       encoding:NSUTF8StringEncoding];
+                                pos += keyLen + 1;
+                                
+                                // Parse variant value
+                                if (pos + 1 > arrayEnd) {
+                                    [key release];
+                                    break;
+                                }
+                                
+                                uint8_t varSigLen = bytes[pos];
+                                pos += 1;
+                                
+                                if (pos + varSigLen + 1 > arrayEnd) {
+                                    [key release];
+                                    break;
+                                }
+                                
+                                NSString *varSig = [[NSString alloc] initWithBytes:(bytes + pos)
+                                                                            length:varSigLen
+                                                                          encoding:NSUTF8StringEncoding];
+                                pos += varSigLen + 1;
+                                
+                                // Parse the variant value based on its signature
+                                id value = [self parseVariantValue:bytes + pos
+                                                            maxLen:arrayEnd - pos
+                                                         signature:varSig
+                                                        endianness:endianness
+                                                      bytesConsumed:&pos];
+                                
+                                if (key && value) {
+                                    [dictEntry setObject:value forKey:key];
+                                }
+                                
+                                [key release];
+                                [varSig release];
+                            }
+                            
+                            if ([dictEntry count] > 0) {
+                                [dictArray addObject:dictEntry];
+                            }
+                        }
+                        
+                        [arguments addObject:dictArray];
+                        i = dictEnd - 1; // Will be incremented by main loop
+                    } else {
+                        // Malformed dictionary signature
+                        [arguments addObject:@[]];
+                        pos += arrayLen;
+                        i = dictEnd - 1;
+                    }
                     
                 } else {
-                    // For other array types (like a{sv}), create a placeholder for now
+                    // Other array types - create placeholder
                     NSLog(@"DEBUG parseArguments: unsupported array element type '%c', creating placeholder", elementType);
-                    [arguments addObject:@[]]; // Empty array placeholder
-                    pos += arrayLen; // Skip the entire array data
-                    
-                    // Skip complex signature parsing - find the closing bracket or next type
-                    if (elementType == '{') {
-                        // Skip until we find the matching '}'
-                        NSUInteger braceCount = 1;
-                        NSUInteger j = i + 2;
-                        while (j < [signature length] && braceCount > 0) {
-                            unichar c = [signature characterAtIndex:j];
-                            if (c == '{') braceCount++;
-                            else if (c == '}') braceCount--;
-                            j++;
-                        }
-                        i = j - 1; // Will be incremented by main loop
-                    } else {
-                        i++; // Skip the element type character
-                    }
+                    [arguments addObject:@[]];
+                    pos += arrayLen;
+                    i++; // Skip element type
                 }
             } else {
                 // Malformed signature
                 NSLog(@"ERROR: Array type 'a' not followed by element type in signature");
                 break;
             }
+            
+        } else if (typeChar == 'v') {
+            // Variant - signature length + signature + value
+            if (pos + 1 > [bodyData length]) break;
+            
+            uint8_t varSigLen = bytes[pos];
+            pos += 1;
+            
+            if (pos + varSigLen + 1 > [bodyData length]) break;
+            
+            NSString *varSig = [[NSString alloc] initWithBytes:(bytes + pos)
+                                                        length:varSigLen
+                                                      encoding:NSUTF8StringEncoding];
+            pos += varSigLen + 1; // +1 for null terminator
+            
+            NSLog(@"DEBUG parseArguments: variant signature='%@'", varSig);
+            
+            // Parse the variant value
+            id value = [self parseVariantValue:bytes + pos
+                                       maxLen:[bodyData length] - pos
+                                    signature:varSig
+                                   endianness:endianness
+                                 bytesConsumed:&pos];
+            
+            if (value) {
+                [arguments addObject:value];
+            } else {
+                [arguments addObject:[NSNull null]];
+            }
+            
+            [varSig release];
+            
+        } else if (typeChar == 'b') {
+            // Boolean - align to 4-byte boundary, stored as uint32
+            pos = alignTo(pos, 4);
+            
+            if (pos + 4 > [bodyData length]) break;
+            
+            uint32_t boolVal = *(uint32_t *)(bytes + pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                boolVal = NSSwapLittleIntToHost(boolVal);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                boolVal = NSSwapBigIntToHost(boolVal);
+            }
+            
+            [arguments addObject:@(boolVal != 0)];
+            pos += 4;
+            
+        } else if (typeChar == 'y') {
+            // Byte - no alignment needed
+            if (pos + 1 > [bodyData length]) break;
+            
+            uint8_t byteVal = bytes[pos];
+            [arguments addObject:@(byteVal)];
+            pos += 1;
+            
+        } else if (typeChar == 'n') {
+            // int16 - align to 2-byte boundary
+            pos = alignTo(pos, 2);
+            
+            if (pos + 2 > [bodyData length]) break;
+            
+            int16_t int16Val = *(int16_t *)(bytes + pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                int16Val = NSSwapLittleShortToHost(int16Val);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                int16Val = NSSwapBigShortToHost(int16Val);
+            }
+            
+            [arguments addObject:@(int16Val)];
+            pos += 2;
+            
+        } else if (typeChar == 'q') {
+            // uint16 - align to 2-byte boundary
+            pos = alignTo(pos, 2);
+            
+            if (pos + 2 > [bodyData length]) break;
+            
+            uint16_t uint16Val = *(uint16_t *)(bytes + pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                uint16Val = NSSwapLittleShortToHost(uint16Val);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                uint16Val = NSSwapBigShortToHost(uint16Val);
+            }
+            
+            [arguments addObject:@(uint16Val)];
+            pos += 2;
+            
+        } else if (typeChar == 'x') {
+            // int64 - align to 8-byte boundary
+            pos = alignTo(pos, 8);
+            
+            if (pos + 8 > [bodyData length]) break;
+            
+            int64_t int64Val = *(int64_t *)(bytes + pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                int64Val = NSSwapLittleLongLongToHost(int64Val);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                int64Val = NSSwapBigLongLongToHost(int64Val);
+            }
+            
+            [arguments addObject:@(int64Val)];
+            pos += 8;
+            
+        } else if (typeChar == 't') {
+            // uint64 - align to 8-byte boundary
+            pos = alignTo(pos, 8);
+            
+            if (pos + 8 > [bodyData length]) break;
+            
+            uint64_t uint64Val = *(uint64_t *)(bytes + pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                uint64Val = NSSwapLittleLongLongToHost(uint64Val);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                uint64Val = NSSwapBigLongLongToHost(uint64Val);
+            }
+            
+            [arguments addObject:@(uint64Val)];
+            pos += 8;
+            
+        } else if (typeChar == 'd') {
+            // double - align to 8-byte boundary
+            pos = alignTo(pos, 8);
+            
+            if (pos + 8 > [bodyData length]) break;
+            
+            uint64_t rawDouble = *(uint64_t *)(bytes + pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                rawDouble = NSSwapLittleLongLongToHost(rawDouble);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                rawDouble = NSSwapBigLongLongToHost(rawDouble);
+            }
+            
+            double doubleVal;
+            memcpy(&doubleVal, &rawDouble, sizeof(double));
+            [arguments addObject:@(doubleVal)];
+            pos += 8;
+            
+        } else if (typeChar == 'o') {
+            // Object path - same as string but with validation
+            pos = alignTo(pos, 4);
+            
+            if (pos + 4 > [bodyData length]) break;
+            
+            uint32_t strLen = *(uint32_t *)(bytes + pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                strLen = NSSwapLittleIntToHost(strLen);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                strLen = NSSwapBigIntToHost(strLen);
+            }
+            
+            pos += 4;
+            
+            if (strLen > 65536) {
+                NSLog(@"ERROR: Object path length %u exceeds maximum", strLen);
+                break;
+            }
+            
+            if (pos + strLen + 1 > [bodyData length]) break;
+            
+            NSString *objectPath = [[NSString alloc] initWithBytes:(bytes + pos)
+                                                            length:strLen
+                                                          encoding:NSUTF8StringEncoding];
+            if (objectPath) {
+                [arguments addObject:objectPath];
+                [objectPath release];
+            } else {
+                [arguments addObject:@"<invalid-object-path>"];
+            }
+            pos += strLen + 1;
             
         } else {
             // Unknown type, skip
@@ -1097,6 +1619,142 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
 + (NSArray *)parseArgumentsFromBodyData:(NSData *)bodyData signature:(NSString *)signature
 {
     return [self parseArgumentsFromBodyData:bodyData signature:signature endianness:DBUS_LITTLE_ENDIAN];
+}
+
++ (id)parseVariantValue:(const uint8_t *)bytes 
+                maxLen:(NSUInteger)maxLen
+             signature:(NSString *)signature
+            endianness:(uint8_t)endianness
+         bytesConsumed:(NSUInteger *)pos
+{
+    if (!signature || [signature length] == 0 || !bytes || maxLen == 0) {
+        return nil;
+    }
+    
+    NSUInteger originalPos = *pos;
+    unichar typeChar = [signature characterAtIndex:0];
+    
+    switch (typeChar) {
+        case 's': {
+            // String
+            *pos = alignTo(*pos, 4);
+            if (*pos + 4 > maxLen) return nil;
+            
+            uint32_t strLen = *(uint32_t *)(bytes + *pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                strLen = NSSwapLittleIntToHost(strLen);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                strLen = NSSwapBigIntToHost(strLen);
+            }
+            *pos += 4;
+            
+            if (strLen > 65536 || *pos + strLen + 1 > maxLen) return nil;
+            
+            NSString *str = [[NSString alloc] initWithBytes:(bytes + *pos)
+                                                     length:strLen
+                                                   encoding:NSUTF8StringEncoding];
+            *pos += strLen + 1;
+            return [str autorelease];
+        }
+        
+        case 'u': {
+            // uint32
+            *pos = alignTo(*pos, 4);
+            if (*pos + 4 > maxLen) return nil;
+            
+            uint32_t value = *(uint32_t *)(bytes + *pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                value = NSSwapLittleIntToHost(value);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                value = NSSwapBigIntToHost(value);
+            }
+            *pos += 4;
+            return @(value);
+        }
+        
+        case 'i': {
+            // int32
+            *pos = alignTo(*pos, 4);
+            if (*pos + 4 > maxLen) return nil;
+            
+            int32_t value = *(int32_t *)(bytes + *pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                value = NSSwapLittleIntToHost(value);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                value = NSSwapBigIntToHost(value);
+            }
+            *pos += 4;
+            return @(value);
+        }
+        
+        case 'b': {
+            // Boolean
+            *pos = alignTo(*pos, 4);
+            if (*pos + 4 > maxLen) return nil;
+            
+            uint32_t boolVal = *(uint32_t *)(bytes + *pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                boolVal = NSSwapLittleIntToHost(boolVal);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                boolVal = NSSwapBigIntToHost(boolVal);
+            }
+            *pos += 4;
+            return @(boolVal != 0);
+        }
+        
+        case 'y': {
+            // Byte
+            if (*pos + 1 > maxLen) return nil;
+            uint8_t byteVal = bytes[*pos];
+            *pos += 1;
+            return @(byteVal);
+        }
+        
+        case 'd': {
+            // Double
+            *pos = alignTo(*pos, 8);
+            if (*pos + 8 > maxLen) return nil;
+            
+            uint64_t rawDouble = *(uint64_t *)(bytes + *pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                rawDouble = NSSwapLittleLongLongToHost(rawDouble);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                rawDouble = NSSwapBigLongLongToHost(rawDouble);
+            }
+            
+            double doubleVal;
+            memcpy(&doubleVal, &rawDouble, sizeof(double));
+            *pos += 8;
+            return @(doubleVal);
+        }
+        
+        case 'o': {
+            // Object path (same as string)
+            *pos = alignTo(*pos, 4);
+            if (*pos + 4 > maxLen) return nil;
+            
+            uint32_t strLen = *(uint32_t *)(bytes + *pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                strLen = NSSwapLittleIntToHost(strLen);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                strLen = NSSwapBigIntToHost(strLen);
+            }
+            *pos += 4;
+            
+            if (strLen > 65536 || *pos + strLen + 1 > maxLen) return nil;
+            
+            NSString *str = [[NSString alloc] initWithBytes:(bytes + *pos)
+                                                     length:strLen
+                                                   encoding:NSUTF8StringEncoding];
+            *pos += strLen + 1;
+            return [str autorelease];
+        }
+        
+        default:
+            // Unsupported variant type - skip and return placeholder
+            NSLog(@"WARNING: Unsupported variant type '%c', returning null", typeChar);
+            return [NSNull null];
+    }
 }
 
 @end
