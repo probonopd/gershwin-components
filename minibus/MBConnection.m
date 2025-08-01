@@ -510,8 +510,8 @@ typedef enum {
         [hexString appendFormat:@"%02x ", bytes[i]];
     }
     NSLog(@"Buffer hex: %@", hexString);
-    
-    // Early validation: if buffer doesn't start with valid endian byte, search for one
+     // Early validation: if buffer doesn't start with valid endian byte, search for one
+    NSUInteger bufferOffset = 0;
     if ([_readBuffer length] > 0 && bytes[0] != DBUS_LITTLE_ENDIAN && bytes[0] != DBUS_BIG_ENDIAN) {
         NSLog(@"Buffer doesn't start with valid D-Bus endian byte (0x%02x), searching for valid start", bytes[0]);
         
@@ -532,12 +532,9 @@ typedef enum {
         }
         
         if (validOffset != NSNotFound && validOffset > 0) {
-            // Remove invalid data before the valid start
-            NSData *validData = [NSData dataWithBytes:bytes + validOffset 
-                                               length:[_readBuffer length] - validOffset];
-            [_readBuffer setData:validData];
-            NSLog(@"Discarded %lu bytes of invalid data, buffer now has %lu bytes", 
-                  (unsigned long)validOffset, (unsigned long)[_readBuffer length]);
+            // Instead of modifying the buffer, track the offset
+            bufferOffset = validOffset;
+            NSLog(@"Will skip %lu bytes of invalid data at start of buffer", (unsigned long)bufferOffset);
         } else if (validOffset == NSNotFound) {
             // No valid D-Bus data found, clear the buffer
             NSLog(@"No valid D-Bus data found in buffer, clearing %lu bytes", (unsigned long)[_readBuffer length]);
@@ -545,20 +542,31 @@ typedef enum {
             return [NSArray array];
         }
     }
-    
+
     @try {
         NSUInteger consumedBytes = 0;
-        NSArray *messages = [MBMessage messagesFromData:_readBuffer consumedBytes:&consumedBytes];
-        
-        if ([messages count] > 0) {
-            NSLog(@"Parsed %lu D-Bus messages, consumed %lu bytes", (unsigned long)[messages count], consumedBytes);
+        // Create a slice of the buffer starting from the valid offset
+        NSData *parseData;
+        if (bufferOffset > 0) {
+            parseData = [NSData dataWithBytes:bytes + bufferOffset 
+                                       length:[_readBuffer length] - bufferOffset];
+        } else {
+            parseData = _readBuffer;
         }
         
-        // Remove consumed bytes from buffer
-        if (consumedBytes > 0) {
-            NSUInteger remainingBytes = [_readBuffer length] - consumedBytes;
+        NSArray *messages = [MBMessage messagesFromData:parseData consumedBytes:&consumedBytes];
+        
+        if ([messages count] > 0) {
+            NSLog(@"Parsed %lu D-Bus messages, consumed %lu bytes (including %lu offset bytes)", 
+                  (unsigned long)[messages count], consumedBytes, (unsigned long)bufferOffset);
+        }
+        
+        // Remove consumed bytes from buffer, accounting for the buffer offset
+        NSUInteger totalConsumed = consumedBytes + bufferOffset;
+        if (totalConsumed > 0) {
+            NSUInteger remainingBytes = [_readBuffer length] - totalConsumed;
             if (remainingBytes > 0) {
-                NSData *remainingData = [NSData dataWithBytes:((uint8_t *)[_readBuffer bytes] + consumedBytes) 
+                NSData *remainingData = [NSData dataWithBytes:((uint8_t *)[_readBuffer bytes] + totalConsumed) 
                                                        length:remainingBytes];
                 [_readBuffer setData:remainingData];
                 NSLog(@"Kept %lu unconsumed bytes in buffer", remainingBytes);

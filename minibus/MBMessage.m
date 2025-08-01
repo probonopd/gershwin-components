@@ -435,6 +435,11 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         return nil;
     }
     
+    // Validate that fieldsLength is reasonable relative to the buffer position
+    if (pos + 16 + fieldsLength > [data length]) {
+        return nil;
+    }
+    
     // Calculate message length correctly
     NSUInteger headerFieldsEnd = pos + 16 + fieldsLength;
     NSUInteger bodyStart = alignTo(headerFieldsEnd, 8);
@@ -442,6 +447,11 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     
     // Enhanced validation - reject clearly corrupted messages
     if (pos + messageLength > [data length] || messageLength > 2097152) { // Max 2MB total message
+        return nil;
+    }
+    
+    // Validate that we can fit the complete message in the buffer
+    if (bodyStart + bodyLength > [data length]) {
         return nil;
     }
     
@@ -667,8 +677,27 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     
     // Parse message body
     if (bodyLength > 0 && message.signature) {
+        NSLog(@"DEBUG: Parsing body for serial %u: pos=%lu, bodyStart=%lu, bodyLength=%u", 
+              serial, pos, bodyStart, bodyLength);
+        
+        // CRITICAL: Validate that bodyStart is within reasonable bounds
+        if (bodyStart >= [data length] || bodyStart + bodyLength > [data length]) {
+            NSLog(@"ERROR: Body data would exceed buffer bounds (bodyStart=%lu, bodyLength=%u, dataLength=%lu)", 
+                  bodyStart, bodyLength, [data length]);
+            [message release];
+            return nil;
+        }
+        
         NSData *bodyData = [NSData dataWithBytes:(bytes + bodyStart) length:bodyLength];
         message.arguments = [self parseArgumentsFromBodyData:bodyData signature:message.signature endianness:endianness];
+        
+        // If argument parsing failed (resulted in empty array when signature expects arguments), reject the message
+        if ([message.arguments count] == 0 && ![message.signature isEqualToString:@""]) {
+            NSLog(@"ERROR: Body parsing failed for message with signature '%@' - rejecting message serial %u", 
+                  message.signature, serial);
+            [message release];
+            return nil;
+        }
     } else {
         message.arguments = @[];
     }
@@ -774,7 +803,19 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             }
         }
         
-        // Successfully parsed a message
+        // Successfully parsed a message - but double-check it's not nil
+        if (!message) {
+            NSLog(@"ERROR: message is nil after parsing, skipping");
+            // Don't update lastSuccessfulOffset for nil messages
+            consecutiveFailures++;
+            if (offset == oldOffset) {
+                // No progress made, prevent infinite loop
+                NSLog(@"No progress in message parsing at offset %lu", offset);
+                break;
+            }
+            continue;
+        }
+        
         consecutiveFailures = 0;
         
         if (offset == oldOffset) {
@@ -805,7 +846,12 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
 
 + (NSArray *)parseArgumentsFromBodyData:(NSData *)bodyData signature:(NSString *)signature endianness:(uint8_t)endianness
 {
+    NSLog(@"DEBUG parseArguments: bodyData=%lu bytes, signature='%@', endianness=%u", 
+          [bodyData length], signature, endianness);
+    
     if (!bodyData || [bodyData length] == 0 || !signature || [signature length] == 0) {
+        NSLog(@"DEBUG parseArguments: early return - bodyData=%p length=%lu, signature='%@' length=%lu", 
+              bodyData, bodyData ? [bodyData length] : 0, signature ?: @"(null)", signature ? [signature length] : 0);
         return @[];
     }
     
@@ -828,6 +874,7 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     // Parse each signature character
     for (NSUInteger i = 0; i < [signature length]; i++) {
         unichar typeChar = [signature characterAtIndex:i];
+        NSLog(@"DEBUG parseArguments: parsing type '%c' at pos %lu (signature index %lu)", typeChar, pos, i);
         
         if (typeChar == 's') {
             // String - align to 4-byte boundary
@@ -863,15 +910,37 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             
             if (pos + strLen + 1 > [bodyData length]) break;
             
-            NSString *value = [[NSString alloc] initWithBytes:(bytes + pos) 
-                                                       length:strLen 
-                                                     encoding:NSUTF8StringEncoding];
-            if (value) {
-                [arguments addObject:value];
-                [value release];
+            NSString *value = nil;
+            if (strLen == 0) {
+                // Zero-length string - create empty string explicitly
+                value = @"";
+                NSLog(@"DEBUG parseArguments: created empty string for zero length");
             } else {
-                // Invalid UTF-8, use a placeholder
-                [arguments addObject:@"<invalid-utf8>"];
+                value = [[NSString alloc] initWithBytes:(bytes + pos) 
+                                                 length:strLen 
+                                               encoding:NSUTF8StringEncoding];
+            }
+            
+            NSLog(@"DEBUG parseArguments: string value='%@' (nil=%d)", value ?: @"(null)", value == nil);
+            if (value) {
+                @try {
+                    [arguments addObject:value];
+                    NSLog(@"DEBUG parseArguments: successfully added string to array");
+                } @catch (NSException *e) {
+                    NSLog(@"ERROR parseArguments: exception adding string to array: %@", e);
+                    @throw e;
+                }
+                if (strLen > 0) [value release]; // Only release if we allocated it
+            } else {
+                // Invalid UTF-8, use a placeholder but log the issue
+                NSLog(@"WARNING: Invalid UTF-8 string at pos %lu, length %u in body", pos, strLen);
+                @try {
+                    [arguments addObject:@"<invalid-utf8>"];
+                    NSLog(@"DEBUG parseArguments: successfully added invalid-utf8 placeholder");
+                } @catch (NSException *e) {
+                    NSLog(@"ERROR parseArguments: exception adding invalid-utf8 placeholder: %@", e);
+                    @throw e;
+                }
             }
             pos += strLen + 1; // +1 for null terminator
             
@@ -890,7 +959,14 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                 value = NSSwapBigIntToHost(value);
             }
             
-            [arguments addObject:@(value)];
+            NSLog(@"DEBUG parseArguments: uint32 value=%u", value);
+            @try {
+                [arguments addObject:@(value)];
+                NSLog(@"DEBUG parseArguments: successfully added uint32 to array");
+            } @catch (NSException *e) {
+                NSLog(@"ERROR parseArguments: exception adding uint32 to array: %@", e);
+                @throw e;
+            }
             pos += 4;
             
         } else if (typeChar == 'i') {
@@ -910,8 +986,106 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             [arguments addObject:@(value)];
             pos += 4;
             
+        } else if (typeChar == 'a') {
+            // Array - align to 4-byte boundary for array length
+            pos = alignTo(pos, 4);
+            
+            if (pos + 4 > [bodyData length]) break;
+            
+            uint32_t arrayLen = *(uint32_t *)(bytes + pos);
+            
+            // Apply correct endianness conversion
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                arrayLen = NSSwapLittleIntToHost(arrayLen);
+            } else if (endianness == DBUS_BIG_ENDIAN) {
+                arrayLen = NSSwapBigIntToHost(arrayLen);
+            }
+            
+            pos += 4;
+            
+            NSLog(@"DEBUG parseArguments: array length=%u at pos %lu", arrayLen, pos);
+            
+            // Validate array length to prevent memory exhaustion
+            if (arrayLen > 65536) { // Max 64KB for arrays
+                NSLog(@"ERROR: Array length %u exceeds maximum allowed (65536), skipping", arrayLen);
+                break;
+            }
+            
+            if (pos + arrayLen > [bodyData length]) {
+                NSLog(@"ERROR: Array data exceeds buffer bounds, skipping");
+                break;
+            }
+            
+            // For now, parse simple arrays. Complex nested structures need more work.
+            // Get the element type from the signature (next character after 'a')
+            if (i + 1 < [signature length]) {
+                unichar elementType = [signature characterAtIndex:i + 1];
+                NSLog(@"DEBUG parseArguments: array element type='%c'", elementType);
+                
+                if (elementType == 's') {
+                    // Array of strings - parse each string
+                    NSMutableArray *stringArray = [NSMutableArray array];
+                    NSUInteger arrayEnd = pos + arrayLen;
+                    
+                    while (pos < arrayEnd) {
+                        // Align to 4-byte boundary for string length
+                        pos = alignTo(pos, 4);
+                        if (pos + 4 > arrayEnd) break;
+                        
+                        uint32_t strLen = *(uint32_t *)(bytes + pos);
+                        if (endianness == DBUS_LITTLE_ENDIAN) {
+                            strLen = NSSwapLittleIntToHost(strLen);
+                        } else if (endianness == DBUS_BIG_ENDIAN) {
+                            strLen = NSSwapBigIntToHost(strLen);
+                        }
+                        pos += 4;
+                        
+                        if (pos + strLen + 1 > arrayEnd) break;
+                        
+                        NSString *str = [[NSString alloc] initWithBytes:(bytes + pos)
+                                                                 length:strLen
+                                                               encoding:NSUTF8StringEncoding];
+                        if (str) {
+                            [stringArray addObject:str];
+                            [str release];
+                        }
+                        pos += strLen + 1; // +1 for null terminator
+                    }
+                    
+                    [arguments addObject:stringArray];
+                    i++; // Skip the element type character in signature
+                    
+                } else {
+                    // For other array types (like a{sv}), create a placeholder for now
+                    NSLog(@"DEBUG parseArguments: unsupported array element type '%c', creating placeholder", elementType);
+                    [arguments addObject:@[]]; // Empty array placeholder
+                    pos += arrayLen; // Skip the entire array data
+                    
+                    // Skip complex signature parsing - find the closing bracket or next type
+                    if (elementType == '{') {
+                        // Skip until we find the matching '}'
+                        NSUInteger braceCount = 1;
+                        NSUInteger j = i + 2;
+                        while (j < [signature length] && braceCount > 0) {
+                            unichar c = [signature characterAtIndex:j];
+                            if (c == '{') braceCount++;
+                            else if (c == '}') braceCount--;
+                            j++;
+                        }
+                        i = j - 1; // Will be incremented by main loop
+                    } else {
+                        i++; // Skip the element type character
+                    }
+                }
+            } else {
+                // Malformed signature
+                NSLog(@"ERROR: Array type 'a' not followed by element type in signature");
+                break;
+            }
+            
         } else {
             // Unknown type, skip
+            NSLog(@"DEBUG parseArguments: unknown type '%c', stopping parse", typeChar);
             break;
         }
     }

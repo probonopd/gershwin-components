@@ -553,7 +553,16 @@
 
 - (void)handleStartServiceByName:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
+    NSLog(@"DEBUG StartServiceByName: signature='%@', args count=%lu", 
+          message.signature ?: @"(null)", [message.arguments count]);
+    
+    for (NSUInteger i = 0; i < [message.arguments count]; i++) {
+        NSLog(@"DEBUG StartServiceByName: arg[%lu] = '%@' (class: %@)", 
+              i, message.arguments[i], [message.arguments[i] class]);
+    }
+    
     if ([message.arguments count] < 2) {
+        NSLog(@"ERROR StartServiceByName: insufficient arguments (need 2, got %lu)", [message.arguments count]);
         MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.InvalidArgs"
                                         replySerial:message.serial
                                             message:@"Missing name or flags argument"];
