@@ -2,6 +2,7 @@
 #import "MBConnection.h"
 #import "MBMessage.h"
 #import "MBTransport.h"
+#import "MBServiceManager.h"
 #import <sys/select.h>
 #import <unistd.h>
 
@@ -39,6 +40,9 @@
         _nextUniqueId = 1;
         _matchRules = [[NSMutableDictionary alloc] init];
         _nameQueues = [[NSMutableDictionary alloc] init];
+        
+        // Set up service activation
+        [self setupServiceManager];
     }
     return self;
 }
@@ -46,7 +50,36 @@
 - (void)dealloc
 {
     [self stop];
+    [_serviceManager release];
     [super dealloc];
+}
+
+- (void)setupServiceManager
+{
+    // Determine service directories based on common D-Bus conventions
+    NSMutableArray *servicePaths = [NSMutableArray array];
+    
+    // Add test directory first for testing
+    [servicePaths addObject:@"/tmp/dbus-test-services"];
+    
+    // Session bus service directories (in order of precedence)
+    NSString *homeDir = NSHomeDirectory();
+    if (homeDir) {
+        [servicePaths addObject:[homeDir stringByAppendingPathComponent:@".local/share/dbus-1/services"]];
+    }
+    [servicePaths addObject:@"/usr/local/share/dbus-1/services"];
+    [servicePaths addObject:@"/usr/share/dbus-1/services"];
+    
+    // System bus service directories (commented out since minibus is primarily for session bus)
+    // [servicePaths addObject:@"/etc/dbus-1/system-services"];
+    // [servicePaths addObject:@"/usr/local/share/dbus-1/system-services"];
+    // [servicePaths addObject:@"/usr/share/dbus-1/system-services"];
+    
+    _serviceManager = [[MBServiceManager alloc] initWithServicePaths:servicePaths];
+    [_serviceManager loadServices];
+    
+    NSLog(@"Service activation initialized with %lu available services", 
+          (unsigned long)[[_serviceManager availableServiceNames] count]);
 }
 
 - (BOOL)start
@@ -507,6 +540,11 @@
         [signal release];
         
         NSLog(@"Sent NameAcquired signal for %@ to %@", name, connection.uniqueName);
+        
+        // Notify service manager that this service has connected (activation completed)
+        if ([_serviceManager isActivatingService:name]) {
+            [_serviceManager serviceActivationCompleted:name];
+        }
     }
     
     NSLog(@"RequestName %@ for connection %@ with flags 0x%lx: result %lu", 
@@ -557,16 +595,56 @@
         return;
     }
     
-    // For other services, we don't actually start services (no .service file support)
-    // We'll return "service not found" like a minimal bus implementation
-    NSLog(@"StartServiceByName: service '%@' not found (no service activation support)", serviceName);
+    // Check if service is currently being activated
+    if ([_serviceManager isActivatingService:serviceName]) {
+        NSLog(@"StartServiceByName: service '%@' is already being activated", serviceName);
+        
+        MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                        arguments:@[@2]]; // DBUS_START_REPLY_SUCCESS = 2 (activation started)
+        reply.sender = @"org.freedesktop.DBus";
+        reply.destination = connection.uniqueName;
+        [connection sendMessage:reply];
+        return;
+    }
     
-    MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.ServiceUnknown"
-                                    replySerial:message.serial
-                                        message:[NSString stringWithFormat:@"The name %@ was not provided by any .service files", serviceName]];
-    error.sender = @"org.freedesktop.DBus";
-    error.destination = connection.uniqueName;
-    [connection sendMessage:error];
+    // Try to activate the service
+    if ([_serviceManager hasService:serviceName]) {
+        NSError *error = nil;
+        NSString *busAddress = [NSString stringWithFormat:@"unix:path=%@", _socketPath];
+        
+        if ([_serviceManager activateService:serviceName 
+                                  busAddress:busAddress 
+                                     busType:@"session" 
+                                       error:&error]) {
+            NSLog(@"StartServiceByName: successfully started activation for service '%@'", serviceName);
+            
+            MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
+                                                            arguments:@[@2]]; // DBUS_START_REPLY_SUCCESS = 2
+            reply.sender = @"org.freedesktop.DBus";
+            reply.destination = connection.uniqueName;
+            [connection sendMessage:reply];
+        } else {
+            NSLog(@"StartServiceByName: failed to activate service '%@': %@", serviceName, error.localizedDescription);
+            
+            MBMessage *errorMsg = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.Spawn.Failed"
+                                               replySerial:message.serial
+                                                   message:[NSString stringWithFormat:@"Failed to activate service %@: %@", 
+                                                           serviceName, error.localizedDescription]];
+            errorMsg.sender = @"org.freedesktop.DBus";
+            errorMsg.destination = connection.uniqueName;
+            [connection sendMessage:errorMsg];
+        }
+    } else {
+        // Service not found
+        NSLog(@"StartServiceByName: service '%@' not found in service files", serviceName);
+        
+        MBMessage *errorMsg = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.ServiceUnknown"
+                                           replySerial:message.serial
+                                               message:[NSString stringWithFormat:@"The name %@ was not provided by any .service files", serviceName]];
+        errorMsg.sender = @"org.freedesktop.DBus";
+        errorMsg.destination = connection.uniqueName;
+        [connection sendMessage:errorMsg];
+    }
 }
 
 - (void)handleReleaseName:(MBMessage *)message fromConnection:(MBConnection *)connection
@@ -839,6 +917,30 @@
         
     } else {
         NSLog(@"No destination found for %@", message.destination);
+        
+        // Try auto-activation for method calls to well-known names
+        if (message.type == MBMessageTypeMethodCall && 
+            message.destination && ![message.destination hasPrefix:@":"]) {
+            
+            if ([self autoActivateServiceForMessage:message fromConnection:connection]) {
+                NSLog(@"Auto-activation started for %@, message will be queued", message.destination);
+                
+                // TODO: Queue the message to be delivered when the service connects
+                // For now, we'll just log that activation was started
+                // The client will need to retry the call after the service starts
+                
+                MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.ServiceUnknown"
+                                                replySerial:message.serial
+                                                    message:[NSString stringWithFormat:@"Service %@ is being activated, please retry", message.destination]];
+                error.sender = @"org.freedesktop.DBus";
+                
+                // Broadcast error to monitors too
+                [self broadcastToMonitors:error];
+                
+                [connection sendMessage:error];
+                return;
+            }
+        }
         
         // Send error back if this was a method call
         if (message.type == MBMessageTypeMethodCall) {
@@ -1543,6 +1645,53 @@
     NSString *uniqueName = [NSString stringWithFormat:@":1.%lu", (unsigned long)_nextUniqueId++];
     _connectionNames[@(connection.socket)] = uniqueName;
     return uniqueName;
+}
+
+- (BOOL)autoActivateServiceForMessage:(MBMessage *)message fromConnection:(MBConnection *)connection
+{
+    // Only try auto-activation for method calls to well-known names
+    if (message.type != MBMessageTypeMethodCall) {
+        return NO;
+    }
+    
+    if (!message.destination || [message.destination hasPrefix:@":"]) {
+        // Don't auto-activate for unique names or missing destinations
+        return NO;
+    }
+    
+    // Check if the message has the NO_AUTO_START flag
+    // (This would be in the message flags, but our implementation doesn't track flags separately)
+    // For now, we'll assume auto-start is allowed unless explicitly disabled
+    
+    // Check if we have a service file for this destination
+    if (![_serviceManager hasService:message.destination]) {
+        return NO;
+    }
+    
+    // Check if the service is already being activated
+    if ([_serviceManager isActivatingService:message.destination]) {
+        NSLog(@"Auto-activation: service '%@' is already being activated", message.destination);
+        return YES; // Consider this success - activation in progress
+    }
+    
+    NSLog(@"Auto-activating service '%@' for message to %@.%@", 
+          message.destination, message.interface, message.member);
+    
+    // Try to activate the service
+    NSError *error = nil;
+    NSString *busAddress = [NSString stringWithFormat:@"unix:path=%@", _socketPath];
+    
+    if ([_serviceManager activateService:message.destination 
+                              busAddress:busAddress 
+                                 busType:@"session" 
+                                   error:&error]) {
+        NSLog(@"Auto-activation: successfully started activation for service '%@'", message.destination);
+        return YES;
+    } else {
+        NSLog(@"Auto-activation: failed to activate service '%@': %@", 
+              message.destination, error.localizedDescription);
+        return NO;
+    }
 }
 
 @end

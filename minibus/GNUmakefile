@@ -1,9 +1,9 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
 # Tools
-TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment hello-length-analysis debug-listnames debug-message-format debug-listnames-serialization test-array-parsing test-requestname debug-hello-reply test-gdbus-proxy test-start-service test-message-parsing debug-message-parsing debug-parsing-issue
+TOOL_NAME = minibus minibus-test simple-test simple-format-test byte-analyzer test-real-dbus test-hello-only minibus-libdbus hello-field-analyzer compare-hello-format test-hello-destination test-hello-reply-only test-alignment hello-length-analysis debug-listnames debug-message-format debug-listnames-serialization test-array-parsing test-requestname debug-hello-reply test-gdbus-proxy test-start-service test-message-parsing debug-message-parsing debug-parsing-issue test-service test-activation-client test-auto-activation
 
-minibus_OBJC_FILES = main-daemon.m MBDaemon.m MBConnection.m MBMessage.m MBTransport.m MBClient.m
+minibus_OBJC_FILES = main-daemon.m MBDaemon.m MBConnection.m MBMessage.m MBTransport.m MBClient.m MBServiceManager.m MBServiceFile.m
 minibus-test_OBJC_FILES = main-test.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
 simple-test_OBJC_FILES = simple-test.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
 simple-format-test_OBJC_FILES = simple-format-test.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
@@ -27,6 +27,9 @@ test-start-service_OBJC_FILES = test-start-service.m
 test-message-parsing_OBJC_FILES = test-message-parsing.m MBMessage.m MBTransport.m
 debug-message-parsing_OBJC_FILES = debug-message-parsing.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
 debug-parsing-issue_OBJC_FILES = debug-parsing-issue.m MBMessage.m MBTransport.m
+test-service_OBJC_FILES = test-service.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
+test-activation-client_OBJC_FILES = test-activation-client.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
+test-auto-activation_OBJC_FILES = test-auto-activation.m MBClient.m MBConnection.m MBMessage.m MBTransport.m
 
 # Compiler flags for production builds
 minibus_OBJCFLAGS += -Wall -Wextra -O2 -fblocks

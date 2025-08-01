@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import time
+import socket
+import struct
+
+def main():
+    print("Test service starting up...")
+    
+    # Get D-Bus address from environment
+    dbus_address = os.environ.get('DBUS_STARTER_ADDRESS')
+    if not dbus_address:
+        print("Error: DBUS_STARTER_ADDRESS not set")
+        sys.exit(1)
+    
+    print(f"Connecting to D-Bus at: {dbus_address}")
+    
+    # Parse unix socket address
+    if dbus_address.startswith('unix:path='):
+        socket_path = dbus_address[10:]  # Remove 'unix:path=' prefix
+        
+        # Connect to the socket
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(socket_path)
+            print(f"Connected to D-Bus socket: {socket_path}")
+            
+            # Send authentication (simple NULL auth)
+            sock.send(b'\0AUTH\r\n')
+            
+            # Read response
+            response = sock.recv(1024)
+            print(f"Auth response: {response}")
+            
+            # Send BEGIN
+            sock.send(b'BEGIN\r\n')
+            
+            # Simple Hello message (we'll just sleep for now since full D-Bus is complex)
+            print("Test service is now 'running' - sleeping for 30 seconds")
+            time.sleep(30)
+            
+        except Exception as e:
+            print(f"Error connecting to D-Bus: {e}")
+        finally:
+            sock.close()
+    else:
+        print(f"Unsupported D-Bus address format: {dbus_address}")
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main()

@@ -5,6 +5,7 @@
 
 @class MBConnection;
 @class MBMessage;
+@class MBServiceManager;
 
 /**
  * MBDaemon - A minimal D-Bus message bus daemon
@@ -14,6 +15,7 @@
  * - Name service (registering and resolving bus names)
  * - Message routing between clients
  * - Basic introspection
+ * - Service activation
  */
 @interface MBDaemon : NSObject
 {
@@ -21,6 +23,7 @@
     NSMutableArray *_monitorConnections;  // Separate list for monitor connections
     NSMutableDictionary *_nameOwners;  // Maps bus names to connection objects
     NSMutableDictionary *_connectionNames; // Maps connections to their unique names
+    MBServiceManager *_serviceManager;  // Handles service activation
     NSString *_socketPath;
     int _serverSocket;
     BOOL _running;
@@ -96,6 +99,13 @@
 - (void)handlePing:(MBMessage *)message fromConnection:(MBConnection *)connection;
 - (void)handleGetMachineId:(MBMessage *)message fromConnection:(MBConnection *)connection;
 - (void)handleIntrospect:(MBMessage *)message fromConnection:(MBConnection *)connection;
+
+/**
+ * Service activation methods
+ */
+- (void)handleStartServiceByName:(MBMessage *)message fromConnection:(MBConnection *)connection;
+- (BOOL)autoActivateServiceForMessage:(MBMessage *)message fromConnection:(MBConnection *)connection;
+- (void)setupServiceManager;
 
 @end
 
