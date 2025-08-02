@@ -300,8 +300,32 @@
     NSLog(@"Connection removed: %@", connection);
 }
 
+// Helper method for debugging message types
+- (NSString *)messageTypeString:(MBMessageType)type
+{
+    switch (type) {
+        case MBMessageTypeMethodCall: return @"METHOD_CALL";
+        case MBMessageTypeMethodReturn: return @"METHOD_RETURN";
+        case MBMessageTypeError: return @"ERROR";
+        case MBMessageTypeSignal: return @"SIGNAL";
+        default: return @"UNKNOWN";
+    }
+}
+
 - (void)processMessage:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
+    // DEBUG: Log all incoming messages to debug handshake issues
+    NSLog(@">>> INCOMING MESSAGE <<<");
+    NSLog(@"    Type: %u (%@)", message.type, [self messageTypeString:message.type]);
+    NSLog(@"    Serial: %lu", (unsigned long)message.serial);
+    NSLog(@"    Destination: '%@'", message.destination ?: @"(null)");
+    NSLog(@"    Interface: '%@'", message.interface ?: @"(null)");
+    NSLog(@"    Member: '%@'", message.member ?: @"(null)");
+    NSLog(@"    Path: '%@'", message.path ?: @"(null)");
+    NSLog(@"    Signature: '%@'", message.signature ?: @"(null)");
+    NSLog(@"    Connection state: %lu", (unsigned long)connection.state);
+    NSLog(@"    Connection unique name: '%@'", connection.uniqueName ?: @"(null)");
+    
     // CRITICAL FIX: Only drop messages with truly malformed signatures
     // Allow valid 'v' signatures for method returns and other legitimate cases
     if (message.signature) {
@@ -342,23 +366,14 @@
     }
 
     if (!message.destination) {
-        // No destination means this is likely a malformed message
-        NSLog(@"Message has no destination - interface: '%@', member: '%@', path: '%@'", 
+        // No destination means this message is addressed to the message bus itself
+        // According to D-Bus spec: "when the DESTINATION field is absent, the call is taken to be
+        // a standard one-to-one message and interpreted by the message bus itself"
+        NSLog(@"Message has no destination, treating as message bus call - interface: '%@', member: '%@', path: '%@'", 
               message.interface, message.member, message.path);
         
-        // Send error back if this was a method call
-        if (message.type == MBMessageTypeMethodCall) {
-            MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.Failed"
-                                            replySerial:message.serial
-                                                message:@"Message has no destination"];
-            error.sender = @"org.freedesktop.DBus";
-            
-            // Broadcast error to monitors too
-            [self broadcastToMonitors:error];
-            
-            [connection sendMessage:error];
-        }
-        return;
+        // Set destination to the message bus itself for internal handling
+        message.destination = @"org.freedesktop.DBus";
     }
     
     // Handle Hello message
@@ -924,23 +939,14 @@
     }
 
     if (!message.destination) {
-        // No destination means this is likely a malformed message
-        NSLog(@"Message has no destination - interface: '%@', member: '%@', path: '%@'", 
+        // No destination means this message is addressed to the message bus itself
+        // According to D-Bus spec: "when the DESTINATION field is absent, the call is taken to be
+        // a standard one-to-one message and interpreted by the message bus itself"
+        NSLog(@"Message has no destination, treating as message bus call - interface: '%@', member: '%@', path: '%@'", 
               message.interface, message.member, message.path);
         
-        // Send error back if this was a method call
-        if (message.type == MBMessageTypeMethodCall) {
-            MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.Failed"
-                                            replySerial:message.serial
-                                                message:@"Message has no destination"];
-            error.sender = @"org.freedesktop.DBus";
-            
-            // Broadcast error to monitors too
-            [self broadcastToMonitors:error];
-            
-            [connection sendMessage:error];
-        }
-        return;
+        // Set destination to the message bus itself for internal handling
+        message.destination = @"org.freedesktop.DBus";
     }
     
     // Find destination connection
@@ -1758,7 +1764,7 @@
                 [queue insertObject:currentOwner atIndex:0];
             }
             
-            // Send NameLost signal to old owner
+            // Send NameLost signal to the old owner
             MBMessage *nameLostSignal = [[MBMessage alloc] init];
             nameLostSignal.type = MBMessageTypeSignal;
             nameLostSignal.interface = @"org.freedesktop.DBus";

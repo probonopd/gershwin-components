@@ -997,43 +997,78 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                 endianness:(uint8_t)endianness 
                   message:(MBMessage *)message
 {
+    NSLog(@"DEBUG: parseHeaderFields called - pos=%lu, length=%lu", pos, length);
     const uint8_t *bytes = [data bytes];
     NSUInteger endPos = pos + length;
     
+    // DEBUG: Hex dump of header fields data
+    NSLog(@"DEBUG: Header fields hex dump:");
+    for (NSUInteger i = pos; i < endPos && i < pos + 64; i += 16) {
+        NSMutableString *hexLine = [NSMutableString string];
+        for (NSUInteger j = i; j < i + 16 && j < endPos; j++) {
+            [hexLine appendFormat:@"%02x ", bytes[j]];
+        }
+        NSLog(@"  %04lx: %@", i - pos, hexLine);
+    }
+    
+    int fieldCount = 0;
+    
     // Header fields are an array of (BYTE, VARIANT) structs
     while (pos < endPos) {
-        if (pos + 8 > endPos) break; // Need at least 8 bytes for alignment
+        NSLog(@"DEBUG: Field %d - pos=%lu, endPos=%lu", fieldCount, pos, endPos);
+        if (pos + 8 > endPos) {
+            NSLog(@"DEBUG: Not enough bytes for field alignment, breaking");
+            break; // Need at least 8 bytes for alignment
+        }
         
         // Align to 8-byte boundary for struct
+        NSUInteger oldPos = pos;
         pos = alignTo(pos, 8);
-        if (pos >= endPos) break;
+        NSLog(@"DEBUG: Aligned from %lu to %lu", oldPos, pos);
+        if (pos >= endPos) {
+            NSLog(@"DEBUG: Alignment pushed past end, breaking");
+            break;
+        }
         
         // Read field code (BYTE)
         uint8_t fieldCode = bytes[pos];
         pos++;
+        NSLog(@"DEBUG: Field code: %u", fieldCode);
         
         // Read variant signature length
-        if (pos >= endPos) break;
+        if (pos >= endPos) {
+            NSLog(@"DEBUG: No space for signature length, breaking");
+            break;
+        }
         uint8_t sigLen = bytes[pos];
         pos++;
+        NSLog(@"DEBUG: Signature length: %u", sigLen);
         
         // Read signature
-        if (pos + sigLen + 1 > endPos) break; // +1 for null terminator
+        if (pos + sigLen + 1 > endPos) {
+            NSLog(@"DEBUG: Not enough space for signature, breaking");
+            break; // +1 for null terminator
+        }
         NSString *signature = [[NSString alloc] initWithBytes:bytes + pos 
                                                        length:sigLen 
                                                      encoding:NSUTF8StringEncoding];
         pos += sigLen + 1; // Skip null terminator
+        NSLog(@"DEBUG: Signature: '%@'", signature);
+        
+        fieldCount++;
         
         // Parse value based on signature
-        NSUInteger valueStartPos = pos;
+        NSUInteger bytesConsumed = 0;
         id value = [self parseValueFromBytes:bytes + pos 
                                    maxLength:endPos - pos 
                                    signature:signature 
                                   endianness:endianness 
-                               bytesConsumed:&pos];
+                               bytesConsumed:&bytesConsumed];
+        
+        NSLog(@"DEBUG: Parsed value: '%@', consumed %lu bytes", value, bytesConsumed);
         
         // Update position with consumed bytes
-        pos = valueStartPos + pos;
+        pos += bytesConsumed;
         
         // Set header field
         switch (fieldCode) {
@@ -1168,9 +1203,39 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                               signature:(NSString *)signature 
                              endianness:(uint8_t)endianness
 {
-    // Simple implementation - just return empty array for now
-    // TODO: Implement full argument parsing
-    return @[];
+    if (!signature || [signature length] == 0 || !bodyData || [bodyData length] == 0) {
+        return @[];
+    }
+    
+    NSMutableArray *arguments = [NSMutableArray array];
+    const uint8_t *bytes = [bodyData bytes];
+    NSUInteger maxLen = [bodyData length];
+    NSUInteger pos = 0;
+    
+    // Parse each character in the signature
+    for (NSUInteger i = 0; i < [signature length]; i++) {
+        unichar typeChar = [signature characterAtIndex:i];
+        
+        id value = [self parseValueFromBytes:bytes 
+                                   maxLength:maxLen 
+                                   signature:[NSString stringWithCharacters:&typeChar length:1] 
+                                  endianness:endianness 
+                               bytesConsumed:&pos];
+        
+        if (value) {
+            [arguments addObject:value];
+        } else {
+            // If we can't parse a value, stop parsing
+            NSLog(@"WARNING: Failed to parse argument %lu of signature '%@'", i, signature);
+            break;
+        }
+        
+        if (pos >= maxLen) {
+            break; // No more data to parse
+        }
+    }
+    
+    return arguments;
 }
 
 @end
