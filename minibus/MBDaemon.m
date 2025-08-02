@@ -302,22 +302,14 @@
 
 - (void)processMessage:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
-    // CRITICAL FIX: Drop messages with invalid signatures immediately
-    // These messages would cause GVariant errors in GLib clients
+    // CRITICAL FIX: Only drop messages with truly malformed signatures
+    // Allow valid 'v' signatures for method returns and other legitimate cases
     if (message.signature) {
-        // Check for invalid bare 'v' signature
-        if ([message.signature isEqualToString:@"v"]) {
-            NSLog(@"ERROR: Dropping message with invalid bare 'v' signature");
-            NSLog(@"       Type=%u, Serial=%lu, Destination=%@", message.type, (unsigned long)message.serial, message.destination);
-            NSLog(@"       This would cause GVariant format errors in GLib clients");
-            return; // Drop the message entirely
-        }
-        
         // Check for empty signature with non-empty body (signature/body mismatch)
         if ([message.signature isEqualToString:@""] && message.arguments && [message.arguments count] > 0) {
             NSLog(@"ERROR: Dropping message with empty signature but non-empty arguments");
             NSLog(@"       Type=%u, Serial=%lu, Arguments count=%lu", message.type, (unsigned long)message.serial, (unsigned long)[message.arguments count]);
-            NSLog(@"       This indicates signature/body corruption from invalid 'v' signature fix");
+            NSLog(@"       This indicates signature/body corruption");
             return; // Drop the message entirely
         }
     }
@@ -910,14 +902,6 @@
 
 - (void)routeMessage:(MBMessage *)message fromConnection:(MBConnection *)connection
 {
-    // CRITICAL: Validate message structure to prevent GLib crashes
-    if ([self messageHasProblematicStructure:message]) {
-        NSLog(@"WARNING: Dropping message with problematic structure that could cause GLib crashes");
-        NSLog(@"         Message type=%u serial=%lu signature='%@'", 
-              message.type, (unsigned long)message.serial, message.signature ?: @"(null)");
-        return;
-    }
-    
     // Broadcast to monitors first (before any modification)
     [self broadcastToMonitors:message];
     
@@ -2042,58 +2026,4 @@
     }
 }
 
-// Validate message structure to prevent GLib crashes
-- (BOOL)messageHasProblematicStructure:(MBMessage *)message
-{
-    // Check for empty or invalid signature
-    if (!message.signature || [message.signature length] == 0) {
-        return NO; // Empty signature is fine
-    }
-    
-    // Check for signatures that commonly cause issues
-    if ([message.signature isEqualToString:@"v"] || 
-        [message.signature containsString:@"()"]) {
-        NSLog(@"WARNING: Message has problematic signature '%@'", message.signature);
-        return YES;
-    }
-    
-    // Check for dictionary messages with potentially problematic content
-    if ([message.signature hasPrefix:@"a{sv}"] && message.arguments) {
-        for (id arg in message.arguments) {
-            if ([arg isKindOfClass:[NSDictionary class]]) {
-                NSDictionary *dict = (NSDictionary *)arg;
-                
-                // Check for empty dictionaries or problematic entries
-                if ([dict count] == 0) {
-                    NSLog(@"WARNING: Message contains empty dictionary");
-                    return YES;
-                }
-                
-                for (NSString *key in dict) {
-                    // Check for empty keys
-                    if (!key || [key length] == 0) {
-                        NSLog(@"WARNING: Message contains dictionary entry with empty key");
-                        return YES;
-                    }
-                    
-                    id value = [dict objectForKey:key];
-                    
-                    // Check for nil values (which become NSNull in parsing)
-                    if (!value || value == [NSNull null]) {
-                        NSLog(@"WARNING: Message contains dictionary entry '%@' with nil value", key);
-                        return YES;
-                    }
-                    
-                    // Check for problematic string values
-                    if ([value isKindOfClass:[NSString class]] && [(NSString*)value length] == 0) {
-                        NSLog(@"WARNING: Message contains dictionary entry '%@' with empty string", key);
-                        // Don't block empty strings, just log them
-                    }
-                }
-            }
-        }
-    }
-    
-    return NO;
-}
 @end
