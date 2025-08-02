@@ -630,6 +630,20 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             NSUInteger arrayContentStart = [bodyData length];
             
             for (NSString *key in dict) {
+                // CRITICAL: Skip invalid dictionary entries that could cause GLib crashes
+                if (!key || [key length] == 0) {
+                    NSLog(@"WARNING: Skipping invalid dictionary key (empty or nil)");
+                    continue;
+                }
+                
+                id value = [dict objectForKey:key];
+                
+                // CRITICAL: Ensure we have a valid value
+                if (!value) {
+                    NSLog(@"WARNING: Skipping dictionary entry '%@' with nil value", key);
+                    continue;
+                }
+                
                 addPadding(bodyData, 8);
                 
                 // Serialize key
@@ -641,7 +655,6 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                 [bodyData appendBytes:&nullTerm length:1];
                 
                 // Serialize value as variant
-                id value = [dict objectForKey:key];
                 [MBMessage serializeVariant:value toData:bodyData];
             }
             
@@ -655,26 +668,34 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
 
 + (void)serializeVariant:(id)value toData:(NSMutableData *)data
 {
-    // Handle NSNull specifically to prevent issues
+    // CRITICAL: Handle NSNull and nil values to prevent GLib crashes
     if (value == nil || value == [NSNull null]) {
-        NSLog(@"WARNING: Attempting to serialize null/nil value as variant - using empty string");
+        NSLog(@"WARNING: Attempting to serialize null/nil value as variant - using safe default");
         
-        // Serialize as empty string variant
+        // Use a safe boolean false variant instead of empty string to avoid issues
         uint8_t sigLen = 1;
         [data appendBytes:&sigLen length:1];
-        uint8_t typeSig = DBUS_TYPE_STRING;
+        uint8_t typeSig = DBUS_TYPE_BOOLEAN;
         [data appendBytes:&typeSig length:1];
         uint8_t nullTerm = 0;
         [data appendBytes:&nullTerm length:1];
         
         addPadding(data, 4);
-        uint32_t strLen = 0;
-        [data appendBytes:&strLen length:4];
-        [data appendBytes:&nullTerm length:1];
+        uint32_t boolVal = 0; // false
+        [data appendBytes:&boolVal length:4];
         return;
     }
     
+    // CRITICAL: For empty strings, ensure we create a proper variant
     if ([value isKindOfClass:[NSString class]]) {
+        NSString *str = (NSString *)value;
+        
+        // For empty strings, use a safe non-empty placeholder to avoid GLib issues
+        if ([str length] == 0) {
+            NSLog(@"WARNING: Converting empty string variant to safe placeholder");
+            str = @" "; // Single space - visible but minimal
+        }
+        
         // String variant
         uint8_t sigLen = 1;
         [data appendBytes:&sigLen length:1];
@@ -684,7 +705,6 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         [data appendBytes:&nullTerm length:1];
         
         // String value
-        NSString *str = (NSString *)value;
         addPadding(data, 4);
         uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
         [data appendBytes:&strLen length:4];
@@ -1207,24 +1227,8 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             fieldsPos += sigLen2 + 1; // +1 for null terminator
             
             if (fieldCode == DBUS_HEADER_FIELD_SIGNATURE) {
-                // CRITICAL FIX: Validate the signature field
-                // According to D-Bus spec, signature cannot be just "v" - that's invalid
-                if (value && [value isEqualToString:@"v"]) {
-                    NSLog(@"ERROR: Message signature field contains invalid value 'v'");
-                    NSLog(@"       This violates D-Bus specification - variants cannot be bare 'v'");
-                    NSLog(@"       Replacing with empty signature and clearing arguments to prevent protocol errors");
-                    
-                    // Replace invalid signature with empty string
-                    [value release];
-                    value = [@"" retain];
-                    
-                    // Mark this message as needing argument clearing
-                    message.signature = value;
-                    // We'll set arguments to empty array after body parsing
-                    // to ensure consistency between signature and body
-                } else {
-                    message.signature = value;
-                }
+                // Store the signature as-is, daemon will validate and drop invalid ones
+                message.signature = value;
             }
             
             [value release];
@@ -1851,18 +1855,30 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                         NSString *dictSig = [signature substringWithRange:NSMakeRange(dictStart, dictEnd - dictStart - 1)];
                         NSLog(@"DEBUG parseArguments: dictionary signature='%@'", dictSig);
                         
+                        // D-Bus a{sv} represents a single dictionary with multiple entries
+                        // Each entry is a struct {sv} but collectively they form one dictionary
+                        NSMutableDictionary *fullDictionary = [NSMutableDictionary dictionary];
+                        
                         // Parse each dictionary entry (8-byte aligned)
                         while (pos < arrayEnd) {
+                            NSUInteger entryStartPos = pos;
                             pos = alignTo(pos, 8); // Dictionary entries are 8-byte aligned
-                            if (pos >= arrayEnd) break;
+                            if (pos >= arrayEnd) {
+                                NSLog(@"DEBUG: Breaking due to alignment - pos=%lu, arrayEnd=%lu", pos, arrayEnd);
+                                break;
+                            }
                             
-                            NSMutableDictionary *dictEntry = [NSMutableDictionary dictionary];
+                            NSLog(@"DEBUG: Parsing dict entry at pos=%lu (aligned from %lu), remaining=%lu", 
+                                  pos, entryStartPos, arrayEnd - pos);
                             
                             // Parse dictionary entry based on signature
                             if ([dictSig hasPrefix:@"sv"]) {
                                 // String key, variant value
                                 pos = alignTo(pos, 4);
-                                if (pos + 4 > arrayEnd) break;
+                                if (pos + 4 > arrayEnd) {
+                                    NSLog(@"DEBUG: Not enough space for key length at pos=%lu", pos);
+                                    break;
+                                }
                                 
                                 uint32_t keyLen = *(uint32_t *)(bytes + pos);
                                 if (endianness == DBUS_LITTLE_ENDIAN) {
@@ -1872,15 +1888,24 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                                 }
                                 pos += 4;
                                 
-                                if (pos + keyLen + 1 > arrayEnd) break;
+                                NSLog(@"DEBUG: Key length=%u at pos=%lu", keyLen, pos - 4);
+                                
+                                if (pos + keyLen + 1 > arrayEnd) {
+                                    NSLog(@"DEBUG: Key data exceeds bounds - pos=%lu, keyLen=%u, arrayEnd=%lu", 
+                                          pos, keyLen, arrayEnd);
+                                    break;
+                                }
                                 
                                 NSString *key = [[NSString alloc] initWithBytes:(bytes + pos)
                                                                          length:keyLen
                                                                        encoding:NSUTF8StringEncoding];
                                 pos += keyLen + 1;
                                 
+                                NSLog(@"DEBUG: Parsed key='%@', pos now=%lu", key ?: @"(null)", pos);
+                                
                                 // Parse variant value
                                 if (pos + 1 > arrayEnd) {
+                                    NSLog(@"DEBUG: Not enough space for variant signature length");
                                     [key release];
                                     break;
                                 }
@@ -1888,7 +1913,10 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                                 uint8_t varSigLen = bytes[pos];
                                 pos += 1;
                                 
+                                NSLog(@"DEBUG: Variant signature length=%u at pos=%lu", varSigLen, pos - 1);
+                                
                                 if (pos + varSigLen + 1 > arrayEnd) {
+                                    NSLog(@"DEBUG: Variant signature exceeds bounds");
                                     [key release];
                                     break;
                                 }
@@ -1898,8 +1926,11 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                                                                           encoding:NSUTF8StringEncoding];
                                 pos += varSigLen + 1;
                                 
+                                NSLog(@"DEBUG: Variant signature='%@', pos now=%lu", varSig ?: @"(null)", pos);
+                                
                                 // Parse the variant value based on its signature
                                 NSUInteger varBytesConsumed = 0;
+                                NSUInteger varStartPos = pos;
                                 id value = [self parseVariantValue:bytes + pos
                                                             maxLen:arrayEnd - pos
                                                          signature:varSig
@@ -1907,26 +1938,31 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                                                       bytesConsumed:&varBytesConsumed];
                                 pos += varBytesConsumed;
                                 
-                                if (key && value) {
-                                    [dictEntry setObject:value forKey:key];
-                                } else if (key) {
-                                    // Replace null values with empty string to maintain structure
-                                    NSLog(@"WARNING: Dictionary entry key '%@' has null value - using empty string", key);
-                                    [dictEntry setObject:@"" forKey:key];
+                                NSLog(@"DEBUG: Parsed variant value='%@' (consumed %lu bytes, pos %lu->%lu)", 
+                                      value ?: @"(null)", varBytesConsumed, varStartPos, pos);
+                                
+                                // CRITICAL: Validate dictionary entry before adding
+                                if (!key || [key length] == 0) {
+                                    NSLog(@"WARNING: Skipping dictionary entry with invalid key");
+                                } else if (!value) {
+                                    NSLog(@"WARNING: Skipping dictionary entry '%@' with null value", key);
+                                } else if ([varSig length] == 0) {
+                                    NSLog(@"WARNING: Skipping dictionary entry '%@' with invalid variant signature", key);
                                 } else {
-                                    NSLog(@"WARNING: Dictionary entry with null key - skipping entirely");
+                                    // Only add valid entries
+                                    [fullDictionary setObject:value forKey:key];
                                 }
                                 
                                 [key release];
                                 [varSig release];
-                            }
-                            
-                            if ([dictEntry count] > 0) {
-                                [dictArray addObject:dictEntry];
                             } else {
-                                NSLog(@"WARNING: Skipping empty dictionary entry - this could cause protocol issues");
+                                NSLog(@"ERROR: Unsupported dictionary signature '%@'", dictSig);
+                                break;
                             }
                         }
+                        
+                        // Add the complete dictionary as one argument
+                        [arguments addObject:fullDictionary];
                         
                         [arguments addObject:dictArray];
                         i = dictEnd - 1; // Will be incremented by main loop
