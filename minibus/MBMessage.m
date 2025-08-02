@@ -1164,6 +1164,17 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             fieldsPos += sigLen2 + 1; // +1 for null terminator
             
             if (fieldCode == DBUS_HEADER_FIELD_SIGNATURE) {
+                // CRITICAL FIX: Validate the signature field
+                // According to D-Bus spec, signature cannot be just "v" - that's invalid
+                if (value && [value isEqualToString:@"v"]) {
+                    NSLog(@"ERROR: Message signature field contains invalid value 'v'");
+                    NSLog(@"       This violates D-Bus specification - variants cannot be bare 'v'");
+                    NSLog(@"       Replacing with empty signature to prevent protocol errors");
+                    
+                    // Replace invalid signature with empty string
+                    [value release];
+                    value = [@"" retain];
+                }
                 message.signature = value;
             }
             
@@ -1884,6 +1895,34 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             
             NSLog(@"DEBUG parseArguments: variant signature='%@'", varSig);
             
+            // CRITICAL FIX: Validate variant signature
+            // According to D-Bus spec, a variant signature must be a complete type signature
+            // It cannot be just 'v' - that would create an infinite recursion
+            if (!varSig || [varSig length] == 0 || [varSig isEqualToString:@"v"]) {
+                NSLog(@"ERROR: Invalid variant signature '%@' - variants cannot contain just 'v'", varSig ?: @"(null)");
+                NSLog(@"       This violates the D-Bus specification and would cause infinite recursion");
+                
+                // According to D-Bus spec, this is a protocol error
+                // We should reject the message, but for compatibility, create a placeholder
+                [arguments addObject:@"<invalid-variant>"];
+                [varSig release];
+                
+                // Log the error context for debugging
+                NSUInteger contextStart = (pos > 16) ? pos - 16 : 0;
+                NSUInteger contextEnd = MIN(pos + 16, [bodyData length]);
+                NSMutableString *contextHex = [NSMutableString string];
+                for (NSUInteger i = contextStart; i < contextEnd; i++) {
+                    if (i == pos - varSigLen - 1) {
+                        [contextHex appendFormat:@"[%02x] ", bytes[i]];
+                    } else {
+                        [contextHex appendFormat:@"%02x ", bytes[i]];
+                    }
+                }
+                NSLog(@"ERROR: Context around invalid variant signature: %@", contextHex);
+                
+                continue; // Skip to next argument
+            }
+            
             // Parse the variant value
             id value = [self parseVariantValue:bytes + pos
                                        maxLen:[bodyData length] - pos
@@ -2177,6 +2216,15 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
 {
     if (!signature || [signature length] == 0 || !bytes || maxLen == 0) {
         return nil;
+    }
+    
+    // CRITICAL FIX: Validate variant signature according to D-Bus spec
+    // A variant signature cannot be just "v" - that would create infinite recursion
+    if ([signature isEqualToString:@"v"]) {
+        NSLog(@"ERROR: parseVariantValue called with invalid signature 'v'");
+        NSLog(@"       D-Bus specification prohibits variants containing just 'v'");
+        NSLog(@"       This would cause infinite recursion and protocol violations");
+        return @"<invalid-variant-signature>";
     }
     
     // NSUInteger originalPos = *pos;  // Reserved for debugging
