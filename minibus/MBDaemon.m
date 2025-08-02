@@ -23,6 +23,7 @@
 @property (nonatomic, strong) NSMutableDictionary *nameOwnerships; // name -> MBNameOwnership (NSDictionary)
 @property (nonatomic, strong) NSMutableDictionary *nameQueues; // name -> array of connections waiting
 @property (nonatomic, strong) NSMutableDictionary *pendingMessages; // service name -> array of queued messages
+@property (nonatomic, strong) NSMutableDictionary *serviceTimeouts; // service name -> timeout timestamp
 @end
 
 @implementation MBDaemon
@@ -42,6 +43,7 @@
         _matchRules = [[NSMutableDictionary alloc] init];
         _nameQueues = [[NSMutableDictionary alloc] init];
         _pendingMessages = [[NSMutableDictionary alloc] init];
+        _serviceTimeouts = [[NSMutableDictionary alloc] init];
         
         // Set up service activation
         [self setupServiceManager];
@@ -54,6 +56,7 @@
     [self stop];
     [_serviceManager release];
     [_pendingMessages release];
+    [_serviceTimeouts release];
     [super dealloc];
 }
 
@@ -189,7 +192,9 @@
         }
         
         if (result == 0) {
-            continue; // Timeout
+            // Timeout - check for service activation timeouts
+            [self checkServiceTimeouts];
+            continue;
         }
         
         // Check for new connections
@@ -321,12 +326,7 @@
             return; // Drop the message entirely
         }
         
-        // For method returns/errors with missing fields, also drop them
-        if ((message.type == MBMessageTypeMethodReturn || message.type == MBMessageTypeError) && 
-            (!message.interface || !message.member)) {
-            NSLog(@"WARNING: Dropping method return/error with missing interface/member");
-            return; // Drop the message entirely
-        }
+        // Note: Method returns and errors don't need interface/member fields - they're matched by replySerial
     }
 
     if (!message.destination) {
@@ -429,7 +429,9 @@
     }
     
     // Handle Properties interface
-    if ([message.interface isEqualToString:@"org.freedesktop.DBus.Properties"]) {
+    // Only handle properties for the bus daemon itself, not for other services
+    if ([message.interface isEqualToString:@"org.freedesktop.DBus.Properties"] && 
+        [message.destination isEqualToString:@"org.freedesktop.DBus"]) {
         if ([message.member isEqualToString:@"Get"]) {
             [self handlePropertiesGet:message fromConnection:connection];
             return;
@@ -454,7 +456,9 @@
     }
     
     // Handle standard D-Bus interfaces (org.freedesktop.DBus.Introspectable)
-    if ([message.interface isEqualToString:@"org.freedesktop.DBus.Introspectable"]) {
+    // Only handle introspection for the bus daemon itself, not for other services
+    if ([message.interface isEqualToString:@"org.freedesktop.DBus.Introspectable"] && 
+        [message.destination isEqualToString:@"org.freedesktop.DBus"]) {
         if ([message.member isEqualToString:@"Introspect"]) {
             [self handleIntrospect:message fromConnection:connection];
             return;
@@ -957,11 +961,33 @@
         if (message.type == MBMessageTypeMethodCall && 
             message.destination && ![message.destination hasPrefix:@":"]) {
             
+            // Add extensive logging for auto-activation attempts
+            NSLog(@"Attempting auto-activation for service '%@' (interface: %@, member: %@)", 
+                  message.destination, message.interface, message.member);
+            
             if ([self autoActivateServiceForMessage:message fromConnection:connection]) {
                 NSLog(@"Auto-activation started for %@, queueing message", message.destination);
                 
                 // Queue the message to be delivered when the service connects
                 [self queueMessage:message fromConnection:connection forService:message.destination];
+                
+                // Start a timeout timer to send error if service doesn't start within reasonable time
+                [self scheduleTimeoutForQueuedService:message.destination];
+                return;
+            } else {
+                // Auto-activation definitively failed - send immediate error
+                NSLog(@"Auto-activation failed for service '%@' - sending immediate error", message.destination);
+                
+                MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.ServiceUnknown"
+                                                replySerial:message.serial
+                                                    message:[NSString stringWithFormat:@"The name %@ was not provided by any .service files", message.destination]];
+                error.sender = @"org.freedesktop.DBus";
+                error.destination = connection.uniqueName;
+                
+                // Broadcast error to monitors too
+                [self broadcastToMonitors:error];
+                
+                [connection sendMessage:error];
                 return;
             }
         }
@@ -1759,7 +1785,7 @@
             [queue addObject:connection];
         }
         return DBUS_REQUEST_NAME_REPLY_IN_QUEUE;
-    }
+       }
 }
 
 // Helper method to send NameOwnerChanged signal
@@ -1823,11 +1849,13 @@
 {
     // Only try auto-activation for method calls to well-known names
     if (message.type != MBMessageTypeMethodCall) {
+        NSLog(@"Auto-activation skipped - not a method call (type: %u)", message.type);
         return NO;
     }
     
     if (!message.destination || [message.destination hasPrefix:@":"]) {
         // Don't auto-activate for unique names or missing destinations
+        NSLog(@"Auto-activation skipped - unique name or missing destination: %@", message.destination);
         return NO;
     }
     
@@ -1837,6 +1865,7 @@
     
     // Check if we have a service file for this destination
     if (![_serviceManager hasService:message.destination]) {
+        NSLog(@"Auto-activation failed - no service file for '%@'", message.destination);
         return NO;
     }
     
@@ -1893,6 +1922,9 @@
     
     NSLog(@"Delivering %lu queued messages for service %@", (unsigned long)[messageQueue count], serviceName);
     
+    // Cancel timeout since service successfully started
+    [_serviceTimeouts removeObjectForKey:serviceName];
+    
     // Deliver all queued messages
     for (NSDictionary *queuedItem in messageQueue) {
         MBMessage *message = queuedItem[@"message"];
@@ -1911,4 +1943,73 @@
     [_pendingMessages removeObjectForKey:serviceName];
 }
 
+// Schedule a timeout for a queued service to prevent hangs
+- (void)scheduleTimeoutForQueuedService:(NSString *)serviceName
+{
+    // Set timeout to 5 seconds from now
+    NSTimeInterval timeoutTime = [[NSDate date] timeIntervalSince1970] + 5.0;
+    [_serviceTimeouts setObject:@(timeoutTime) forKey:serviceName];
+    
+    NSLog(@"Scheduled 5-second timeout for service '%@'", serviceName);
+}
+
+- (void)checkServiceTimeouts
+{
+    NSTimeInterval currentTime = [[NSDate date] timeIntervalSince1970];
+    NSMutableArray *timedOutServices = [NSMutableArray array];
+    
+    // Find services that have timed out
+    for (NSString *serviceName in _serviceTimeouts) {
+        NSNumber *timeoutTime = _serviceTimeouts[serviceName];
+        if (currentTime >= [timeoutTime doubleValue]) {
+            [timedOutServices addObject:serviceName];
+        }
+    }
+    
+    // Handle timed out services
+    for (NSString *serviceName in timedOutServices) {
+        NSLog(@"Service '%@' activation timed out - sending errors for queued messages", serviceName);
+        [self sendErrorsForQueuedService:serviceName reason:@"Service activation timed out"];
+        
+        // Remove from timeouts and pending messages
+        [_serviceTimeouts removeObjectForKey:serviceName];
+        [_pendingMessages removeObjectForKey:serviceName];
+    }
+}
+
+- (void)sendErrorsForQueuedService:(NSString *)serviceName reason:(NSString *)reason
+{
+    NSMutableArray *messageQueue = [_pendingMessages objectForKey:serviceName];
+    if (!messageQueue || [messageQueue count] == 0) {
+        return;
+    }
+    
+    NSLog(@"Sending error responses for %lu queued messages for service %@: %@", 
+          (unsigned long)[messageQueue count], serviceName, reason);
+    
+    // Send error responses for all queued messages
+    for (NSDictionary *queuedItem in messageQueue) {
+        MBMessage *message = queuedItem[@"message"];
+        MBConnection *connection = queuedItem[@"connection"];
+        
+        // Check if the connection is still valid
+        if ([_connections containsObject:connection]) {
+            MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.TimedOut"
+                                            replySerial:message.serial
+                                                message:[NSString stringWithFormat:@"Failed to activate service %@: %@", serviceName, reason]];
+            error.sender = @"org.freedesktop.DBus";
+            error.destination = connection.uniqueName;
+            
+            NSLog(@"Sending timeout error for %@.%@ (serial %lu) to %@", 
+                  message.interface, message.member, (unsigned long)message.serial, connection.uniqueName);
+            
+            // Broadcast error to monitors too
+            [self broadcastToMonitors:error];
+            
+            [connection sendMessage:error];
+        } else {
+            NSLog(@"Dropping queued message from disconnected client");
+        }
+    }
+}
 @end
