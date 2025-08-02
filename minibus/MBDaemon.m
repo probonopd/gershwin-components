@@ -302,7 +302,7 @@
         message.sender = connection.uniqueName;
     }
     
-    // Add debugging for problematic messages
+    // Add debugging for problematic messages and drop invalid ones
     if (!message.destination || !message.interface || !message.member) {
         NSLog(@"DEBUG: Problematic message - type=%u serial=%lu", message.type, (unsigned long)message.serial);
         NSLog(@"       destination='%@' interface='%@' member='%@' path='%@'", 
@@ -312,6 +312,20 @@
         }
         if (message.signature) {
             NSLog(@"       signature: '%@'", message.signature);
+        }
+        
+        // CRITICAL FIX: Drop messages with missing interface/member for signals
+        // These are likely malformed messages that will cause client errors
+        if (message.type == MBMessageTypeSignal && (!message.interface || !message.member)) {
+            NSLog(@"WARNING: Dropping signal message with missing interface/member - would cause client errors");
+            return; // Drop the message entirely
+        }
+        
+        // For method returns/errors with missing fields, also drop them
+        if ((message.type == MBMessageTypeMethodReturn || message.type == MBMessageTypeError) && 
+            (!message.interface || !message.member)) {
+            NSLog(@"WARNING: Dropping method return/error with missing interface/member");
+            return; // Drop the message entirely
         }
     }
 

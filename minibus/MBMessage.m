@@ -212,6 +212,17 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
 {
     NSLog(@"Serializing message type=%d, replySerial=%lu", (int)_type, (unsigned long)_replySerial);
     
+    // CRITICAL FIX: Validate message before serialization
+    // Don't serialize messages with invalid variant signatures  
+    if (_signature && [_signature isEqualToString:@"v"]) {
+        if (!_arguments || [_arguments count] == 0 || [_arguments containsObject:[NSNull null]]) {
+            NSLog(@"ERROR: Refusing to serialize message with empty variant signature 'v'");
+            NSLog(@"       This would create an invalid D-Bus message");
+            NSLog(@"       Type=%d, Serial=%lu, Destination=%@", (int)_type, (unsigned long)_serial, _destination);
+            return nil; // Return nil to prevent sending invalid message
+        }
+    }
+    
     NSMutableData *message = [NSMutableData data];
     
     // Serialize header fields and body
@@ -764,21 +775,39 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                 }
             }
         } else {
-            // Regular array - serialize as array variant (simplified)
-            // For now, just treat as string representation
-            NSString *str = [value description];
-            uint8_t sigLen = 1;
-            [data appendBytes:&sigLen length:1];
-            uint8_t typeSig = DBUS_TYPE_STRING;
-            [data appendBytes:&typeSig length:1];
-            uint8_t nullTerm = 0;
-            [data appendBytes:&nullTerm length:1];
-            
-            addPadding(data, 4);
-            uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-            [data appendBytes:&strLen length:4];
-            [data appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
-            [data appendBytes:&nullTerm length:1];
+            // Regular array - serialize as array variant
+            if ([array count] == 0) {
+                // Empty array - serialize as empty array of strings (as)
+                uint8_t sigLen = 2;
+                [data appendBytes:&sigLen length:1];
+                uint8_t arrayTypeSig = DBUS_TYPE_ARRAY;
+                [data appendBytes:&arrayTypeSig length:1];
+                uint8_t stringTypeSig = DBUS_TYPE_STRING;
+                [data appendBytes:&stringTypeSig length:1];
+                uint8_t nullTerm = 0;
+                [data appendBytes:&nullTerm length:1];
+                
+                // Empty array: length = 0
+                addPadding(data, 4);
+                uint32_t arrayLen = 0;
+                [data appendBytes:&arrayLen length:4];
+                
+            } else {
+                // Non-empty array - treat as string representation for now
+                NSString *str = [value description];
+                uint8_t sigLen = 1;
+                [data appendBytes:&sigLen length:1];
+                uint8_t typeSig = DBUS_TYPE_STRING;
+                [data appendBytes:&typeSig length:1];
+                uint8_t nullTerm = 0;
+                [data appendBytes:&nullTerm length:1];
+                
+                addPadding(data, 4);
+                uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+                [data appendBytes:&strLen length:4];
+                [data appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
+                [data appendBytes:&nullTerm length:1];
+            }
         }
         
     } else {
@@ -2282,6 +2311,27 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             // For now, return an empty array to indicate a struct
             NSLog(@"DEBUG: STRUCT type 'r' encountered in variant, creating placeholder");
             return structArray;
+        }
+        
+        case 'a': {
+            // Array variant - handle common array types
+            if ([signature length] < 2) {
+                NSLog(@"WARNING: Array variant signature too short: '%@'", signature);
+                return [NSNull null];
+            }
+            
+            unichar elementType = [signature characterAtIndex:1];
+            NSLog(@"DEBUG: Array variant with element type '%c'", elementType);
+            
+            // For now, handle array of variants (av) as an empty array
+            if (elementType == 'v') {
+                NSLog(@"DEBUG: Array of variants - creating empty array placeholder");
+                return @[]; // Return empty array for array of variants
+            }
+            
+            // For other array types, return empty array placeholder
+            NSLog(@"DEBUG: Array type 'a%c' - creating empty array placeholder", elementType);
+            return @[];
         }
         
         default:
