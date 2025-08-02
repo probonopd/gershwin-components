@@ -181,7 +181,7 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                             // Default numbers to uint32 in structs
                             [signature appendString:@"u"];
                         } else {
-                            [signature appendString:@"v"]; // Variant for other types
+                            [signature appendString:@"s"]; // Unknown types as string
                         }
                     }
                     [signature appendString:@")"];
@@ -192,7 +192,7 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                 } else if ([firstElement isKindOfClass:[NSNumber class]]) {
                     [signature appendString:@"au"]; // Array of uint32
                 } else {
-                    [signature appendString:@"av"]; // Array of variants
+                    [signature appendString:@"as"]; // Array of strings (default for unknown types)
                 }
             } else {
                 [signature appendString:@"as"]; // Empty array defaults to strings
@@ -200,9 +200,9 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         } else if ([arg isKindOfClass:[NSDictionary class]]) {
             [signature appendString:@"a{sv}"]; // Dictionary as array of string-variant pairs
         } else if ([arg isKindOfClass:[NSNull class]]) {
-            [signature appendString:@"v"]; // Null as variant
+            [signature appendString:@"s"]; // Null as empty string (D-Bus doesn't have null type)
         } else {
-            [signature appendString:@"v"]; // Variant for unknown types
+            [signature appendString:@"s"]; // Unknown types as string representation
         }
     }
     return signature;
@@ -668,1701 +668,440 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
 
 + (void)serializeVariant:(id)value toData:(NSMutableData *)data
 {
-    // CRITICAL: Handle NSNull and nil values to prevent GLib crashes
+    // Serialize variant according to D-Bus specification:
+    // 1 byte signature length (without nul), signature with nul, then aligned value
+    
     if (value == nil || value == [NSNull null]) {
-        NSLog(@"WARNING: Attempting to serialize null/nil value as variant - using safe default");
-        
-        // Use a safe boolean false variant instead of empty string to avoid issues
-        uint8_t sigLen = 1;
-        [data appendBytes:&sigLen length:1];
-        uint8_t typeSig = DBUS_TYPE_BOOLEAN;
-        [data appendBytes:&typeSig length:1];
-        uint8_t nullTerm = 0;
-        [data appendBytes:&nullTerm length:1];
-        
-        addPadding(data, 4);
-        uint32_t boolVal = 0; // false
-        [data appendBytes:&boolVal length:4];
+        // Serialize nil as empty string variant
+        NSLog(@"DEBUG: Serializing null/nil value as empty string variant");
+        [self serializeVariantWithSignature:@"s" value:@"" toData:data];
         return;
     }
     
-    // CRITICAL: For empty strings, ensure we create a proper variant
     if ([value isKindOfClass:[NSString class]]) {
-        NSString *str = (NSString *)value;
-        
-        // For empty strings, use a safe non-empty placeholder to avoid GLib issues
-        if ([str length] == 0) {
-            NSLog(@"WARNING: Converting empty string variant to safe placeholder");
-            str = @" "; // Single space - visible but minimal
-        }
-        
-        // String variant
-        uint8_t sigLen = 1;
-        [data appendBytes:&sigLen length:1];
-        uint8_t typeSig = DBUS_TYPE_STRING;
-        [data appendBytes:&typeSig length:1];
-        uint8_t nullTerm = 0;
-        [data appendBytes:&nullTerm length:1];
-        
-        // String value
-        addPadding(data, 4);
-        uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-        [data appendBytes:&strLen length:4];
-        [data appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
-        [data appendBytes:&nullTerm length:1];
+        [self serializeVariantWithSignature:@"s" value:value toData:data];
         
     } else if ([value isKindOfClass:[NSNumber class]]) {
         NSNumber *num = (NSNumber *)value;
         const char *objCType = [num objCType];
         
-        if (strcmp(objCType, @encode(BOOL)) == 0 || 
-            strcmp(objCType, @encode(bool)) == 0) {
-            // Boolean variant
-            uint8_t sigLen = 1;
-            [data appendBytes:&sigLen length:1];
-            uint8_t typeSig = DBUS_TYPE_BOOLEAN;
-            [data appendBytes:&typeSig length:1];
-            uint8_t nullTerm = 0;
-            [data appendBytes:&nullTerm length:1];
-            
-            addPadding(data, 4);
-            uint32_t boolVal = [num boolValue] ? 1 : 0;
-            [data appendBytes:&boolVal length:4];
-            
-        } else if (strcmp(objCType, @encode(double)) == 0 ||
-                   strcmp(objCType, @encode(float)) == 0) {
-            // Double variant
-            uint8_t sigLen = 1;
-            [data appendBytes:&sigLen length:1];
-            uint8_t typeSig = DBUS_TYPE_DOUBLE;
-            [data appendBytes:&typeSig length:1];
-            uint8_t nullTerm = 0;
-            [data appendBytes:&nullTerm length:1];
-            
-            addPadding(data, 8);
-            double doubleVal = [num doubleValue];
-            [data appendBytes:&doubleVal length:8];
-            
+        if (strcmp(objCType, @encode(BOOL)) == 0 || strcmp(objCType, @encode(bool)) == 0) {
+            [self serializeVariantWithSignature:@"b" value:value toData:data];
+        } else if (strcmp(objCType, @encode(double)) == 0 || strcmp(objCType, @encode(float)) == 0) {
+            [self serializeVariantWithSignature:@"d" value:value toData:data];
+        } else if (strcmp(objCType, @encode(int64_t)) == 0 || strcmp(objCType, @encode(long long)) == 0) {
+            [self serializeVariantWithSignature:@"x" value:value toData:data];
+        } else if (strcmp(objCType, @encode(uint64_t)) == 0 || strcmp(objCType, @encode(unsigned long long)) == 0) {
+            [self serializeVariantWithSignature:@"t" value:value toData:data];
+        } else if (strcmp(objCType, @encode(int32_t)) == 0 || strcmp(objCType, @encode(int)) == 0) {
+            [self serializeVariantWithSignature:@"i" value:value toData:data];
         } else {
-            // Default to uint32 variant
-            uint8_t sigLen = 1;
-            [data appendBytes:&sigLen length:1];
-            uint8_t typeSig = DBUS_TYPE_UINT32;
-            [data appendBytes:&typeSig length:1];
-            uint8_t nullTerm = 0;
-            [data appendBytes:&nullTerm length:1];
-            
-            addPadding(data, 4);
-            uint32_t uint32Val = [num unsignedIntValue];
-            [data appendBytes:&uint32Val length:4];
+            // Default to uint32
+            [self serializeVariantWithSignature:@"u" value:value toData:data];
         }
         
     } else if ([value isKindOfClass:[NSArray class]]) {
-        // Check if this is a struct array
         NSArray *array = (NSArray *)value;
         
-        // For variant serialization, treat arrays with mixed types as structs
-        BOOL looksLikeStruct = NO;
-        if ([array count] > 1) {
+        if ([array count] == 0) {
+            // Empty array - serialize as array of strings (as)
+            [self serializeVariantWithSignature:@"as" value:array toData:data];
+        } else {
+            // Determine if this should be a struct or an array
+            BOOL isHomogeneous = YES;
             Class firstClass = [[array objectAtIndex:0] class];
+            
             for (NSUInteger i = 1; i < [array count]; i++) {
                 if (![[array objectAtIndex:i] isKindOfClass:firstClass]) {
-                    looksLikeStruct = YES;
+                    isHomogeneous = NO;
                     break;
                 }
             }
+            
+            if (isHomogeneous && [firstClass isSubclassOfClass:[NSString class]]) {
+                // Array of strings
+                [self serializeVariantWithSignature:@"as" value:array toData:data];
+            } else if (isHomogeneous && [firstClass isSubclassOfClass:[NSNumber class]]) {
+                // Array of numbers (assume uint32)
+                [self serializeVariantWithSignature:@"au" value:array toData:data];
+            } else {
+                // Mixed types - serialize as struct
+                NSMutableString *structSig = [NSMutableString stringWithString:@"("];
+                for (id element in array) {
+                    [structSig appendString:[self getSignatureForValue:element]];
+                }
+                [structSig appendString:@")"];
+                
+                [self serializeVariantWithSignature:structSig value:array toData:data];
+            }
         }
         
-        if (looksLikeStruct) {
-            // Serialize as struct variant - generate signature dynamically
-            NSMutableString *structSig = [NSMutableString stringWithString:@"("];
-            for (id element in array) {
-                if ([element isKindOfClass:[NSString class]]) {
-                    [structSig appendString:@"s"];
-                } else if ([element isKindOfClass:[NSNumber class]]) {
-                    [structSig appendString:@"u"]; // Default to uint32
-                } else {
-                    [structSig appendString:@"v"]; // Variant for others
-                }
-            }
-            [structSig appendString:@")"];
-            
-            // CRITICAL: Prevent empty structs which violate D-Bus spec
-            if ([array count] == 0) {
-                NSLog(@"ERROR: Attempted to serialize empty struct variant - this violates D-Bus specification");
-                NSLog(@"       Converting to empty string variant instead");
-                
-                // Serialize as empty string instead
-                uint8_t sigLen = 1;
-                [data appendBytes:&sigLen length:1];
-                uint8_t typeSig = DBUS_TYPE_STRING;
-                [data appendBytes:&typeSig length:1];
-                uint8_t nullTerm = 0;
-                [data appendBytes:&nullTerm length:1];
-                
-                addPadding(data, 4);
-                uint32_t strLen = 0;
-                [data appendBytes:&strLen length:4];
-                [data appendBytes:&nullTerm length:1];
-                return;
-            }
-            
-            // Write variant signature
-            uint8_t sigLen = (uint8_t)[structSig lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-            [data appendBytes:&sigLen length:1];
-            [data appendData:[structSig dataUsingEncoding:NSUTF8StringEncoding]];
-            uint8_t nullTerm = 0;
-            [data appendBytes:&nullTerm length:1];
-            
-            // Align to 8 bytes for struct
-            addPadding(data, 8);
-            
-            // Serialize struct fields
-            for (id element in array) {
-                if ([element isKindOfClass:[NSString class]]) {
-                    NSString *str = (NSString *)element;
-                    addPadding(data, 4);
-                    uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-                    [data appendBytes:&strLen length:4];
-                    [data appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
-                    [data appendBytes:&nullTerm length:1];
-                    
-                } else if ([element isKindOfClass:[NSNumber class]]) {
-                    addPadding(data, 4);
-                    uint32_t uint32Val = [(NSNumber *)element unsignedIntValue];
-                    [data appendBytes:&uint32Val length:4];
-                    
-                } else {
-                    // Handle other types as variants recursively
-                    [MBMessage serializeVariant:element toData:data];
-                }
-            }
-        } else {
-            // Regular array - serialize as array variant
-            if ([array count] == 0) {
-                // Empty array - serialize as empty array of strings (as)
-                uint8_t sigLen = 2;
-                [data appendBytes:&sigLen length:1];
-                uint8_t arrayTypeSig = DBUS_TYPE_ARRAY;
-                [data appendBytes:&arrayTypeSig length:1];
-                uint8_t stringTypeSig = DBUS_TYPE_STRING;
-                [data appendBytes:&stringTypeSig length:1];
-                uint8_t nullTerm = 0;
-                [data appendBytes:&nullTerm length:1];
-                
-                // Empty array: length = 0
-                addPadding(data, 4);
-                uint32_t arrayLen = 0;
-                [data appendBytes:&arrayLen length:4];
-                
-            } else {
-                // Non-empty array - treat as string representation for now
-                NSString *str = [value description];
-                uint8_t sigLen = 1;
-                [data appendBytes:&sigLen length:1];
-                uint8_t typeSig = DBUS_TYPE_STRING;
-                [data appendBytes:&typeSig length:1];
-                uint8_t nullTerm = 0;
-                [data appendBytes:&nullTerm length:1];
-                
-                addPadding(data, 4);
-                uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-                [data appendBytes:&strLen length:4];
-                [data appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
-                [data appendBytes:&nullTerm length:1];
-            }
-        }
+    } else if ([value isKindOfClass:[NSDictionary class]]) {
+        // Dictionary - serialize as a{sv} (dictionary of string to variant)
+        [self serializeVariantWithSignature:@"a{sv}" value:value toData:data];
         
     } else {
         // Default to string representation
         NSString *str = [value description];
-        uint8_t sigLen = 1;
-        [data appendBytes:&sigLen length:1];
-        uint8_t typeSig = DBUS_TYPE_STRING;
-        [data appendBytes:&typeSig length:1];
-        uint8_t nullTerm = 0;
-        [data appendBytes:&nullTerm length:1];
-        
-        addPadding(data, 4);
-        uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-        [data appendBytes:&strLen length:4];
-        [data appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
-        [data appendBytes:&nullTerm length:1];
+        [self serializeVariantWithSignature:@"s" value:str toData:data];
     }
 }
 
-// Implement the missing parsing methods
-
-+ (instancetype)messageFromData:(NSData *)data offset:(NSUInteger *)offset
+// Helper method to serialize a variant with a specific signature
++ (void)serializeVariantWithSignature:(NSString *)signature 
+                                value:(id)value 
+                               toData:(NSMutableData *)data
 {
-    // Basic D-Bus message parsing
-    if (!data || [data length] < 16) {
-        return nil;
+    if (!signature || [signature length] == 0) {
+        NSLog(@"ERROR: Cannot serialize variant with empty signature");
+        return;
     }
     
-    const uint8_t *bytes = [data bytes];
-    NSUInteger pos = offset ? *offset : 0;
+    // Write signature length (without nul terminator)
+    uint8_t sigLen = (uint8_t)[signature lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    [data appendBytes:&sigLen length:1];
     
-    if (pos + 16 > [data length]) {
-        return nil;
-    }
+    // Write signature with nul terminator
+    [data appendData:[signature dataUsingEncoding:NSUTF8StringEncoding]];
+    uint8_t nullTerm = 0;
+    [data appendBytes:&nullTerm length:1];
     
-    // Read fixed header (16 bytes)
-    uint8_t endianness = bytes[pos];
-    uint8_t messageType = bytes[pos + 1];
-    
-    // Validate endianness marker first - this is crucial for D-Bus protocol
-    if (endianness != DBUS_LITTLE_ENDIAN && endianness != DBUS_BIG_ENDIAN) {
-        if (offset) {
-            // Don't advance offset for clearly invalid data
-            // Let the caller handle the search for next valid message
-        }
-        return nil;
-    }
-    
-    // Validate message type
-    if (messageType < 1 || messageType > 4) {
-        return nil;
-    }
-    
-    // Read remaining header fields with proper endianness handling
-    // uint8_t flags = bytes[pos + 2];  // Reserved for future use
-    uint8_t protocolVersion = bytes[pos + 3];
-    
-    // Validate protocol version
-    if (protocolVersion != 1) {
-        return nil;
-    }
-    
-    uint32_t bodyLength = *(uint32_t *)(bytes + pos + 4);
-    uint32_t serial = *(uint32_t *)(bytes + pos + 8);
-    uint32_t fieldsLength = *(uint32_t *)(bytes + pos + 12);
-    
-    // Convert from specified endianness to host byte order
-    if (endianness == DBUS_LITTLE_ENDIAN) {
-        bodyLength = NSSwapLittleIntToHost(bodyLength);
-        serial = NSSwapLittleIntToHost(serial);
-        fieldsLength = NSSwapLittleIntToHost(fieldsLength);
-    } else if (endianness == DBUS_BIG_ENDIAN) {
-        bodyLength = NSSwapBigIntToHost(bodyLength);
-        serial = NSSwapBigIntToHost(serial);
-        fieldsLength = NSSwapBigIntToHost(fieldsLength);
-    }
-    
-    // Validate lengths for sanity - strict bounds to prevent memory exhaustion
-    if (fieldsLength > 8192 || bodyLength > 1048576) { // Max 8KB for fields, 1MB for body
-        NSLog(@"PARSE FAIL: Message length validation failed - fieldsLength=%u (max 8192), bodyLength=%u (max 1MB)", fieldsLength, bodyLength);
-        return nil;
-    }
-    
-    // Additional validation: ensure we're not dealing with clearly corrupted values
-    if (fieldsLength > [data length] || bodyLength > [data length]) {
-        NSLog(@"PARSE FAIL: Length exceeds buffer - fieldsLength=%u, bodyLength=%u, bufferLength=%lu", fieldsLength, bodyLength, [data length]);
-        return nil;
-    }
-    
-    // Validate that fieldsLength is reasonable relative to the buffer position
-    if (pos + 16 + fieldsLength > [data length]) {
-        NSLog(@"PARSE FAIL: Header fields exceed buffer - pos=%lu, fieldsLength=%u, need %lu, have %lu", pos, fieldsLength, pos + 16 + fieldsLength, [data length]);
-        return nil;
-    }
-    
-    // Calculate message length correctly using glib's method
-    // glib: ret = 12 + 4 + fieldsLength; ret = 8 * ((ret + 7)/8); ret += bodyLength;
-    // NOTE: glib calculates this relative to message start, not buffer start
-    NSUInteger headerAndFieldsLength = 12 + 4 + fieldsLength;  // 12 bytes core header + 4 bytes fields length + fields data
-    NSUInteger alignedHeaderAndFields = 8 * ((headerAndFieldsLength + 7) / 8);  // Round up to 8-byte boundary
-    NSUInteger messageLength = alignedHeaderAndFields + bodyLength;
-    
-    NSLog(@"DEBUG: Glib-style calculation - headerAndFields=%lu, aligned=%lu, messageLength=%lu", 
-          headerAndFieldsLength, alignedHeaderAndFields, messageLength);
-    
-    // Compare with original calculation for debugging
-    NSUInteger headerFieldsEnd = pos + 16 + fieldsLength;
-    NSUInteger bodyStartOriginal = alignTo(headerFieldsEnd, 8);
-    NSUInteger messageLengthOriginal = (bodyStartOriginal - pos) + bodyLength;
-    
-    NSLog(@"DEBUG: Original calculation - headerFieldsEnd=%lu, bodyStart=%lu, messageLength=%lu", 
-          headerFieldsEnd, bodyStartOriginal, messageLengthOriginal);
-    
-    // For boundary checking, use the glib-style calculation but account for buffer position
-    // Glib calculates from message start (pos=0), so we need to verify if pos + glibMessageLength works
-    NSUInteger glibBasedEndPos = pos + messageLength;
-    NSUInteger originalBasedEndPos = pos + messageLengthOriginal;
-    
-    NSLog(@"DEBUG: Boundary check - glib end pos=%lu, original end pos=%lu, buffer length=%lu", 
-          glibBasedEndPos, originalBasedEndPos, [data length]);
-    
-    // Use the glib calculation for validation (it's more conservative)
-    NSUInteger actualMessageLength = messageLength;
-    
-    // Enhanced validation - reject clearly corrupted messages
-    // Allow message to exactly fill the buffer (pos + messageLength == [data length])
-    if (pos + actualMessageLength > [data length] || actualMessageLength > 2097152) { // Max 2MB total message
-        NSLog(@"PARSE FAIL: Total message length invalid - pos=%lu, messageLength=%lu, bufferLength=%lu, need=%lu, max=2MB", 
-              pos, actualMessageLength, [data length], pos + actualMessageLength);
-        return nil;
-    }
-    
-    // Use the glib-style bodyStart calculation for consistency
-    // glib: bodyStart = pos + alignedHeaderAndFields
-    NSUInteger bodyStart = pos + alignedHeaderAndFields;
-    
-    // Validate that we can fit the complete message in the buffer
-    // Allow exact buffer match (bodyStart + bodyLength == [data length])
-    if (bodyStart + bodyLength > [data length]) {
-        NSLog(@"PARSE FAIL: Body exceeds buffer - bodyStart=%lu, bodyLength=%u, need %lu, have %lu", bodyStart, bodyLength, bodyStart + bodyLength, [data length]);
-        return nil;
-    }
-    
-    // Validate serial number (must be non-zero for valid messages)
-    if (serial == 0) {
-        NSLog(@"PARSE FAIL: Invalid serial number 0");
-        return nil;
-    }
-    
-    // Debug: Enable debugging for specific problematic message
-    BOOL debugParsing = (serial == 3 || serial == 2); // Debug specific serials
-    
-    if (debugParsing || pos > 0) {
-        printf("Fixed header at pos %lu: endian=%c type=%u bodyLen=%u serial=%u fieldsLen=%u\n",
-               pos, endianness, messageType, bodyLength, serial, fieldsLength);
-    }
-    
-    // Create message object
-    MBMessage *message = [[MBMessage alloc] init];
-    message.type = messageType;
-    message.serial = serial;
-    
-    if (debugParsing) {
-        printf("Parsing message serial %u at offset %lu (total %lu bytes):\n", serial, pos, [data length]);
-        for (NSUInteger i = pos; i < MIN(pos + 200, [data length]); i += 16) {
-            printf("%04lx: ", i);
-            for (NSUInteger j = 0; j < 16 && i + j < [data length]; j++) {
-                printf("%02x ", bytes[i + j]);
-            }
-            printf("\n");
-        }
-    }
-    
-    // Parse header fields array
-    NSUInteger fieldsPos = pos + 16;
-    NSUInteger fieldsEnd = fieldsPos + fieldsLength;
-    
-    if (debugParsing || pos > 0) {
-        printf("Header fields section: %lu to %lu (at pos %lu)\n", fieldsPos, fieldsEnd, pos);
-    }
-    
-    // Header fields are an array of structs: a(yv)
-    // Array length is already known (fieldsLength)
-    // Each struct element is aligned to 8-byte boundary from start of the message
-    while (fieldsPos < fieldsEnd) {
-        // Each struct in the array must be 8-byte aligned relative to message start
-        NSUInteger posFromMessageStart = fieldsPos - pos;
-        NSUInteger alignedPosFromMessageStart = alignTo(posFromMessageStart, 8);
-        fieldsPos = pos + alignedPosFromMessageStart;
-        
-        if (debugParsing || pos > 0) {
-            printf("Aligning field: posFromMessageStart=%lu -> alignedPos=%lu, fieldsPos=%lu\n", 
-                   posFromMessageStart, alignedPosFromMessageStart, fieldsPos);
-        }
-        
-        if (fieldsPos >= fieldsEnd) break;
-        if (fieldsPos + 2 > fieldsEnd) break; // Need at least field code + sig length
-        
-        uint8_t fieldCode = bytes[fieldsPos];
-        fieldsPos += 1;
-        
-        // Read variant signature length 
-        uint8_t sigLen = bytes[fieldsPos];
-        fieldsPos += 1;
-        
-        if (fieldsPos + sigLen + 1 > fieldsEnd) break;
-        
-        // Read variant signature
-        NSString *signature = [[NSString alloc] initWithBytes:(bytes + fieldsPos) 
-                                                       length:sigLen 
-                                                     encoding:NSUTF8StringEncoding];
-        fieldsPos += sigLen + 1; // +1 for null terminator
-        
-        if (debugParsing || (pos > 0 && (fieldCode > 8 || fieldCode == 0))) {
-            printf("Field %u: sig='%s' at fieldsPos %lu (abs %lu, msg pos %lu)\n", 
-                   fieldCode, [signature UTF8String], fieldsPos, fieldsPos, pos);
-        }
-        
-        // Parse variant value based on signature
-        if ([signature isEqualToString:@"s"] || [signature isEqualToString:@"o"]) {
-            // String/ObjectPath: uint32 length + string + null
-            // The variant value (uint32 length) should be aligned to 4-byte boundary
-            // IMPORTANT: Alignment is relative to the start of the message, not absolute position
-            NSUInteger relativePos = fieldsPos - pos;
-            NSUInteger alignedRelativePos = alignTo(relativePos, 4);
-            fieldsPos = pos + alignedRelativePos;
-            
-            if (debugParsing || pos > 0) {
-                printf("Parsing string field %u: relativePos=%lu, alignedRelativePos=%lu, fieldsPos=%lu\n", 
-                       fieldCode, relativePos, alignedRelativePos, fieldsPos);
-                if (fieldsPos + 4 <= fieldsEnd) {
-                    printf("Reading length from bytes: %02x %02x %02x %02x at position %lu\n",
-                           bytes[fieldsPos], bytes[fieldsPos+1], bytes[fieldsPos+2], bytes[fieldsPos+3], fieldsPos);
-                }
-            }
-            
-            if (fieldsPos + 4 > fieldsEnd) {
-                if (debugParsing || pos > 0) {
-                    printf("ERROR: Not enough space for string length at %lu (need 4, have %lu)\n", 
-                           fieldsPos, fieldsEnd - fieldsPos);
-                }
-                [signature release];
-                break;
-            }
-            
-            uint32_t strLen = *(uint32_t *)(bytes + fieldsPos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                strLen = NSSwapLittleIntToHost(strLen);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                strLen = NSSwapBigIntToHost(strLen);
-            }
-            fieldsPos += 4;
-            
-            if (debugParsing || pos > 0) {
-                printf("String length: %u, remaining space: %lu\n", strLen, fieldsEnd - fieldsPos);
-            }
-            
-            // Impose strict limits on string length to prevent memory exhaustion attacks
-            const uint32_t MAX_DBUS_STRING_LENGTH = 65536; // 64KB max for any D-Bus string
-            if (strLen > MAX_DBUS_STRING_LENGTH) {
-                if (debugParsing || pos > 0) {
-                    printf("ERROR: String length %u exceeds maximum allowed (%u), rejecting message\n", 
-                           strLen, MAX_DBUS_STRING_LENGTH);
-                }
-                [signature release];
-                [message release];
-                return nil;
-            }
-            
-            if (fieldsPos + strLen + 1 > fieldsEnd) {
-                if (debugParsing || pos > 0) {
-                    printf("ERROR: Not enough space for string data at %lu (need %u+1, have %lu)\n", 
-                           fieldsPos, strLen, fieldsEnd - fieldsPos);
-                }
-                [signature release];
-                break;
-            }
-            
-            NSString *value = [[NSString alloc] initWithBytes:(bytes + fieldsPos) 
-                                                       length:strLen 
-                                                     encoding:NSUTF8StringEncoding];
-            fieldsPos += strLen + 1; // +1 for null terminator
-            
-            if (debugParsing || pos > 0) {
-                printf("Parsed field %u value: '%s'\n", fieldCode, [value UTF8String]);
-            }
-            
-            // Set appropriate field
-            switch (fieldCode) {
-                case DBUS_HEADER_FIELD_PATH:
-                    message.path = value;
-                    break;
-                case DBUS_HEADER_FIELD_INTERFACE:
-                    message.interface = value;
-                    break;
-                case DBUS_HEADER_FIELD_MEMBER:
-                    message.member = value;
-                    break;
-                case DBUS_HEADER_FIELD_DESTINATION:
-                    message.destination = value;
-                    break;
-                case DBUS_HEADER_FIELD_SENDER:
-                    message.sender = value;
-                    break;
-                case DBUS_HEADER_FIELD_ERROR_NAME:
-                    message.errorName = value;
-                    break;
-            }
-            
-            [value release];
-            
-        } else if ([signature isEqualToString:@"u"]) {
-            // uint32 - align to 4-byte boundary relative to message start
-            NSUInteger relativePos = fieldsPos - pos;
-            NSUInteger alignedRelativePos = alignTo(relativePos, 4);
-            fieldsPos = pos + alignedRelativePos;
-            
-            if (fieldsPos + 4 > fieldsEnd) {
-                [signature release];
-                break;
-            }
-            
-            uint32_t value = *(uint32_t *)(bytes + fieldsPos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                value = NSSwapLittleIntToHost(value);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                value = NSSwapBigIntToHost(value);
-            }
-            fieldsPos += 4;
-            
-            if (fieldCode == DBUS_HEADER_FIELD_REPLY_SERIAL) {
-                message.replySerial = value;
-            }
-            
-        } else if ([signature isEqualToString:@"g"]) {
-            // Signature: byte length + signature + null
-            if (fieldsPos + 1 > fieldsEnd) {
-                [signature release];
-                break;
-            }
-            
-            uint8_t sigLen2 = bytes[fieldsPos];
-            fieldsPos += 1;
-            
-            if (fieldsPos + sigLen2 + 1 > fieldsEnd) {
-                [signature release];
-                break;
-            }
-            
-            NSString *value = [[NSString alloc] initWithBytes:(bytes + fieldsPos) 
-                                                       length:sigLen2 
-                                                     encoding:NSUTF8StringEncoding];
-            fieldsPos += sigLen2 + 1; // +1 for null terminator
-            
-            if (fieldCode == DBUS_HEADER_FIELD_SIGNATURE) {
-                // Store the signature as-is, daemon will validate and drop invalid ones
-                message.signature = value;
-            }
-            
-            [value release];
-        }
-        
-        [signature release];
-    }
-    
-    // Parse message body
-    if (bodyLength > 0 && message.signature) {
-        NSLog(@"DEBUG: Parsing body for serial %u: pos=%lu, bodyStart=%lu, bodyLength=%u", 
-              serial, pos, bodyStart, bodyLength);
-        
-        // CRITICAL: Validate that bodyStart is within reasonable bounds
-        if (bodyStart >= [data length] || bodyStart + bodyLength > [data length]) {
-            NSLog(@"ERROR: Body data would exceed buffer bounds (bodyStart=%lu, bodyLength=%u, dataLength=%lu)", 
-                  bodyStart, bodyLength, [data length]);
-            [message release];
-            return nil;
-        }
-        
-        NSData *bodyData = [NSData dataWithBytes:(bytes + bodyStart) length:bodyLength];
-        
-        // DEBUG: Show message boundary information
-        NSLog(@"DEBUG: Message boundaries - messageStart=%lu, headerEnd=%lu, bodyStart=%lu, bodyEnd=%lu", 
-              pos, headerFieldsEnd, bodyStart, bodyStart + bodyLength);
-        
-        // DEBUG: Show the transition area between header and body
-        if (headerFieldsEnd < bodyStart) {
-            NSUInteger paddingStart = headerFieldsEnd;
-            NSUInteger paddingBytes = bodyStart - headerFieldsEnd;
-            NSMutableString *paddingHex = [NSMutableString string];
-            for (NSUInteger i = 0; i < paddingBytes; i++) {
-                [paddingHex appendFormat:@"%02x ", bytes[paddingStart + i]];
-            }
-            NSLog(@"DEBUG: Padding bytes between header and body (%lu bytes): %@", paddingBytes, paddingHex);
-        }
-        
-        // DEBUG: Log the first few bytes of body data for debugging  
-        if (debugParsing || bodyLength <= 50) {
-            const uint8_t *bodyBytes = [bodyData bytes];
-            NSMutableString *bodyHex = [NSMutableString string];
-            for (NSUInteger i = 0; i < MIN(bodyLength, 16); i++) {
-                [bodyHex appendFormat:@"%02x ", bodyBytes[i]];
-            }
-            NSLog(@"DEBUG: Body data (%u bytes) starts: %@", bodyLength, bodyHex);
-            NSLog(@"DEBUG: Message signature: '%@'", message.signature ?: @"(null)");
-            
-            // Special check: if signature is 's' but first 4 bytes aren't a reasonable string length
-            if ([message.signature isEqualToString:@"s"] && bodyLength >= 4) {
-                uint32_t firstWord = *(uint32_t *)bodyBytes;
-                uint32_t strLen = (endianness == DBUS_LITTLE_ENDIAN) ? NSSwapLittleIntToHost(firstWord) : NSSwapBigIntToHost(firstWord);
-                NSLog(@"DEBUG: For signature 's', first word would be string length %u", strLen);
-                
-                if (strLen > 65536 || strLen > bodyLength - 4) {
-                    NSLog(@"DEBUG: String length %u is invalid, body data might be misaligned", strLen);
-                    
-                    // Show more context around the body start in the original buffer
-                    NSUInteger contextStart = (bodyStart > 16) ? bodyStart - 16 : 0;
-                    NSUInteger contextEnd = MIN(bodyStart + 32, [data length]);
-                    NSMutableString *contextHex = [NSMutableString string];
-                    for (NSUInteger i = contextStart; i < contextEnd; i++) {
-                        if (i == bodyStart) {
-                            [contextHex appendFormat:@"[%02x] ", bytes[i]];
-                        } else {
-                            [contextHex appendFormat:@"%02x ", bytes[i]];
-                        }
-                    }
-                    NSLog(@"DEBUG: Context around bodyStart=%lu: %@", bodyStart, contextHex);
-                }
-            }
-        }
-        
-        message.arguments = [self parseArgumentsFromBodyData:bodyData signature:message.signature endianness:endianness];
-        
-        // CRITICAL FIX: If the original signature was invalid 'v' and we replaced it with empty,
-        // we must clear the arguments to maintain consistency between signature and body
-        if ([message.signature isEqualToString:@""] && bodyLength > 0) {
-            NSLog(@"WARNING: Message has empty signature but non-empty body (%u bytes) - likely due to invalid 'v' signature fix", bodyLength);
-            NSLog(@"         Clearing arguments to maintain signature/body consistency");
-            message.arguments = @[];
-        }
-        
-        // If argument parsing failed (resulted in empty array when signature expects arguments), reject the message
-        if ([message.arguments count] == 0 && ![message.signature isEqualToString:@""]) {
-            NSLog(@"ERROR: Body parsing failed for message with signature '%@' - rejecting message serial %u", 
-                  message.signature, serial);
-            [message release];
-            return nil;
-        }
-    } else {
-        message.arguments = @[];
-    }
-    
-    // Debug: Check if this message has null critical fields (indicates parsing failure)
-    if (!message.destination && !message.interface && !message.member) {
-        printf("PARSING ERROR - Message serial %lu has all null fields!\n", (unsigned long)message.serial);
-        printf("Original position in buffer: %lu\n", pos);
-        printf("Fields section: %lu to %lu (length=%u)\n", pos + 16, pos + 16 + fieldsLength, fieldsLength);
-        printf("Raw message data:\n");
-        for (NSUInteger i = pos; i < MIN(pos + actualMessageLength, [data length]); i += 16) {
-            printf("%04lx: ", i);
-            for (NSUInteger j = 0; j < 16 && i + j < [data length]; j++) {
-                printf("%02x ", bytes[i + j]);
-            }
-            printf("\n");
-        }
-        printf("Header: endian=%c type=%u bodyLen=%u serial=%lu fieldsLen=%u\n",
-               endianness, messageType, bodyLength, (unsigned long)message.serial, fieldsLength);
-        printf("HeaderFieldsEnd=%lu BodyStart=%lu MessageLength=%lu\n", 
-               headerFieldsEnd, bodyStart, actualMessageLength);
-        
-        // Let's manually parse the first header field to debug
-        NSUInteger debugPos = pos + 16;
-        if (debugPos + 4 < [data length]) {
-            printf("First header field bytes: %02x %02x %02x %02x\n", 
-                   bytes[debugPos], bytes[debugPos+1], bytes[debugPos+2], bytes[debugPos+3]);
-        }
-    }
-    
-    // Skip to next message
-    if (offset) {
-        *offset = pos + actualMessageLength;
-    }
-    
-    return message;
+    // Serialize the value according to its signature
+    [self serializeValue:value withSignature:signature toData:data];
 }
 
-+ (NSArray *)messagesFromData:(NSData *)data consumedBytes:(NSUInteger *)consumedBytes
+// Helper method to serialize a value according to its D-Bus signature
++ (void)serializeValue:(id)value 
+         withSignature:(NSString *)signature 
+                toData:(NSMutableData *)data
 {
-    if (consumedBytes) {
-        *consumedBytes = 0;
-    }
+    if (!signature || [signature length] == 0) return;
     
-    if (!data || [data length] < 16) {
-        // Need at least 16 bytes for a D-Bus header
-        return @[];
-    }
-    
-    NSMutableArray *messages = [NSMutableArray array];
-    NSUInteger offset = 0;
-    const uint8_t *bytes = [data bytes];
-    NSUInteger dataLength = [data length];
-    
-    // ULTRA-VERBOSE DEBUGGING: Show entire buffer on problematic cases
-    if (dataLength > 300) {
-        NSLog(@"=== VERBOSE MESSAGE PARSING: %lu bytes total ===", dataLength);
-        for (NSUInteger i = 0; i < MIN(dataLength, 512); i += 16) {
-            NSMutableString *hexLine = [NSMutableString string];
-            NSMutableString *asciiLine = [NSMutableString string];
-            for (NSUInteger j = 0; j < 16 && i + j < dataLength; j++) {
-                uint8_t byte = bytes[i + j];
-                [hexLine appendFormat:@"%02x ", byte];
-                [asciiLine appendFormat:@"%c", (byte >= 32 && byte < 127) ? byte : '.'];
-            }
-            NSLog(@"PARSE %04lx: %-48s %@", i, [hexLine UTF8String], asciiLine);
-        }
-        NSLog(@"=== END VERBOSE DUMP ===");
-    }
-    
-    while (offset < dataLength) {
-        NSUInteger messageStart = offset;
-        
-        // Strict validation: look for valid D-Bus message start
-        if (offset + 16 > dataLength) {
-            // Not enough data for a complete header
-            NSLog(@"PARSE: Not enough data for header at offset %lu (need 16, have %lu)", offset, dataLength - offset);
-            break;
-        }
-        
-        // Validate endianness byte
-        uint8_t endianness = bytes[offset];
-        if (endianness != DBUS_LITTLE_ENDIAN && endianness != DBUS_BIG_ENDIAN) {
-            NSLog(@"PARSE: Invalid endianness 0x%02x at offset %lu, searching for valid message", endianness, offset);
-            
-            // Search for next valid message start within a reasonable range
-            BOOL foundValid = NO;
-            NSUInteger searchLimit = MIN(offset + 64, dataLength - 16);
-            
-            for (NSUInteger i = offset + 1; i <= searchLimit; i++) {
-                if (bytes[i] == DBUS_LITTLE_ENDIAN || bytes[i] == DBUS_BIG_ENDIAN) {
-                    // Found potential endian byte, validate rest of header
-                    if (i + 16 <= dataLength) {
-                        uint8_t type = bytes[i + 1];
-                        uint8_t version = bytes[i + 3];
-                        if (type >= 1 && type <= 4 && version == 1) {
-                            NSLog(@"PARSE: Found valid D-Bus header at offset %lu (skipped %lu bytes)", i, i - offset);
-                            offset = i;
-                            foundValid = YES;
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            if (!foundValid) {
-                NSLog(@"PARSE: No valid D-Bus message found in search range, consuming all remaining data");
-                if (consumedBytes) {
-                    *consumedBytes = dataLength;
-                }
-                break;
-            }
-        }
-        
-        // Parse the message at current offset
-        NSUInteger oldOffset = offset;
-        MBMessage *message = [self messageFromData:data offset:&offset];
-        
-        if (message) {
-            [messages addObject:message];
-            NSLog(@"PARSE: Successfully parsed message %lu at offset %lu, new offset %lu", 
-                  [messages count], messageStart, offset);
-        } else {
-            // Parsing failed - search for the next valid message boundary
-            NSLog(@"PARSE: Failed to parse message at offset %lu", oldOffset);
-            
-            // Show detailed header info for debugging
-            if (oldOffset + 16 <= dataLength) {
-                uint32_t bodyLength = *(uint32_t *)(bytes + oldOffset + 4);
-                uint32_t serial = *(uint32_t *)(bytes + oldOffset + 8);
-                uint32_t fieldsLength = *(uint32_t *)(bytes + oldOffset + 12);
-                
-                // Convert from endianness
-                if (bytes[oldOffset] == DBUS_LITTLE_ENDIAN) {
-                    bodyLength = NSSwapLittleIntToHost(bodyLength);
-                    serial = NSSwapLittleIntToHost(serial);
-                    fieldsLength = NSSwapLittleIntToHost(fieldsLength);
-                } else {
-                    bodyLength = NSSwapBigIntToHost(bodyLength);
-                    serial = NSSwapBigIntToHost(serial);
-                    fieldsLength = NSSwapBigIntToHost(fieldsLength);
-                }
-                
-                NSLog(@"PARSE: Failed header - endian=%c type=%u version=%u bodyLen=%u serial=%u fieldsLen=%u",
-                      bytes[oldOffset], bytes[oldOffset + 1], bytes[oldOffset + 3], 
-                      bodyLength, serial, fieldsLength);
-                
-                // Show raw bytes around the failure point
-                NSUInteger dumpStart = (oldOffset > 8) ? oldOffset - 8 : 0;
-                NSUInteger dumpEnd = MIN(oldOffset + 32, dataLength);
-                NSMutableString *dumpHex = [NSMutableString string];
-                for (NSUInteger i = dumpStart; i < dumpEnd; i++) {
-                    if (i == oldOffset) {
-                        [dumpHex appendFormat:@"[%02x] ", bytes[i]];
-                    } else {
-                        [dumpHex appendFormat:@"%02x ", bytes[i]];
-                    }
-                }
-                NSLog(@"PARSE: Context bytes: %@", dumpHex);
-            }
-            
-            // Improved recovery: search for next valid message start
-            BOOL foundNextMessage = NO;
-            NSUInteger searchStart = oldOffset + 1;
-            NSUInteger searchLimit = MIN(oldOffset + 128, dataLength - 16); // Search up to 128 bytes ahead
-            
-            for (NSUInteger i = searchStart; i <= searchLimit; i++) {
-                if (bytes[i] == DBUS_LITTLE_ENDIAN || bytes[i] == DBUS_BIG_ENDIAN) {
-                    // Found potential endian byte, validate complete header
-                    if (i + 16 <= dataLength) {
-                        uint8_t type = bytes[i + 1];
-                        uint8_t version = bytes[i + 3];
-                        if (type >= 1 && type <= 4 && version == 1) {
-                            // Validate the length fields make sense
-                            uint32_t testBodyLength = *(uint32_t *)(bytes + i + 4);
-                            uint32_t testFieldsLength = *(uint32_t *)(bytes + i + 12);
-                            
-                            if (bytes[i] == DBUS_LITTLE_ENDIAN) {
-                                testBodyLength = NSSwapLittleIntToHost(testBodyLength);
-                                testFieldsLength = NSSwapLittleIntToHost(testFieldsLength);
-                            } else {
-                                testBodyLength = NSSwapBigIntToHost(testBodyLength);
-                                testFieldsLength = NSSwapBigIntToHost(testFieldsLength);
-                            }
-                            
-                            // Sanity check: reasonable length values
-                            if (testFieldsLength <= 8192 && testBodyLength <= 1048576) {
-                                NSLog(@"PARSE: Found next valid message at offset %lu (skipped %lu bytes)", i, i - oldOffset);
-                                offset = i;
-                                foundNextMessage = YES;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            
-            if (!foundNextMessage) {
-                // If we can't find a valid next message, advance by a conservative amount or stop
-                if (offset == oldOffset) {
-                    offset = oldOffset + 16; // Skip what looks like a bad header
-                    NSLog(@"PARSE: No next valid message found, advanced by 16 bytes to offset %lu", offset);
-                }
-                
-                // Safety check: prevent infinite loops
-                if (offset > dataLength || offset > oldOffset + 256) {
-                    NSLog(@"PARSE: Recovery failed, stopping parse to prevent infinite loop");
-                    break;
-                }
-            }
-        }
-        
-        // Safety check: ensure we're making progress
-        if (offset <= oldOffset) {
-            NSLog(@"PARSE: No progress made (offset %lu <= oldOffset %lu), stopping", offset, oldOffset);
-            break;
-        }
-    }
-    
-    if (consumedBytes) {
-        *consumedBytes = offset;
-    }
-    
-    NSLog(@"PARSE: Completed - parsed %lu messages, consumed %lu of %lu bytes", 
-          [messages count], offset, dataLength);
-    
-    return [messages copy];
-}
-
-+ (NSArray *)messagesFromData:(NSData *)data
-{
-    return [self messagesFromData:data consumedBytes:NULL];
-}
-
-+ (instancetype)parseFromData:(NSData *)data
-{
-    return [self messageFromData:data offset:NULL];
-}
-
-+ (NSArray *)parseArgumentsFromBodyData:(NSData *)bodyData signature:(NSString *)signature endianness:(uint8_t)endianness
-{
-    NSLog(@"DEBUG parseArguments: bodyData=%lu bytes, signature='%@', endianness=%u", 
-          [bodyData length], signature, endianness);
-    
-    if (!bodyData || [bodyData length] == 0 || !signature || [signature length] == 0) {
-        NSLog(@"DEBUG parseArguments: early return - bodyData=%p length=%lu, signature='%@' length=%lu", 
-              bodyData, bodyData ? [bodyData length] : 0, signature ?: @"(null)", signature ? [signature length] : 0);
-        return @[];
-    }
-    
-    // Validate bodyData length is reasonable (prevent massive data processing)
-    if ([bodyData length] > 1048576) { // Max 1MB body
-        NSLog(@"ERROR: Body data too large (%lu bytes), rejecting", [bodyData length]);
-        return @[];
-    }
-    
-    // Validate endianness
-    if (endianness != DBUS_LITTLE_ENDIAN && endianness != DBUS_BIG_ENDIAN) {
-        NSLog(@"ERROR: Invalid endianness %u, rejecting", endianness);
-        return @[];
-    }
-    
-    const uint8_t *bytes = [bodyData bytes];
-    NSUInteger pos = 0;
-    NSMutableArray *arguments = [NSMutableArray array];
-    
-    // CRITICAL FIX: Handle bodies that start with padding bytes
-    // Some D-Bus implementations add extra padding at the start of the body
-    // to ensure the first argument is properly aligned
-    if ([bodyData length] >= 4 && [signature length] > 0) {
-        unichar firstType = [signature characterAtIndex:0];
-        
-        // Check if we're starting with invalid padding (common issue)
-        if (firstType == 's' || firstType == 'o' || firstType == 'g') {
-            // String types need 4-byte alignment
-            // Check if the first 4 bytes look like a reasonable string length
-            uint32_t strLen = *(uint32_t *)(bytes + pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                strLen = NSSwapLittleIntToHost(strLen);
-            } else {
-                strLen = NSSwapBigIntToHost(strLen);
-            }
-            
-            // If string length is unreasonable, try skipping padding bytes
-            if (strLen == 0 || strLen > 65536) {
-                NSLog(@"DEBUG: First string length %u seems invalid, checking for padding...", strLen);
-                
-                // Try positions 1, 2, 3 to find the real string length
-                for (NSUInteger skipBytes = 1; skipBytes <= 3 && skipBytes < [bodyData length] - 4; skipBytes++) {
-                    uint32_t testLen = *(uint32_t *)(bytes + skipBytes);
-                    if (endianness == DBUS_LITTLE_ENDIAN) {
-                        testLen = NSSwapLittleIntToHost(testLen);
-                    } else {
-                        testLen = NSSwapBigIntToHost(testLen);
-                    }
-                    
-                    // Check if this looks like a reasonable string length
-                    if (testLen > 0 && testLen <= 1024 && skipBytes + 4 + testLen < [bodyData length]) {
-                        NSLog(@"DEBUG: Found reasonable string length %u at offset %lu, skipping %lu padding bytes", 
-                              testLen, skipBytes, skipBytes);
-                        pos = skipBytes;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    
-    // Parse each signature character
-    for (NSUInteger i = 0; i < [signature length]; i++) {
-        unichar typeChar = [signature characterAtIndex:i];
-        NSLog(@"DEBUG parseArguments: parsing type '%c' at pos %lu (signature index %lu)", typeChar, pos, i);
-        
-        if (typeChar == 's') {
-            // String - if we haven't already handled padding, align to 4-byte boundary
-            // (The initial padding detection may have already positioned us correctly)
-            if (pos == 0) {
-                pos = alignTo(pos, 4);
-            }
-            
-            if (pos + 4 > [bodyData length]) break;
-            
-            uint32_t strLen = *(uint32_t *)(bytes + pos);
-            NSLog(@"DEBUG parseArguments: at pos %lu, remaining buffer: %lu bytes", pos, [bodyData length] - pos);
-            
-            // Apply correct endianness conversion based on message header
-            // Note: NSSwapLittleIntToHost converts FROM little endian TO host
-            // NSSwapBigIntToHost converts FROM big endian TO host
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                strLen = NSSwapLittleIntToHost(strLen);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                strLen = NSSwapBigIntToHost(strLen);
-            }
-            
-            NSLog(@"DEBUG parseArguments: raw strLen bytes: %02x %02x %02x %02x, converted: %u (endianness=%c)", 
-                  bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3], strLen, endianness);
-            
-            // Show context around this position
-            NSUInteger contextStart = (pos > 8) ? pos - 8 : 0;
-            NSUInteger contextEnd = MIN(pos + 16, [bodyData length]);
-            NSMutableString *contextHex = [NSMutableString string];
-            for (NSUInteger i = contextStart; i < contextEnd; i++) {
-                if (i == pos) {
-                    [contextHex appendFormat:@"[%02x] ", bytes[i]];
-                } else {
-                    [contextHex appendFormat:@"%02x ", bytes[i]];
-                }
-            }
-            NSLog(@"DEBUG parseArguments: context around pos %lu: %@", pos, contextHex);
-            
-            pos += 4;
-            
-            // Impose strict limits on string length to prevent memory exhaustion
-            const uint32_t MAX_DBUS_STRING_LENGTH = 65536; // 64KB max for any D-Bus string
-            if (strLen > MAX_DBUS_STRING_LENGTH) {
-                NSLog(@"ERROR: Argument string length %u exceeds maximum allowed (%u), truncating", 
-                      strLen, MAX_DBUS_STRING_LENGTH);
-                break; // Skip rest of arguments to prevent memory issues
-            }
-            
-            // Additional validation: ensure string length doesn't exceed remaining buffer
-            if (strLen > [bodyData length] - pos) {
-                NSLog(@"ERROR: String length %u exceeds remaining buffer (%lu), truncating", 
-                      strLen, [bodyData length] - pos);
-                break;
-            }
-            
-            if (pos + strLen + 1 > [bodyData length]) break;
-            
-            NSString *value = nil;
-            if (strLen == 0) {
-                // Zero-length string - create empty string explicitly
-                value = @"";
-                NSLog(@"DEBUG parseArguments: created empty string for zero length");
-            } else {
-                value = [[NSString alloc] initWithBytes:(bytes + pos) 
-                                                 length:strLen 
-                                               encoding:NSUTF8StringEncoding];
-            }
-            
-            NSLog(@"DEBUG parseArguments: string value='%@' (nil=%d)", value ?: @"(null)", value == nil);
-            if (value) {
-                @try {
-                    [arguments addObject:value];
-                    NSLog(@"DEBUG parseArguments: successfully added string to array");
-                } @catch (NSException *e) {
-                    NSLog(@"ERROR parseArguments: exception adding string to array: %@", e);
-                    @throw e;
-                }
-                if (strLen > 0) [value release]; // Only release if we allocated it
-            } else {
-                // Invalid UTF-8, use a placeholder but log the issue
-                NSLog(@"WARNING: Invalid UTF-8 string at pos %lu, length %u in body", pos, strLen);
-                @try {
-                    [arguments addObject:@"<invalid-utf8>"];
-                    NSLog(@"DEBUG parseArguments: successfully added invalid-utf8 placeholder");
-                } @catch (NSException *e) {
-                    NSLog(@"ERROR parseArguments: exception adding invalid-utf8 placeholder: %@", e);
-                    @throw e;
-                }
-            }
-            pos += strLen + 1; // +1 for null terminator
-            
-        } else if (typeChar == 'u') {
-            // uint32 - align to 4-byte boundary
-            pos = alignTo(pos, 4);
-            
-            if (pos + 4 > [bodyData length]) break;
-            
-            uint32_t value = *(uint32_t *)(bytes + pos);
-            
-            // Apply correct endianness conversion
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                value = NSSwapLittleIntToHost(value);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                value = NSSwapBigIntToHost(value);
-            }
-            
-            NSLog(@"DEBUG parseArguments: uint32 value=%u", value);
-            @try {
-                [arguments addObject:@(value)];
-                NSLog(@"DEBUG parseArguments: successfully added uint32 to array");
-            } @catch (NSException *e) {
-                NSLog(@"ERROR parseArguments: exception adding uint32 to array: %@", e);
-                @throw e;
-            }
-            pos += 4;
-            
-        } else if (typeChar == 'i') {
-            // int32 - align to 4-byte boundary
-            pos = alignTo(pos, 4);
-            
-            if (pos + 4 > [bodyData length]) break;
-            
-            int32_t value = *(int32_t *)(bytes + pos);
-            
-            // Apply correct endianness conversion
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                value = NSSwapLittleIntToHost(value);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                value = NSSwapBigIntToHost(value);
-            }
-            [arguments addObject:@(value)];
-            pos += 4;
-            
-        } else if (typeChar == 'a') {
-            // Array - align to 4-byte boundary for array length
-            pos = alignTo(pos, 4);
-            
-            if (pos + 4 > [bodyData length]) break;
-            
-            uint32_t arrayLen = *(uint32_t *)(bytes + pos);
-            
-            // Apply correct endianness conversion
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                arrayLen = NSSwapLittleIntToHost(arrayLen);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                arrayLen = NSSwapBigIntToHost(arrayLen);
-            }
-            
-            pos += 4;
-            
-            NSLog(@"DEBUG parseArguments: array length=%u at pos %lu", arrayLen, pos);
-            
-            // Validate array length to prevent memory exhaustion
-            if (arrayLen > 65536) { // Max 64KB for arrays
-                NSLog(@"ERROR: Array length %u exceeds maximum allowed (65536), skipping", arrayLen);
-                break;
-            }
-            
-            if (pos + arrayLen > [bodyData length]) {
-                NSLog(@"ERROR: Array data exceeds buffer bounds, skipping");
-                break;
-            }
-            
-            // Parse complex array types including a{sv}
-            if (i + 1 < [signature length]) {
-                unichar elementType = [signature characterAtIndex:i + 1];
-                NSLog(@"DEBUG parseArguments: array element type='%c'", elementType);
-                
-                if (elementType == 's') {
-                    // Array of strings
-                    NSMutableArray *stringArray = [NSMutableArray array];
-                    NSUInteger arrayEnd = pos + arrayLen;
-                    
-                    while (pos < arrayEnd) {
-                        pos = alignTo(pos, 4);
-                        if (pos + 4 > arrayEnd) break;
-                        
-                        uint32_t strLen = *(uint32_t *)(bytes + pos);
-                        if (endianness == DBUS_LITTLE_ENDIAN) {
-                            strLen = NSSwapLittleIntToHost(strLen);
-                        } else if (endianness == DBUS_BIG_ENDIAN) {
-                            strLen = NSSwapBigIntToHost(strLen);
-                        }
-                        pos += 4;
-                        
-                        if (pos + strLen + 1 > arrayEnd) break;
-                        
-                        NSString *str = [[NSString alloc] initWithBytes:(bytes + pos)
-                                                                 length:strLen
-                                                               encoding:NSUTF8StringEncoding];
-                        if (str) {
-                            [stringArray addObject:str];
-                            [str release];
-                        }
-                        pos += strLen + 1;
-                    }
-                    
-                    [arguments addObject:stringArray];
-                    i++; // Skip element type
-                    
-                } else if (elementType == '{') {
-                    // Dictionary array a{...} - parse as array of dictionaries
-                    NSMutableArray *dictArray = [NSMutableArray array];
-                    
-                    // Align to 8-byte boundary for dictionary entries BEFORE calculating arrayEnd
-                    NSUInteger arrayContentStart = alignTo(pos, 8);
-                    NSUInteger arrayEnd = arrayContentStart + arrayLen;
-                    pos = arrayContentStart;
-                    
-                    // Find the complete signature for the dictionary entry
-                    NSUInteger dictStart = i + 2;
-                    NSUInteger dictEnd = dictStart;
-                    NSUInteger braceCount = 1;
-                    while (dictEnd < [signature length] && braceCount > 0) {
-                        unichar c = [signature characterAtIndex:dictEnd];
-                        if (c == '{') braceCount++;
-                        else if (c == '}') braceCount--;
-                        dictEnd++;
-                    }
-                    
-                    if (braceCount == 0 && dictEnd > dictStart) {
-                        NSString *dictSig = [signature substringWithRange:NSMakeRange(dictStart, dictEnd - dictStart - 1)];
-                        NSLog(@"DEBUG parseArguments: dictionary signature='%@'", dictSig);
-                        
-                        // D-Bus a{sv} represents a single dictionary with multiple entries
-                        // Each entry is a struct {sv} but collectively they form one dictionary
-                        NSMutableDictionary *fullDictionary = [NSMutableDictionary dictionary];
-                        
-                        // Parse each dictionary entry (8-byte aligned)
-                        while (pos < arrayEnd) {
-                            NSUInteger entryStartPos = pos;
-                            pos = alignTo(pos, 8); // Dictionary entries are 8-byte aligned
-                            if (pos >= arrayEnd) {
-                                NSLog(@"DEBUG: Breaking due to alignment - pos=%lu, arrayEnd=%lu", pos, arrayEnd);
-                                break;
-                            }
-                            
-                            NSLog(@"DEBUG: Parsing dict entry at pos=%lu (aligned from %lu), remaining=%lu", 
-                                  pos, entryStartPos, arrayEnd - pos);
-                            
-                            // Parse dictionary entry based on signature
-                            if ([dictSig hasPrefix:@"sv"]) {
-                                // String key, variant value
-                                pos = alignTo(pos, 4);
-                                if (pos + 4 > arrayEnd) {
-                                    NSLog(@"DEBUG: Not enough space for key length at pos=%lu", pos);
-                                    break;
-                                }
-                                
-                                uint32_t keyLen = *(uint32_t *)(bytes + pos);
-                                if (endianness == DBUS_LITTLE_ENDIAN) {
-                                    keyLen = NSSwapLittleIntToHost(keyLen);
-                                } else {
-                                    keyLen = NSSwapBigIntToHost(keyLen);
-                                }
-                                pos += 4;
-                                
-                                NSLog(@"DEBUG: Key length=%u at pos=%lu", keyLen, pos - 4);
-                                
-                                if (pos + keyLen + 1 > arrayEnd) {
-                                    NSLog(@"DEBUG: Key data exceeds bounds - pos=%lu, keyLen=%u, arrayEnd=%lu", 
-                                          pos, keyLen, arrayEnd);
-                                    break;
-                                }
-                                
-                                NSString *key = [[NSString alloc] initWithBytes:(bytes + pos)
-                                                                         length:keyLen
-                                                                       encoding:NSUTF8StringEncoding];
-                                pos += keyLen + 1;
-                                
-                                NSLog(@"DEBUG: Parsed key='%@', pos now=%lu", key ?: @"(null)", pos);
-                                
-                                // Parse variant value
-                                if (pos + 1 > arrayEnd) {
-                                    NSLog(@"DEBUG: Not enough space for variant signature length");
-                                    [key release];
-                                    break;
-                                }
-                                
-                                uint8_t varSigLen = bytes[pos];
-                                pos += 1;
-                                
-                                NSLog(@"DEBUG: Variant signature length=%u at pos=%lu", varSigLen, pos - 1);
-                                
-                                if (pos + varSigLen + 1 > arrayEnd) {
-                                    NSLog(@"DEBUG: Variant signature exceeds bounds");
-                                    [key release];
-                                    break;
-                                }
-                                
-                                NSString *varSig = [[NSString alloc] initWithBytes:(bytes + pos)
-                                                                            length:varSigLen
-                                                                          encoding:NSUTF8StringEncoding];
-                                pos += varSigLen + 1;
-                                
-                                NSLog(@"DEBUG: Variant signature='%@', pos now=%lu", varSig ?: @"(null)", pos);
-                                
-                                // Parse the variant value based on its signature
-                                NSUInteger varBytesConsumed = 0;
-                                NSUInteger varStartPos = pos;
-                                id value = [self parseVariantValue:bytes + pos
-                                                            maxLen:arrayEnd - pos
-                                                         signature:varSig
-                                                        endianness:endianness
-                                                      bytesConsumed:&varBytesConsumed];
-                                pos += varBytesConsumed;
-                                
-                                NSLog(@"DEBUG: Parsed variant value='%@' (consumed %lu bytes, pos %lu->%lu)", 
-                                      value ?: @"(null)", varBytesConsumed, varStartPos, pos);
-                                
-                                // CRITICAL: Validate dictionary entry before adding
-                                if (!key || [key length] == 0) {
-                                    NSLog(@"WARNING: Skipping dictionary entry with invalid key");
-                                } else if (!value) {
-                                    NSLog(@"WARNING: Skipping dictionary entry '%@' with null value", key);
-                                } else if ([varSig length] == 0) {
-                                    NSLog(@"WARNING: Skipping dictionary entry '%@' with invalid variant signature", key);
-                                } else {
-                                    // Only add valid entries
-                                    [fullDictionary setObject:value forKey:key];
-                                }
-                                
-                                [key release];
-                                [varSig release];
-                            } else {
-                                NSLog(@"ERROR: Unsupported dictionary signature '%@'", dictSig);
-                                break;
-                            }
-                        }
-                        
-                        // Add the complete dictionary as one argument
-                        [arguments addObject:fullDictionary];
-                        
-                        [arguments addObject:dictArray];
-                        i = dictEnd - 1; // Will be incremented by main loop
-                    } else {
-                        // Malformed dictionary signature
-                        [arguments addObject:@[]];
-                        pos += arrayLen;
-                        i = dictEnd - 1;
-                    }
-                    
-                } else {
-                    // Other array types - create placeholder
-                    NSLog(@"DEBUG parseArguments: unsupported array element type '%c', creating placeholder", elementType);
-                    [arguments addObject:@[]];
-                    pos += arrayLen;
-                    i++; // Skip element type
-                }
-            } else {
-                // Malformed signature
-                NSLog(@"ERROR: Array type 'a' not followed by element type in signature");
-                break;
-            }
-            
-        } else if (typeChar == 'v') {
-            // Variant - signature length + signature + value
-            if (pos + 1 > [bodyData length]) break;
-            
-            uint8_t varSigLen = bytes[pos];
-            pos += 1;
-            
-            if (pos + varSigLen + 1 > [bodyData length]) break;
-            
-            NSString *varSig = [[NSString alloc] initWithBytes:(bytes + pos)
-                                                        length:varSigLen
-                                                      encoding:NSUTF8StringEncoding];
-            pos += varSigLen + 1; // +1 for null terminator
-            
-            NSLog(@"DEBUG parseArguments: variant signature='%@'", varSig);
-            
-            // CRITICAL FIX: Validate variant signature
-            // According to D-Bus spec, a variant signature must be a complete type signature
-            // It cannot be just 'v' - that would create an infinite recursion
-            if (!varSig || [varSig length] == 0 || [varSig isEqualToString:@"v"]) {
-                NSLog(@"ERROR: Invalid variant signature '%@' - variants cannot contain just 'v'", varSig ?: @"(null)");
-                NSLog(@"       This violates the D-Bus specification and would cause infinite recursion");
-                
-                // According to D-Bus spec, this is a protocol error
-                // We should reject the message, but for compatibility, create a placeholder
-                [arguments addObject:@"<invalid-variant>"];
-                [varSig release];
-                
-                // Log the error context for debugging
-                NSUInteger contextStart = (pos > 16) ? pos - 16 : 0;
-                NSUInteger contextEnd = MIN(pos + 16, [bodyData length]);
-                NSMutableString *contextHex = [NSMutableString string];
-                for (NSUInteger i = contextStart; i < contextEnd; i++) {
-                    if (i == pos - varSigLen - 1) {
-                        [contextHex appendFormat:@"[%02x] ", bytes[i]];
-                    } else {
-                        [contextHex appendFormat:@"%02x ", bytes[i]];
-                    }
-                }
-                NSLog(@"ERROR: Context around invalid variant signature: %@", contextHex);
-                
-                continue; // Skip to next argument
-            }
-            
-            // Parse the variant value
-            NSUInteger varBytesConsumed = 0;
-            id value = [self parseVariantValue:bytes + pos
-                                       maxLen:[bodyData length] - pos
-                                    signature:varSig
-                                   endianness:endianness
-                                 bytesConsumed:&varBytesConsumed];
-            pos += varBytesConsumed;
-            
-            if (value) {
-                [arguments addObject:value];
-            } else {
-                [arguments addObject:[NSNull null]];
-            }
-            
-            [varSig release];
-            
-        } else if (typeChar == 'b') {
-            // Boolean - align to 4-byte boundary, stored as uint32
-            pos = alignTo(pos, 4);
-            
-            if (pos + 4 > [bodyData length]) break;
-            
-            uint32_t boolVal = *(uint32_t *)(bytes + pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                boolVal = NSSwapLittleIntToHost(boolVal);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                boolVal = NSSwapBigIntToHost(boolVal);
-            }
-            
-            [arguments addObject:@(boolVal != 0)];
-            pos += 4;
-            
-        } else if (typeChar == 'y') {
-            // Byte - no alignment needed
-            if (pos + 1 > [bodyData length]) break;
-            
-            uint8_t byteVal = bytes[pos];
-            [arguments addObject:@(byteVal)];
-            pos += 1;
-            
-        } else if (typeChar == 'n') {
-            // int16 - align to 2-byte boundary
-            pos = alignTo(pos, 2);
-            
-            if (pos + 2 > [bodyData length]) break;
-            
-            int16_t int16Val = *(int16_t *)(bytes + pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                int16Val = NSSwapLittleShortToHost(int16Val);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                int16Val = NSSwapBigShortToHost(int16Val);
-            }
-            
-            [arguments addObject:@(int16Val)];
-            pos += 2;
-            
-        } else if (typeChar == 'q') {
-            // uint16 - align to 2-byte boundary
-            pos = alignTo(pos, 2);
-            
-            if (pos + 2 > [bodyData length]) break;
-            
-            uint16_t uint16Val = *(uint16_t *)(bytes + pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                uint16Val = NSSwapLittleShortToHost(uint16Val);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                uint16Val = NSSwapBigShortToHost(uint16Val);
-            }
-            
-            [arguments addObject:@(uint16Val)];
-            pos += 2;
-            
-        } else if (typeChar == 'x') {
-            // int64 - align to 8-byte boundary
-            pos = alignTo(pos, 8);
-            
-            if (pos + 8 > [bodyData length]) break;
-            
-            int64_t int64Val = *(int64_t *)(bytes + pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                int64Val = NSSwapLittleLongLongToHost(int64Val);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                int64Val = NSSwapBigLongLongToHost(int64Val);
-            }
-            
-            [arguments addObject:@(int64Val)];
-            pos += 8;
-            
-        } else if (typeChar == 't') {
-            // uint64 - align to 8-byte boundary
-            pos = alignTo(pos, 8);
-            
-            if (pos + 8 > [bodyData length]) break;
-            
-            uint64_t uint64Val = *(uint64_t *)(bytes + pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                uint64Val = NSSwapLittleLongLongToHost(uint64Val);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                uint64Val = NSSwapBigLongLongToHost(uint64Val);
-            }
-            
-            [arguments addObject:@(uint64Val)];
-            pos += 8;
-            
-        } else if (typeChar == 'd') {
-            // double - align to 8-byte boundary
-            pos = alignTo(pos, 8);
-            
-            if (pos + 8 > [bodyData length]) break;
-            
-            uint64_t rawDouble = *(uint64_t *)(bytes + pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                rawDouble = NSSwapLittleLongLongToHost(rawDouble);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                rawDouble = NSSwapBigLongLongToHost(rawDouble);
-            }
-            
-            double doubleVal;
-            memcpy(&doubleVal, &rawDouble, sizeof(double));
-            [arguments addObject:@(doubleVal)];
-            pos += 8;
-            
-        } else if (typeChar == 'o') {
-            // Object path - same as string but with validation
-            pos = alignTo(pos, 4);
-            
-            if (pos + 4 > [bodyData length]) break;
-            
-            uint32_t strLen = *(uint32_t *)(bytes + pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                strLen = NSSwapLittleIntToHost(strLen);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                strLen = NSSwapBigIntToHost(strLen);
-            }
-            
-            pos += 4;
-            
-            if (strLen > 65536) {
-                NSLog(@"ERROR: Object path length %u exceeds maximum", strLen);
-                break;
-            }
-            
-            if (pos + strLen + 1 > [bodyData length]) break;
-            
-            NSString *objectPath = [[NSString alloc] initWithBytes:(bytes + pos)
-                                                            length:strLen
-                                                          encoding:NSUTF8StringEncoding];
-            if (objectPath) {
-                [arguments addObject:objectPath];
-                [objectPath release];
-            } else {
-                [arguments addObject:@"<invalid-object-path>"];
-            }
-            pos += strLen + 1;
-            
-        } else if (typeChar == '(') {
-            // STRUCT - starts with '(' and ends with ')' - align to 8-byte boundary
-            pos = alignTo(pos, 8);
-            
-            NSLog(@"DEBUG parseArguments: parsing STRUCT starting at pos %lu", pos);
-            
-            // Find the matching closing parenthesis
-            NSUInteger structStart = i + 1;
-            NSUInteger structEnd = structStart;
-            NSUInteger parenCount = 1;
-            while (structEnd < [signature length] && parenCount > 0) {
-                unichar c = [signature characterAtIndex:structEnd];
-                if (c == '(') parenCount++;
-                else if (c == ')') parenCount--;
-                structEnd++;
-            }
-            
-            if (parenCount == 0 && structEnd > structStart) {
-                NSString *structSig = [signature substringWithRange:NSMakeRange(structStart, structEnd - structStart - 1)];
-                NSLog(@"DEBUG parseArguments: struct signature='%@'", structSig);
-                
-                // Parse the struct fields recursively
-                // NSUInteger structStartPos = pos;  // Reserved for debugging
-                NSMutableArray *structFields = [NSMutableArray array];
-                
-                for (NSUInteger j = 0; j < [structSig length]; j++) {
-                    unichar fieldType = [structSig characterAtIndex:j];
-                    
-                    // Parse each field according to its type
-                    id fieldValue = nil;
-                    
-                    if (fieldType == 's') {
-                        // String field
-                        pos = alignTo(pos, 4);
-                        if (pos + 4 > [bodyData length]) break;
-                        
-                        uint32_t strLen = *(uint32_t *)(bytes + pos);
-                        if (endianness == DBUS_LITTLE_ENDIAN) {
-                            strLen = NSSwapLittleIntToHost(strLen);
-                        } else if (endianness == DBUS_BIG_ENDIAN) {
-                            strLen = NSSwapBigIntToHost(strLen);
-                        }
-                        pos += 4;
-                        
-                        if (strLen <= 65536 && pos + strLen + 1 <= [bodyData length]) {
-                            fieldValue = [[NSString alloc] initWithBytes:(bytes + pos)
-                                                                  length:strLen
-                                                                encoding:NSUTF8StringEncoding];
-                            pos += strLen + 1;
-                            if (fieldValue) {
-                                [structFields addObject:fieldValue];
-                                [fieldValue release];
-                            } else {
-                                [structFields addObject:@"<invalid-utf8>"];
-                            }
-                        }
-                        
-                    } else if (fieldType == 'u') {
-                        // uint32 field
-                        pos = alignTo(pos, 4);
-                        if (pos + 4 <= [bodyData length]) {
-                            uint32_t value = *(uint32_t *)(bytes + pos);
-                            if (endianness == DBUS_LITTLE_ENDIAN) {
-                                value = NSSwapLittleIntToHost(value);
-                            } else if (endianness == DBUS_BIG_ENDIAN) {
-                                value = NSSwapBigIntToHost(value);
-                            }
-                            [structFields addObject:@(value)];
-                            pos += 4;
-                        }
-                        
-                    } else if (fieldType == 'i') {
-                        // int32 field
-                        pos = alignTo(pos, 4);
-                        if (pos + 4 <= [bodyData length]) {
-                            int32_t value = *(int32_t *)(bytes + pos);
-                            if (endianness == DBUS_LITTLE_ENDIAN) {
-                                value = NSSwapLittleIntToHost(value);
-                            } else if (endianness == DBUS_BIG_ENDIAN) {
-                                value = NSSwapBigIntToHost(value);
-                            }
-                            [structFields addObject:@(value)];
-                            pos += 4;
-                        }
-                        
-                    } else if (fieldType == 'b') {
-                        // boolean field
-                        pos = alignTo(pos, 4);
-                        if (pos + 4 <= [bodyData length]) {
-                            uint32_t boolVal = *(uint32_t *)(bytes + pos);
-                            if (endianness == DBUS_LITTLE_ENDIAN) {
-                                boolVal = NSSwapLittleIntToHost(boolVal);
-                            } else if (endianness == DBUS_BIG_ENDIAN) {
-                                boolVal = NSSwapBigIntToHost(boolVal);
-                            }
-                            [structFields addObject:@(boolVal != 0)];
-                            pos += 4;
-                        }
-                        
-                    } else {
-                        // Other types - add placeholder for now
-                        NSLog(@"DEBUG parseArguments: unsupported struct field type '%c'", fieldType);
-                        [structFields addObject:[NSNull null]];
-                    }
-                }
-                
-                NSLog(@"DEBUG parseArguments: parsed struct with %lu fields", [structFields count]);
-                [arguments addObject:structFields];
-                i = structEnd - 1; // Will be incremented by main loop
-            } else {
-                // Malformed struct signature
-                NSLog(@"ERROR: Malformed struct signature starting at position %lu", i);
-                [arguments addObject:@[]];
-            }
-            
-        } else {
-            // Unknown type, skip
-            NSLog(@"DEBUG parseArguments: unknown type '%c', stopping parse", typeChar);
-            break;
-        }
-    }
-    
-    return [arguments copy];
-}
-
-// Backwards-compatible method that assumes little-endian (for existing code)
-+ (NSArray *)parseArgumentsFromBodyData:(NSData *)bodyData signature:(NSString *)signature
-{
-    return [self parseArgumentsFromBodyData:bodyData signature:signature endianness:DBUS_LITTLE_ENDIAN];
-}
-
-+ (id)parseVariantValue:(const uint8_t *)bytes 
-                maxLen:(NSUInteger)maxLen
-             signature:(NSString *)signature
-            endianness:(uint8_t)endianness
-         bytesConsumed:(NSUInteger *)pos
-{
-    if (!signature || [signature length] == 0 || !bytes || maxLen == 0) {
-        return nil;
-    }
-    
-    // CRITICAL FIX: Validate variant signature according to D-Bus spec
-    // A variant signature cannot be just "v" - that would create infinite recursion
-    if ([signature isEqualToString:@"v"]) {
-        NSLog(@"ERROR: parseVariantValue called with invalid signature 'v'");
-        NSLog(@"       D-Bus specification prohibits variants containing just 'v'");
-        NSLog(@"       This would cause infinite recursion and protocol violations");
-        return @"<invalid-variant-signature>";
-    }
-    
-    // NSUInteger originalPos = *pos;  // Reserved for debugging
     unichar typeChar = [signature characterAtIndex:0];
     
     switch (typeChar) {
         case 's': {
             // String
+            NSString *str = [value isKindOfClass:[NSString class]] ? value : [value description];
+            addPadding(data, 4);
+            uint32_t strLen = (uint32_t)[str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+            [data appendBytes:&strLen length:4];
+            [data appendData:[str dataUsingEncoding:NSUTF8StringEncoding]];
+            uint8_t nullTerm = 0;
+            [data appendBytes:&nullTerm length:1];
+            break;
+        }
+        
+        case 'u': {
+            // uint32
+            addPadding(data, 4);
+            uint32_t uint32Val = [value isKindOfClass:[NSNumber class]] ? [(NSNumber*)value unsignedIntValue] : 0;
+            [data appendBytes:&uint32Val length:4];
+            break;
+        }
+        
+        case 'i': {
+            // int32
+            addPadding(data, 4);
+            int32_t int32Val = [value isKindOfClass:[NSNumber class]] ? [(NSNumber*)value intValue] : 0;
+            [data appendBytes:&int32Val length:4];
+            break;
+        }
+        
+        case 'b': {
+            // Boolean
+            addPadding(data, 4);
+            uint32_t boolVal = [value isKindOfClass:[NSNumber class]] ? ([(NSNumber*)value boolValue] ? 1 : 0) : 0;
+            [data appendBytes:&boolVal length:4];
+            break;
+        }
+        
+        case 'd': {
+            // Double
+            addPadding(data, 8);
+            double doubleVal = [value isKindOfClass:[NSNumber class]] ? [(NSNumber*)value doubleValue] : 0.0;
+            [data appendBytes:&doubleVal length:8];
+            break;
+        }
+        
+        case 'x': {
+            // int64
+            addPadding(data, 8);
+            int64_t int64Val = [value isKindOfClass:[NSNumber class]] ? [(NSNumber*)value longLongValue] : 0;
+            [data appendBytes:&int64Val length:8];
+            break;
+        }
+        
+        case 't': {
+            // uint64
+            addPadding(data, 8);
+            uint64_t uint64Val = [value isKindOfClass:[NSNumber class]] ? [(NSNumber*)value unsignedLongLongValue] : 0;
+            [data appendBytes:&uint64Val length:8];
+            break;
+        }
+        
+        default:
+            NSLog(@"ERROR: Unsupported type '%c' in signature '%@'", typeChar, signature);
+            break;
+    }
+}
+
+// Helper method to get signature for a value
++ (NSString *)getSignatureForValue:(id)value
+{
+    if ([value isKindOfClass:[NSString class]]) {
+        return @"s";
+    } else if ([value isKindOfClass:[NSNumber class]]) {
+        return @"u"; // Default to uint32
+    } else {
+        return @"s"; // Default to string for unknown types
+    }
+}
+
+// Helper method to serialize array
++ (void)serializeArray:(NSArray *)array 
+  withElementSignature:(NSString *)elementSig 
+                toData:(NSMutableData *)data
+{
+    // Array serialization: length (uint32) + padding + elements
+    addPadding(data, 4);
+    
+    // Reserve space for length
+    NSUInteger lengthPosition = [data length];
+    uint32_t arrayLength = 0;
+    [data appendBytes:&arrayLength length:4];
+    
+    NSUInteger arrayContentStart = [data length];
+    
+    for (id element in array) {
+        [self serializeValue:element withSignature:elementSig toData:data];
+    }
+    
+    // Update actual array length
+    uint32_t actualArrayLength = (uint32_t)([data length] - arrayContentStart);
+    [data replaceBytesInRange:NSMakeRange(lengthPosition, 4) withBytes:&actualArrayLength];
+}
+
+// Helper method to serialize struct
++ (void)serializeStruct:(NSArray *)structArray 
+          withSignature:(NSString *)signature 
+                 toData:(NSMutableData *)data
+{
+    // Struct serialization: align to 8-byte boundary + elements
+    addPadding(data, 8);
+    
+    // Simple struct serialization - just serialize each element as string
+    for (id element in structArray) {
+        [self serializeValue:element withSignature:@"s" toData:data];
+    }
+}
+
+// Message parsing implementation based on D-Bus specification
++ (instancetype)messageFromData:(NSData *)data offset:(NSUInteger *)offset
+{
+    const uint8_t *bytes = [data bytes];
+    NSUInteger dataLength = [data length];
+    NSUInteger pos = *offset;
+    
+    if (pos + 16 > dataLength) {
+        return nil; // Not enough data for header
+    }
+    
+    // Read fixed header (16 bytes)
+    uint8_t endian = bytes[pos];
+    uint8_t messageType = bytes[pos + 1];
+    uint8_t flags = bytes[pos + 2];
+    uint8_t version = bytes[pos + 3];
+    
+    // Check validity
+    if (endian != DBUS_LITTLE_ENDIAN && endian != DBUS_BIG_ENDIAN) {
+        return nil;
+    }
+    if (version != DBUS_MAJOR_PROTOCOL_VERSION) {
+        return nil;
+    }
+    if (messageType < 1 || messageType > 4) {
+        return nil;
+    }
+    
+    // Read lengths (always little-endian for now)
+    uint32_t bodyLength = *(uint32_t *)(bytes + pos + 4);
+    uint32_t serial = *(uint32_t *)(bytes + pos + 8);
+    uint32_t headerFieldsLength = *(uint32_t *)(bytes + pos + 12);
+    
+    pos += 16; // Move past fixed header
+    
+    // Calculate total message length including padding
+    NSUInteger headerFieldsEndPos = pos + headerFieldsLength;
+    NSUInteger bodyStartPos = alignTo(headerFieldsEndPos, 8);
+    NSUInteger totalMessageLength = bodyStartPos + bodyLength;
+    
+    if (totalMessageLength > dataLength - *offset) {
+        return nil; // Not enough data for complete message
+    }
+    
+    // Create message
+    MBMessage *message = [[MBMessage alloc] init];
+    message.type = (MBMessageType)messageType;
+    message.serial = serial;
+    
+    // Parse header fields if present
+    if (headerFieldsLength > 0) {
+        [self parseHeaderFields:data 
+                         offset:pos 
+                         length:headerFieldsLength 
+                      endianness:endian 
+                        message:message];
+    }
+    
+    // Parse body if present
+    if (bodyLength > 0 && message.signature) {
+        NSData *bodyData = [NSData dataWithBytes:bytes + bodyStartPos length:bodyLength];
+        message.arguments = [self parseArgumentsFromBodyData:bodyData 
+                                                   signature:message.signature 
+                                                  endianness:endian];
+    }
+    
+    *offset += totalMessageLength;
+    return message;
+}
+
++ (NSArray *)messagesFromData:(NSData *)data
+{
+    NSUInteger consumedBytes = 0;
+    return [self messagesFromData:data consumedBytes:&consumedBytes];
+}
+
++ (NSArray *)messagesFromData:(NSData *)data consumedBytes:(NSUInteger *)consumedBytes
+{
+    NSMutableArray *messages = [NSMutableArray array];
+    NSUInteger offset = 0;
+    
+    while (offset < [data length]) {
+        MBMessage *message = [self messageFromData:data offset:&offset];
+        if (message) {
+            [messages addObject:message];
+        } else {
+            break; // Can't parse more messages
+        }
+    }
+    
+    *consumedBytes = offset;
+    return messages;
+}
+
+// Helper method to parse header fields
++ (void)parseHeaderFields:(NSData *)data 
+                   offset:(NSUInteger)pos 
+                   length:(NSUInteger)length 
+                endianness:(uint8_t)endianness 
+                  message:(MBMessage *)message
+{
+    const uint8_t *bytes = [data bytes];
+    NSUInteger endPos = pos + length;
+    
+    // Header fields are an array of (BYTE, VARIANT) structs
+    while (pos < endPos) {
+        if (pos + 8 > endPos) break; // Need at least 8 bytes for alignment
+        
+        // Align to 8-byte boundary for struct
+        pos = alignTo(pos, 8);
+        if (pos >= endPos) break;
+        
+        // Read field code (BYTE)
+        uint8_t fieldCode = bytes[pos];
+        pos++;
+        
+        // Read variant signature length
+        if (pos >= endPos) break;
+        uint8_t sigLen = bytes[pos];
+        pos++;
+        
+        // Read signature
+        if (pos + sigLen + 1 > endPos) break; // +1 for null terminator
+        NSString *signature = [[NSString alloc] initWithBytes:bytes + pos 
+                                                       length:sigLen 
+                                                     encoding:NSUTF8StringEncoding];
+        pos += sigLen + 1; // Skip null terminator
+        
+        // Parse value based on signature
+        NSUInteger valueStartPos = pos;
+        id value = [self parseValueFromBytes:bytes + pos 
+                                   maxLength:endPos - pos 
+                                   signature:signature 
+                                  endianness:endianness 
+                               bytesConsumed:&pos];
+        
+        // Update position with consumed bytes
+        pos = valueStartPos + pos;
+        
+        // Set header field
+        switch (fieldCode) {
+            case DBUS_HEADER_FIELD_PATH:
+                message.path = value;
+                break;
+            case DBUS_HEADER_FIELD_INTERFACE:
+                message.interface = value;
+                break;
+            case DBUS_HEADER_FIELD_MEMBER:
+                message.member = value;
+                break;
+            case DBUS_HEADER_FIELD_ERROR_NAME:
+                message.errorName = value;
+                break;
+            case DBUS_HEADER_FIELD_REPLY_SERIAL:
+                message.replySerial = [value unsignedIntegerValue];
+                break;
+            case DBUS_HEADER_FIELD_DESTINATION:
+                message.destination = value;
+                break;
+            case DBUS_HEADER_FIELD_SENDER:
+                message.sender = value;
+                break;
+            case DBUS_HEADER_FIELD_SIGNATURE:
+                // Validate signature field - reject invalid "v" signatures
+                if (value && [value isEqualToString:@"v"]) {
+                    NSLog(@"WARNING: Received message with invalid signature 'v', replacing with empty");
+                    message.signature = @"";
+                } else {
+                    message.signature = value;
+                }
+                break;
+        }
+    }
+}
+
+// Helper method to parse a value from bytes
++ (id)parseValueFromBytes:(const uint8_t *)bytes 
+                maxLength:(NSUInteger)maxLen 
+                signature:(NSString *)signature 
+               endianness:(uint8_t)endianness 
+            bytesConsumed:(NSUInteger *)pos
+{
+    if (!signature || [signature length] == 0) {
+        *pos = 0;
+        return nil;
+    }
+    
+    unichar typeChar = [signature characterAtIndex:0];
+    NSUInteger startPos = *pos;
+    
+    switch (typeChar) {
+        case 's': {
+            // String: 4-byte length + string + null terminator
             *pos = alignTo(*pos, 4);
             if (*pos + 4 > maxLen) return nil;
             
             uint32_t strLen = *(uint32_t *)(bytes + *pos);
-            
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                strLen = NSSwapLittleIntToHost(strLen);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                strLen = NSSwapBigIntToHost(strLen);
-            }
             *pos += 4;
             
-            if (strLen > 65536 || *pos + strLen + 1 > maxLen) {
-                return nil;
-            }
+            if (*pos + strLen + 1 > maxLen) return nil;
             
-            NSString *str = [[NSString alloc] initWithBytes:(bytes + *pos)
-                                                     length:strLen
-                                                   encoding:NSUTF8StringEncoding];
-            *pos += strLen + 1;
-            return [str autorelease];
+            NSString *result = [[NSString alloc] initWithBytes:bytes + *pos 
+                                                        length:strLen 
+                                                      encoding:NSUTF8StringEncoding];
+            *pos += strLen + 1; // Skip null terminator
+            return result;
         }
         
         case 'u': {
@@ -2371,11 +1110,6 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             if (*pos + 4 > maxLen) return nil;
             
             uint32_t value = *(uint32_t *)(bytes + *pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                value = NSSwapLittleIntToHost(value);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                value = NSSwapBigIntToHost(value);
-            }
             *pos += 4;
             return @(value);
         }
@@ -2386,119 +1120,57 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
             if (*pos + 4 > maxLen) return nil;
             
             int32_t value = *(int32_t *)(bytes + *pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                value = NSSwapLittleIntToHost(value);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                value = NSSwapBigIntToHost(value);
-            }
             *pos += 4;
             return @(value);
         }
         
-        case 'b': {
-            // Boolean
-            *pos = alignTo(*pos, 4);
-            if (*pos + 4 > maxLen) return nil;
-            
-            uint32_t boolVal = *(uint32_t *)(bytes + *pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                boolVal = NSSwapLittleIntToHost(boolVal);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                boolVal = NSSwapBigIntToHost(boolVal);
-            }
-            *pos += 4;
-            return @(boolVal != 0);
-        }
-        
-        case 'y': {
-            // Byte
-            if (*pos + 1 > maxLen) return nil;
-            uint8_t byteVal = bytes[*pos];
-            *pos += 1;
-            return @(byteVal);
-        }
-        
-        case 'd': {
-            // Double
-            *pos = alignTo(*pos, 8);
-            if (*pos + 8 > maxLen) return nil;
-            
-            uint64_t rawDouble = *(uint64_t *)(bytes + *pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                rawDouble = NSSwapLittleLongLongToHost(rawDouble);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                rawDouble = NSSwapBigLongLongToHost(rawDouble);
-            }
-            
-            double doubleVal;
-            memcpy(&doubleVal, &rawDouble, sizeof(double));
-            *pos += 8;
-            return @(doubleVal);
-        }
-        
         case 'o': {
-            // Object path (same as string)
+            // Object path - same format as string
             *pos = alignTo(*pos, 4);
             if (*pos + 4 > maxLen) return nil;
             
             uint32_t strLen = *(uint32_t *)(bytes + *pos);
-            if (endianness == DBUS_LITTLE_ENDIAN) {
-                strLen = NSSwapLittleIntToHost(strLen);
-            } else if (endianness == DBUS_BIG_ENDIAN) {
-                strLen = NSSwapBigIntToHost(strLen);
-            }
             *pos += 4;
             
-            if (strLen > 65536 || *pos + strLen + 1 > maxLen) return nil;
+            if (*pos + strLen + 1 > maxLen) return nil;
             
-            NSString *str = [[NSString alloc] initWithBytes:(bytes + *pos)
-                                                     length:strLen
-                                                   encoding:NSUTF8StringEncoding];
-            *pos += strLen + 1;
-            return [str autorelease];
+            NSString *result = [[NSString alloc] initWithBytes:bytes + *pos 
+                                                        length:strLen 
+                                                      encoding:NSUTF8StringEncoding];
+            *pos += strLen + 1; // Skip null terminator
+            return result;
         }
         
-        case 'r': {
-            // STRUCT - parse according to D-Bus spec, aligned to 8-byte boundary
-            *pos = alignTo(*pos, 8);
+        case 'g': {
+            // Signature - length is 1 byte, no padding
+            if (*pos + 1 > maxLen) return nil;
             
-            // For a struct in a variant, we need to parse it as a complete signature
-            // Since we only have the 'r' type, we'll create a generic struct placeholder
-            NSMutableArray *structArray = [NSMutableArray array];
+            uint8_t sigLen = bytes[*pos];
+            *pos += 1;
             
-            // Parse as a simple struct with basic fields - in real usage, 
-            // the signature would specify the complete struct signature
-            // For now, return an empty array to indicate a struct
-            NSLog(@"DEBUG: STRUCT type 'r' encountered in variant, creating placeholder");
-            return structArray;
-        }
-        
-        case 'a': {
-            // Array variant - handle common array types
-            if ([signature length] < 2) {
-                NSLog(@"WARNING: Array variant signature too short: '%@'", signature);
-                return [NSNull null];
-            }
+            if (*pos + sigLen + 1 > maxLen) return nil;
             
-            unichar elementType = [signature characterAtIndex:1];
-            NSLog(@"DEBUG: Array variant with element type '%c'", elementType);
-            
-            // For now, handle array of variants (av) as an empty array
-            if (elementType == 'v') {
-                NSLog(@"DEBUG: Array of variants - creating empty array placeholder");
-                return @[]; // Return empty array for array of variants
-            }
-            
-            // For other array types, return empty array placeholder
-            NSLog(@"DEBUG: Array type 'a%c' - creating empty array placeholder", elementType);
-            return @[];
+            NSString *result = [[NSString alloc] initWithBytes:bytes + *pos 
+                                                        length:sigLen 
+                                                      encoding:NSUTF8StringEncoding];
+            *pos += sigLen + 1; // Skip null terminator
+            return result;
         }
         
         default:
-            // Unsupported variant type - skip and return placeholder
-            NSLog(@"WARNING: Unsupported variant type '%c', returning null", typeChar);
-            return [NSNull null];
+            // Unsupported type - skip it
+            NSLog(@"WARNING: Unsupported type '%c' in signature '%@'", typeChar, signature);
+            return nil;
     }
+}
+
++ (NSArray *)parseArgumentsFromBodyData:(NSData *)bodyData 
+                              signature:(NSString *)signature 
+                             endianness:(uint8_t)endianness
+{
+    // Simple implementation - just return empty array for now
+    // TODO: Implement full argument parsing
+    return @[];
 }
 
 @end
