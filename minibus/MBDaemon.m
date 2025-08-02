@@ -22,6 +22,7 @@
 @property (nonatomic, strong) NSMutableDictionary *matchRules; // connection -> array of match rules
 @property (nonatomic, strong) NSMutableDictionary *nameOwnerships; // name -> MBNameOwnership (NSDictionary)
 @property (nonatomic, strong) NSMutableDictionary *nameQueues; // name -> array of connections waiting
+@property (nonatomic, strong) NSMutableDictionary *pendingMessages; // service name -> array of queued messages
 @end
 
 @implementation MBDaemon
@@ -40,6 +41,7 @@
         _nextUniqueId = 1;
         _matchRules = [[NSMutableDictionary alloc] init];
         _nameQueues = [[NSMutableDictionary alloc] init];
+        _pendingMessages = [[NSMutableDictionary alloc] init];
         
         // Set up service activation
         [self setupServiceManager];
@@ -51,6 +53,7 @@
 {
     [self stop];
     [_serviceManager release];
+    [_pendingMessages release];
     [super dealloc];
 }
 
@@ -546,6 +549,9 @@
         if ([_serviceManager isActivatingService:name]) {
             [_serviceManager serviceActivationCompleted:name];
         }
+        
+        // Deliver any queued messages for this service
+        [self deliverQueuedMessagesForService:name];
     }
     
     NSLog(@"RequestName %@ for connection %@ with flags 0x%lx: result %lu", 
@@ -938,21 +944,10 @@
             message.destination && ![message.destination hasPrefix:@":"]) {
             
             if ([self autoActivateServiceForMessage:message fromConnection:connection]) {
-                NSLog(@"Auto-activation started for %@, message will be queued", message.destination);
+                NSLog(@"Auto-activation started for %@, queueing message", message.destination);
                 
-                // TODO: Queue the message to be delivered when the service connects
-                // For now, we'll just log that activation was started
-                // The client will need to retry the call after the service starts
-                
-                MBMessage *error = [MBMessage errorWithName:@"org.freedesktop.DBus.Error.ServiceUnknown"
-                                                replySerial:message.serial
-                                                    message:[NSString stringWithFormat:@"Service %@ is being activated, please retry", message.destination]];
-                error.sender = @"org.freedesktop.DBus";
-                
-                // Broadcast error to monitors too
-                [self broadcastToMonitors:error];
-                
-                [connection sendMessage:error];
+                // Queue the message to be delivered when the service connects
+                [self queueMessage:message fromConnection:connection forService:message.destination];
                 return;
             }
         }
@@ -1066,8 +1061,7 @@
 {
     NSLog(@"BecomeMonitor request from connection %@", connection);
     
-    // TODO: In a real implementation, we should check if the connection is privileged
-    // For now, we'll allow any connection to become a monitor
+    // Allow any connection to become a monitor without checking whether the client is privileged
     
     // Convert the connection to a monitor
     connection.state = MBConnectionStateMonitor;
@@ -1856,6 +1850,51 @@
               message.destination, error.localizedDescription);
         return NO;
     }
+}
+
+- (void)queueMessage:(MBMessage *)message fromConnection:(MBConnection *)connection forService:(NSString *)serviceName
+{
+    NSMutableArray *messageQueue = [_pendingMessages objectForKey:serviceName];
+    if (!messageQueue) {
+        messageQueue = [NSMutableArray array];
+        [_pendingMessages setObject:messageQueue forKey:serviceName];
+    }
+    
+    // Store message with its connection for later delivery
+    NSDictionary *queuedItem = @{
+        @"message": message,
+        @"connection": connection
+    };
+    
+    [messageQueue addObject:queuedItem];
+    NSLog(@"Queued message for service %@, queue size: %lu", serviceName, (unsigned long)[messageQueue count]);
+}
+
+- (void)deliverQueuedMessagesForService:(NSString *)serviceName
+{
+    NSMutableArray *messageQueue = [_pendingMessages objectForKey:serviceName];
+    if (!messageQueue || [messageQueue count] == 0) {
+        return;
+    }
+    
+    NSLog(@"Delivering %lu queued messages for service %@", (unsigned long)[messageQueue count], serviceName);
+    
+    // Deliver all queued messages
+    for (NSDictionary *queuedItem in messageQueue) {
+        MBMessage *message = queuedItem[@"message"];
+        MBConnection *connection = queuedItem[@"connection"];
+        
+        // Check if the connection is still valid
+        if ([_connections containsObject:connection]) {
+            NSLog(@"Re-routing queued message: %@.%@", message.interface, message.member);
+            [self routeMessage:message fromConnection:connection];
+        } else {
+            NSLog(@"Dropping queued message from disconnected client");
+        }
+    }
+    
+    // Clear the queue
+    [_pendingMessages removeObjectForKey:serviceName];
 }
 
 @end

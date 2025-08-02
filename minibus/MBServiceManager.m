@@ -152,12 +152,33 @@
     if (pid == 0) {
         // Child process - set up environment and exec
         
-        // Set D-Bus environment variables
+        // Set D-Bus environment variables (required by D-Bus specification)
         if (busAddress) {
             setenv("DBUS_STARTER_ADDRESS", [busAddress UTF8String], 1);
+            // Also set the session bus address so the service knows where to connect
+            setenv("DBUS_SESSION_BUS_ADDRESS", [busAddress UTF8String], 1);
         }
         if (busType) {
             setenv("DBUS_STARTER_BUS_TYPE", [busType UTF8String], 1);
+        }
+        
+        // Additional helpful environment variables for services
+        setenv("DBUS_ACTIVATION", "1", 1);  // Indicate this is an activated service
+        
+        // Clear any potentially conflicting D-Bus environment variables
+        unsetenv("DBUS_SYSTEM_BUS_ADDRESS");
+        
+        // Preserve all environment variables
+        extern char **environ;
+        for (char **env = environ; *env != NULL; env++) {
+            char *entry = strdup(*env);
+            if (!entry) continue;
+            char *eq = strchr(entry, '=');
+            if (eq) {
+            *eq = '\0';
+            setenv(entry, eq + 1, 1);
+            }
+            free(entry);
         }
         
         // Prepare arguments for execv
