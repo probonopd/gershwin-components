@@ -859,16 +859,19 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     
     // Validate lengths for sanity - strict bounds to prevent memory exhaustion
     if (fieldsLength > 8192 || bodyLength > 1048576) { // Max 8KB for fields, 1MB for body
+        NSLog(@"PARSE FAIL: Message length validation failed - fieldsLength=%u (max 8192), bodyLength=%u (max 1MB)", fieldsLength, bodyLength);
         return nil;
     }
     
     // Additional validation: ensure we're not dealing with clearly corrupted values
     if (fieldsLength > [data length] || bodyLength > [data length]) {
+        NSLog(@"PARSE FAIL: Length exceeds buffer - fieldsLength=%u, bodyLength=%u, bufferLength=%lu", fieldsLength, bodyLength, [data length]);
         return nil;
     }
     
     // Validate that fieldsLength is reasonable relative to the buffer position
     if (pos + 16 + fieldsLength > [data length]) {
+        NSLog(@"PARSE FAIL: Header fields exceed buffer - pos=%lu, fieldsLength=%u, need %lu, have %lu", pos, fieldsLength, pos + 16 + fieldsLength, [data length]);
         return nil;
     }
     
@@ -877,18 +880,24 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     NSUInteger bodyStart = alignTo(headerFieldsEnd, 8);
     NSUInteger messageLength = (bodyStart - pos) + bodyLength; // Relative to message start
     
+    NSLog(@"DEBUG: Body start calculation - pos=%lu, fieldsLength=%u, headerFieldsEnd=%lu, bodyStart=%lu (padding=%lu)", 
+          pos, fieldsLength, headerFieldsEnd, bodyStart, bodyStart - headerFieldsEnd);
+    
     // Enhanced validation - reject clearly corrupted messages
     if (pos + messageLength > [data length] || messageLength > 2097152) { // Max 2MB total message
+        NSLog(@"PARSE FAIL: Total message length invalid - pos=%lu, messageLength=%lu, bufferLength=%lu, max=2MB", pos, messageLength, [data length]);
         return nil;
     }
     
     // Validate that we can fit the complete message in the buffer
     if (bodyStart + bodyLength > [data length]) {
+        NSLog(@"PARSE FAIL: Body exceeds buffer - bodyStart=%lu, bodyLength=%u, need %lu, have %lu", bodyStart, bodyLength, bodyStart + bodyLength, [data length]);
         return nil;
     }
     
     // Validate serial number (must be non-zero for valid messages)
     if (serial == 0) {
+        NSLog(@"PARSE FAIL: Invalid serial number 0");
         return nil;
     }
     
@@ -1122,6 +1131,21 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
         
         NSData *bodyData = [NSData dataWithBytes:(bytes + bodyStart) length:bodyLength];
         
+        // DEBUG: Show message boundary information
+        NSLog(@"DEBUG: Message boundaries - messageStart=%lu, headerEnd=%lu, bodyStart=%lu, bodyEnd=%lu", 
+              pos, headerFieldsEnd, bodyStart, bodyStart + bodyLength);
+        
+        // DEBUG: Show the transition area between header and body
+        if (headerFieldsEnd < bodyStart) {
+            NSUInteger paddingStart = headerFieldsEnd;
+            NSUInteger paddingBytes = bodyStart - headerFieldsEnd;
+            NSMutableString *paddingHex = [NSMutableString string];
+            for (NSUInteger i = 0; i < paddingBytes; i++) {
+                [paddingHex appendFormat:@"%02x ", bytes[paddingStart + i]];
+            }
+            NSLog(@"DEBUG: Padding bytes between header and body (%lu bytes): %@", paddingBytes, paddingHex);
+        }
+        
         // DEBUG: Log the first few bytes of body data for debugging  
         if (debugParsing || bodyLength <= 50) {
             const uint8_t *bodyBytes = [bodyData bytes];
@@ -1181,98 +1205,153 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
 
 + (NSArray *)messagesFromData:(NSData *)data consumedBytes:(NSUInteger *)consumedBytes
 {
+    if (consumedBytes) {
+        *consumedBytes = 0;
+    }
+    
+    if (!data || [data length] < 16) {
+        // Need at least 16 bytes for a D-Bus header
+        return @[];
+    }
+    
     NSMutableArray *messages = [NSMutableArray array];
     NSUInteger offset = 0;
-    NSUInteger lastSuccessfulOffset = 0;
-    NSUInteger consecutiveFailures = 0;
-    const NSUInteger MAX_CONSECUTIVE_FAILURES = 16; // Reduced limit
-    const NSUInteger MAX_SKIP_BYTES = 512; // Don't skip more than 512 bytes total
-    NSUInteger totalSkippedBytes = 0;
+    const uint8_t *bytes = [data bytes];
+    NSUInteger dataLength = [data length];
     
-    while (offset < [data length]) {
-        NSUInteger oldOffset = offset;
-        MBMessage *message = [self messageFromData:data offset:&offset];
-        if (!message) {
-            consecutiveFailures++;
-            
-            // Check if we have enough data for a complete message
-            if (oldOffset + 16 <= [data length]) {
-                // We have at least a header, but parsing failed
-                // If we've had too many consecutive failures, stop trying
-                if (consecutiveFailures > MAX_CONSECUTIVE_FAILURES || totalSkippedBytes >= MAX_SKIP_BYTES) {
-                    NSLog(@"Too many consecutive parsing failures (%lu) or bytes skipped (%lu), discarding buffer", 
-                          consecutiveFailures, totalSkippedBytes);
-                    // Clear the entire buffer to prevent infinite loops
-                    if (consumedBytes) {
-                        *consumedBytes = [data length];
-                    }
-                    break;
-                }
-                
-                // Look for next potential D-Bus message start (endian byte)
-                const uint8_t *bytes = [data bytes];
-                NSUInteger searchOffset = oldOffset + 1;
-                BOOL foundValidStart = NO;
-                
-                while (searchOffset < [data length] && (searchOffset - oldOffset) < 64) {
-                    if (bytes[searchOffset] == DBUS_LITTLE_ENDIAN || bytes[searchOffset] == DBUS_BIG_ENDIAN) {
-                        // Found potential start, check if it looks like a valid header
-                        if (searchOffset + 4 < [data length]) {
-                            uint8_t type = bytes[searchOffset + 1];
-                            uint8_t version = bytes[searchOffset + 3];
-                            if (type >= 1 && type <= 4 && version == 1) {
-                                foundValidStart = YES;
-                                NSLog(@"Found potential D-Bus message at offset %lu (skipped %lu bytes)", 
-                                      searchOffset, searchOffset - oldOffset);
-                                offset = searchOffset;
-                                totalSkippedBytes += (searchOffset - oldOffset);
-                                break;
-                            }
-                        }
-                    }
-                    searchOffset++;
-                }
-                
-                if (!foundValidStart) {
-                    // This means the data is corrupted, skip ahead by 1 byte and try again
-                    NSLog(@"Failed to parse message at offset %lu, skipping 1 byte", oldOffset);
-                    offset = oldOffset + 1;
-                    totalSkippedBytes++;
-                    continue;
-                }
-            } else {
-                // Not enough data for a complete header, wait for more data
-                break;
+    // ULTRA-VERBOSE DEBUGGING: Show entire buffer on problematic cases
+    if (dataLength > 300) {
+        NSLog(@"=== VERBOSE MESSAGE PARSING: %lu bytes total ===", dataLength);
+        for (NSUInteger i = 0; i < MIN(dataLength, 512); i += 16) {
+            NSMutableString *hexLine = [NSMutableString string];
+            NSMutableString *asciiLine = [NSMutableString string];
+            for (NSUInteger j = 0; j < 16 && i + j < dataLength; j++) {
+                uint8_t byte = bytes[i + j];
+                [hexLine appendFormat:@"%02x ", byte];
+                [asciiLine appendFormat:@"%c", (byte >= 32 && byte < 127) ? byte : '.'];
             }
+            NSLog(@"PARSE %04lx: %-48s %@", i, [hexLine UTF8String], asciiLine);
         }
+        NSLog(@"=== END VERBOSE DUMP ===");
+    }
+    
+    while (offset < dataLength) {
+        NSUInteger messageStart = offset;
         
-        // Successfully parsed a message - but double-check it's not nil
-        if (!message) {
-            NSLog(@"ERROR: message is nil after parsing, skipping");
-            // Don't update lastSuccessfulOffset for nil messages
-            consecutiveFailures++;
-            if (offset == oldOffset) {
-                // No progress made, prevent infinite loop
-                NSLog(@"No progress in message parsing at offset %lu", offset);
-                break;
-            }
-            continue;
-        }
-        
-        consecutiveFailures = 0;
-        
-        if (offset == oldOffset) {
-            // No progress made, prevent infinite loop
-            NSLog(@"No progress in message parsing at offset %lu", offset);
+        // Strict validation: look for valid D-Bus message start
+        if (offset + 16 > dataLength) {
+            // Not enough data for a complete header
+            NSLog(@"PARSE: Not enough data for header at offset %lu (need 16, have %lu)", offset, dataLength - offset);
             break;
         }
-        [messages addObject:message];
-        lastSuccessfulOffset = offset;
+        
+        // Validate endianness byte
+        uint8_t endianness = bytes[offset];
+        if (endianness != DBUS_LITTLE_ENDIAN && endianness != DBUS_BIG_ENDIAN) {
+            NSLog(@"PARSE: Invalid endianness 0x%02x at offset %lu, searching for valid message", endianness, offset);
+            
+            // Search for next valid message start within a reasonable range
+            BOOL foundValid = NO;
+            NSUInteger searchLimit = MIN(offset + 64, dataLength - 16);
+            
+            for (NSUInteger i = offset + 1; i <= searchLimit; i++) {
+                if (bytes[i] == DBUS_LITTLE_ENDIAN || bytes[i] == DBUS_BIG_ENDIAN) {
+                    // Found potential endian byte, validate rest of header
+                    if (i + 16 <= dataLength) {
+                        uint8_t type = bytes[i + 1];
+                        uint8_t version = bytes[i + 3];
+                        if (type >= 1 && type <= 4 && version == 1) {
+                            NSLog(@"PARSE: Found valid D-Bus header at offset %lu (skipped %lu bytes)", i, i - offset);
+                            offset = i;
+                            foundValid = YES;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (!foundValid) {
+                NSLog(@"PARSE: No valid D-Bus message found in search range, consuming all remaining data");
+                if (consumedBytes) {
+                    *consumedBytes = dataLength;
+                }
+                break;
+            }
+        }
+        
+        // Parse the message at current offset
+        NSUInteger oldOffset = offset;
+        MBMessage *message = [self messageFromData:data offset:&offset];
+        
+        if (message) {
+            [messages addObject:message];
+            NSLog(@"PARSE: Successfully parsed message %lu at offset %lu, new offset %lu", 
+                  [messages count], messageStart, offset);
+        } else {
+            // Parsing failed - this is a hard error
+            NSLog(@"PARSE: Failed to parse message at offset %lu", oldOffset);
+            
+            // Show detailed header info for debugging
+            if (oldOffset + 16 <= dataLength) {
+                uint32_t bodyLength = *(uint32_t *)(bytes + oldOffset + 4);
+                uint32_t serial = *(uint32_t *)(bytes + oldOffset + 8);
+                uint32_t fieldsLength = *(uint32_t *)(bytes + oldOffset + 12);
+                
+                // Convert from endianness
+                if (bytes[oldOffset] == DBUS_LITTLE_ENDIAN) {
+                    bodyLength = NSSwapLittleIntToHost(bodyLength);
+                    serial = NSSwapLittleIntToHost(serial);
+                    fieldsLength = NSSwapLittleIntToHost(fieldsLength);
+                } else {
+                    bodyLength = NSSwapBigIntToHost(bodyLength);
+                    serial = NSSwapBigIntToHost(serial);
+                    fieldsLength = NSSwapBigIntToHost(fieldsLength);
+                }
+                
+                NSLog(@"PARSE: Failed header - endian=%c type=%u version=%u bodyLen=%u serial=%u fieldsLen=%u",
+                      bytes[oldOffset], bytes[oldOffset + 1], bytes[oldOffset + 3], 
+                      bodyLength, serial, fieldsLength);
+                
+                // Show raw bytes around the failure point
+                NSUInteger dumpStart = (oldOffset > 8) ? oldOffset - 8 : 0;
+                NSUInteger dumpEnd = MIN(oldOffset + 32, dataLength);
+                NSMutableString *dumpHex = [NSMutableString string];
+                for (NSUInteger i = dumpStart; i < dumpEnd; i++) {
+                    if (i == oldOffset) {
+                        [dumpHex appendFormat:@"[%02x] ", bytes[i]];
+                    } else {
+                        [dumpHex appendFormat:@"%02x ", bytes[i]];
+                    }
+                }
+                NSLog(@"PARSE: Context bytes: %@", dumpHex);
+            }
+            
+            // Try to advance by 1 byte and continue, but only a few times
+            if (offset == oldOffset) {
+                offset = oldOffset + 1;
+                NSLog(@"PARSE: Advanced by 1 byte to offset %lu to recover", offset);
+            }
+            
+            // Safety check: don't loop forever
+            if (offset > oldOffset + 16) {
+                NSLog(@"PARSE: Too much advancement, stopping parse to prevent infinite loop");
+                break;
+            }
+        }
+        
+        // Safety check: ensure we're making progress
+        if (offset <= oldOffset) {
+            NSLog(@"PARSE: No progress made (offset %lu <= oldOffset %lu), stopping", offset, oldOffset);
+            break;
+        }
     }
     
     if (consumedBytes) {
-        *consumedBytes = lastSuccessfulOffset;
+        *consumedBytes = offset;
     }
+    
+    NSLog(@"PARSE: Completed - parsed %lu messages, consumed %lu of %lu bytes", 
+          [messages count], offset, dataLength);
     
     return [messages copy];
 }
@@ -1314,18 +1393,64 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
     NSUInteger pos = 0;
     NSMutableArray *arguments = [NSMutableArray array];
     
+    // CRITICAL FIX: Handle bodies that start with padding bytes
+    // Some D-Bus implementations add extra padding at the start of the body
+    // to ensure the first argument is properly aligned
+    if ([bodyData length] >= 4 && [signature length] > 0) {
+        unichar firstType = [signature characterAtIndex:0];
+        
+        // Check if we're starting with invalid padding (common issue)
+        if (firstType == 's' || firstType == 'o' || firstType == 'g') {
+            // String types need 4-byte alignment
+            // Check if the first 4 bytes look like a reasonable string length
+            uint32_t strLen = *(uint32_t *)(bytes + pos);
+            if (endianness == DBUS_LITTLE_ENDIAN) {
+                strLen = NSSwapLittleIntToHost(strLen);
+            } else {
+                strLen = NSSwapBigIntToHost(strLen);
+            }
+            
+            // If string length is unreasonable, try skipping padding bytes
+            if (strLen == 0 || strLen > 65536) {
+                NSLog(@"DEBUG: First string length %u seems invalid, checking for padding...", strLen);
+                
+                // Try positions 1, 2, 3 to find the real string length
+                for (NSUInteger skipBytes = 1; skipBytes <= 3 && skipBytes < [bodyData length] - 4; skipBytes++) {
+                    uint32_t testLen = *(uint32_t *)(bytes + skipBytes);
+                    if (endianness == DBUS_LITTLE_ENDIAN) {
+                        testLen = NSSwapLittleIntToHost(testLen);
+                    } else {
+                        testLen = NSSwapBigIntToHost(testLen);
+                    }
+                    
+                    // Check if this looks like a reasonable string length
+                    if (testLen > 0 && testLen <= 1024 && skipBytes + 4 + testLen < [bodyData length]) {
+                        NSLog(@"DEBUG: Found reasonable string length %u at offset %lu, skipping %lu padding bytes", 
+                              testLen, skipBytes, skipBytes);
+                        pos = skipBytes;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
     // Parse each signature character
     for (NSUInteger i = 0; i < [signature length]; i++) {
         unichar typeChar = [signature characterAtIndex:i];
         NSLog(@"DEBUG parseArguments: parsing type '%c' at pos %lu (signature index %lu)", typeChar, pos, i);
         
         if (typeChar == 's') {
-            // String - align to 4-byte boundary
-            pos = alignTo(pos, 4);
+            // String - if we haven't already handled padding, align to 4-byte boundary
+            // (The initial padding detection may have already positioned us correctly)
+            if (pos == 0) {
+                pos = alignTo(pos, 4);
+            }
             
             if (pos + 4 > [bodyData length]) break;
             
             uint32_t strLen = *(uint32_t *)(bytes + pos);
+            NSLog(@"DEBUG parseArguments: at pos %lu, remaining buffer: %lu bytes", pos, [bodyData length] - pos);
             
             // Apply correct endianness conversion based on message header
             // Note: NSSwapLittleIntToHost converts FROM little endian TO host
@@ -1336,8 +1461,21 @@ static void addPadding(NSMutableData *data, NSUInteger alignment) {
                 strLen = NSSwapBigIntToHost(strLen);
             }
             
-            NSLog(@"DEBUG parseArguments: raw strLen bytes: %02x %02x %02x %02x, converted: %u", 
-                  bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3], strLen);
+            NSLog(@"DEBUG parseArguments: raw strLen bytes: %02x %02x %02x %02x, converted: %u (endianness=%c)", 
+                  bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3], strLen, endianness);
+            
+            // Show context around this position
+            NSUInteger contextStart = (pos > 8) ? pos - 8 : 0;
+            NSUInteger contextEnd = MIN(pos + 16, [bodyData length]);
+            NSMutableString *contextHex = [NSMutableString string];
+            for (NSUInteger i = contextStart; i < contextEnd; i++) {
+                if (i == pos) {
+                    [contextHex appendFormat:@"[%02x] ", bytes[i]];
+                } else {
+                    [contextHex appendFormat:@"%02x ", bytes[i]];
+                }
+            }
+            NSLog(@"DEBUG parseArguments: context around pos %lu: %@", pos, contextHex);
             
             pos += 4;
             

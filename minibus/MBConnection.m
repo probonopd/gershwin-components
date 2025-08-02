@@ -574,7 +574,13 @@ typedef enum {
                 [_readBuffer setData:[NSData data]];
             }
         } else if ([messages count] == 0) {
-            NSLog(@"No messages parsed, keeping buffer (%lu bytes) for next attempt", (unsigned long)[_readBuffer length]);
+            // If no messages were parsed and we have a large buffer, it's likely corrupted
+            if ([_readBuffer length] > 1024) {
+                NSLog(@"No messages parsed from large buffer (%lu bytes), clearing to prevent issues", (unsigned long)[_readBuffer length]);
+                [_readBuffer setData:[NSData data]];
+            } else {
+                NSLog(@"No messages parsed, keeping small buffer (%lu bytes) for next attempt", (unsigned long)[_readBuffer length]);
+            }
         }
         
         return messages;
