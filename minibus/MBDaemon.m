@@ -518,7 +518,8 @@
     
     // Send reply with proper D-Bus return code
     MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
-                                                    arguments:@[@(result)]];
+                                                    arguments:@[[NSNumber numberWithUnsignedInt:(uint32_t)result]]];
+    reply.signature = @"u"; // Force correct D-Bus signature for uint32
     reply.sender = @"org.freedesktop.DBus";
     reply.destination = connection.uniqueName;
     [connection sendMessage:reply];
@@ -584,6 +585,7 @@
         
         MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                         arguments:@[[NSNumber numberWithUnsignedInt:1]]]; // DBUS_START_REPLY_ALREADY_RUNNING = 1
+        reply.signature = @"u"; // Force correct D-Bus signature for uint32
         reply.sender = @"org.freedesktop.DBus";
         reply.destination = connection.uniqueName;
         [connection sendMessage:reply];
@@ -598,6 +600,7 @@
         
         MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                         arguments:@[[NSNumber numberWithUnsignedInt:1]]]; // DBUS_START_REPLY_ALREADY_RUNNING = 1
+        reply.signature = @"u"; // Force correct D-Bus signature for uint32
         reply.sender = @"org.freedesktop.DBus";
         reply.destination = connection.uniqueName;
         [connection sendMessage:reply];
@@ -610,6 +613,7 @@
         
         MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                         arguments:@[[NSNumber numberWithUnsignedInt:2]]]; // DBUS_START_REPLY_SUCCESS = 2 (activation started)
+        reply.signature = @"u"; // Force correct D-Bus signature for uint32
         reply.sender = @"org.freedesktop.DBus";
         reply.destination = connection.uniqueName;
         [connection sendMessage:reply];
@@ -629,6 +633,7 @@
             
             MBMessage *reply = [MBMessage methodReturnWithReplySerial:message.serial
                                                             arguments:@[[NSNumber numberWithUnsignedInt:2]]]; // DBUS_START_REPLY_SUCCESS = 2
+            reply.signature = @"u"; // Force correct D-Bus signature for uint32
             reply.sender = @"org.freedesktop.DBus";
             reply.destination = connection.uniqueName;
             [connection sendMessage:reply];
