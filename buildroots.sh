@@ -5,8 +5,8 @@
 PROJECTS="BootEnvironments Display GlobalShortcuts StartupDisk LoginWindow globalshortcutsd"
 
 # Additional frameworks and tools
-FRAMEWORKS="Assistants/Framework"
-EXAMPLES="Assistants/DebianRuntimeInstaller"
+FRAMEWORKS="" # "Assistants/Framework"
+EXAMPLES="" # "Assistants/DebianRuntimeInstaller"
 
 export CC=clang
 export OBJC=clang
