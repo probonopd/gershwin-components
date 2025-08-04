@@ -21,9 +21,12 @@ root/
 *.tar.bz2
 *.tar
 LoginWindow/j
-*.log
 minibus/analyze-hello-reply
 minibus/compare-hello-format
 minibus/test-hello-destination
 minibus/minibus-daemon.log
 minibus/daemon.log
+*.framework/
+*.so/
+derived_src/
+old/
