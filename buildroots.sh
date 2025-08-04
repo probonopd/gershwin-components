@@ -35,8 +35,7 @@ prefix: /usr/local
 licenselogic: single
 licenses: [BSD2CLAUSE]
 categories: [gnustep, sysutils, x11]
-desc: |
-  ${project_name}
+desc: ${project_name}
 EOF
 
     # Create compact desc file
