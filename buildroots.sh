@@ -67,8 +67,22 @@ create_pkg_file() {
     
     cd "${project_dir}"
     
-    # Create the pkg file
-    if pkg create --verbose -r "${stagedir}" -m . -o .; then
+    # Generate plist file from staging directory
+    if [ -d "${stagedir}" ]; then
+        echo "Generating plist file for ${project_name}..."
+        find "${stagedir}" -type f -exec echo "{}" \; | sed "s|^${stagedir}||" > pkg-plist
+        
+        # Add directories to plist as well
+        find "${stagedir}" -type d -exec echo "@dir {}" \; | sed "s|^@dir ${stagedir}|@dir |" | grep -v "^@dir $" >> pkg-plist
+        
+        echo "Generated plist with $(wc -l < pkg-plist) entries"
+    else
+        echo "Error: Staging directory ${stagedir} does not exist"
+        return 1
+    fi
+    
+    # Create the pkg file with plist
+    if pkg create --verbose -r "${stagedir}" -m . -p pkg-plist -o .; then
         echo "Successfully created pkg file for ${project_name}"
         return 0
     else
@@ -80,13 +94,13 @@ create_pkg_file() {
 echo "Building all preference panes and tools..."
 
 # Install build dependencies
-echo "Installing build dependencies..."
-sudo pkg install -y gnustep-make gnustep-base gnustep-gui gnustep-back gmake systempreferences || {
-    echo "Error: Failed to install build dependencies"
-    exit 1
-}
-echo "Build dependencies installed successfully"
-echo ""
+# echo "Installing build dependencies..."
+# sudo pkg install -y gnustep-make gnustep-base gnustep-gui gnustep-back gmake systempreferences || {
+#     echo "Error: Failed to install build dependencies"
+#     exit 1
+# }
+# echo "Build dependencies installed successfully"
+# echo ""
 
 # If GNUSTEP_MAKEFILES is not set, source GNUstep.sh to set it up
 if [ -z "$GNUSTEP_MAKEFILES" ]; then
