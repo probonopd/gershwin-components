@@ -15,12 +15,17 @@ export CXX=clang++
 
 HERE="$(dirname "$(readlink -f "$0")")"
 
+# Function to print build steps consistently
+print_step() {
+    echo "[buildroots.sh] $1"
+}
+
 # Function to create pkg manifest files on the fly
 create_pkg_manifest() {
     local project_name="$1"
     local project_dir="$2"
     local stagedir="$3"
-    local version="${4:-m}"
+    local version="${4:-g$(date +%Y%m%d)}"
     
     # Create manifest file
     cat > "${project_dir}/+MANIFEST" << EOF
@@ -91,7 +96,7 @@ create_pkg_file() {
     fi
 }
 
-echo "Building all preference panes and tools..."
+print_step "Building all preference panes and tools..."
 
 # Install build dependencies
 # echo "Installing build dependencies..."
@@ -294,3 +299,63 @@ if [ "$COLLECTED_COUNT" -gt 0 ]; then
         echo "  $line"
     done
 fi
+
+echo ""
+print_step "=== Creating FreeBSD Package Repository ==="
+
+# Get ABI information for repository structure
+ABI=$(pkg config abi 2>/dev/null || echo "FreeBSD:14:amd64")
+echo "Using ABI: $ABI"
+
+# Create repository directory
+REPO_DIR="$HERE/$ABI"
+mkdir -p "$REPO_DIR"
+
+# Count and move all .pkg files to repository directory
+PKG_COUNT=0
+echo "Moving all .pkg files to repository directory..."
+for pkg_file in "$HERE"/*/*.pkg "$HERE/out"/*.pkg; do
+    if [ -f "$pkg_file" ]; then
+        echo "  Moving $(basename "$pkg_file") to $ABI/"
+        mv "$pkg_file" "$REPO_DIR/"
+        PKG_COUNT=$((PKG_COUNT + 1))
+    fi
+done
+
+if [ "$PKG_COUNT" -gt 0 ]; then
+    echo "Moved $PKG_COUNT package files to repository"
+    
+    # Create repository metadata
+    echo "Creating repository metadata..."
+    if pkg repo "$REPO_DIR/"; then
+        echo "Repository metadata created successfully"
+    else
+        echo "Warning: Failed to create repository metadata"
+    fi
+    
+    # Generate index.html for the repository
+    echo "Generating index.html for repository..."
+    cd "$REPO_DIR"
+    echo "<html><head><title>Gershwin Preference Panes Repository</title></head><body>" > index.html
+    echo "<h1>Gershwin Preference Panes Repository</h1>" >> index.html
+    echo "<p>FreeBSD packages for Gershwin preference panes and tools</p>" >> index.html
+    echo "<ul>" >> index.html
+    find . -maxdepth 1 -name "*.pkg" -exec basename {} \; | sort | while read -r file; do
+        echo "<li><a href=\"$file\" download>$file</a></li>" >> index.html
+    done
+    echo "</ul>" >> index.html
+    echo "<p>Generated on $(date)</p>" >> index.html
+    echo "</body></html>" >> index.html
+    cd "$HERE"
+    
+    echo "Repository created in: $REPO_DIR"
+    echo "Repository contents:"
+    ls -la "$REPO_DIR"
+    readlink -f "$REPO_DIR/index.html" || echo "No index.html generated"
+    
+else
+    echo "No package files found to create repository"
+fi
+
+echo ""
+echo "Build and packaging completed successfully!"
