@@ -18,8 +18,8 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # Bootstrap pkg if needed
-log "Bootstrapping pkg..."
-ASSUME_ALWAYS_YES=yes pkg bootstrap -f
+# log "Bootstrapping pkg..."
+# ASSUME_ALWAYS_YES=yes pkg bootstrap -f
 
 # Install basic dependencies first
 log "Installing basic dependencies..."
@@ -27,6 +27,7 @@ pkg install -y git-lite gmake
 
 # Configure Gershwin repository
 log "Configuring Gershwin repository..."
+mkdir -p /usr/local/etc/pkg/repos/
 cat > /usr/local/etc/pkg/repos/Gershwin.conf <<'EOF'
 Gershwin: {
   url: "https://api.cirrus-ci.com/v1/artifact/github/gershwin-desktop/gershwin-unstable-ports/data/packages/FreeBSD:14:amd64",

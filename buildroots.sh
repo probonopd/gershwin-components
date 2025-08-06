@@ -336,9 +336,7 @@ if [ "$PKG_COUNT" -gt 0 ]; then
     # Generate index.html for the repository
     echo "Generating index.html for repository..."
     cd "$REPO_DIR"
-    echo "<html><head><title>Gershwin Preference Panes Repository</title></head><body>" > index.html
-    echo "<h1>Gershwin Preference Panes Repository</h1>" >> index.html
-    echo "<p>FreeBSD packages for Gershwin preference panes and tools</p>" >> index.html
+    echo "<html><head></head><body>" > index.html
     echo "<ul>" >> index.html
     find . -maxdepth 1 -name "*.pkg" -exec basename {} \; | sort | while read -r file; do
         echo "<li><a href=\"$file\" download>$file</a></li>" >> index.html
