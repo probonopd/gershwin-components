@@ -2,7 +2,7 @@
 # Build all projects and package them into tar.zst archives
 
 # Projects to build
-PROJECTS="BootEnvironments Display GlobalShortcuts StartupDisk LoginWindow globalshortcutsd"
+PROJECTS="BootEnvironments Display GlobalShortcuts StartupDisk LoginWindow globalshortcutsd SudoAskPass"
 
 # Additional frameworks and tools
 FRAMEWORKS="" # "Assistants/Framework"
