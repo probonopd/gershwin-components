@@ -1,5 +1,3 @@
-- Check dbus-specification.html for the official spec that we must conform to, and `tmp/` directory for working reference code!!!!!! Follow that logic flow when ours doesn't work. Always check the spec file.
-
 - Use commands from `$PATH`, not hardcoded paths.
 - Use `gmake`, not `make`.
 - Avoid bashisms; use POSIX sh.
@@ -15,5 +13,3 @@
 - Always run commands with `timeout` to prevent hanging.
 - If you run the same command multiple times, write an action to run it instead of repeating the command.
 - We don't have `strace`, so use `truss` for tracing system calls.
-
-- When observing dbus-daemon, we could replace the socket endpoint with a proxy using tools like socat to capture raw socket traffic. This allows you to effectively listen to the underlying UNIX socket communication that dbus-daemon uses.
