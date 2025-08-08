@@ -2,7 +2,7 @@
 - Use `gmake`, not `make`.
 - Avoid bashisms; use POSIX sh.
 - Build the application until it works, even with multiple attempts.
-- Fix all compiler warnings, regardless of severity.
+- Use -Wall -Wextra -Werror -O2, fix all compiler warnings, regardless of severity.
 - Use `sudo -A` for commands requiring root privileges.
 - Compile with `clang19`, never `gcc`.
 - Use extensive logging for debugging with NSLog.

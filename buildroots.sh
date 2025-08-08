@@ -75,9 +75,13 @@ create_pkg_file() {
     # Generate plist file from staging directory
     if [ -d "${stagedir}" ]; then
         echo "Generating plist file for ${project_name}..."
+        # Include regular files
         find "${stagedir}" -type f -exec echo "{}" \; | sed "s|^${stagedir}||" > pkg-plist
         
-        # Add directories to plist as well
+        # Include symlinks (needed for projects like SudoAskPass that create command-line tools)
+        find "${stagedir}" -type l -exec echo "{}" \; | sed "s|^${stagedir}||" >> pkg-plist
+        
+        # Include directories
         find "${stagedir}" -type d -exec echo "@dir {}" \; | sed "s|^@dir ${stagedir}|@dir |" | grep -v "^@dir $" >> pkg-plist
         
         echo "Generated plist with $(wc -l < pkg-plist) entries"
