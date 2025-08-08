@@ -14,8 +14,7 @@ su
 
 cat > /usr/local/etc/pkg/repos/Gershwin-components.conf <<\EOF
 Gershwin-components: {
-  url: "[https://api.cirrus-ci.com/v1/artifact/github/gershwin-desktop/gershwin-unstable-ports/data/packages/FreeBSD:14:amd64](https://api.cirrus-ci.com/v1/artifact/github/probonopd/gershwin-components/data/packages/FreeBSD:14:amd64
-)",
+  url: "https://api.cirrus-ci.com/v1/artifact/github/gershwin-desktop/gershwin-unstable-ports/data/packages/FreeBSD:14:amd64",
   mirror_type: "http",
   enabled: yes
 }
