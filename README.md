@@ -1,4 +1,4 @@
-# Components for Gershwin
+# Components for Gershwin [![](https://api.cirrus-ci.com/github/probonopd/gershwin-components.svg)](https://cirrus-ci.com/github/probonopd/gershwin-components)
 
 This repository contains several components such as applications and preference panes designed for FreeBSD systems running the Gershwin desktop environment but potentially also useful elsewhere.
 
