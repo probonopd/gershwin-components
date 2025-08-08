@@ -1,49 +1,17 @@
-task:
-    alias: pkg
-    freebsd_instance:
-      cpu: 4
-      memory: 16G
-      matrix:
-        # image: freebsd-13-1-release-amd64
-        - image: freebsd-14-2-release-amd64-ufs
+freebsd_instance:
+  image_family: freebsd-14-2
+  cpu: 2
+  memory: 4G
 
-    env:
-      CIRRUS_CLONE_DEPTH: 1
-      GITHUB_TOKEN: ENCRYPTED[4835b73bc800439a58999faa57d56ee2c150b7c1fffe6a4bbb484120cf6a9cd4bf3a2a8cf0b772a6ee2ec8d91c3afc14]
-      BATCH: 1
-      CCACHE_DIR: "/tmp/.ccache"
-      CCACHE_COMPRESS: 1
-      CCACHE_SIZE: "200M"
-      CCACHE_STATIC_PREFIX: "/usr/local"
-      CCACHE_NOSTATS: 1
-      CCACHE_TEMPDIR: "/tmp"
-      WITH_CCACHE_BUILD: "YES"
-      # PORTS_BRANCH: "2023Q1"
-      PORTS_BRANCH: "2025Q2"
-    portstree_cache:
-      folder: /usr/ports/
-    ccache_cache:
-      folder: ${CCACHE_DIR}
-    pkg_cache:
-      folder: /var/cache/pkg/
-    timeout_in: 90m
+build_task:
+  name: "Build packages for FreeBSD:14:amd64"
+  alias: data
 
-    prerequisites_script:
-      - sh -ex ./install-gershwin.sh
+  install_script:
+    - sh -ex ./install-gershwin.sh
+  
+  build_script:
+    - sh -e ./buildroots.sh
 
-#    portstree_setup_script:
-#      - if [ ! -f "/usr/ports/${PORTS_BRANCH}" ] ; then mkdir -p /usr/ports && fetch "https://github.com/freebsd/freebsd-ports/archive/refs/heads/${PORTS_BRANCH}.tar.gz" -o - | tar xf - -C /usr/ports --strip-components=1 && touch "/usr/ports/${PORTS_BRANCH}" ; fi
-#
-#    ccache_setup_script:
-#      - env IGNORE_OSVERSION=yes
-#      - pkg install -y ccache-static
-#      - ccache --max-size=${CCACHE_SIZE}
-#      - echo "WITH_CCACHE_BUILD=yes" >> /etc/make.conf
-
-    build_script:
-      # sh -ex ./ports/build.sh
-      sh -e ./buildroots.sh
-
-    # Upload artifacts
-    packages_artifacts:
-      path: "./FreeBSD:14:amd64/**/*"
+  packages_artifacts:
+    path: "./FreeBSD:14:amd64/**/*"
