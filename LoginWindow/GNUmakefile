@@ -52,4 +52,14 @@ uninstall::
 	rm -rf $(GNUSTEP_APPS_DIR)/$(APP_NAME).app
 	@echo "Uninstallation complete."
 
+# Override built-in install targets to do nothing
+$(APP_NAME).install.application.variables::
+	@true
+
+shared-instance-application-install::
+	@true
+
+internal-application-install::
+	@true
+
 .PHONY: install uninstall
