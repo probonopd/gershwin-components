@@ -34,7 +34,7 @@ version: ${version}
 origin: sysutils/gershwin-${project_name}
 comment: ${project_name}
 arch: FreeBSD:14:amd64
-www: https://github.com/probonopd/gershwin-prefpanes
+www: https://github.com/probonopd/gershwin-components
 maintainer: ports@FreeBSD.org
 prefix: /usr/local
 licenselogic: single
