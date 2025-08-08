@@ -44,6 +44,6 @@ task:
       # sh -ex ./ports/build.sh
       sh -e ./buildroots.sh
 
-    binary_artifacts:
-      path: "out/*"
-      path: "FreeBSD:**/*"
+    # Upload artifacts
+    packages_artifacts:
+      path: "./FreeBSD:14:amd64/**/*"
