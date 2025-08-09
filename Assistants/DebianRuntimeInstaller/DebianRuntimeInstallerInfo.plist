@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleExecutable</key>
+	<string>DebianRuntimeInstaller</string>
+	<key>CFBundleGetInfoString</key>
+	<string>Debian Runtime Installer 1.0, Copyright (c) 2024 Gershwin Project</string>
+	<key>CFBundleIconFile</key>
+	<string>Install Debian Runtime.png</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.gershwin.DebianRuntimeInstaller</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Debian Runtime Installer</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleSignature</key>
+	<string>DRTS</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>NSMainNibFile</key>
+	<string></string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>ApplicationDescription</key>
+	<string>Install a Debian Linux runtime for running Linux applications on FreeBSD/GNUstep</string>
+	<key>ApplicationRelease</key>
+	<string>1.0</string>
+	<key>Authors</key>
+	<string>Gershwin Project</string>
+	<key>Copyright</key>
+	<string>Copyright (c) 2024 Gershwin Project. All rights reserved.</string>
+	<key>CopyrightDescription</key>
+	<string>This application is free software.</string>
+	<key>FullVersionID</key>
+	<string>1.0</string>
+	<key>URL</key>
+	<string>https://github.com/gershwin</string>
+</dict>
+</plist>

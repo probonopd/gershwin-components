@@ -1,0 +1,1 @@
+GSAssistantWindow.o: GSAssistantWindow.m

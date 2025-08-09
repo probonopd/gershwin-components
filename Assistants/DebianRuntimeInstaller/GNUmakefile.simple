@@ -1,0 +1,36 @@
+#
+# Simple GNUmakefile for Debian Runtime Installer Test
+#
+
+include $(GNUSTEP_MAKEFILES)/common.make
+
+# Application information
+APP_NAME = DebianRuntimeInstaller
+VERSION = 1.0
+
+# Source files
+DebianRuntimeInstaller_OBJC_FILES = \
+	DebianRuntimeInstaller.m
+
+# Resource files
+DebianRuntimeInstaller_RESOURCE_FILES = \
+	Resources/debian \
+	Resources/Install\ Debian\ Runtime.png \
+	Resources/background.png \
+	Resources/check.png \
+	Resources/cross.png
+
+# Compiler flags
+DebianRuntimeInstaller_OBJCFLAGS += -Wall -Wextra -std=gnu99
+
+# GUI application
+DebianRuntimeInstaller_GUI_LIBS += -lgnustep-gui
+
+include $(GNUSTEP_MAKEFILES)/application.make
+
+# Post-installation tasks
+after-install::
+	@echo "Debian Runtime Installer has been installed successfully."
+
+clean::
+	@echo "Cleaning DebianRuntimeInstaller..."
