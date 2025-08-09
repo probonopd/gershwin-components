@@ -324,27 +324,27 @@ NSDate *bootOrderChangedTime = nil;
     
     // Don't refresh if the user has made changes that haven't been applied yet
     // But add a safety mechanism - if bootOrderChanged has been true for too long, reset it
-    static NSDate *bootOrderChangedTime = nil;
+    static NSDate *localBootOrderChangedTime = nil;
     if (bootOrderChanged) {
-        if (!bootOrderChangedTime) {
-            bootOrderChangedTime = [[NSDate date] retain];
+        if (!localBootOrderChangedTime) {
+            localBootOrderChangedTime = [[NSDate date] retain];
         }
         
         // If it's been more than 10 seconds since the flag was set, reset it
-        if ([[NSDate date] timeIntervalSinceDate:bootOrderChangedTime] > 10.0) {
+        if ([[NSDate date] timeIntervalSinceDate:localBootOrderChangedTime] > 10.0) {
             NSLog(@"StartupDiskController: bootOrderChanged flag stuck for >10 seconds, resetting");
             bootOrderChanged = NO;
-            [bootOrderChangedTime release];
-            bootOrderChangedTime = nil;
+            [localBootOrderChangedTime release];
+            localBootOrderChangedTime = nil;
         } else {
             NSLog(@"StartupDiskController: Skipping refresh because boot order has changed");
             return;
         }
     } else {
         // Reset the timer when bootOrderChanged becomes NO
-        if (bootOrderChangedTime) {
-            [bootOrderChangedTime release];
-            bootOrderChangedTime = nil;
+        if (localBootOrderChangedTime) {
+            [localBootOrderChangedTime release];
+            localBootOrderChangedTime = nil;
         }
     }
     
@@ -393,9 +393,27 @@ NSDate *bootOrderChangedTime = nil;
 }
 - (void)handleBootEntriesResult:(NSDictionary *)resultDict
 {
-    BOOL success = [[resultDict objectForKey:@"success"] boolValue];
+    // Safely extract values with null checks
+    if (!resultDict) {
+        NSLog(@"StartupDiskController: handleBootEntriesResult called with nil resultDict");
+        [self updateBootEntriesDisplay];
+        return;
+    }
+    
+    NSNumber *successNum = [resultDict objectForKey:@"success"];
+    BOOL success = successNum ? [successNum boolValue] : NO;
     NSString *output = [resultDict objectForKey:@"output"];
     NSString *errorOutput = [resultDict objectForKey:@"error"];
+    
+    // Ensure we have valid strings
+    if (!output) output = @"";
+    if (!errorOutput) errorOutput = @"";
+    
+    NSLog(@"StartupDiskController: handleBootEntriesResult - success: %@, output length: %lu, error length: %lu", 
+          success ? @"YES" : @"NO", 
+          (unsigned long)[output length],
+          (unsigned long)[errorOutput length]);
+    
     if (!success) {
         // Stop the timer if the helper is not running
         if (bootOrderChangedTime) {
@@ -406,20 +424,29 @@ NSDate *bootOrderChangedTime = nil;
         
         // Show error panel instead of creating fake entries
         NSString *errorMessage;
-        if ([errorOutput containsString:@"must be run as root"] || [errorOutput containsString:@"Permission denied"]) {
+        NSString *detailedError = errorOutput;
+        
+        // If no specific error was captured, provide a generic message
+        if (!detailedError || [detailedError length] == 0) {
+            detailedError = @"Command failed with no error output (exit code 1)";
+        }
+        
+        if ([detailedError containsString:@"must be run as root"] || [detailedError containsString:@"Permission denied"]) {
             errorMessage = @"Administrator privileges required to access boot entries";
-        } else if ([errorOutput containsString:@"No such file or directory"]) {
+        } else if ([detailedError containsString:@"No such file or directory"]) {
             errorMessage = @"EFI boot manager not available on this system";
-        } else if ([errorOutput containsString:@"No BootOrder"]) {
-            errorMessage = @"No EFI boot entries found";
+        } else if ([detailedError containsString:@"No BootOrder"] || [detailedError containsString:@"No such variable"]) {
+            errorMessage = @"No EFI boot entries found on this system";
+        } else if ([detailedError containsString:@"exit code 1"]) {
+            errorMessage = @"EFI boot manager is not supported or not available on this system";
         } else {
-            errorMessage = [NSString stringWithFormat:@"Boot manager error"];
+            errorMessage = @"Boot manager error occurred";
         }
         
         // Show error panel
         [self showBootErrorAlert:[NSDictionary dictionaryWithObjectsAndKeys:
                                   @"Startup Disk Error", @"title",
-                                  [NSString stringWithFormat:@"%@\n\nDetailed error: %@", errorMessage, errorOutput], @"message",
+                                  [NSString stringWithFormat:@"%@\n\nDetailed error: %@", errorMessage, detailedError], @"message",
                                   nil]];
         
         [self updateBootEntriesDisplay];
@@ -922,6 +949,7 @@ NSDate *bootOrderChangedTime = nil;
                 NSArray *lines = [output componentsSeparatedByString:@"\n"];
                 
                 for (NSString *line in lines) {
+                    NSLog(@"StartupDiskController: Helper output line: %@", line);
                     if ([line hasPrefix:@"RESULT:"]) {
                         result = [[line substringFromIndex:7] intValue];
                     } else if ([line isEqualToString:@"OUTPUT_START"]) {
@@ -953,6 +981,15 @@ NSDate *bootOrderChangedTime = nil;
             }
         }
         
+        // Check if we timed out
+        if (!commandComplete) {
+            NSLog(@"StartupDiskController: Command timed out after 30 seconds");
+            if (error) {
+                *error = @"Command timed out after 30 seconds";
+            }
+            return NO;
+        }
+        
         if (response) {
             *response = [NSString stringWithString:responseBuffer];
         }
@@ -961,6 +998,12 @@ NSDate *bootOrderChangedTime = nil;
         }
         
         NSLog(@"StartupDiskController: Command completed with result: %d", result);
+        NSLog(@"StartupDiskController: Response buffer length: %lu", (unsigned long)[responseBuffer length]);
+        NSLog(@"StartupDiskController: Error buffer length: %lu", (unsigned long)[errorBuffer length]);
+        if ([errorBuffer length] > 0) {
+            NSLog(@"StartupDiskController: Error buffer content: %@", errorBuffer);
+        }
+        
         return (result == 0);
     }
     @catch (NSException *exception) {
@@ -1044,25 +1087,41 @@ NSDate *bootOrderChangedTime = nil;
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)aTableView
 {
+    if (bootEntries == nil) {
+        NSLog(@"StartupDiskController: numberOfRowsInTableView called with nil bootEntries");
+        return 0;
+    }
     return [bootEntries count];
 }
 
 - (id)tableView:(NSTableView *)aTableView objectValueForTableColumn:(NSTableColumn *)aTableColumn row:(NSInteger)rowIndex
 {
-    if (rowIndex >= 0 && rowIndex < [bootEntries count]) {
+    if (rowIndex >= 0 && rowIndex < [bootEntries count] && bootEntries != nil) {
         NSDictionary *entry = [bootEntries objectAtIndex:rowIndex];
-        NSString *description = [entry objectForKey:@"description"];
-        
-        // Add priority indicator
-        NSString *priorityText = [NSString stringWithFormat:@"%ld. %@", (long)(rowIndex + 1), description];
-        return priorityText;
+        if (entry != nil) {
+            NSString *description = [entry objectForKey:@"description"];
+            if (description != nil) {
+                // Add priority indicator
+                NSString *priorityText = [NSString stringWithFormat:@"%ld. %@", (long)(rowIndex + 1), description];
+                return priorityText;
+            }
+        }
     }
     return @"";
 }
 
 - (NSImage *)iconForBootEntry:(NSDictionary *)entry
 {
+    if (entry == nil) {
+        NSLog(@"StartupDiskController: iconForBootEntry called with nil entry");
+        return [NSImage imageNamed:@"NSFolder"];
+    }
+    
     NSString *description = [entry objectForKey:@"description"];
+    if (description == nil) {
+        description = @"";
+    }
+    
     NSImage *icon = nil;
     
     // Try to determine icon based on description
@@ -1088,19 +1147,27 @@ NSDate *bootOrderChangedTime = nil;
 {
     NSLog(@"StartupDiskController: willDisplayCell called for row %ld, cell class: %@", (long)rowIndex, [aCell class]);
     
-    if (rowIndex >= 0 && rowIndex < [bootEntries count]) {
-        NSDictionary *entry = [bootEntries objectAtIndex:rowIndex];
-        NSImage *icon = [self iconForBootEntry:entry];
-        
-        NSLog(@"StartupDiskController: Setting icon for entry: %@, icon: %@", [entry objectForKey:@"description"], icon);
-        
-        if ([aCell isKindOfClass:[BootEntryCell class]]) {
-            BootEntryCell *bootCell = (BootEntryCell *)aCell;
-            [bootCell setImage:icon];
-            NSLog(@"StartupDiskController: Icon set on BootEntryCell successfully");
-        } else {
-            NSLog(@"StartupDiskController: WARNING - Cell is not BootEntryCell, it's %@", [aCell class]);
-        }
+    if (bootEntries == nil || rowIndex < 0 || rowIndex >= [bootEntries count]) {
+        NSLog(@"StartupDiskController: Invalid row index or nil bootEntries in willDisplayCell");
+        return;
+    }
+    
+    NSDictionary *entry = [bootEntries objectAtIndex:rowIndex];
+    if (entry == nil) {
+        NSLog(@"StartupDiskController: Nil entry at row %ld", (long)rowIndex);
+        return;
+    }
+    
+    NSImage *icon = [self iconForBootEntry:entry];
+    
+    NSLog(@"StartupDiskController: Setting icon for entry: %@, icon: %@", [entry objectForKey:@"description"], icon);
+    
+    if ([aCell isKindOfClass:[BootEntryCell class]]) {
+        BootEntryCell *bootCell = (BootEntryCell *)aCell;
+        [bootCell setImage:icon];
+        NSLog(@"StartupDiskController: Icon set on BootEntryCell successfully");
+    } else {
+        NSLog(@"StartupDiskController: WARNING - Cell is not BootEntryCell, it's %@", [aCell class]);
     }
 }
 
