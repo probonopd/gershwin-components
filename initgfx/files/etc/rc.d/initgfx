@@ -1,0 +1,480 @@
+#!/bin/sh
+#
+# Copyright (c) 2020, The NomadBSD Project
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# PROVIDE: initgfx
+# REQUIRE: LOGIN
+# BEFORE: slim
+
+. /etc/rc.subr
+
+name=initgfx
+start_cmd="do_initgfx"
+
+rcvar=initgfx_enable
+
+load_rc_config ${name}
+
+: ${initgfx_enable:="YES"}
+
+path_config_id="/var/initgfx_config.id"
+path_xorg_cfg_dir="/usr/local/etc/X11/xorg.conf.d"
+path_xorg_cfg="${path_xorg_cfg_dir}/00-video-${name}.conf"
+
+path_drm_legacy="/boot/drm_legacy"
+path_nvidia="/usr/local/nvidia"
+
+path_initgfx_xorg_templates="/etc/${name}_xorg.cfg"
+path_initgfx_device_db="/etc/${name}_device.db"
+
+path_cfg_test_dir="/tmp/${name}.$$"
+path_tmp_rc_conf="/tmp/rc.conf.$$"
+
+# Include device info DB
+. ${path_initgfx_device_db}
+
+# Include Xorg config file templates
+. ${path_initgfx_xorg_templates}
+
+initgfx_warn()
+{
+	echo "${name}:" $* >&2
+}
+
+initgfx_debug()
+{
+	echo "${name}:" $* >&2
+}
+
+del_stale_files()
+{
+	rm -f "/usr/local/etc/libmap.d/nvidia.conf" > /dev/null 2>&1
+	rm -f "${path_xorg_cfg}" > /dev/null 2>&1
+	rm -f "${path_config_id}" > /dev/null 2>&1
+}
+
+restore_symlinks()
+{
+	local extpath=/usr/local/lib/xorg/modules/extensions
+
+	if [ -L "${extpath}/libglx.so" ]; then
+		rm -f "${extpath}/libglx.so"
+	fi
+	if [ ! -e "${extpath}/libglx.so" ]; then
+		ln -s "${extpath}/.xorg/libglx.so" ${extpath}/
+	fi
+}
+
+__reset()
+{
+	del_stale_files
+	restore_symlinks
+}
+
+calc_config_id()
+{
+	sysctl dev.vgapci | sort | md5
+}
+
+check_configured()
+{
+	local prev_id curr_id
+	[ ! -f "${path_config_id}" ] && return 1
+	prev_id=$(cat "${path_config_id}")
+	curr_id=$(calc_config_id)
+	[ "${prev_id}" = "${curr_id}" ] && return 0
+	initgfx_debug "System configuration changed"
+	return 1
+}
+
+save_config_id()
+{
+	calc_config_id > "${path_config_id}"
+	sync
+}
+
+set_kldconfig_path()
+{
+	local path
+	path=$(realpath -q "$1")
+	[ -z "${path}" ] && return
+	if [ ! -d "${path}" ]; then
+		mod_dir=$(dirname "${path}")
+	else
+		mod_dir=${path}
+	fi
+	if ! (kldconfig -r | grep -q "${mod_dir}"); then
+		kldconfig -im ${mod_dir} >/dev/null 2>&1
+	fi
+}
+
+test_x()
+{
+	local cmd
+
+	if [ ! -d "${path_cfg_test_dir}" ]; then
+		mkdir "${path_cfg_test_dir}" 2>/dev/null
+	fi
+	cp "${path_xorg_cfg}" "${path_cfg_test_dir}"
+	if [ -x /usr/local/bin/xmessage ]; then
+		cmd="/usr/local/bin/xmessage -buttons '' -timeout 3"
+		cmd="${cmd} -center 'Please wait ...'"
+	else
+		cmd="sleep 3"
+	fi
+	PATH="${PATH}:/usr/local/bin" /usr/local/bin/xinit \
+		/bin/sh -c "${cmd}; /usr/bin/true" -- -configdir \
+			"${path_cfg_test_dir}"
+}
+
+
+get_vgapci_devices() {
+	__devindex=1
+	default_unit=$(sysctl -n hw.pci.default_vgapci_unit)
+	[ -z "${default_unit}" -o "${default_unit}" =  "-1" ] && default_unit=0
+	__device_list=$(pciconf -lv | awk -v default_unit=${default_unit} '{
+		if (/^vgapci/) {
+			if (in_vgapci_entry) {
+				recs[++nrecs] = sprintf("%s\t%s\t%s\t%s\t%s",
+				    unit, bus, vendor, device, descr);
+			}
+			in_vgapci_entry = 1;
+			n = split($0, a, "[ \t]+");
+			split(a[1], b, "^vgapci|[@:]+");
+			unit = b[2];
+			bus = sprintf("%d:%d:%d", b[4], b[5], b[6]);
+			for (i = 2; i <= n; i++) {
+				if (match(a[i], "^chip=0x")) {
+					device = substr(a[i], 8, 4);
+					vendor = substr(a[i], 12, 4);
+					break;
+				} else if (match(a[i], "^vendor=0x")) {
+					vendor = substr(a[i], 10, 4)
+				} else if (match(a[i], "^device=0x")) {
+					device = substr(a[i], 10, 4)
+				}
+			}
+		} else if (/^[^ \t]/) {
+			if (in_vgapci_entry) {
+				recs[++nrecs] = sprintf("%s\t%s\t%s\t%s\t%s",
+				    unit, bus, vendor, device, descr);
+			}
+			in_vgapci_entry = 0;
+		} else if (in_vgapci_entry && /^[ \t]+device[ \t]+=/) {
+			n = split($0, a, "^[ \t]+device[ \t]+=[ \t]+");
+			descr = "";
+			if (n >= 2)
+				descr = a[2];
+		}
+	}
+	END {
+		if (in_vgapci_entry) {
+			recs[++nrecs] = sprintf("%s\t%s\t%s\t%s\t%s",
+			    unit, bus, vendor, device, descr);
+		}
+		# Make record matching the default unit the first one
+		rx = sprintf("^%d[\t]+", default_unit);
+		for (i = 1; i <= nrecs; i++)
+			if (recs[i] ~ rx) {
+				print(recs[i]);
+				break
+			}
+		for (i = 1; i <= nrecs; i++)
+			if (recs[i] !~ rx)
+				print(recs[i]);
+	}')
+}
+
+next_device()
+{
+	local rec ret IFS
+
+	[ -z "${__device_list}" ] && return 1
+	rec=$(printf "${__device_list}" | awk -v idx=${__devindex} '{
+		if (++n == idx) {
+			printf("%s\n", $0); exit(0)
+		}
+	}
+	END {
+		if (n != idx)
+			exit(1)
+	}')
+	ret=$?
+	__devindex=$((${__devindex} + 1))
+	[ ${ret} -ne 0 ] && return 1
+	IFS="	"
+	set -- ${rec}
+	unit=$1; busID=$2; vendor=$3; device=$4; descr=$5
+
+	return 0
+}
+
+rc_conf_d_ldconfig()
+{
+cat << rc_conf_d_END
+#!/bin/sh
+ldconfig_paths="\${ldconfig_paths} $1"
+rc_conf_d_END
+}
+
+__wait()
+{
+	n=$1
+	while [ $n -gt 0 ]; do
+		printf "\rWaiting %02d seconds" $n
+		n=$((n - 1))
+		sleep 1
+	done
+	echo
+}
+
+setup_intel()
+{
+	local kmod
+
+	[ "${vendor}" != 8086 ] && return 1
+	if i915_drm_legacy_ids | grep -iq ${device}; then
+		xorg_cfg_intel > "${path_xorg_cfg}"
+	else
+		xorg_cfg_modesetting > "${path_xorg_cfg}"
+	fi
+	kmod="/boot/modules/i915kms.ko"
+	set_kldconfig_path "${kmod}"
+	kldload "${kmod}"
+	sysrc -f "${path_tmp_rc_conf}" initgfx_kmods="${kmod}"
+	sync
+	return 0
+}
+
+setup_ati_amd()
+{
+	local path driver kmod
+
+	[ "${vendor}" != 1002 ] && return 1
+	if radeon_ids | grep -iq ${device}; then
+		driver="ati"
+		kmod="/boot/modules/radeonkms.ko"
+	else
+		driver="amd"
+		kmod="/boot/modules/amdgpu.ko"
+	fi
+	kldload ${kmod}
+	sysrc -f "${path_tmp_rc_conf}" initgfx_kmods="${kmod}"
+	eval ${driver}_xorg_cfg > "${path_xorg_cfg}"
+	sync
+	return 0
+}
+
+setup_nvidia()
+{
+	local d dir driver srcdir device_descr
+
+	[ "${vendor}" != "10de" ] && return 1
+	device_descr=$(echo "${descr}" | cut -d"'" -f 2)
+	driver=""
+	for d in latest 390 340 304; do
+		nvidia_${d}_ids | awk -v descr="${device_descr}" '
+			match(tolower(descr), tolower($0)) > 0 {
+				printf("%s ~ %s\n", descr, $0);
+				exit(100)
+			}
+		'
+		if [ $? -eq 100 ]; then
+			driver=$d
+			break
+		fi
+	done
+	[ -z "${driver}" ] && return 1
+	[ ! -d /usr/local/etc/libmap.d ] && mkdir /usr/local/etc/libmap.d
+
+	srcdir="${path_nvidia}/${driver}"
+
+	dir=/usr/local/etc/libmap.d 
+	tar -C ${srcdir}${dir} -cf - . | tar -C ${dir} -xf -
+
+	rc_conf_d_ldconfig ${srcdir}/usr/local/lib > \
+		/etc/rc.conf.d/ldconfig
+	ldconfig -m /usr/local/nvidia/${driver}/usr/local/lib
+
+	dir=/usr/local/lib/xorg/modules/drivers
+	# Restore symlink if it was removed or overwritten
+	if [ ! -L "${dir}/nvidia_drv.so" ]; then
+		if [ ! -d "/nvidia/${dir}" ]; then
+			mkdir -p "/nvidia/${dir}"
+		fi
+		rm -f "${dir}/nvidia_drv.so"
+		ln -s "/nvidia/${dir}/nvidia_drv.so" "${dir}/"
+	fi
+	tar -C "${srcdir}${dir}" -cf - . | tar -C "/nvidia/${dir}" -xf -
+	dir=/usr/local/lib/xorg/modules/extensions
+
+	# Restore symlink if it was removed or overwritten
+	for l in libglx.so libglx.so.1 libglxserver_nvidia.so \
+			 libglxserver_nvidia.so.1; do
+		if [ ! -L "${dir}/$l" ]; then
+			if [ ! -d "/nvidia/${dir}" ]; then
+				mkdir -p "/nvidia/${dir}"
+			fi
+			rm -f "${dir}/$l"
+			ln -s "/nvidia/${dir}/$l" "${dir}/"
+		fi
+	done
+	tar -C "${srcdir}${dir}/.nvidia" -cf - . | tar -C "/nvidia/${dir}" -xf -
+	tar -C "${srcdir}${dir}" \
+		--exclude '.nvidia' -cf - . | tar -C "/nvidia/${dir}" -xf -
+
+	if [ ${driver} = "latest" ] || [ ${driver} -ge 390 ]; then
+		kmods="${srcdir}/boot/modules/nvidia.ko"
+		kmods="${kmods} ${srcdir}/boot/modules/nvidia-modeset.ko"
+	else
+		# nvidia 340 or 304 driver needed
+		kmods="${srcdir}/boot/modules/nvidia.ko"
+	fi
+	kldload ${kmods}
+	sysrc -f "${path_tmp_rc_conf}" initgfx_kmods="${kmods}"
+	nvidia_xorg_cfg > "${path_xorg_cfg}"
+	return 0
+}
+
+setup_nv()
+{
+	local driver device
+
+	[ "${vendor}" != "10de" ] && return 1
+	nv_xorg_cfg > "${path_xorg_cfg}"
+	return 0
+}
+
+setup_via()
+{
+	[ "${vendor}" != "1106" ] && return 1
+	via_ids | awk -v device="0x${device}" '
+		$1 == device {
+			exit(100);
+		}
+	'
+	[ $? -ne 100 ] && return 1
+	nv_xorg_cfg > "${path_xorg_cfg}"
+	return 0
+}
+
+is_vm()
+{
+	pciconf -lv | grep -B3 display | grep -E -q -i 'virtualbox|VMware'
+}
+
+get_fallback_driver()
+{
+	if sysctl machdep.bootmethod | grep -q BIOS; then
+		fallback_driver="vesa"
+	else
+		fallback_driver="scfb"
+	fi
+}
+
+write_fallback_cfg()
+{
+	(printf "Section \"Device\"\n"; \
+	 printf "\tIdentifier \"Card0\"\n"; \
+	 printf "\tDriver \"${fallback_driver}\"\n"; \
+#	 printf "\tBusID \"PCI:$busID\"\n"; 
+	 printf "EndSection\n") > "${path_xorg_cfg}"
+}
+
+probe_and_setup()
+{
+	local i
+
+	for i in nvidia nv ati_amd intel via; do
+		if setup_${i}; then
+			initgfx_debug "Testing Xorg configuration ..."
+			if test_x; then
+				# FIXME: Without the delay the result is a
+				# reboot when using a Nvidia GPU.
+				[ $i = "nvidia" ] && __wait 3
+				save_config_id
+				cp -a "${path_tmp_rc_conf}" /etc/rc.conf
+				return 0
+			else
+				__reset
+				if [ $i = "nvidia" ]; then
+					initgfx_warn "Failed to use $i driver. Trying nv ...">&2
+				else
+					return 1
+				fi
+			fi
+		fi
+	done
+
+	return 1
+}
+
+do_initgfx()
+{
+	unalias echo
+
+	get_vgapci_devices
+	get_fallback_driver
+
+	if [ "$(kenv -q initgfx.detect.disable)" = "1" ]; then
+		__reset
+		if ! is_vm; then
+			write_fallback_cfg
+		fi
+		return
+	fi
+
+	if check_configured; then
+		initgfx_debug "Using previous configuration ..."
+		for m in ${initgfx_kmods}; do
+			set_kldconfig_path $m
+			kldload $m
+		done
+		return
+	fi
+	__reset
+	# In VirtualBox and VMware we are done here
+	if is_vm; then
+		save_config_id
+		return
+	fi
+
+	initgfx_debug "Creating new configuration ..."
+	cp -a /etc/rc.conf "${path_tmp_rc_conf}"
+
+	initgfx_debug "Auto-detecting graphics driver ..."
+
+	while next_device; do
+		probe_and_setup && return
+	done
+
+	initgfx_warn "No suitable graphics driver found. " \
+				 "Using ${fallback_driver} instead ..." >&2
+	write_fallback_cfg
+	cp -a "${path_tmp_rc_conf}" /etc/rc.conf
+	sysrc -x initgfx_kmods
+}
+
+run_rc_command "$1"
