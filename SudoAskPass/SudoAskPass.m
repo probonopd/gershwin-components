@@ -86,12 +86,26 @@
         // Try alternative environment variable names that might be used
         sudoCommand = [[[NSProcessInfo processInfo] environment] objectForKey:@"SUDO_COMMAND_LINE"];
         if (!sudoCommand || [sudoCommand length] == 0) {
-            // Check command line arguments as fallback
+            // Check command line arguments as fallback - extract actual command after sudo options
             NSArray *args = [[NSProcessInfo processInfo] arguments];
             if ([args count] > 1) {
-                sudoCommand = [NSString stringWithFormat:@"Arguments: %@", [args componentsJoinedByString:@" "]];
-            } else {
-                sudoCommand = @"(command not available - SUDO_COMMAND not set)";
+                // Look for the command after sudo options (skip -A, -E, etc.)
+                NSMutableArray *commandParts = [NSMutableArray array];
+                BOOL foundCommand = NO;
+                for (int i = 1; i < [args count]; i++) {
+                    NSString *arg = [args objectAtIndex:i];
+                    // Skip sudo options that start with dash
+                    if ([arg hasPrefix:@"-"] && !foundCommand) {
+                        continue;
+                    }
+                    foundCommand = YES;
+                    [commandParts addObject:arg];
+                }
+                if ([commandParts count] > 0) {
+                    sudoCommand = [commandParts componentsJoinedByString:@" "];
+                } else {
+                    sudoCommand = [NSString stringWithFormat:@"Arguments: %@", [args componentsJoinedByString:@" "]];
+                }
             }
         }
     }
@@ -116,7 +130,7 @@
     [window setHidesOnDeactivate:NO];
     
     // Create prompt label
-    NSRect promptRect = NSMakeRect(20, 90, 360, 30);
+    NSRect promptRect = NSMakeRect(24, 90, 352, 30);
     promptLabel = [[NSTextField alloc] initWithFrame:promptRect];
     [promptLabel setStringValue:@"Enter your password for sudo:"];
     [promptLabel setBezeled:NO];
@@ -126,29 +140,20 @@
     [[window contentView] addSubview:promptLabel];
     
     // Create password field
-    NSRect passwordRect = NSMakeRect(20, 60, 360, 22);
+    NSRect passwordRect = NSMakeRect(24, 60, 352, 22);
     passwordField = [[NSSecureTextField alloc] initWithFrame:passwordRect];
     [[window contentView] addSubview:passwordField];
     
-    // Create Details button
-    NSRect detailsRect = NSMakeRect(20, 20, 80, 30);
+    // Create Details button (left side)
+    NSRect detailsRect = NSMakeRect(24, 20, 80, 24);
     detailsButton = [[NSButton alloc] initWithFrame:detailsRect];
     [detailsButton setTitle:@"Details"];
     [detailsButton setTarget:self];
     [detailsButton setAction:@selector(detailsClicked:)];
     [[window contentView] addSubview:detailsButton];
     
-    // Create Cancel button
-    NSRect cancelRect = NSMakeRect(220, 20, 80, 30);
-    cancelButton = [[NSButton alloc] initWithFrame:cancelRect];
-    [cancelButton setTitle:@"Cancel"];
-    [cancelButton setTarget:self];
-    [cancelButton setAction:@selector(cancelClicked:)];
-    [cancelButton setKeyEquivalent:@"\033"];
-    [[window contentView] addSubview:cancelButton];
-    
-    // Create OK button
-    NSRect okRect = NSMakeRect(310, 20, 80, 30);
+    // Create OK button (right side, 24px from right edge: 400-24-80 = 296)
+    NSRect okRect = NSMakeRect(296, 20, 80, 24);
     okButton = [[NSButton alloc] initWithFrame:okRect];
     [okButton setTitle:@"OK"];
     [okButton setTarget:self];
@@ -156,8 +161,17 @@
     [okButton setKeyEquivalent:@"\r"];
     [[window contentView] addSubview:okButton];
     
+    // Create Cancel button (12px gap from OK: 296-80-12 = 204)
+    NSRect cancelRect = NSMakeRect(204, 20, 80, 24);
+    cancelButton = [[NSButton alloc] initWithFrame:cancelRect];
+    [cancelButton setTitle:@"Cancel"];
+    [cancelButton setTarget:self];
+    [cancelButton setAction:@selector(cancelClicked:)];
+    [cancelButton setKeyEquivalent:@"\033"];
+    [[window contentView] addSubview:cancelButton];
+    
     // Create command details (initially hidden)
-    NSRect commandRect = NSMakeRect(20, 55, 360, 60);
+    NSRect commandRect = NSMakeRect(24, 55, 352, 60);
     commandScrollView = [[NSScrollView alloc] initWithFrame:commandRect];
     [commandScrollView setHasVerticalScroller:YES];
     [commandScrollView setHasHorizontalScroller:YES];
@@ -167,7 +181,7 @@
     
     NSSize contentSize = [commandScrollView contentSize];
     commandLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, contentSize.width, contentSize.height)];
-    [commandLabel setStringValue:[NSString stringWithFormat:@"Command: %@", sudoCommand]];
+    [commandLabel setStringValue:[NSString stringWithFormat:@"%@", sudoCommand]];
     [commandLabel setBezeled:NO];
     [commandLabel setDrawsBackground:YES];
     [commandLabel setBackgroundColor:[NSColor controlBackgroundColor]];
@@ -258,34 +272,33 @@
         NSRect newFrame;
         
         if (detailsVisible) {
-            // Expand window to show details
-            newFrame = NSMakeRect(currentFrame.origin.x, currentFrame.origin.y - 80, 400, 230);
+            // Expand window to show details - make it taller to fit command area
+            newFrame = NSMakeRect(currentFrame.origin.x, currentFrame.origin.y - 132, 400, 282);
             [detailsButton setTitle:@"Hide Details"];
             
-            // Adjust positions for expanded view - password field moves down
-            [passwordField setFrame:NSMakeRect(20, 140, 360, 22)];
-            [promptLabel setFrame:NSMakeRect(20, 170, 360, 30)];
-            [commandScrollView setFrame:NSMakeRect(20, 55, 360, 80)];
+            [promptLabel setFrame:NSMakeRect(24, 222, 352, 20)];  // 40px from top
+            [passwordField setFrame:NSMakeRect(24, 192, 352, 22)]; // 68px from top
+            [commandScrollView setFrame:NSMakeRect(24, 54, 352, 130)];
             [commandScrollView setHidden:NO];
             
             // Buttons stay at bottom
-            [detailsButton setFrame:NSMakeRect(20, 20, 80, 30)];
-            [cancelButton setFrame:NSMakeRect(220, 20, 80, 30)];
-            [okButton setFrame:NSMakeRect(310, 20, 80, 30)];
+            [detailsButton setFrame:NSMakeRect(24, 20, 80, 24)];
+            [cancelButton setFrame:NSMakeRect(204, 20, 80, 24)];
+            [okButton setFrame:NSMakeRect(296, 20, 80, 24)];
         } else {
-            // Collapse window to hide details - RESET to original compact positions
-            newFrame = NSMakeRect(currentFrame.origin.x, currentFrame.origin.y + 80, 400, 150);
+            // Collapse window to hide details - RESET to EXACT original compact positions
+            newFrame = NSMakeRect(currentFrame.origin.x, currentFrame.origin.y + 132, 400, 150);
             [detailsButton setTitle:@"Details"];
             
-            // IMPORTANT: Reset to original compact view positions exactly as in showPasswordDialog
-            [promptLabel setFrame:NSMakeRect(20, 90, 360, 30)];  // Original position
-            [passwordField setFrame:NSMakeRect(20, 60, 360, 22)]; // Original position
+            // CRITICAL: Reset to EXACT original compact view positions as in showPasswordDialog
+            [promptLabel setFrame:NSMakeRect(24, 90, 352, 20)];  // EXACT original position
+            [passwordField setFrame:NSMakeRect(24, 60, 352, 22)]; // EXACT original position
             [commandScrollView setHidden:YES];
             
-            // Reset buttons to original positions
-            [detailsButton setFrame:NSMakeRect(20, 20, 80, 30)];
-            [cancelButton setFrame:NSMakeRect(220, 20, 80, 30)];
-            [okButton setFrame:NSMakeRect(310, 20, 80, 30)];
+            // Reset buttons to EXACT original positions
+            [detailsButton setFrame:NSMakeRect(24, 20, 80, 24)];
+            [cancelButton setFrame:NSMakeRect(204, 20, 80, 24)];
+            [okButton setFrame:NSMakeRect(296, 20, 80, 24)];
         }
         
         [window setFrame:newFrame display:YES animate:YES];
