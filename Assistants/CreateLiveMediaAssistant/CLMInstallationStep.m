@@ -280,7 +280,7 @@
 
 - (NSString *)stepTitle
 {
-    return @"Creating Live Medium";
+    return @"Write Live Medium";
 }
 
 - (NSString *)stepDescription  
