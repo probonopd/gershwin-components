@@ -322,37 +322,59 @@
     }
 }
 
+- (void)handleDownloadCompletion:(BOOL)success
+{
+    NSLog(@"CLMDownloader: handleDownloadCompletion called with success=%d", success);
+    
+    if (success && _totalBytes > 0) {
+        // Force final progress update to 100%
+        NSLog(@"CLMDownloader: Download complete - final progress update to 100%% (%lld bytes)", _receivedBytes);
+        [_delegate downloadProgressChanged:1.0 bytesReceived:_receivedBytes totalBytes:_totalBytes];
+    }
+    
+    // Close and cleanup file handle
+    if (_outputFile) {
+        [_outputFile synchronizeFile];  // Force final sync
+        [_outputFile closeFile];
+        [_outputFile release];
+        _outputFile = nil;
+    }
+    
+    // Cleanup connection
+    if (_connection) {
+        [_connection cancel];  // Make sure it's cancelled
+        [_connection release];
+        _connection = nil;
+    }
+    
+    // Stop timers
+    [self stopStallDetectionTimer];
+    
+    // Notify delegate
+    if (_isDownloading) {
+        if (success) {
+            NSLog(@"CLMDownloader: Download completed successfully");
+            [_delegate downloadCompleted:YES error:nil];
+        } else {
+            NSLog(@"CLMDownloader: Download failed");
+            [_delegate downloadCompleted:NO error:@"Download failed"];
+        }
+    } else {
+        NSLog(@"CLMDownloader: Download was cancelled");
+    }
+    
+    _isDownloading = NO;
+}
+
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
 {
     NSLog(@"CLMDownloader: connectionDidFinishLoading - received %lld of %lld bytes", _receivedBytes, _totalBytes);
-    
-    [self stopStallDetectionTimer];
     
     // Check if download is actually complete
     BOOL downloadComplete = (_totalBytes <= 0) || (_receivedBytes >= _totalBytes);
     
     if (downloadComplete) {
-        // Only report 100% if we actually received all bytes
-        if (_isDownloading && _totalBytes > 0) {
-            NSLog(@"CLMDownloader: Download complete - final progress update to 100%%");
-            [_delegate downloadProgressChanged:1.0 bytesReceived:_receivedBytes totalBytes:_totalBytes];
-        }
-        
-        [_outputFile closeFile];
-        [_outputFile release];
-        _outputFile = nil;
-        
-        [_connection release];
-        _connection = nil;
-        
-        if (_isDownloading) {
-            NSLog(@"CLMDownloader: Download completed successfully");
-            [_delegate downloadCompleted:YES error:nil];
-        } else {
-            NSLog(@"CLMDownloader: Download was cancelled");
-        }
-        
-        _isDownloading = NO;
+        [self handleDownloadCompletion:YES];
     } else {
         // Download is incomplete - check if we should retry
         if (_retryCount < _maxRetries) {
@@ -376,16 +398,10 @@
             // Max retries exceeded - treat as error
             NSLog(@"CLMDownloader: Download incomplete after %d retries - received %lld bytes but expected %lld", _maxRetries, _receivedBytes, _totalBytes);
             
-            [_outputFile closeFile];
-            [_outputFile release];
-            _outputFile = nil;
-            
-            [_connection release];
-            _connection = nil;
-            
             NSString *errorMsg = [NSString stringWithFormat:@"Download incomplete after %d retries - received %lld bytes but expected %lld", _maxRetries, _receivedBytes, _totalBytes];
             [_delegate downloadCompleted:NO error:errorMsg];
-            _isDownloading = NO;
+            
+            [self handleDownloadCompletion:NO];
         }
     }
 }
@@ -501,7 +517,24 @@
     NSTimeInterval currentTime = [[NSDate date] timeIntervalSince1970];
     NSTimeInterval timeSinceLastData = currentTime - _lastDataTime;
     
-    NSLog(@"CLMDownloader: Stall check - time since last data: %.1f seconds", timeSinceLastData);
+    NSLog(@"CLMDownloader: Stall check - time since last data: %.1f seconds (received: %lld/%lld bytes)", 
+          timeSinceLastData, _receivedBytes, _totalBytes);
+    
+    // Check if we're very close to completion (within 1MB) and have stalled for more than 30 seconds
+    // This handles cases where servers don't send the final few bytes for some reason
+    if (_totalBytes > 0 && (_totalBytes - _receivedBytes) <= 1048576 && timeSinceLastData > 30.0) {
+        float percentComplete = ((float)_receivedBytes / (float)_totalBytes) * 100.0;
+        NSLog(@"CLMDownloader: Very close to completion (%.2f%%, missing only %lld bytes) but stalled for %.1f seconds", 
+              percentComplete, _totalBytes - _receivedBytes, timeSinceLastData);
+        
+        // If we're > 99.5% complete and stalled, consider it done
+        if (percentComplete > 99.5) {
+            NSLog(@"CLMDownloader: Treating as complete due to being > 99.5%% done and stalled");
+            [self stopStallDetectionTimer];
+            [self handleDownloadCompletion:YES];
+            return;
+        }
+    }
     
     // If no data received for 180 seconds (3 minutes), consider it stalled
     if (timeSinceLastData > 180.0) {
