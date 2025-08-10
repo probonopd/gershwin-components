@@ -4,6 +4,9 @@ include $(GNUSTEP_MAKEFILES)/common.make
 FRAMEWORK_NAME = GSAssistantFramework
 VERSION = 1.0
 
+# Prefer clang19 for compilation
+CC ?= clang19
+
 # Source files
 GSAssistantFramework_OBJC_FILES = \
 	GSAssistantWindow.m \
@@ -31,6 +34,7 @@ GSAssistantFramework_FRAMEWORKS_DEPEND_UPON = AppKit Foundation
 
 # Compiler and linker flags
 GSAssistantFramework_CPPFLAGS += -Wall -Wextra
+GSAssistantFramework_OBJCFLAGS += -O2 -Werror
 
 # Installation directory
 FRAMEWORK_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Frameworks

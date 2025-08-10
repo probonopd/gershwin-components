@@ -31,30 +31,32 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
 }
 @end
 
-// Rounded translucent card view for installer content area
+// Rectangular translucent card view for installer content area (no rounded corners)
 @interface GSInstallerCardView : NSView
-@property (nonatomic, retain) NSColor *fillColor;   // With alpha, e.g., white 0.92
+@property (nonatomic, retain) NSColor *fillColor;   // With alpha, e.g., white 0.90–0.92
 @property (nonatomic, retain) NSColor *strokeColor; // Light gray stroke
-@property (nonatomic, assign) CGFloat cornerRadius;
+@property (nonatomic, assign) CGFloat cornerRadius; // kept for compatibility, set to 0.0
 @end
 
 @implementation GSInstallerCardView
 - (instancetype)initWithFrame:(NSRect)frameRect {
     if ((self = [super initWithFrame:frameRect])) {
-        _fillColor = [[NSColor colorWithCalibratedWhite:1.0 alpha:0.92] retain];
-        _strokeColor = [[NSColor colorWithCalibratedWhite:0.75 alpha:1.0] retain];
-        _cornerRadius = 6.0;
-        // Removed setWantsLayer: for GNUstep compatibility
+        _fillColor = [[NSColor colorWithCalibratedWhite:1.0 alpha:0.90] retain];
+        _strokeColor = [[NSColor colorWithCalibratedWhite:0.72 alpha:1.0] retain];
+        _cornerRadius = 0.0; // rectangular
     }
     return self;
 }
 - (void)drawRect:(NSRect)dirtyRect {
     [super drawRect:dirtyRect];
     NSRect bounds = self.bounds;
-    CGFloat r = _cornerRadius;
-    NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(bounds, 0.5, 0.5) xRadius:r yRadius:r];
+
+    // Rectangular card, no shadow, subtle 1px border
+    NSBezierPath *path = [NSBezierPath bezierPathWithRect:NSInsetRect(bounds, 0.5, 0.5)];
+
     [_fillColor setFill];
     [path fill];
+
     [_strokeColor setStroke];
     [path setLineWidth:1.0];
     [path stroke];
@@ -63,6 +65,49 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     [_fillColor release];
     [_strokeColor release];
     [super dealloc];
+}
+@end
+
+// 10.3-style step indicator bullet view
+@interface GSStepBulletView : NSView {
+    NSInteger _state; // 0=future, 1=current, 2=completed
+}
+@property (nonatomic, assign) NSInteger state;
+@end
+
+@implementation GSStepBulletView
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    if ((self = [super initWithFrame:frameRect])) {
+        _state = 0;
+    }
+    return self;
+}
+- (void)setState:(NSInteger)state { _state = state; [self setNeedsDisplay:YES]; }
+- (NSInteger)state { return _state; }
+- (BOOL)isFlipped { return NO; }
+- (void)drawRect:(NSRect)dirtyRect {
+    [super drawRect:dirtyRect];
+    NSRect b = NSInsetRect(self.bounds, 1.0, 1.0);
+    CGFloat d = MIN(NSWidth(b), NSHeight(b));
+    NSRect circle = NSMakeRect(NSMidX(b)-d/2.0, NSMidY(b)-d/2.0, d, d);
+    NSBezierPath *path = [NSBezierPath bezierPathWithOvalInRect:circle];
+
+    NSColor *stroke = [NSColor colorWithCalibratedWhite:0.65 alpha:1.0];
+    NSColor *fill   = [NSColor colorWithCalibratedWhite:0.92 alpha:1.0];
+
+    if (_state == 1) { // current
+        fill = [NSColor colorWithCalibratedRed:0.0 green:0.478 blue:1.0 alpha:1.0];
+        stroke = [NSColor colorWithCalibratedWhite:0.35 alpha:1.0];
+    } else if (_state == 2) { // completed
+        fill = [NSColor colorWithCalibratedWhite:0.55 alpha:1.0];
+        stroke = [NSColor colorWithCalibratedWhite:0.45 alpha:1.0];
+    }
+
+    [fill setFill];
+    [path fill];
+    [stroke setStroke];
+    [path setLineWidth:1.0];
+    [path stroke];
 }
 @end
 
@@ -348,8 +393,8 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _titleLabel.stringValue = _assistantTitle ?: @"Setup Assistant";
     [_mainContentView addSubview:_titleLabel];
     
-    // Step title - moved down further from y=275 to y=245
-    _stepTitleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(30, 245, 460, 24)];
+    // Step title
+    _stepTitleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(30, 210, 400, 24)];
     _stepTitleLabel.editable = NO;
     _stepTitleLabel.selectable = NO;
     _stepTitleLabel.bordered = NO;
@@ -360,8 +405,9 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _stepTitleLabel.textColor = [NSColor colorWithCalibratedRed:0.15 green:0.15 blue:0.15 alpha:1.0];
     [_mainContentView addSubview:_stepTitleLabel];
     
-    // Step description - moved down further from y=250 to y=220
-    _stepDescriptionLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(30, 220, 460, 20)];
+    // Step description
+    // TODO: Move inside the card
+    _stepDescriptionLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(30, 220, 430, 20)];
     _stepDescriptionLabel.editable = NO;
     _stepDescriptionLabel.selectable = NO;
     _stepDescriptionLabel.bordered = NO;
@@ -741,83 +787,77 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
                                    GSAssistantInstallerSidebarWidth, 
                                    _windowHeight - GSAssistantInstallerButtonAreaHeight);
     
-    _sidebarView = [[GSColoredBackgroundView alloc] initWithFrame:sidebarFrame];
-    [(GSColoredBackgroundView *)_sidebarView setBackgroundColor:
-        [NSColor colorWithCalibratedRed:0.910 green:0.941 blue:0.973 alpha:1.0]]; // #E8F0F8 approx
+    // Sidebar should be visually flat: no colored background and no separator line here
+    _sidebarView = [[NSView alloc] initWithFrame:sidebarFrame];
     [_contentView addSubview:_sidebarView];
     
-    // Background logo if available
-    if (_assistantIcon) {
-        // 120x120 at ~x=25,y=90 inside sidebar as per spec
-        NSRect logoFrame = NSMakeRect(25, 90, 120, 120);
-        _sidebarImageView = [[NSImageView alloc] initWithFrame:logoFrame];
-        [_sidebarImageView setImage:_assistantIcon];
-        [_sidebarImageView setImageAlignment:NSImageAlignCenter];
-        [_sidebarImageView setImageScaling:NSImageScaleProportionallyUpOrDown];
-        [_sidebarImageView setAlphaValue:0.12]; // 10–15%
-        [_sidebarView addSubview:_sidebarImageView];
-    }
-    
+    // Do NOT add a sidebar watermark/logo to avoid duplication; single large watermark lives behind the card
     // Create step indicators
     [self createInstallerStepIndicators];
     
-    // Add separator line at x=169
-    NSRect separatorFrame = NSMakeRect(GSAssistantInstallerSidebarWidth - 1, 0, 1, 
-                                     _windowHeight - GSAssistantInstallerButtonAreaHeight);
-    GSColoredBackgroundView *separatorView = [[GSColoredBackgroundView alloc] initWithFrame:separatorFrame];
-    [separatorView setBackgroundColor:[NSColor colorWithCalibratedRed:0.800 green:0.800 blue:0.800 alpha:1.0]]; // #CCCCCC
-    [_sidebarView addSubview:separatorView];
-    [separatorView release];
-    
-    NSLog(@"[GSAssistantWindow] Installer sidebar setup complete");
+    NSLog(@"[GSAssistantWindow] Installer sidebar setup complete (no background, no separators)");
 }
 
 - (void)setupInstallerContentView {
     NSRect contentFrame = NSMakeRect(GSAssistantInstallerSidebarWidth, GSAssistantInstallerButtonAreaHeight,
                                    _windowWidth - GSAssistantInstallerSidebarWidth, 
                                    _windowHeight - GSAssistantInstallerButtonAreaHeight);
-    
-    _mainContentView = [[GSColoredBackgroundView alloc] initWithFrame:contentFrame];
-    [(GSColoredBackgroundView *)_mainContentView setBackgroundColor:[NSColor whiteColor]];
+
+    // Content area should be flat/transparent
+    _mainContentView = [[NSView alloc] initWithFrame:contentFrame];
     [_contentView addSubview:_mainContentView];
 
-    // Add very transparent watermark behind content card (centered)
+    NSLog(@"[GSAssistantWindow] Content view setup. assistantIcon=%@", _assistantIcon);
+
+    CGFloat cw = [_mainContentView frame].size.width;
+    CGFloat ch = [_mainContentView frame].size.height;
+
+    // Space around the semi-transparent card
+    CGFloat sideInset = 20.0;
+    CGFloat bottomInset = 0.0;
+    CGFloat topInsetForTitles = 70.0; // ensure description/title sit above the card with visible gap
+
+    NSRect cardFrame = NSMakeRect(sideInset, bottomInset, cw - (2*sideInset), ch - (bottomInset + topInsetForTitles));
+
+    // Card first (rectangular, semi-transparent, subtle border)
+    _installerContentCardView = [[GSInstallerCardView alloc] initWithFrame:cardFrame];
+    [_installerContentCardView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [_mainContentView addSubview:_installerContentCardView];
+
+    // Watermark: single large faint image BEHIND the card, left-aligned
     if (_assistantIcon) {
-        _contentWatermarkImageView = [[NSImageView alloc] initWithFrame:[_mainContentView bounds]];
+        NSRect cf = [_installerContentCardView frame];
+        CGFloat cardH = cf.size.height;
+        // Make watermark large: ~120% of card height, capped at 320px
+        CGFloat wmSize = MIN(cardH * 01.2, 320.0);
+        // Left-aligned within content area, vertically centered to the card
+        CGFloat wmX = NSMinX(cf) - 220.0;
+        CGFloat wmY = NSMidY(cf) - (wmSize / 2.0);
+        NSRect wmFrame = NSMakeRect(wmX, wmY, wmSize, wmSize);
+
+        _contentWatermarkImageView = [[NSImageView alloc] initWithFrame:wmFrame];
         [_contentWatermarkImageView setImage:_assistantIcon];
         [_contentWatermarkImageView setImageScaling:NSImageScaleProportionallyUpOrDown];
         [_contentWatermarkImageView setImageAlignment:NSImageAlignCenter];
-        [_contentWatermarkImageView setAlphaValue:0.06]; // very transparent
-        [_contentWatermarkImageView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
-        [_mainContentView addSubview:_contentWatermarkImageView];
-        // Removed invalid sortSubviewsUsingFunction usage; add order ensures watermark remains behind later subviews.
+        [_contentWatermarkImageView setAlphaValue:0.12];
+        // Anchor to left; installer window is fixed-size, but keep sane autoresizing
+        [_contentWatermarkImageView setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
+        // Add behind the card so it appears as a faint background
+        [_mainContentView addSubview:_contentWatermarkImageView positioned:NSWindowBelow relativeTo:_installerContentCardView];
+        NSLog(@"[GSAssistantWindow] Watermark behind card (left-aligned), frame %@", NSStringFromRect(wmFrame));
     }
 
-    // Create the translucent card where step content will live
-    CGFloat contentWidth = [_mainContentView frame].size.width;
-    NSRect cardFrame = NSMakeRect(30, 30, contentWidth - 60, contentWidth - 60 - 100); // matches spec used below
-    _installerContentCardView = [[GSInstallerCardView alloc] initWithFrame:cardFrame];
-    [_mainContentView addSubview:_installerContentCardView];
-
-    NSLog(@"[GSAssistantWindow] Installer content area setup complete (card & watermark)");
+    NSLog(@"[GSAssistantWindow] Installer content area setup complete (card, watermark behind). card=%@ watermark=%@", _installerContentCardView, _contentWatermarkImageView);
 }
 
 - (void)setupInstallerButtonArea {
     NSRect buttonFrame = NSMakeRect(0, 0, _windowWidth, GSAssistantInstallerButtonAreaHeight);
-    _installerButtonAreaView = [[GSColoredBackgroundView alloc] initWithFrame:buttonFrame];
-    [(GSColoredBackgroundView *)_installerButtonAreaView setBackgroundColor:
-        [NSColor colorWithCalibratedRed:0.941 green:0.941 blue:0.941 alpha:1.0]]; // #F0F0F0
+    // Button area should be flat: no background and no separator line
+    _installerButtonAreaView = [[NSView alloc] initWithFrame:buttonFrame];
     [_contentView addSubview:_installerButtonAreaView];
     
-    // Add top separator line at y=59
-    NSRect separatorFrame = NSMakeRect(0, GSAssistantInstallerButtonAreaHeight - 1, _windowWidth, 1);
-    GSColoredBackgroundView *separatorView = [[GSColoredBackgroundView alloc] initWithFrame:separatorFrame];
-    [separatorView setBackgroundColor:[NSColor colorWithCalibratedRed:0.800 green:0.800 blue:0.800 alpha:1.0]]; // #CCCCCC
-    [_installerButtonAreaView addSubview:separatorView];
-    [separatorView release];
-    
     // Create installer buttons per spec
-    CGFloat buttonY = 6.0; // bottom inset 6px, height 24 => centerline ~18px
+    CGFloat buttonY = 6.0; // bottom inset 6px, height 24
     
     // Options button (left side, hidden by default)
     NSRect optionsFrame = NSMakeRect(20, buttonY, 80, 24);
@@ -850,72 +890,67 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     [_backButton setEnabled:NO];
     [_installerButtonAreaView addSubview:_backButton];
     
-    NSLog(@"[GSAssistantWindow] Installer button area setup complete");
+    NSLog(@"[GSAssistantWindow] Installer button area setup complete (flat)");
 }
 
 - (void)createInstallerStepIndicators {
     CGFloat startY = [_sidebarView frame].size.height - 36; // top inset 36px
     CGFloat stepPitch = 26.0; // 24 height + 2 gap
-    
+
     for (NSInteger i = 0; i < (NSInteger)_stepsArray.count; i++) {
         id<GSAssistantStepProtocol> step = _stepsArray[i];
-        CGFloat yPosition = startY - (i * stepPitch);
-        
-        // Row container 24px high spanning sidebar inset
+        CGFloat yPosition = startY - 45 - (i * stepPitch);
+
         NSRect stepFrame = NSMakeRect(6, yPosition - 12, GSAssistantInstallerSidebarWidth - 12 - 6, 24);
-        NSView *stepView = [[NSView alloc] initWithFrame:stepFrame];
-        
-        // Indicator 18x18 at x=12 from sidebar => x=6 within our container
-        NSRect circleFrame = NSMakeRect(6, 3, 18, 18);
-        GSColoredBackgroundView *circleView = [[GSColoredBackgroundView alloc] initWithFrame:circleFrame];
-        [circleView setBackgroundColor:[NSColor grayColor]];
-        
-        // Label starts at x=38 from sidebar => 32 from our container left
-        NSRect labelFrame = NSMakeRect(32, 2, stepFrame.size.width - 36, 20);
-        NSTextField *stepLabel = [[NSTextField alloc] initWithFrame:labelFrame];
-        [stepLabel setStringValue:[step stepTitle]];
-        [stepLabel setBezeled:NO];
-        [stepLabel setDrawsBackground:NO];
-        [stepLabel setEditable:NO];
-        [stepLabel setSelectable:NO];
-        [stepLabel setBordered:NO];
-        [stepLabel setFont:[NSFont systemFontOfSize:12]];
-        [stepLabel setTextColor:[NSColor blackColor]];
-        
-        [stepView addSubview:circleView];
-        [stepView addSubview:stepLabel];
-        [_sidebarView addSubview:stepView];
-        [_stepIndicatorViews addObject:stepView];
-        
-        [circleView release];
-        [stepLabel release];
-        [stepView release];
+        NSView *stepRow = [[NSView alloc] initWithFrame:stepFrame];
+
+        // Bullet 16x16 at x=8
+        GSStepBulletView *bullet = [[GSStepBulletView alloc] initWithFrame:NSMakeRect(8, 8, 16, 16)];
+        [bullet setState:(i == 0 ? 1 : 0)];
+
+        // Label
+        NSTextField *label = [[NSTextField alloc] initWithFrame:NSMakeRect(32, 1, stepFrame.size.width - 36, 20)];
+        [label setStringValue:[step stepTitle]];
+        [label setBezeled:NO];
+        [label setDrawsBackground:NO];
+        [label setEditable:NO];
+        [label setSelectable:NO];
+        [label setBordered:NO];
+        [label setFont:[NSFont systemFontOfSize:12]];
+        [label setTextColor:[NSColor colorWithCalibratedWhite:0.25 alpha:1.0]];
+
+        [stepRow addSubview:bullet];
+        [stepRow addSubview:label];
+        [_sidebarView addSubview:stepRow];
+        [_stepIndicatorViews addObject:stepRow];
+
+        [bullet release];
+        [label release];
+        [stepRow release];
     }
-    
+
     NSLog(@"[GSAssistantWindow] Created %lu step indicators", (unsigned long)_stepIndicatorViews.count);
 }
 
 - (void)updateInstallerStepIndicators {
     for (NSInteger i = 0; i < (NSInteger)_stepIndicatorViews.count; i++) {
-        NSView *stepView = [_stepIndicatorViews objectAtIndex:i];
-        GSColoredBackgroundView *circleView = (GSColoredBackgroundView *)[[stepView subviews] objectAtIndex:0];
-        NSTextField *labelField = [[stepView subviews] objectAtIndex:1];
-        
+        NSView *row = [_stepIndicatorViews objectAtIndex:i];
+        if ([[row subviews] count] < 2) continue;
+        GSStepBulletView *bullet = (GSStepBulletView *)[[row subviews] objectAtIndex:0];
+        NSTextField *label = (NSTextField *)[[row subviews] objectAtIndex:1];
+
         if (i < _currentIndex) {
-            // Completed step
-            [circleView setBackgroundColor:[NSColor colorWithCalibratedRed:0.0 green:0.478 blue:1.0 alpha:1.0]]; // blue
-            [labelField setTextColor:[NSColor colorWithCalibratedWhite:0.4 alpha:1.0]]; // #666666
-            [labelField setFont:[NSFont systemFontOfSize:12]];
+            [bullet setState:2];
+            [label setTextColor:[NSColor colorWithCalibratedWhite:0.5 alpha:1.0]];
+            [label setFont:[NSFont systemFontOfSize:12]];
         } else if (i == _currentIndex) {
-            // Current step
-            [circleView setBackgroundColor:[NSColor colorWithCalibratedRed:0.0 green:0.478 blue:1.0 alpha:1.0]];
-            [labelField setTextColor:[NSColor blackColor]];
-            [labelField setFont:[NSFont boldSystemFontOfSize:12]];
+            [bullet setState:1];
+            [label setTextColor:[NSColor blackColor]];
+            [label setFont:[NSFont boldSystemFontOfSize:12]];
         } else {
-            // Future step
-            [circleView setBackgroundColor:[NSColor colorWithCalibratedWhite:0.88 alpha:1.0]]; // light gray
-            [labelField setTextColor:[NSColor colorWithCalibratedWhite:0.6 alpha:1.0]]; // #999999 approx
-            [labelField setFont:[NSFont systemFontOfSize:12]];
+            [bullet setState:0];
+            [label setTextColor:[NSColor colorWithCalibratedWhite:0.6 alpha:1.0]];
+            [label setFont:[NSFont systemFontOfSize:12]];
         }
     }
 }
@@ -925,19 +960,21 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     if (_installerStepTitleField) { [_installerStepTitleField removeFromSuperview]; [_installerStepTitleField release]; _installerStepTitleField = nil; }
     if (_installerStepDescriptionField) { [_installerStepDescriptionField removeFromSuperview]; [_installerStepDescriptionField release]; _installerStepDescriptionField = nil; }
 
-    // Clear card subviews but keep the card itself
+    // Clear card subviews (watermark is no longer inside the card)
     if (_installerContentCardView) {
         NSArray *subviews = [[_installerContentCardView.subviews copy] autorelease];
-        for (NSView *sub in subviews) { [sub removeFromSuperview]; }
+        for (NSView *sub in subviews) {
+            [sub removeFromSuperview];
+        }
     }
-    
+
     if (_currentIndex < (NSInteger)_stepsArray.count) {
         id<GSAssistantStepProtocol> currentStep = _stepsArray[_currentIndex];
-        
+
         CGFloat contentWidth = [_mainContentView frame].size.width;   // full content width
-        
-        // Title at x=30, y=344, w=contentWidth-60, h=26
-        NSRect titleFrame = NSMakeRect(30, 344, contentWidth - 60, 26);
+
+        // Title at x=20, y near top
+        NSRect titleFrame = NSMakeRect(20, 344, contentWidth - 40, 26);
         _installerStepTitleField = [[NSTextField alloc] initWithFrame:titleFrame];
         [_installerStepTitleField setStringValue:[currentStep stepTitle] ?: @""];
         [_installerStepTitleField setBezeled:NO];
@@ -948,14 +985,13 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         [_installerStepTitleField setFont:[NSFont boldSystemFontOfSize:20]];
         [_installerStepTitleField setTextColor:[NSColor blackColor]];
         [_mainContentView addSubview:_installerStepTitleField];
-        
-        // Description at x=30, y=310, w=contentWidth-60, h=20 (optional)
+
         NSString *desc = nil;
         if ([currentStep respondsToSelector:@selector(stepDescription)]) {
             desc = [currentStep stepDescription];
         }
         if (desc && [desc length] > 0) {
-            NSRect descFrame = NSMakeRect(30, 310, contentWidth - 60, 20);
+            NSRect descFrame = NSMakeRect(20, 310, contentWidth - 40, 20);
             _installerStepDescriptionField = [[NSTextField alloc] initWithFrame:descFrame];
             [_installerStepDescriptionField setStringValue:desc];
             [_installerStepDescriptionField setBezeled:NO];
@@ -964,15 +1000,14 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
             [_installerStepDescriptionField setEditable:NO];
             [_installerStepDescriptionField setSelectable:NO];
             [_installerStepDescriptionField setFont:[NSFont systemFontOfSize:13]];
-            [_installerStepDescriptionField setTextColor:[NSColor colorWithCalibratedWhite:0.4 alpha:1.0]]; // #666
+            [_installerStepDescriptionField setTextColor:[NSColor colorWithCalibratedWhite:0.4 alpha:1.0]];
             [_mainContentView addSubview:_installerStepDescriptionField];
         }
-        
-        // Lay out the step view inside the card with insets
+
+        // Place step view inside the card with 18pt insets (above watermark automatically since it's behind the card)
         NSView *stepContentView = [currentStep stepView];
         if (stepContentView) {
-            CGFloat inset = 18.0;
-            NSRect inner = NSInsetRect(_installerContentCardView.bounds, inset, inset);
+            NSRect inner = NSInsetRect(_installerContentCardView.bounds, 18.0, 18.0);
             [stepContentView setFrame:inner];
             [_installerContentCardView addSubview:stepContentView];
         }
