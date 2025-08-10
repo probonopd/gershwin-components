@@ -119,7 +119,7 @@
         exit(1);
     }
     
-    [window setTitle:@"Sudo Password"];
+    [window setTitle:@"Password"];
     [window center];
     [window setLevel:NSFloatingWindowLevel]; // Keep window on top
     
