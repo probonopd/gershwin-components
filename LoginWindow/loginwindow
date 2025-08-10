@@ -21,7 +21,7 @@ load_rc_config ${name}
 : ${loginwindow_enable:="NO"}
 
 command="/usr/sbin/daemon"
-procname="/System/Applications/LoginWindow.app/LoginWindow"
+procname="/usr/local/GNUstep/Local/Applications/LoginWindow.app/LoginWindow"
 pidfile="/var/run/${name}.pid"
 logfile="/var/log/LoginWindow.log"
 rm -f ${logfile}

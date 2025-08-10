@@ -26,7 +26,7 @@
 #import <AppKit/AppKit.h>
 #import "LoginWindowPAM.h"
 
-@interface LoginWindow : NSObject
+@interface LoginWindow : NSObject <NSTextFieldDelegate, NSWindowDelegate>
 {
     NSWindow *loginWindow;
     NSTextField *usernameField;
@@ -70,5 +70,8 @@
 - (void)shakeWindow;
 - (void)saveLastLoggedInUser:(NSString *)username;
 - (NSString *)loadLastLoggedInUser;
+- (void)updateLoginButtonState;
+- (void)clearFieldsAndShake;
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector;
 
 @end

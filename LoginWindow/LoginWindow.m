@@ -184,6 +184,7 @@ void signalHandler(int sig) {
     [loginWindow setBackgroundColor:[NSColor colorWithCalibratedRed:0.95 green:0.95 blue:0.95 alpha:1.0]];
     [loginWindow setLevel:NSScreenSaverWindowLevel];
     [loginWindow setCanHide:NO];
+    [loginWindow setDelegate:self];
 
     // Golden ratio vertical positioning
     NSScreen *mainScreen = [NSScreen mainScreen];
@@ -226,6 +227,7 @@ void signalHandler(int sig) {
     [usernameField setEditable:YES];
     [usernameField setSelectable:YES];
     [usernameField setEnabled:YES];
+    [usernameField setDelegate:self];
     [contentView addSubview:usernameField];
 
     // Password field
@@ -243,6 +245,7 @@ void signalHandler(int sig) {
     [passwordField setEditable:YES];
     [passwordField setSelectable:YES];
     [passwordField setEnabled:YES];
+    [passwordField setDelegate:self];
     [contentView addSubview:passwordField];
 
     // Session dropdown
@@ -265,13 +268,14 @@ void signalHandler(int sig) {
     [statusLabel setSelectable:NO];
     [contentView addSubview:statusLabel];
 
+    // Button layout with standard spacing
     CGFloat buttonWidth = 80;
-    CGFloat buttonHeight = 24;
-    CGFloat buttonSpacing = 10;
-    CGFloat bottomMargin = 10+12;
-    CGFloat leftX = 50;
+    CGFloat buttonHeight = 24; // Standard button height
+    CGFloat buttonSpacing = 12; // Standard button spacing
+    CGFloat bottomMargin = 20; // Standard bottom margin  
+    CGFloat leftX = 24; // Standard left margin
     CGFloat buttonY = bottomMargin;
-    CGFloat rightX = windowFrame.size.width - buttonWidth - 50;
+    CGFloat rightX = windowFrame.size.width - buttonWidth - 24; // Standard right margin
 
     shutdownButton = [[NSButton alloc] initWithFrame:NSMakeRect(leftX, buttonY, buttonWidth, buttonHeight)];
     [shutdownButton setTitle:@"Shut Down"];
@@ -290,7 +294,7 @@ void signalHandler(int sig) {
     [loginButton setTarget:self];
     [loginButton setAction:@selector(loginButtonPressed:)];
     [loginButton setKeyEquivalent:@"\r"];
-    [loginButton setEnabled:YES];
+    [loginButton setEnabled:NO]; // Initially disabled
     [loginButton setShowsBorderOnlyWhileMouseInside:NO];
     [contentView addSubview:loginButton];
     
@@ -315,6 +319,9 @@ void signalHandler(int sig) {
         // No last user, focus on username field
         [loginWindow makeFirstResponder:usernameField];
     }
+    
+    // Update login button state after setting up fields
+    [self updateLoginButtonState];
 }
 
 - (void)loginButtonPressed:(id)sender
@@ -877,9 +884,9 @@ void signalHandler(int sig) {
 {
     NSLog(@"[DEBUG] Checking for auto-login user");
     
-    // Read the autoLoginUser from loginwindow domain
+    // Read the autoLoginUser from loginwindow domain (lowercase 'l')
     NSUserDefaults *loginDefaults = [[NSUserDefaults alloc] init];
-    [loginDefaults addSuiteNamed:@"LoginWindow"];
+    [loginDefaults addSuiteNamed:@"loginwindow"];
     
     NSString *autoLoginUser = [loginDefaults stringForKey:@"autoLoginUser"];
     
@@ -1525,6 +1532,9 @@ void signalHandler(int sig) {
         [sessionDropdown selectItemAtIndex:0];
     }
     
+    // Update login button state after resetting fields
+    [self updateLoginButtonState];
+    
     // Ensure window is properly positioned and visible
     // Use golden ratio vertical positioning instead of centering
     NSScreen *mainScreen = [NSScreen mainScreen];
@@ -1555,9 +1565,9 @@ void signalHandler(int sig) {
     
     NSLog(@"[DEBUG] Saving last logged-in user: %@", username);
     
-    // Use the loginwindow domain for storing preferences
+    // Use the loginwindow domain for storing preferences (lowercase 'l')
     NSUserDefaults *loginDefaults = [[NSUserDefaults alloc] init];
-    [loginDefaults addSuiteNamed:@"LoginWindow"];
+    [loginDefaults addSuiteNamed:@"loginwindow"];
 
     [loginDefaults setObject:username forKey:@"lastLoggedInUser"];
     
@@ -1606,7 +1616,7 @@ void signalHandler(int sig) {
     
     // Fall back to NSUserDefaults method
     NSUserDefaults *loginDefaults = [[NSUserDefaults alloc] init];
-    [loginDefaults addSuiteNamed:@"LoginWindow"];
+    [loginDefaults addSuiteNamed:@"loginwindow"];
     
     NSString *lastUser = [loginDefaults stringForKey:@"lastLoggedInUser"];
     
@@ -1961,6 +1971,64 @@ void signalHandler(int sig) {
     // Start the animation
     [shakeAnimation startAnimation];
     [shakeAnimation autorelease];
+}
+
+- (void)updateLoginButtonState
+{
+    NSString *username = [usernameField stringValue];
+    NSString *password = [passwordField stringValue];
+    
+    BOOL hasUsername = username && [username length] > 0;
+    BOOL hasPassword = password && [password length] > 0;
+    BOOL shouldEnable = hasUsername && hasPassword;
+    
+    [loginButton setEnabled:shouldEnable];
+    
+    NSLog(@"[DEBUG] Login button state updated - username: %s, password: %s, enabled: %s",
+          hasUsername ? "yes" : "no",
+          hasPassword ? "yes" : "no", 
+          shouldEnable ? "yes" : "no");
+}
+
+- (void)controlTextDidChange:(NSNotification *)notification
+{
+    NSTextField *textField = [notification object];
+    
+    if (textField == usernameField || textField == passwordField) {
+        [self updateLoginButtonState];
+    }
+}
+
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector
+{
+    NSLog(@"[DEBUG] Key command received: %@", NSStringFromSelector(commandSelector));
+    
+    // Handle ESC key (cancelOperation:)
+    if (commandSelector == @selector(cancelOperation:)) {
+        NSLog(@"[DEBUG] ESC key pressed, clearing fields and shaking");
+        [self clearFieldsAndShake];
+        return YES;  // Consume the event
+    }
+    
+    return NO;  // Let the system handle other keys
+}
+
+- (void)clearFieldsAndShake
+{
+    NSLog(@"[DEBUG] Clearing fields and shaking window");
+    
+    // Clear both username and password fields
+    [usernameField setStringValue:@""];
+    [passwordField setStringValue:@""];
+    
+    // Update login button state (should be disabled now)
+    [self updateLoginButtonState];
+    
+    // Focus on username field
+    [loginWindow makeFirstResponder:usernameField];
+    
+    // Shake the window
+    [self shakeWindow];
 }
 
 @end
