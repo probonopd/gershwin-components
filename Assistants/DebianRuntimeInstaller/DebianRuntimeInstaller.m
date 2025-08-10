@@ -12,6 +12,16 @@
 #import "DRIInstaller.h"
 #import <objc/runtime.h>
 
+@interface DebianRuntimeAppDelegate : NSObject <NSApplicationDelegate>
+@end
+
+@implementation DebianRuntimeAppDelegate
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
+    NSLog(@"DebianRuntimeInstaller: Last window closed, terminating application");
+    return YES;
+}
+@end
+
 // Forward declarations
 @interface IntroStep : NSObject <GSAssistantStepProtocol>
 {
@@ -960,6 +970,14 @@
     return self;
 }
 
+- (void)dealloc
+{
+    NSLog(@"DebianRuntimeInstallerController: dealloc");
+    [_selectedImageURL release];
+    [_assistantWindow release];
+    [super dealloc];
+}
+
 - (void)showAssistant
 {
     NSLog(@"DebianRuntimeInstallerController: showAssistant");
@@ -1034,10 +1052,17 @@ int main(int argc, const char *argv[])
     @autoreleasepool {
         [NSApplication sharedApplication];
         
+        // Set up application delegate to ensure proper termination
+        DebianRuntimeAppDelegate *appDelegate = [[DebianRuntimeAppDelegate alloc] init];
+        [NSApp setDelegate:appDelegate];
+        
         DebianRuntimeInstallerController *controller = [[DebianRuntimeInstallerController alloc] init];
         [controller showAssistant];
         
         [NSApp run];
+        
+        [controller release];
+        [appDelegate release];
     }
     
     return 0;

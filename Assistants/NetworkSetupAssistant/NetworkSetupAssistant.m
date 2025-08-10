@@ -4,6 +4,16 @@
 #import <GSAssistantUtilities.h>
 #import "NetworkSetupSteps.h"
 
+@interface NetworkSetupAppDelegate : NSObject <NSApplicationDelegate>
+@end
+
+@implementation NetworkSetupAppDelegate
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
+    NSLog(@"NetworkSetupAssistant: Last window closed, terminating application");
+    return YES;
+}
+@end
+
 @interface NetworkSetupDelegate : NSObject <GSAssistantWindowDelegate>
 @end
 
@@ -263,6 +273,10 @@ int main(int argc, const char * argv[]) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         
+        // Set up application delegate to ensure proper termination
+        NetworkSetupAppDelegate *appDelegate = [[NetworkSetupAppDelegate alloc] init];
+        [NSApp setDelegate:appDelegate];
+        
         // Create menu bar
         NSMenu *mainMenu = [[NSMenu alloc] init];
         NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
@@ -278,6 +292,8 @@ int main(int argc, const char * argv[]) {
         [NetworkSetupAssistant showNetworkAssistant];
         
         [NSApp run];
+        
+        [appDelegate release];
     }
     return 0;
 }

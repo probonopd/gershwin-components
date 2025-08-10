@@ -4,6 +4,16 @@
 #import <GSAssistantUtilities.h>
 #import "SystemSetupSteps.h"
 
+@interface SystemSetupAppDelegate : NSObject <NSApplicationDelegate>
+@end
+
+@implementation SystemSetupAppDelegate
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
+    NSLog(@"SystemSetupAssistant: Last window closed, terminating application");
+    return YES;
+}
+@end
+
 @interface SystemSetupDelegate : NSObject <GSAssistantWindowDelegate>
 @end
 
@@ -105,6 +115,10 @@ int main(int argc, const char * argv[]) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         
+        // Set up application delegate to ensure proper termination
+        SystemSetupAppDelegate *appDelegate = [[SystemSetupAppDelegate alloc] init];
+        [NSApp setDelegate:appDelegate];
+        
         // Create menu bar
         NSMenu *mainMenu = [[NSMenu alloc] init];
         NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
@@ -120,6 +134,8 @@ int main(int argc, const char * argv[]) {
         [SystemSetupAssistant showSetupAssistant];
         
         [NSApp run];
+        
+        [appDelegate release];
     }
     return 0;
 }

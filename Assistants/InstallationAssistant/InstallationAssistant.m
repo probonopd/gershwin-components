@@ -4,6 +4,16 @@
 #import <GSAssistantUtilities.h>
 #import "InstallationSteps.h"
 
+@interface InstallationAppDelegate : NSObject <NSApplicationDelegate>
+@end
+
+@implementation InstallationAppDelegate
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
+    NSLog(@"InstallationAssistant: Last window closed, terminating application");
+    return YES;
+}
+@end
+
 @interface InstallationDelegate : NSObject <GSAssistantWindowDelegate>
 @end
 
@@ -293,6 +303,10 @@ int main(int argc, const char * argv[]) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         
+        // Set up application delegate to ensure proper termination
+        InstallationAppDelegate *appDelegate = [[InstallationAppDelegate alloc] init];
+        [NSApp setDelegate:appDelegate];
+        
         // Create menu bar
         NSMenu *mainMenu = [[NSMenu alloc] init];
         NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
@@ -308,6 +322,8 @@ int main(int argc, const char * argv[]) {
         [InstallationAssistant showInstallationAssistant];
         
         [NSApp run];
+        
+        [appDelegate release];
     }
     return 0;
 }

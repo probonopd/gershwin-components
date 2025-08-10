@@ -8,6 +8,16 @@
 #import "CLMController.h"
 #import <unistd.h>
 
+@interface CLMApplicationDelegate : NSObject <NSApplicationDelegate>
+@end
+
+@implementation CLMApplicationDelegate
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
+    NSLog(@"CreateLiveMediaAssistant: Last window closed, terminating application");
+    return YES;
+}
+@end
+
 int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) argv[])
 {
     NSLog(@"CreateLiveMediaAssistant: main() starting");
@@ -54,6 +64,10 @@ int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) 
         // Initialize application
         NSApplication *app = [NSApplication sharedApplication];
         
+        // Set up application delegate to ensure proper termination
+        CLMApplicationDelegate *appDelegate = [[CLMApplicationDelegate alloc] init];
+        [app setDelegate:appDelegate];
+        
         // Create and show the assistant
         CLMController *controller = [[CLMController alloc] init];
         [controller showAssistant];
@@ -62,6 +76,7 @@ int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) 
         [app run];
         
         [controller release];
+        [appDelegate release];
     }
     
     NSLog(@"CreateLiveMediaAssistant: main() exiting");

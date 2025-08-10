@@ -255,6 +255,11 @@
     return NSTerminateNow;
 }
 
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
+{
+    return YES;
+}
+
 - (void)dealloc
 {
     [window release];
