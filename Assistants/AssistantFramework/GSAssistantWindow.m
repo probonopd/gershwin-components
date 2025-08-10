@@ -41,7 +41,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
 @implementation GSInstallerCardView
 - (instancetype)initWithFrame:(NSRect)frameRect {
     if ((self = [super initWithFrame:frameRect])) {
-        _fillColor = [[NSColor colorWithCalibratedWhite:1.0 alpha:0.90] retain];
+        _fillColor = [[NSColor colorWithCalibratedWhite:1.0 alpha:0.33] retain];
         _strokeColor = [[NSColor colorWithCalibratedWhite:0.72 alpha:1.0] retain];
         _cornerRadius = 0.0; // rectangular
     }
@@ -289,6 +289,10 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     
     [window center];
     
+    // Make sure the application quits when window is closed
+    [window setReleasedWhenClosed:YES];
+    window.delegate = self;
+    
     _contentView = [[NSView alloc] init];
     window.contentView = _contentView;
     
@@ -380,7 +384,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _mainContentView = [[NSView alloc] initWithFrame:NSMakeRect(180, 60, 520, 380)];
     [_contentView addSubview:_mainContentView];
     
-    // Main title - moved down further from y=310 to y=280
+    // Main title
     _titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(30, 280, 460, 30)];
     _titleLabel.editable = NO;
     _titleLabel.selectable = NO;
@@ -389,12 +393,11 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _titleLabel.drawsBackground = NO;
     _titleLabel.backgroundColor = [NSColor clearColor];
     _titleLabel.font = [NSFont boldSystemFontOfSize:20.0];
-    _titleLabel.textColor = [NSColor colorWithCalibratedRed:0.1 green:0.1 blue:0.1 alpha:1.0];
     _titleLabel.stringValue = _assistantTitle ?: @"Setup Assistant";
     [_mainContentView addSubview:_titleLabel];
     
     // Step title
-    _stepTitleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(30, 210, 400, 24)];
+    _stepTitleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(30, 212, 420, 24)];
     _stepTitleLabel.editable = NO;
     _stepTitleLabel.selectable = NO;
     _stepTitleLabel.bordered = NO;
@@ -402,11 +405,9 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _stepTitleLabel.drawsBackground = NO;
     _stepTitleLabel.backgroundColor = [NSColor clearColor];
     _stepTitleLabel.font = [NSFont boldSystemFontOfSize:16.0];
-    _stepTitleLabel.textColor = [NSColor colorWithCalibratedRed:0.15 green:0.15 blue:0.15 alpha:1.0];
     [_mainContentView addSubview:_stepTitleLabel];
     
     // Step description
-    // TODO: Move inside the card
     _stepDescriptionLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(30, 220, 430, 20)];
     _stepDescriptionLabel.editable = NO;
     _stepDescriptionLabel.selectable = NO;
@@ -418,7 +419,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _stepDescriptionLabel.textColor = [NSColor colorWithCalibratedRed:0.4 green:0.4 blue:0.4 alpha:1.0];
     [_mainContentView addSubview:_stepDescriptionLabel];
     
-    // Step content area - increased height and moved down further: y=30 to y=20, height 210 to 190
+    // Step content area
     _stepContentView = [[NSView alloc] initWithFrame:NSMakeRect(30, 20, 460, 190)];
     [_mainContentView addSubview:_stepContentView];
 }
@@ -789,9 +790,47 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     
     // Sidebar should be visually flat: no colored background and no separator line here
     _sidebarView = [[NSView alloc] initWithFrame:sidebarFrame];
+
+    // Add a single watermark for the whole dialog, behind everything
+    if (_assistantIcon && !_contentWatermarkImageView) {
+        // Background area excludes window titlebar; position relative to contentView
+        CGFloat availableH = _windowHeight - GSAssistantInstallerButtonAreaHeight;
+        // Large but constrained size based on height
+        CGFloat wmSize = MIN(availableH * 0.80, 480.0);
+        CGFloat wmX = -80.0; // near window left edge
+        CGFloat wmY = GSAssistantInstallerButtonAreaHeight + (availableH - wmSize) / 2.0 - 40.0;
+        NSRect wmFrame = NSMakeRect(wmX, wmY, wmSize, wmSize);
+        _contentWatermarkImageView = [[NSImageView alloc] initWithFrame:wmFrame];
+        [_contentWatermarkImageView setImage:_assistantIcon];
+        [_contentWatermarkImageView setImageScaling:NSImageScaleProportionallyUpOrDown];
+        [_contentWatermarkImageView setImageAlignment:NSImageAlignCenter];
+        // Workaround: force faint alpha by compositing image with alpha
+        NSImage *icon = _assistantIcon;
+        NSImage *faintIcon = [[NSImage alloc] initWithSize:[icon size]];
+        [faintIcon lockFocus];
+        [[NSColor colorWithCalibratedWhite:1.0 alpha:0.0] set];
+        NSRectFill(NSMakeRect(0,0,[icon size].width,[icon size].height));
+        [icon drawInRect:NSMakeRect(0,0,[icon size].width,[icon size].height)
+#if defined(NSCompositingOperationSourceOver)
+                fromRect:NSZeroRect
+                operation:NSCompositingOperationSourceOver
+#else
+                fromRect:NSZeroRect
+                operation:NSCompositeSourceOver
+#endif
+                fraction:0.5];
+        [faintIcon unlockFocus];
+        [_contentWatermarkImageView setImage:faintIcon];
+        [faintIcon release];
+        [_contentWatermarkImageView setAlphaValue:1.0];
+        [_contentWatermarkImageView setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin | NSViewMaxYMargin)];
+        // Place at the very back so it shines through both sidebar and content card
+        [_contentView addSubview:_contentWatermarkImageView positioned:NSWindowBelow relativeTo:nil];
+        NSLog(@"[GSAssistantWindow] Global watermark added (whole dialog), frame %@", NSStringFromRect(wmFrame));
+    }
+
     [_contentView addSubview:_sidebarView];
     
-    // Do NOT add a sidebar watermark/logo to avoid duplication; single large watermark lives behind the card
     // Create step indicators
     [self createInstallerStepIndicators];
     
@@ -812,42 +851,20 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     CGFloat cw = [_mainContentView frame].size.width;
     CGFloat ch = [_mainContentView frame].size.height;
 
-    // Space around the semi-transparent card
+    // Space around the semi-transparent card - optimize for maximum vertical space
     CGFloat sideInset = 20.0;
     CGFloat bottomInset = 0.0;
-    CGFloat topInsetForTitles = 70.0; // ensure description/title sit above the card with visible gap
+    // Reserve room for the step title
+    CGFloat topInsetForTitle = 72.0;
 
-    NSRect cardFrame = NSMakeRect(sideInset, bottomInset, cw - (2*sideInset), ch - (bottomInset + topInsetForTitles));
+    NSRect cardFrame = NSMakeRect(sideInset, bottomInset, cw - (2*sideInset), ch - (bottomInset + topInsetForTitle));
 
     // Card first (rectangular, semi-transparent, subtle border)
     _installerContentCardView = [[GSInstallerCardView alloc] initWithFrame:cardFrame];
     [_installerContentCardView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_mainContentView addSubview:_installerContentCardView];
 
-    // Watermark: single large faint image BEHIND the card, left-aligned
-    if (_assistantIcon) {
-        NSRect cf = [_installerContentCardView frame];
-        CGFloat cardH = cf.size.height;
-        // Make watermark large: ~120% of card height, capped at 320px
-        CGFloat wmSize = MIN(cardH * 01.2, 320.0);
-        // Left-aligned within content area, vertically centered to the card
-        CGFloat wmX = NSMinX(cf) - 220.0;
-        CGFloat wmY = NSMidY(cf) - (wmSize / 2.0);
-        NSRect wmFrame = NSMakeRect(wmX, wmY, wmSize, wmSize);
-
-        _contentWatermarkImageView = [[NSImageView alloc] initWithFrame:wmFrame];
-        [_contentWatermarkImageView setImage:_assistantIcon];
-        [_contentWatermarkImageView setImageScaling:NSImageScaleProportionallyUpOrDown];
-        [_contentWatermarkImageView setImageAlignment:NSImageAlignCenter];
-        [_contentWatermarkImageView setAlphaValue:0.12];
-        // Anchor to left; installer window is fixed-size, but keep sane autoresizing
-        [_contentWatermarkImageView setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
-        // Add behind the card so it appears as a faint background
-        [_mainContentView addSubview:_contentWatermarkImageView positioned:NSWindowBelow relativeTo:_installerContentCardView];
-        NSLog(@"[GSAssistantWindow] Watermark behind card (left-aligned), frame %@", NSStringFromRect(wmFrame));
-    }
-
-    NSLog(@"[GSAssistantWindow] Installer content area setup complete (card, watermark behind). card=%@ watermark=%@", _installerContentCardView, _contentWatermarkImageView);
+    NSLog(@"[GSAssistantWindow] Installer content area setup complete (card only; watermark handled globally). card=%@", _installerContentCardView);
 }
 
 - (void)setupInstallerButtonArea {
@@ -960,7 +977,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     if (_installerStepTitleField) { [_installerStepTitleField removeFromSuperview]; [_installerStepTitleField release]; _installerStepTitleField = nil; }
     if (_installerStepDescriptionField) { [_installerStepDescriptionField removeFromSuperview]; [_installerStepDescriptionField release]; _installerStepDescriptionField = nil; }
 
-    // Clear card subviews (watermark is no longer inside the card)
+    // Clear card subviews but keep any future background layers
     if (_installerContentCardView) {
         NSArray *subviews = [[_installerContentCardView.subviews copy] autorelease];
         for (NSView *sub in subviews) {
@@ -973,8 +990,8 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
 
         CGFloat contentWidth = [_mainContentView frame].size.width;   // full content width
 
-        // Title at x=20, y near top
-        NSRect titleFrame = NSMakeRect(20, 344, contentWidth - 40, 26);
+        // Title above the card - position to match the reduced top inset
+        NSRect titleFrame = NSMakeRect(16, 320, contentWidth - 32, 26);
         _installerStepTitleField = [[NSTextField alloc] initWithFrame:titleFrame];
         [_installerStepTitleField setStringValue:[currentStep stepTitle] ?: @""];
         [_installerStepTitleField setBezeled:NO];
@@ -986,12 +1003,15 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         [_installerStepTitleField setTextColor:[NSColor blackColor]];
         [_mainContentView addSubview:_installerStepTitleField];
 
+        // Optional description INSIDE the card, top with padding
         NSString *desc = nil;
         if ([currentStep respondsToSelector:@selector(stepDescription)]) {
             desc = [currentStep stepDescription];
         }
+        CGFloat descBlockHeight = 0.0;
         if (desc && [desc length] > 0) {
-            NSRect descFrame = NSMakeRect(20, 310, contentWidth - 40, 20);
+            NSRect inner = NSInsetRect(_installerContentCardView.bounds, 12.0, 12.0);
+            NSRect descFrame = NSMakeRect(inner.origin.x, inner.origin.y + inner.size.height - 18.0, inner.size.width, 16.0);
             _installerStepDescriptionField = [[NSTextField alloc] initWithFrame:descFrame];
             [_installerStepDescriptionField setStringValue:desc];
             [_installerStepDescriptionField setBezeled:NO];
@@ -999,16 +1019,21 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
             [_installerStepDescriptionField setDrawsBackground:NO];
             [_installerStepDescriptionField setEditable:NO];
             [_installerStepDescriptionField setSelectable:NO];
-            [_installerStepDescriptionField setFont:[NSFont systemFontOfSize:13]];
-            [_installerStepDescriptionField setTextColor:[NSColor colorWithCalibratedWhite:0.4 alpha:1.0]];
-            [_mainContentView addSubview:_installerStepDescriptionField];
+            [_installerStepDescriptionField setFont:[NSFont systemFontOfSize:12]];
+            [_installerStepDescriptionField setTextColor:[NSColor colorWithCalibratedWhite:0.25 alpha:1.0]];
+            [_installerContentCardView addSubview:_installerStepDescriptionField];
+            descBlockHeight = 20.0; // label height + minimal spacing
         }
 
-        // Place step view inside the card with 18pt insets (above watermark automatically since it's behind the card)
+        // Place step view below the description inside the card with optimized padding to maximize vertical space
         NSView *stepContentView = [currentStep stepView];
         if (stepContentView) {
-            NSRect inner = NSInsetRect(_installerContentCardView.bounds, 18.0, 18.0);
-            [stepContentView setFrame:inner];
+            NSRect inner = NSInsetRect(_installerContentCardView.bounds, 12.0, 12.0);
+            NSRect innerAdjusted = NSMakeRect(inner.origin.x,
+                                              inner.origin.y,
+                                              inner.size.width,
+                                              inner.size.height - descBlockHeight);
+            [stepContentView setFrame:innerAdjusted];
             [_installerContentCardView addSubview:stepContentView];
         }
     }
@@ -1078,6 +1103,13 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
 - (void)optionsButtonClicked:(id)sender {
     NSLog(@"[GSAssistantWindow] Options button clicked");
     // Handle options - to be implemented based on specific step needs
+}
+
+#pragma mark - NSWindowDelegate
+
+- (void)windowWillClose:(NSNotification *)notification {
+    NSLog(@"[GSAssistantWindow] Window closing, terminating application");
+    [NSApp terminate:nil];
 }
 
 @end
