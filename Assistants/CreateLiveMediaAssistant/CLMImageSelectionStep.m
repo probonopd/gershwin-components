@@ -56,10 +56,11 @@
 {
     NSLog(@"CLMImageSelectionStep: setupView");
     
-    _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 480, 360)];
+    // Fit step view to installer card inner area
+    _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 204)];
     
     // Repository selection
-    NSTextField *repoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 320, 100, 20)];
+    NSTextField *repoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 176, 86, 18)];
     [repoLabel setStringValue:@"Repository:"];
     [repoLabel setBezeled:NO];
     [repoLabel setDrawsBackground:NO];
@@ -68,7 +69,7 @@
     [_stepView addSubview:repoLabel];
     [repoLabel release];
     
-    _repositoryPopUp = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(130, 318, 320, 24)];
+    _repositoryPopUp = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(96, 174, 250, 22)];
     [_repositoryPopUp addItemWithTitle:@"probonopd/ghostbsd-build"];
     [_repositoryPopUp addItemWithTitle:@"ventoy/Ventoy"];
     [_repositoryPopUp addItemWithTitle:@"Other..."];
@@ -79,7 +80,7 @@
     [_repositoryPopUp release];
     
     // Prerelease checkbox
-    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, 290, 200, 20)];
+    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(8, 152, 220, 18)];
     [_prereleaseCheckbox setButtonType:NSSwitchButton];
     [_prereleaseCheckbox setTitle:@"Show Pre-release builds"];
     [_prereleaseCheckbox setState:NSOffState];
@@ -89,14 +90,14 @@
     [_prereleaseCheckbox release];
     
     // Loading indicator and label
-    _loadingIndicator = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(220, 260, 16, 16)];
+    _loadingIndicator = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(240, 152, 16, 16)];
     [_loadingIndicator setStyle:NSProgressIndicatorSpinningStyle];
     [_loadingIndicator setDisplayedWhenStopped:NO];
     [_stepView addSubview:_loadingIndicator];
     [_loadingIndicator release];
     
-    _loadingLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(240, 258, 200, 20)];
-    [_loadingLabel setStringValue:@"Loading releases..."];
+    _loadingLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(260, 150, 90, 18)];
+    [_loadingLabel setStringValue:@"Loading..."];
     [_loadingLabel setBezeled:NO];
     [_loadingLabel setDrawsBackground:NO];
     [_loadingLabel setEditable:NO];
@@ -105,8 +106,8 @@
     [_stepView addSubview:_loadingLabel];
     [_loadingLabel release];
     
-    // Release table
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 80, 440, 170)];
+    // Release table (compact)
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(8, 36, 338, 112)];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:NO];
     [scrollView setBorderType:NSBezelBorder];
@@ -118,19 +119,19 @@
     // Add columns
     NSTableColumn *nameColumn = [[NSTableColumn alloc] initWithIdentifier:@"name"];
     [[nameColumn headerCell] setStringValue:@"Release"];
-    [nameColumn setWidth:250];
+    [nameColumn setWidth:190];
     [_releaseTableView addTableColumn:nameColumn];
     [nameColumn release];
     
     NSTableColumn *versionColumn = [[NSTableColumn alloc] initWithIdentifier:@"version"];
     [[versionColumn headerCell] setStringValue:@"Version"];
-    [versionColumn setWidth:80];
+    [versionColumn setWidth:70];
     [_releaseTableView addTableColumn:versionColumn];
     [versionColumn release];
     
     NSTableColumn *sizeColumn = [[NSTableColumn alloc] initWithIdentifier:@"sizeFormatted"];
     [[sizeColumn headerCell] setStringValue:@"Size"];
-    [sizeColumn setWidth:80];
+    [sizeColumn setWidth:70];
     [_releaseTableView addTableColumn:sizeColumn];
     [sizeColumn release];
     
@@ -154,34 +155,34 @@
                                                  name:NSTableViewSelectionDidChangeNotification
                                                object:_releaseTableView];
     
-    // Info labels
-    _dateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 50, 440, 20)];
+    // Info labels (compact, below the table)
+    _dateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 20, 338, 14)];
     [_dateLabel setStringValue:@""];
     [_dateLabel setBezeled:NO];
     [_dateLabel setDrawsBackground:NO];
     [_dateLabel setEditable:NO];
     [_dateLabel setSelectable:NO];
-    [_dateLabel setFont:[NSFont systemFontOfSize:11]];
+    [_dateLabel setFont:[NSFont systemFontOfSize:10]];
     [_stepView addSubview:_dateLabel];
     [_dateLabel release];
     
-    _urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 30, 440, 20)];
+    _urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 6, 338, 14)];
     [_urlLabel setStringValue:@""];
     [_urlLabel setBezeled:NO];
     [_urlLabel setDrawsBackground:NO];
     [_urlLabel setEditable:NO];
     [_urlLabel setSelectable:NO];
-    [_urlLabel setFont:[NSFont systemFontOfSize:11]];
+    [_urlLabel setFont:[NSFont systemFontOfSize:10]];
     [_stepView addSubview:_urlLabel];
     [_urlLabel release];
     
-    _sizeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 10, 440, 20)];
+    _sizeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, -8, 338, 14)];
     [_sizeLabel setStringValue:@""];
     [_sizeLabel setBezeled:NO];
     [_sizeLabel setDrawsBackground:NO];
     [_sizeLabel setEditable:NO];
     [_sizeLabel setSelectable:NO];
-    [_sizeLabel setFont:[NSFont systemFontOfSize:11]];
+    [_sizeLabel setFont:[NSFont systemFontOfSize:10]];
     [_stepView addSubview:_sizeLabel];
     [_sizeLabel release];
 }

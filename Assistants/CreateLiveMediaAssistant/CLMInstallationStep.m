@@ -54,48 +54,34 @@
 {
     NSLog(@"CLMInstallationStep: setupView");
     
-    _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 480, 360)];
+    // Fit step view to installer card inner area
+    _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 204)];
     
-    // Status image - moved down and made smaller for better layout
-    NSImageView *iconView = [[NSImageView alloc] initWithFrame:NSMakeRect(215, 250, 50, 50)];
-    NSString *iconPath = [[NSBundle mainBundle] pathForResource:@"bgusb" ofType:@"png"];
-    if (iconPath) {
-        NSImage *icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
-        if (icon) {
-            [iconView setImage:icon];
-            [icon release];
-        }
-    }
-    [iconView setImageScaling:NSImageScaleProportionallyUpOrDown];
-    [_stepView addSubview:iconView];
-    [iconView release];
-    
-    // Status label - moved up closer to icon
-    _statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 210, 440, 40)];
+    // Status label (top-centered)
+    _statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 160, 330, 34)];
     [_statusLabel setStringValue:@"Preparing to download and write Live medium..."];
-    [_statusLabel setFont:[NSFont boldSystemFontOfSize:14]];
+    [_statusLabel setFont:[NSFont boldSystemFontOfSize:13]];
     [_statusLabel setAlignment:NSCenterTextAlignment];
     [_statusLabel setBezeled:NO];
     [_statusLabel setDrawsBackground:NO];
     [_statusLabel setEditable:NO];
     [_statusLabel setSelectable:NO];
     [[_statusLabel cell] setWraps:YES];
-    [[_statusLabel cell] setLineBreakMode:NSLineBreakByWordWrapping];
     [_stepView addSubview:_statusLabel];
     [_statusLabel release];
     
-    // Progress bar - ensure determinate style and proper width
-    _progressBar = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(40, 150, 400, 20)];
+    // Progress bar (centered, classic bar style)
+    _progressBar = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(32, 118, 290, 18)];
     [_progressBar setStyle:NSProgressIndicatorBarStyle];
-    [_progressBar setIndeterminate:NO];  // Ensure determinate style
+    [_progressBar setIndeterminate:NO];
     [_progressBar setMinValue:0.0];
     [_progressBar setMaxValue:100.0];
     [_progressBar setDoubleValue:0.0];
     [_stepView addSubview:_progressBar];
     [_progressBar release];
     
-    // Progress label - with better height for text wrapping
-    _progressLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 115, 440, 30)];
+    // Progress text (under bar)
+    _progressLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 94, 330, 18)];
     [_progressLabel setStringValue:@""];
     [_progressLabel setAlignment:NSCenterTextAlignment];
     [_progressLabel setBezeled:NO];
@@ -103,22 +89,19 @@
     [_progressLabel setEditable:NO];
     [_progressLabel setSelectable:NO];
     [_progressLabel setFont:[NSFont systemFontOfSize:11]];
-    [[_progressLabel cell] setWraps:YES];
-    [[_progressLabel cell] setLineBreakMode:NSLineBreakByWordWrapping];
     [_stepView addSubview:_progressLabel];
     [_progressLabel release];
     
-    // Info text - more height and better positioning for text wrapping
-    _infoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 20, 440, 80)];
-    [_infoLabel setStringValue:@"The Live image is being downloaded and written directly to the selected device. This process may take several minutes depending on your internet connection and the size of the image."];
-    [_infoLabel setFont:[NSFont systemFontOfSize:11]];
+    // Info text (bottom)
+    _infoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 18, 330, 64)];
+    [_infoLabel setStringValue:@"The image will be downloaded and written to the selected device. This may take several minutes depending on network speed and image size."];
+    [_infoLabel setFont:[NSFont systemFontOfSize:10]];
     [_infoLabel setAlignment:NSCenterTextAlignment];
     [_infoLabel setBezeled:NO];
     [_infoLabel setDrawsBackground:NO];
     [_infoLabel setEditable:NO];
     [_infoLabel setSelectable:NO];
     [[_infoLabel cell] setWraps:YES];
-    [[_infoLabel cell] setLineBreakMode:NSLineBreakByWordWrapping];
     [_stepView addSubview:_infoLabel];
     [_infoLabel release];
 }

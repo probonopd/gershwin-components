@@ -29,6 +29,14 @@
     NSLog(@"DRIInstallationStep: dealloc");
     [_downloader cancelDownload];
     [_installer cancelInstallation];
+    if (_downloader) { [_downloader release]; _downloader = nil; }
+    if (_installer) { [_installer release]; _installer = nil; }
+    if (_stepView) { [_stepView release]; _stepView = nil; }
+    if (_progressBar) { [_progressBar release]; _progressBar = nil; }
+    if (_statusLabel) { [_statusLabel release]; _statusLabel = nil; }
+    if (_logView) { [_logView release]; _logView = nil; }
+    if (_downloadPath) { [_downloadPath release]; _downloadPath = nil; }
+    if (_currentTask) { [_currentTask release]; _currentTask = nil; }
     [super dealloc];
 }
 
@@ -52,21 +60,12 @@
 - (NSView *)stepView
 {
     if (!_stepView) {
-        _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 480, 320)];
+        // View sized to the installer card content (354x204). We'll keep 12pt margins.
+        _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 204)];
         
-        // Title label
-        NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 280, 440, 24)];
-        [titleLabel setStringValue:@"Installing Debian Runtime"];
-        [titleLabel setFont:[NSFont boldSystemFontOfSize:16]];
-        [titleLabel setBezeled:NO];
-        [titleLabel setDrawsBackground:NO];
-        [titleLabel setEditable:NO];
-        [titleLabel setSelectable:NO];
-        [_stepView addSubview:titleLabel];
-        
-        // Status label
-        _statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 250, 440, 20)];
-        [_statusLabel setStringValue:@"Preparing..."];
+        // Status label (top)
+        _statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 170, 330, 16)];
+        [_statusLabel setStringValue:@"Preparing..."]; 
         [_statusLabel setFont:[NSFont systemFontOfSize:12]];
         [_statusLabel setBezeled:NO];
         [_statusLabel setDrawsBackground:NO];
@@ -75,7 +74,7 @@
         [_stepView addSubview:_statusLabel];
         
         // Progress bar
-        _progressBar = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(60, 220, 360, 20)];
+        _progressBar = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(12, 146, 330, 16)];
         [_progressBar setStyle:NSProgressIndicatorBarStyle];
         [_progressBar setIndeterminate:NO];
         [_progressBar setMinValue:0.0];
@@ -83,18 +82,19 @@
         [_progressBar setDoubleValue:0.0];
         [_stepView addSubview:_progressBar];
         
-        // Log view
-        NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 40, 440, 160)];
+        // Log view (monospaced, inside bordered scroll view)
+        NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(12, 12, 330, 124)];
         [scrollView setHasVerticalScroller:YES];
         [scrollView setBorderType:NSBezelBorder];
         
-        _logView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 420, 160)];
-        [_logView setString:@"Ready to start installation...\n"];
+        _logView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 310, 124)];
+        [_logView setString:@"Ready to start installation...\n"]; 
         [_logView setEditable:NO];
         [_logView setFont:[NSFont fontWithName:@"Monaco" size:10]];
         
         [scrollView setDocumentView:_logView];
         [_stepView addSubview:scrollView];
+        [scrollView release];
     }
     return _stepView;
 }
@@ -142,16 +142,15 @@
 - (void)updateProgress:(CGFloat)progress withTask:(NSString *)task
 {
     NSLog(@"[DRIInstallationStep] *** updateProgress called: %.1f%% task: %@", progress * 100.0, task);
-    // NSLog(@"[DRIInstallationStep] *** _progressBar=%p _statusLabel=%p", _progressBar, _statusLabel);
     
     _currentProgress = progress;
     if (task) {
+        if (_currentTask) { [_currentTask release]; }
         _currentTask = [task copy];
     }
     
     // Update the internal progress bar
     if (_progressBar) {
-        // NSLog(@"[DRIInstallationStep] *** Setting progress bar to %.1f%%", progress * 100.0);
         [_progressBar setDoubleValue:progress * 100.0];
         [_progressBar setNeedsDisplay:YES]; // Force redraw
     } else {
@@ -160,7 +159,6 @@
     
     // Update status label
     if (_statusLabel && task) {
-        // NSLog(@"[DRIInstallationStep] *** Setting status label to: %@", task);
         [_statusLabel setStringValue:task];
         [_statusLabel setNeedsDisplay:YES]; // Force redraw
     } else if (!_statusLabel) {
@@ -182,13 +180,16 @@
 
 - (void)setSelectedImageURL:(NSString *)url
 {
-    _selectedImageURL = url;
+    if (_selectedImageURL != url) {
+        if (_selectedImageURL) { [_selectedImageURL release]; }
+        _selectedImageURL = [url copy];
+    }
     NSLog(@"DRIInstallationStep: set selected image URL: %@", url);
 }
 
 - (void)setController:(DRIController *)controller
 {
-    _controller = controller;
+    _controller = controller; // weak ref, owned by app
     NSLog(@"DRIInstallationStep: set controller reference");
 }
 
@@ -197,16 +198,18 @@
     NSLog(@"DRIInstallationStep: startInstallation");
     
     if (!_selectedImageURL || [_selectedImageURL length] == 0) {
-        [self logMessage:@"✗ Error: No image URL provided"];
-        [self installationFailed:@"No runtime image selected"];
+        [self logMessage:@"✗ Error: No image URL provided"]; 
+        [self installationFailed:@"No runtime image selected"]; 
         return;
     }
     
-    [self logMessage:@"Starting Debian Runtime installation..."];
-    [_statusLabel setStringValue:@"Starting download..."];
+    [self logMessage:@"Starting Debian Runtime installation..."]; 
+    if (_statusLabel) { [_statusLabel setStringValue:@"Starting download..."]; }
     
     // Create download path
-    _downloadPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"debian-runtime.img"];
+    NSString *tmp = NSTemporaryDirectory();
+    if (_downloadPath) { [_downloadPath release]; }
+    _downloadPath = [[tmp stringByAppendingPathComponent:@"debian-runtime.img"] copy];
     
     [self logMessage:[NSString stringWithFormat:@"Downloading from: %@", _selectedImageURL]];
     [self logMessage:[NSString stringWithFormat:@"Temporary file: %@", _downloadPath]];
@@ -242,9 +245,9 @@
 - (void)downloader:(id)downloader didCompleteWithFilePath:(NSString *)filePath
 {
     NSLog(@"DRIInstallationStep: download completed: %@", filePath);
-    [self logMessage:@"✓ Download completed successfully"];
-    [_statusLabel setStringValue:@"Download completed, starting installation..."];
-    [_progressBar setDoubleValue:80.0];
+    [self logMessage:@"✓ Download completed successfully"]; 
+    if (_statusLabel) { [_statusLabel setStringValue:@"Download completed, starting installation..."]; }
+    if (_progressBar) { [_progressBar setDoubleValue:80.0]; }
     
     // Start system installation
     [self startSystemInstallation];
@@ -253,14 +256,14 @@
 - (void)downloader:(id)downloader didFailWithError:(NSError *)error
 {
     NSLog(@"DRIInstallationStep: download failed: %@", error.localizedDescription);
-    [self logMessage:[NSString stringWithFormat:@"✗ Download failed: %@", error.localizedDescription]];
+    [self logMessage:[NSString stringWithFormat:@"✗ Download failed: %@", error.localizedDescription]]; 
     [self installationFailed:[NSString stringWithFormat:@"Download failed: %@", error.localizedDescription]];
 }
 
 - (void)startSystemInstallation
 {
     NSLog(@"DRIInstallationStep: startSystemInstallation");
-    [self logMessage:@"Starting system installation..."];
+    [self logMessage:@"Starting system installation..."]; 
     [_installer installRuntimeFromImagePath:_downloadPath];
 }
 
@@ -269,21 +272,23 @@
 - (void)installer:(id)installer didStartInstallationWithMessage:(NSString *)message
 {
     NSLog(@"DRIInstallationStep: installer started: %@", message);
-    [self logMessage:message];
-    [_statusLabel setStringValue:message];
-    [_progressBar setDoubleValue:85.0];
+    [self logMessage:message]; 
+    if (_statusLabel) { [_statusLabel setStringValue:message]; }
+    if (_progressBar) { [_progressBar setDoubleValue:85.0]; }
 }
 
 - (void)installer:(id)installer didUpdateProgress:(NSString *)message
 {
     NSLog(@"DRIInstallationStep: installer progress: %@", message);
-    [self logMessage:message];
-    [_statusLabel setStringValue:message];
+    [self logMessage:message]; 
+    if (_statusLabel) { [_statusLabel setStringValue:message]; }
     
     // Update progress (installation is 80-100% of total progress)
-    double currentProgress = [_progressBar doubleValue];
-    if (currentProgress < 95.0) {
-        [_progressBar setDoubleValue:currentProgress + 2.0];
+    if (_progressBar) {
+        double currentProgress = [_progressBar doubleValue];
+        if (currentProgress < 95.0) {
+            [_progressBar setDoubleValue:currentProgress + 2.0];
+        }
     }
 }
 
@@ -292,25 +297,25 @@
     NSLog(@"DRIInstallationStep: installer completed: %@ - %@", success ? @"SUCCESS" : @"FAILED", message);
     
     if (success) {
-        [self logMessage:[NSString stringWithFormat:@"✓ %@", message]];
-        [_statusLabel setStringValue:@"Installation completed successfully!"];
-        [_progressBar setDoubleValue:100.0];
+        [self logMessage:[NSString stringWithFormat:@"✓ %@", message]]; 
+        if (_statusLabel) { [_statusLabel setStringValue:@"Installation completed successfully!"]; }
+        if (_progressBar) { [_progressBar setDoubleValue:100.0]; }
         
         // Clean up downloaded file
         if (_downloadPath && [[NSFileManager defaultManager] fileExistsAtPath:_downloadPath]) {
             [[NSFileManager defaultManager] removeItemAtPath:_downloadPath error:nil];
-            [self logMessage:@"Temporary file cleaned up"];
+            [self logMessage:@"Temporary file cleaned up"]; 
         }
         
-        [self logMessage:@"\n=== INSTALLATION COMPLETED SUCCESSFULLY ==="];
-        [self logMessage:@"The Debian runtime is now installed and ready to use."];
+        [self logMessage:@"\n=== INSTALLATION COMPLETED SUCCESSFULLY ==="]; 
+        [self logMessage:@"The Debian runtime is now installed and ready to use."]; 
         
         // Show success page via controller
         if (_controller) {
             [_controller showInstallationSuccess:@"Debian runtime has been installed successfully. You can now run Linux applications."];
         }
     } else {
-        [self logMessage:[NSString stringWithFormat:@"✗ %@", message]];
+        [self logMessage:[NSString stringWithFormat:@"✗ %@", message]]; 
         [self installationFailed:message];
     }
 }
@@ -318,13 +323,13 @@
 - (void)installationFailed:(NSString *)error
 {
     NSLog(@"DRIInstallationStep: installation failed: %@", error);
-    [self logMessage:[NSString stringWithFormat:@"\n=== INSTALLATION FAILED ===\nError: %@", error]];
-    [_statusLabel setStringValue:@"Installation failed"];
+    [self logMessage:[NSString stringWithFormat:@"\n=== INSTALLATION FAILED ===\nError: %@", error]]; 
+    if (_statusLabel) { [_statusLabel setStringValue:@"Installation failed"]; }
     
     // Clean up downloaded file on failure
     if (_downloadPath && [[NSFileManager defaultManager] fileExistsAtPath:_downloadPath]) {
         [[NSFileManager defaultManager] removeItemAtPath:_downloadPath error:nil];
-        [self logMessage:@"Temporary file cleaned up"];
+        [self logMessage:@"Temporary file cleaned up"]; 
     }
     
     // Show error page via controller
@@ -344,14 +349,14 @@
     if (_downloader && _downloader.isDownloading) {
         NSLog(@"DRIInstallationStep: canceling download");
         [_downloader cancelDownload];
-        [self logMessage:@"Download canceled by user"];
+        [self logMessage:@"Download canceled by user"]; 
     }
     
     // Cancel ongoing installation 
     if (_installer) {
         NSLog(@"DRIInstallationStep: canceling installation");
         [_installer cancelInstallation];
-        [self logMessage:@"Installation canceled by user"];
+        [self logMessage:@"Installation canceled by user"]; 
     }
     
     // Clean up any temporary files
@@ -359,7 +364,7 @@
         NSError *error;
         if ([[NSFileManager defaultManager] removeItemAtPath:_downloadPath error:&error]) {
             NSLog(@"DRIInstallationStep: cleaned up temporary file: %@", _downloadPath);
-            [self logMessage:@"Temporary files cleaned up"];
+            [self logMessage:@"Temporary files cleaned up"]; 
         } else {
             NSLog(@"DRIInstallationStep: failed to cleanup temporary file %@: %@", _downloadPath, error.localizedDescription);
         }
@@ -377,16 +382,16 @@
 - (void)logMessage:(NSString *)message
 {
     NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
-    [formatter setDateFormat:@"HH:mm:ss"];
-    NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+    [formatter setDateFormat:@"HH:mm:ss"]; 
+    NSString *timestamp = [formatter stringFromDate:[NSDate date]]; 
     NSString *logEntry = [NSString stringWithFormat:@"[%@] %@\n", timestamp, message];
     
-    // Direct call since we're always on main thread in GNUstep
-    [_logView insertText:logEntry];
-    
-    // Scroll to bottom
-    NSRange range = NSMakeRange([[_logView string] length], 0);
-    [_logView scrollRangeToVisible:range];
+    if (_logView) {
+        [_logView insertText:logEntry];
+        // Scroll to bottom
+        NSRange range = NSMakeRange([[_logView string] length], 0);
+        [_logView scrollRangeToVisible:range];
+    }
     
     [formatter release];
 }

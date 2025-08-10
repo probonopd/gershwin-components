@@ -62,6 +62,15 @@
     NSLog(@"GSEnhancedProgressStep: setupView");
     
     _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 480, 360)];
+
+    // Very faint watermark icon centered behind content
+    NSImageView *watermark = [[NSImageView alloc] initWithFrame:[_stepView bounds]];
+    [watermark setImage:[NSApp applicationIconImage]];
+    [watermark setImageScaling:NSImageScaleProportionallyUpOrDown];
+    [watermark setImageAlignment:NSImageAlignCenter];
+    [watermark setAlphaValue:0.06];
+    [_stepView addSubview:watermark positioned:NSWindowBelow relativeTo:nil];
+    [watermark release];
     
     // Icon view
     _iconView = [[NSImageView alloc] initWithFrame:NSMakeRect(190, 250, 100, 80)];

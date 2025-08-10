@@ -35,22 +35,23 @@
 {
     NSLog(@"CLMDiskSelectionStep: setupView");
     
-    _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 480, 360)];
+    // Fit step view to installer card inner area
+    _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 204)];
     
     // Info label
-    _infoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 320, 440, 30)];
+    _infoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 176, 338, 28)];
     [_infoLabel setStringValue:@"Select the destination disk for the Live medium."];
     [_infoLabel setBezeled:NO];
     [_infoLabel setDrawsBackground:NO];
     [_infoLabel setEditable:NO];
     [_infoLabel setSelectable:NO];
-    [_infoLabel setFont:[NSFont systemFontOfSize:12]];
+    [_infoLabel setFont:[NSFont systemFontOfSize:11]];
     [[_infoLabel cell] setWraps:YES];
     [_stepView addSubview:_infoLabel];
     [_infoLabel release];
     
-    // Disk table
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 100, 440, 200)];
+    // Disk table (compact)
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(8, 56, 338, 116)];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:NO];
     [scrollView setBorderType:NSBezelBorder];
@@ -68,13 +69,13 @@
     
     NSTableColumn *descColumn = [[NSTableColumn alloc] initWithIdentifier:@"description"];
     [[descColumn headerCell] setStringValue:@"Description"];
-    [descColumn setWidth:250];
+    [descColumn setWidth:180];
     [_diskTableView addTableColumn:descColumn];
     [descColumn release];
     
     NSTableColumn *sizeColumn = [[NSTableColumn alloc] initWithIdentifier:@"sizeFormatted"];
     [[sizeColumn headerCell] setStringValue:@"Size"];
-    [sizeColumn setWidth:80];
+    [sizeColumn setWidth:70];
     [_diskTableView addTableColumn:sizeColumn];
     [sizeColumn release];
     
@@ -98,14 +99,14 @@
                                                  name:NSTableViewSelectionDidChangeNotification
                                                object:_diskTableView];
     
-    // Warning label
-    _warningLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 20, 440, 60)];
-    [_warningLabel setStringValue:@"⚠️ WARNING: All data on the selected disk will be permanently erased!\n\nOnly removable drives (USB, SD cards) are shown for safety."];
+    // Warning label (compact)
+    _warningLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 8, 338, 40)];
+    [_warningLabel setStringValue:@"WARNING: All data on the selected disk will be permanently erased!\nOnly removable drives are shown for safety."];
     [_warningLabel setBezeled:NO];
     [_warningLabel setDrawsBackground:NO];
     [_warningLabel setEditable:NO];
     [_warningLabel setSelectable:NO];
-    [_warningLabel setFont:[NSFont boldSystemFontOfSize:11]];
+    [_warningLabel setFont:[NSFont boldSystemFontOfSize:10]];
     [_warningLabel setTextColor:[NSColor redColor]];
     [[_warningLabel cell] setWraps:YES];
     [_stepView addSubview:_warningLabel];

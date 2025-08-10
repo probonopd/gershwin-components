@@ -12,6 +12,7 @@
 - (instancetype)init
 {
     if (self = [super init]) {
+        NSLog(@"[NSNetworkConfigStep] init");
         self.stepTitle = @"Network Configuration";
         self.stepDescription = @"Configure your network interface settings";
         [self setupView];
@@ -21,6 +22,14 @@
 
 - (void)dealloc
 {
+    NSLog(@"[NSNetworkConfigStep] dealloc");
+    [_dnsField release];
+    [_gatewayField release];
+    [_subnetMaskField release];
+    [_ipAddressField release];
+    [_manualRadio release];
+    [_dhcpRadio release];
+    [_interfacePopup release];
     [_stepView release];
     [stepTitle release];
     [stepDescription release];
@@ -29,10 +38,16 @@
 
 - (void)setupView
 {
-    _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 280)];
-    
+    NSLog(@"[NSNetworkConfigStep] setupView");
+    // Match installer card inner area (approx 354x204)
+    _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 204)];
+    CGFloat left = 16.0;
+    CGFloat rightInset = 16.0;
+    CGFloat fieldX = 150.0;
+    CGFloat fieldW = 354.0 - fieldX - rightInset; // ~188
+
     // Interface selection
-    NSTextField *interfaceLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 250, 120, 20)];
+    NSTextField *interfaceLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left, 172, 120, 16)];
     [interfaceLabel setStringValue:@"Network Interface:"];
     [interfaceLabel setBezeled:NO];
     [interfaceLabel setDrawsBackground:NO];
@@ -40,32 +55,38 @@
     [interfaceLabel setSelectable:NO];
     [_stepView addSubview:interfaceLabel];
     [interfaceLabel release];
-    
-    _interfacePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(150, 248, 200, 24)];
+
+    _interfacePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(fieldX, 168, fieldW, 24)];
     [_interfacePopup addItemWithTitle:@"em0 (Ethernet)"];
     [_interfacePopup addItemWithTitle:@"wlan0 (Wireless)"];
     [_interfacePopup addItemWithTitle:@"re0 (Ethernet)"];
     [_stepView addSubview:_interfacePopup];
-    
-    // Configuration method radio buttons
-    _dhcpRadio = [[NSButton alloc] initWithFrame:NSMakeRect(20, 210, 200, 20)];
+
+    // Configuration method radio buttons (compact)
+    _dhcpRadio = [[NSButton alloc] initWithFrame:NSMakeRect(left, 140, 322, 18)];
     [_dhcpRadio setButtonType:NSRadioButton];
     [_dhcpRadio setTitle:@"Obtain IP address automatically (DHCP)"];
     [_dhcpRadio setState:NSOnState]; // Default selection
     [_dhcpRadio setTarget:self];
     [_dhcpRadio setAction:@selector(configMethodChanged:)];
     [_stepView addSubview:_dhcpRadio];
-    
-    _manualRadio = [[NSButton alloc] initWithFrame:NSMakeRect(20, 185, 200, 20)];
+
+    _manualRadio = [[NSButton alloc] initWithFrame:NSMakeRect(left, 118, 322, 18)];
     [_manualRadio setButtonType:NSRadioButton];
     [_manualRadio setTitle:@"Use manual configuration"];
     [_manualRadio setState:NSOffState];
     [_manualRadio setTarget:self];
     [_manualRadio setAction:@selector(configMethodChanged:)];
     [_stepView addSubview:_manualRadio];
-    
+
     // Manual configuration fields (initially disabled)
-    NSTextField *ipLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(40, 150, 100, 20)];
+    // Row Y origins for fields
+    CGFloat row1Y = 104.0;
+    CGFloat row2Y = 76.0;
+    CGFloat row3Y = 48.0;
+    CGFloat row4Y = 20.0;
+
+    NSTextField *ipLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 16, row1Y + 4, 100, 16)];
     [ipLabel setStringValue:@"IP Address:"];
     [ipLabel setBezeled:NO];
     [ipLabel setDrawsBackground:NO];
@@ -73,12 +94,12 @@
     [ipLabel setSelectable:NO];
     [_stepView addSubview:ipLabel];
     [ipLabel release];
-    
-    _ipAddressField = [[NSTextField alloc] initWithFrame:NSMakeRect(150, 150, 150, 24)];
+
+    _ipAddressField = [[NSTextField alloc] initWithFrame:NSMakeRect(fieldX, row1Y, fieldW, 22)];
     [_ipAddressField setEnabled:NO];
     [_stepView addSubview:_ipAddressField];
-    
-    NSTextField *maskLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(40, 120, 100, 20)];
+
+    NSTextField *maskLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 16, row2Y + 4, 100, 16)];
     [maskLabel setStringValue:@"Subnet Mask:"];
     [maskLabel setBezeled:NO];
     [maskLabel setDrawsBackground:NO];
@@ -86,12 +107,12 @@
     [maskLabel setSelectable:NO];
     [_stepView addSubview:maskLabel];
     [maskLabel release];
-    
-    _subnetMaskField = [[NSTextField alloc] initWithFrame:NSMakeRect(150, 120, 150, 24)];
+
+    _subnetMaskField = [[NSTextField alloc] initWithFrame:NSMakeRect(fieldX, row2Y, fieldW, 22)];
     [_subnetMaskField setEnabled:NO];
     [_stepView addSubview:_subnetMaskField];
-    
-    NSTextField *gatewayLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(40, 90, 100, 20)];
+
+    NSTextField *gatewayLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 16, row3Y + 4, 100, 16)];
     [gatewayLabel setStringValue:@"Gateway:"];
     [gatewayLabel setBezeled:NO];
     [gatewayLabel setDrawsBackground:NO];
@@ -99,12 +120,12 @@
     [gatewayLabel setSelectable:NO];
     [_stepView addSubview:gatewayLabel];
     [gatewayLabel release];
-    
-    _gatewayField = [[NSTextField alloc] initWithFrame:NSMakeRect(150, 90, 150, 24)];
+
+    _gatewayField = [[NSTextField alloc] initWithFrame:NSMakeRect(fieldX, row3Y, fieldW, 22)];
     [_gatewayField setEnabled:NO];
     [_stepView addSubview:_gatewayField];
-    
-    NSTextField *dnsLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(40, 60, 100, 20)];
+
+    NSTextField *dnsLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 16, row4Y + 4, 100, 16)];
     [dnsLabel setStringValue:@"DNS Server:"];
     [dnsLabel setBezeled:NO];
     [dnsLabel setDrawsBackground:NO];
@@ -112,16 +133,17 @@
     [dnsLabel setSelectable:NO];
     [_stepView addSubview:dnsLabel];
     [dnsLabel release];
-    
-    _dnsField = [[NSTextField alloc] initWithFrame:NSMakeRect(150, 60, 150, 24)];
+
+    _dnsField = [[NSTextField alloc] initWithFrame:NSMakeRect(fieldX, row4Y, fieldW, 22)];
     [_dnsField setEnabled:NO];
     [_stepView addSubview:_dnsField];
 }
 
 - (void)configMethodChanged:(id)sender
 {
+    NSLog(@"[NSNetworkConfigStep] configMethodChanged: sender=%@", sender);
     BOOL manualConfig = ([_manualRadio state] == NSOnState);
-    
+
     if (sender == _dhcpRadio && [_dhcpRadio state] == NSOnState) {
         [_manualRadio setState:NSOffState];
         manualConfig = NO;
@@ -129,12 +151,12 @@
         [_dhcpRadio setState:NSOffState];
         manualConfig = YES;
     }
-    
+
     [_ipAddressField setEnabled:manualConfig];
     [_subnetMaskField setEnabled:manualConfig];
     [_gatewayField setEnabled:manualConfig];
     [_dnsField setEnabled:manualConfig];
-    
+
     [self requestNavigationUpdate];
 }
 
@@ -161,12 +183,14 @@
     if ([_dhcpRadio state] == NSOnState) {
         return YES; // DHCP mode is always valid
     }
-    
+
     // Manual mode requires at least IP address and subnet mask
     NSString *ipAddress = [[_ipAddressField stringValue] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     NSString *subnetMask = [[_subnetMaskField stringValue] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    
-    return ([ipAddress length] > 0 && [subnetMask length] > 0);
+
+    BOOL ok = ([ipAddress length] > 0 && [subnetMask length] > 0);
+    NSLog(@"[NSNetworkConfigStep] canContinue (manual=%d) -> %@", ([_manualRadio state] == NSOnState), ok ? @"YES" : @"NO");
+    return ok;
 }
 
 - (NSString *)selectedInterface
@@ -208,6 +232,7 @@
 - (instancetype)init
 {
     if (self = [super init]) {
+        NSLog(@"[NSAuthConfigStep] init");
         self.stepTitle = @"Authentication";
         self.stepDescription = @"Set up network authentication";
         [self setupView];
@@ -217,6 +242,12 @@
 
 - (void)dealloc
 {
+    NSLog(@"[NSAuthConfigStep] dealloc");
+    [_wpaPasswordField release];
+    [_enableWPACheckbox release];
+    [_domainField release];
+    [_passwordField release];
+    [_usernameField release];
     [_stepView release];
     [stepTitle release];
     [stepDescription release];
@@ -225,9 +256,10 @@
 
 - (void)setupView
 {
-    _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 220)];
-    
-    NSTextField *infoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 190, 360, 20)];
+    NSLog(@"[NSAuthConfigStep] setupView");
+    _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 204)];
+
+    NSTextField *infoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 176, 322, 16)];
     [infoLabel setStringValue:@"Enter authentication credentials (optional):"];
     [infoLabel setBezeled:NO];
     [infoLabel setDrawsBackground:NO];
@@ -235,9 +267,9 @@
     [infoLabel setSelectable:NO];
     [_stepView addSubview:infoLabel];
     [infoLabel release];
-    
+
     // Username field
-    NSTextField *usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 160, 100, 20)];
+    NSTextField *usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 148, 100, 16)];
     [usernameLabel setStringValue:@"Username:"];
     [usernameLabel setBezeled:NO];
     [usernameLabel setDrawsBackground:NO];
@@ -245,12 +277,12 @@
     [usernameLabel setSelectable:NO];
     [_stepView addSubview:usernameLabel];
     [usernameLabel release];
-    
-    _usernameField = [[NSTextField alloc] initWithFrame:NSMakeRect(130, 160, 200, 24)];
+
+    _usernameField = [[NSTextField alloc] initWithFrame:NSMakeRect(130, 144, 208, 22)];
     [_stepView addSubview:_usernameField];
-    
+
     // Password field
-    NSTextField *passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 130, 100, 20)];
+    NSTextField *passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 120, 100, 16)];
     [passwordLabel setStringValue:@"Password:"];
     [passwordLabel setBezeled:NO];
     [passwordLabel setDrawsBackground:NO];
@@ -258,12 +290,12 @@
     [passwordLabel setSelectable:NO];
     [_stepView addSubview:passwordLabel];
     [passwordLabel release];
-    
-    _passwordField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(130, 130, 200, 24)];
+
+    _passwordField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(130, 116, 208, 22)];
     [_stepView addSubview:_passwordField];
-    
+
     // Domain field
-    NSTextField *domainLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 100, 100, 20)];
+    NSTextField *domainLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 92, 100, 16)];
     [domainLabel setStringValue:@"Domain:"];
     [domainLabel setBezeled:NO];
     [domainLabel setDrawsBackground:NO];
@@ -271,21 +303,21 @@
     [domainLabel setSelectable:NO];
     [_stepView addSubview:domainLabel];
     [domainLabel release];
-    
-    _domainField = [[NSTextField alloc] initWithFrame:NSMakeRect(130, 100, 200, 24)];
+
+    _domainField = [[NSTextField alloc] initWithFrame:NSMakeRect(130, 88, 208, 22)];
     [_stepView addSubview:_domainField];
-    
+
     // WPA checkbox
-    _enableWPACheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, 70, 200, 20)];
+    _enableWPACheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(16, 60, 300, 18)];
     [_enableWPACheckbox setButtonType:NSSwitchButton];
     [_enableWPACheckbox setTitle:@"Enable WPA/WPA2 Security"];
     [_enableWPACheckbox setState:NSOffState];
     [_enableWPACheckbox setTarget:self];
     [_enableWPACheckbox setAction:@selector(wpaCheckboxChanged:)];
     [_stepView addSubview:_enableWPACheckbox];
-    
+
     // WPA Password field
-    NSTextField *wpaPasswordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 40, 100, 20)];
+    NSTextField *wpaPasswordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 32, 100, 16)];
     [wpaPasswordLabel setStringValue:@"WPA Password:"];
     [wpaPasswordLabel setBezeled:NO];
     [wpaPasswordLabel setDrawsBackground:NO];
@@ -293,8 +325,8 @@
     [wpaPasswordLabel setSelectable:NO];
     [_stepView addSubview:wpaPasswordLabel];
     [wpaPasswordLabel release];
-    
-    _wpaPasswordField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(130, 40, 200, 24)];
+
+    _wpaPasswordField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(130, 28, 208, 22)];
     [_wpaPasswordField setEnabled:NO]; // Initially disabled
     [_stepView addSubview:_wpaPasswordField];
 }
@@ -302,6 +334,7 @@
 - (void)wpaCheckboxChanged:(id)sender
 {
     BOOL enableWPA = ([_enableWPACheckbox state] == NSOnState);
+    NSLog(@"[NSAuthConfigStep] wpaCheckboxChanged -> %@", enableWPA ? @"ENABLED" : @"DISABLED");
     [_wpaPasswordField setEnabled:enableWPA];
     [self requestNavigationUpdate];
 }
@@ -329,9 +362,11 @@
     // Authentication is optional, but if WPA is enabled, password is required
     if ([_enableWPACheckbox state] == NSOnState) {
         NSString *wpaPassword = [[_wpaPasswordField stringValue] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        return ([wpaPassword length] > 0);
+        BOOL ok = ([wpaPassword length] > 0);
+        NSLog(@"[NSAuthConfigStep] canContinue (WPA) -> %@", ok ? @"YES" : @"NO");
+        return ok;
     }
-    
+
     // Always can continue if WPA is not enabled
     return YES;
 }

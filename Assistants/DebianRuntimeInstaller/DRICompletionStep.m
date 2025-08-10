@@ -22,6 +22,16 @@
     return self;
 }
 
+- (void)dealloc
+{
+    if (_contentView) { [_contentView release]; _contentView = nil; }
+    if (_statusIcon) { [_statusIcon release]; _statusIcon = nil; }
+    if (_statusLabel) { [_statusLabel release]; _statusLabel = nil; }
+    if (_nextStepsView) { [_nextStepsView release]; _nextStepsView = nil; }
+    if (_completionMessage) { [_completionMessage release]; _completionMessage = nil; }
+    [super dealloc];
+}
+
 - (NSString *)stepTitle
 {
     return _installationSuccessful ? @"Installation Complete" : @"Installation Failed";
@@ -42,19 +52,20 @@
     
     NSLog(@"DRICompletionStep: creating stepView");
     
-    _contentView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 480, 320)];
+    // Size within installer card (354x204)
+    _contentView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 204)];
     
-    // Status icon
-    _statusIcon = [[NSImageView alloc] initWithFrame:NSMakeRect(220, 220, 48, 48)];
+    // Status icon (top center)
+    _statusIcon = [[NSImageView alloc] initWithFrame:NSMakeRect((354-40)/2, 152, 40, 40)];
     [self updateStatusIcon];
     [_contentView addSubview:_statusIcon];
     
-    // Status label
-    _statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 180, 440, 24)];
+    // Status label (centered)
+    _statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 128, 330, 18)];
     [_statusLabel setStringValue:_installationSuccessful ? 
                                  @"Debian Runtime Installed Successfully" : 
                                  @"Installation Failed"];
-    [_statusLabel setFont:[NSFont boldSystemFontOfSize:16]];
+    [_statusLabel setFont:[NSFont boldSystemFontOfSize:13]];
     [_statusLabel setBezeled:NO];
     [_statusLabel setDrawsBackground:NO];
     [_statusLabel setEditable:NO];
@@ -65,19 +76,20 @@
                                [NSColor colorWithDeviceRed:0.8 green:0.0 blue:0.0 alpha:1.0]];
     [_contentView addSubview:_statusLabel];
     
-    // Next steps view
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 40, 440, 130)];
+    // Next steps / message (scrollable), compact
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(12, 12, 330, 108)];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setBorderType:NSBezelBorder];
     
-    _nextStepsView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 420, 130)];
+    _nextStepsView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 310, 108)];
     [_nextStepsView setEditable:NO];
     [_nextStepsView setDrawsBackground:NO];
-    [_nextStepsView setFont:[NSFont systemFontOfSize:12]];
+    [_nextStepsView setFont:[NSFont systemFontOfSize:11]];
     [self updateNextStepsText];
     
     [scrollView setDocumentView:_nextStepsView];
     [_contentView addSubview:scrollView];
+    [scrollView release];
     
     return _contentView;
 }
@@ -112,7 +124,8 @@
 {
     NSLog(@"DRICompletionStep: setInstallationSuccessful: %@ message: %@", successful ? @"YES" : @"NO", message);
     _installationSuccessful = successful;
-    _completionMessage = message ?: (_installationSuccessful ? @"Installation completed successfully." : @"Installation failed.");
+    if (_completionMessage) { [_completionMessage release]; }
+    _completionMessage = [message ? message : (_installationSuccessful ? @"Installation completed successfully." : @"Installation failed.") copy];
     [self updateUI];
 }
 
@@ -141,40 +154,41 @@
     }
     
     // Create a simple status image programmatically since we may not have image resources
-    NSImage *statusImage = [[NSImage alloc] initWithSize:NSMakeSize(48, 48)];
+    NSImage *statusImage = [[NSImage alloc] initWithSize:NSMakeSize(40, 40)];
     [statusImage lockFocus];
     
     if (_installationSuccessful) {
         // Draw a green checkmark
         [[NSColor colorWithDeviceRed:0.0 green:0.6 blue:0.0 alpha:1.0] setFill];
-        NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(0, 0, 48, 48)];
+        NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(0, 0, 40, 40)];
         [circle fill];
         
         [[NSColor whiteColor] setStroke];
         NSBezierPath *checkmark = [NSBezierPath bezierPath];
-        [checkmark setLineWidth:4.0];
-        [checkmark moveToPoint:NSMakePoint(12, 24)];
-        [checkmark lineToPoint:NSMakePoint(20, 16)];
-        [checkmark lineToPoint:NSMakePoint(36, 32)];
+        [checkmark setLineWidth:3.0];
+        [checkmark moveToPoint:NSMakePoint(10, 20)];
+        [checkmark lineToPoint:NSMakePoint(16, 14)];
+        [checkmark lineToPoint:NSMakePoint(30, 26)];
         [checkmark stroke];
     } else {
         // Draw a red X
         [[NSColor colorWithDeviceRed:0.8 green:0.0 blue:0.0 alpha:1.0] setFill];
-        NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(0, 0, 48, 48)];
+        NSBezierPath *circle = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(0, 0, 40, 40)];
         [circle fill];
         
         [[NSColor whiteColor] setStroke];
         NSBezierPath *x = [NSBezierPath bezierPath];
-        [x setLineWidth:4.0];
-        [x moveToPoint:NSMakePoint(12, 12)];
-        [x lineToPoint:NSMakePoint(36, 36)];
-        [x moveToPoint:NSMakePoint(36, 12)];
-        [x lineToPoint:NSMakePoint(12, 36)];
+        [x setLineWidth:3.0];
+        [x moveToPoint:NSMakePoint(10, 10)];
+        [x lineToPoint:NSMakePoint(30, 30)];
+        [x moveToPoint:NSMakePoint(30, 10)];
+        [x lineToPoint:NSMakePoint(10, 30)];
         [x stroke];
     }
     
     [statusImage unlockFocus];
     [_statusIcon setImage:statusImage];
+    [statusImage release];
 }
 
 - (void)updateNextStepsText

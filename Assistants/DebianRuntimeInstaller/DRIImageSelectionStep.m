@@ -20,6 +20,10 @@
 - (void)dealloc
 {
     NSLog(@"DRIImageSelectionStep: dealloc");
+    // Release retained subviews
+    if (_urlField) { [_urlField release]; _urlField = nil; }
+    if (_prereleaseCheckbox) { [_prereleaseCheckbox release]; _prereleaseCheckbox = nil; }
+    if (_refreshButton) { [_refreshButton release]; _refreshButton = nil; }
     [super dealloc];
 }
 
@@ -31,9 +35,9 @@
     // Check network connectivity
     if (![GSNetworkUtilities checkInternetConnectivity]) {
         NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:@"No Internet Connection"];
+        [alert setMessageText:@"No Internet Connection"]; 
         [alert setInformativeText:@"An internet connection is required to download runtime images. Please check your network settings and try again."];
-        [alert addButtonWithTitle:@"OK"];
+        [alert addButtonWithTitle:@"OK"]; 
         [alert setAlertStyle:NSWarningAlertStyle];
         [alert runModal];
         [alert release];
@@ -48,9 +52,10 @@
         NSLog(@"DRIImageSelectionStep: Linux runtime already exists, showing alert");
         
         NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:@"Linux Runtime Already Installed"];
+        [alert setMessageText:@"Linux Runtime Already Installed"]; 
         [alert setInformativeText:@"A Linux Runtime is already installed. Remove the existing one from /compat if you would like to install another one."];
         [alert runModal];
+        [alert release];
         return;
     }
     
@@ -113,15 +118,15 @@
         NSMutableDictionary *item = [asset mutableCopy];
         
         // Add formatted date
-        NSDate *date = [asset objectForKey:@"updatedAt"];
+        NSDate *date = [asset objectForKey:@"updatedAt"]; 
         if (date) {
             NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
             [formatter setDateStyle:NSDateFormatterShortStyle];
             [formatter setTimeStyle:NSDateFormatterNoStyle];
-            [item setObject:[formatter stringFromDate:date] forKey:@"dateFormatted"];
+            [item setObject:[formatter stringFromDate:date] forKey:@"dateFormatted"]; 
             [formatter release];
         } else {
-            [item setObject:@"Unknown" forKey:@"dateFormatted"];
+            [item setObject:@"Unknown" forKey:@"dateFormatted"]; 
         }
         
         [self.items addObject:item];
@@ -140,7 +145,7 @@
     
     if (self.selectedItem) {
         NSDictionary *imageInfo = (NSDictionary *)self.selectedItem;
-        _selectedImageURL = imageInfo[@"url"];
+        _selectedImageURL = imageInfo[@"url"]; 
         NSLog(@"DRIImageSelectionStep: selected image: %@", _selectedImageURL);
         
         // Clear custom URL when selecting from table
@@ -185,7 +190,7 @@
     
     if (self.selectedItem) {
         NSDictionary *imageInfo = (NSDictionary *)self.selectedItem;
-        return imageInfo[@"name"];
+        return imageInfo[@"name"]; 
     }
     
     return @"Unknown";
@@ -194,63 +199,56 @@
 - (void)setupTableColumns
 {
     NSLog(@"DRIImageSelectionStep: setupTableColumns");
-    [self addTableColumn:@"name" title:@"Name" width:200 keyPath:@"name"];
-    [self addTableColumn:@"sizeFormatted" title:@"Size" width:80 keyPath:@"sizeFormatted"];
-    [self addTableColumn:@"dateFormatted" title:@"Date" width:120 keyPath:@"dateFormatted"];
+    [self addTableColumn:@"name" title:@"Name" width:200 keyPath:@"name"]; 
+    [self addTableColumn:@"sizeFormatted" title:@"Size" width:80 keyPath:@"sizeFormatted"]; 
+    [self addTableColumn:@"dateFormatted" title:@"Date" width:120 keyPath:@"dateFormatted"]; 
 }
 
 - (void)setupAdditionalViews:(NSView *)containerView
 {
     NSLog(@"DRIImageSelectionStep: setupAdditionalViews");
     
-    // Adjust the existing table view frame to make room for our custom controls
+    // Ensure the table fits inside the installer card (354x204). Use 12pt margins.
     NSScrollView *scrollView = [self.tableView enclosingScrollView];
     if (scrollView) {
-        NSRect frame = [scrollView frame];
-        frame.origin.y = 40; // Move down to make room for controls
-        frame.size.height = 160; // Reduce height
-        [scrollView setFrame:frame];
+        // Table area below the controls
+        NSRect tableFrame = NSMakeRect(12, 12, 330, 126);
+        [scrollView setFrame:tableFrame];
     }
     
-    // Custom URL section
-    NSTextField *urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 285, 80, 16)];
-    [urlLabel setStringValue:@"Custom URL:"];
+    // Custom URL section (top row)
+    NSTextField *urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 172, 70, 16)];
+    [urlLabel setStringValue:@"Custom URL:"]; 
     [urlLabel setBezeled:NO];
     [urlLabel setDrawsBackground:NO];
     [urlLabel setEditable:NO];
     [urlLabel setSelectable:NO];
     [containerView addSubview:urlLabel];
+    [urlLabel release];
     
-    _urlField = [[NSTextField alloc] initWithFrame:NSMakeRect(90, 283, 280, 20)];
-    [_urlField setStringValue:@""];
-    [_urlField setPlaceholderString:@"https://github.com/user/repo/releases/download/tag/file.img"];
+    _urlField = [[NSTextField alloc] initWithFrame:NSMakeRect(88, 170, 184, 20)];
+    [_urlField setStringValue:@""]; 
+    [_urlField setPlaceholderString:@"https://github.com/user/repo/releases/download/tag/file.img"]; 
     [_urlField setTarget:self];
     [_urlField setAction:@selector(urlFieldChanged:)];
     [containerView addSubview:_urlField];
     
-    // Refresh button
-    _refreshButton = [[NSButton alloc] initWithFrame:NSMakeRect(380, 281, 60, 24)];
-    [_refreshButton setTitle:@"Refresh"];
+    // Refresh button (top-right)
+    _refreshButton = [[NSButton alloc] initWithFrame:NSMakeRect(278, 168, 64, 24)];
+    [_refreshButton setTitle:@"Refresh"]; 
     [_refreshButton setTarget:self];
     [_refreshButton setAction:@selector(refreshButtonClicked:)];
     [containerView addSubview:_refreshButton];
     
-    // Prerelease checkbox
-    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(0, 255, 200, 18)];
+    // Prerelease checkbox (second row)
+    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(12, 146, 200, 18)];
     [_prereleaseCheckbox setButtonType:NSSwitchButton];
-    [_prereleaseCheckbox setTitle:@"Show pre-release builds"];
+    [_prereleaseCheckbox setTitle:@"Show pre-release builds"]; 
     [_prereleaseCheckbox setTarget:self];
     [_prereleaseCheckbox setAction:@selector(prereleaseCheckboxChanged:)];
     [containerView addSubview:_prereleaseCheckbox];
     
-    // Available images label
-    NSTextField *listLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 225, 440, 16)];
-    [listLabel setStringValue:@"Available Runtime Images:"];
-    [listLabel setBezeled:NO];
-    [listLabel setDrawsBackground:NO];
-    [listLabel setEditable:NO];
-    [listLabel setSelectable:NO];
-    [containerView addSubview:listLabel];
+    // Omit extra section title to conserve vertical space; the table below lists available images.
 }
 
 #pragma mark - GSAssistantStepProtocol overrides

@@ -287,6 +287,9 @@
 
 // Main application entry point
 int main(int argc, const char * argv[]) {
+    // Silence unused parameter warnings
+    (void)argc;
+    (void)argv;
     @autoreleasepool {
         [NSApplication sharedApplication];
         
