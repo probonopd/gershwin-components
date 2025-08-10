@@ -440,8 +440,8 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _navigationView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 700, 60)];
     [_footerView addSubview:_navigationView];
     
-    // Cancel button
-    _cancelButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, 14, 85, 32)];
+    // Cancel button with standard margins and height (20px from bottom)
+    _cancelButton = [[NSButton alloc] initWithFrame:NSMakeRect(24, 20, 85, 24)];
     _cancelButton.title = @"Cancel";
     _cancelButton.bezelStyle = NSRoundedBezelStyle;
     _cancelButton.font = [NSFont systemFontOfSize:13.0];
@@ -449,8 +449,8 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _cancelButton.action = @selector(cancelButtonClicked:);
     [_navigationView addSubview:_cancelButton];
     
-    // Back button
-    _backButton = [[NSButton alloc] initWithFrame:NSMakeRect(500, 14, 85, 32)];
+    // Back button with standard spacing and height (20px from bottom)
+    _backButton = [[NSButton alloc] initWithFrame:NSMakeRect(494, 20, 85, 24)];
     _backButton.title = @"Go Back";
     _backButton.bezelStyle = NSRoundedBezelStyle;
     _backButton.font = [NSFont systemFontOfSize:13.0];
@@ -458,8 +458,8 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _backButton.action = @selector(backButtonClicked:);
     [_navigationView addSubview:_backButton];
     
-    // Continue button
-    _continueButton = [[NSButton alloc] initWithFrame:NSMakeRect(595, 14, 85, 32)];
+    // Continue button - standard height and spacing (20px from bottom)
+    _continueButton = [[NSButton alloc] initWithFrame:NSMakeRect(591, 20, 85, 24)];
     _continueButton.title = @"Continue";
     _continueButton.bezelStyle = NSRoundedBezelStyle;
     _continueButton.font = [NSFont systemFontOfSize:13.0];
@@ -852,8 +852,8 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     CGFloat ch = [_mainContentView frame].size.height;
 
     // Space around the semi-transparent card - optimize for maximum vertical space
-    CGFloat sideInset = 20.0;
-    CGFloat bottomInset = 0.0;
+    CGFloat sideInset = 24.0; // Standard side margins
+    CGFloat bottomInset = 20.0; // Standard bottom margin
     // Reserve room for the step title
     CGFloat topInsetForTitle = 72.0;
 
@@ -873,11 +873,11 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _installerButtonAreaView = [[NSView alloc] initWithFrame:buttonFrame];
     [_contentView addSubview:_installerButtonAreaView];
     
-    // Create installer buttons per spec
-    CGFloat buttonY = 6.0; // bottom inset 6px, height 24
+    // Create installer buttons per spec - 20px from bottom edge
+    CGFloat buttonY = 20.0; // bottom margin 20px as per spacing guidelines
     
-    // Options button (left side, hidden by default)
-    NSRect optionsFrame = NSMakeRect(20, buttonY, 80, 24);
+    // Options button (left side, hidden by default) with standard margins
+    NSRect optionsFrame = NSMakeRect(24, buttonY, 80, 24);
     _optionsButton = [[NSButton alloc] initWithFrame:optionsFrame];
     [_optionsButton setTitle:@"Options..."];
     [_optionsButton setBezelStyle:NSRoundedBezelStyle];
@@ -886,8 +886,8 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     [_optionsButton setHidden:YES];
     [_installerButtonAreaView addSubview:_optionsButton];
     
-    // Continue button (right side) 100x24, right edge 20px
-    NSRect continueFrame = NSMakeRect(_windowWidth - 20 - 100, buttonY, 100, 24);
+    // Continue button (right side) 100x24, right edge 24px
+    NSRect continueFrame = NSMakeRect(_windowWidth - 24 - 100, buttonY, 100, 24);
     _continueButton = [[NSButton alloc] initWithFrame:continueFrame];
     [_continueButton setTitle:@"Continue"];
     [_continueButton setBezelStyle:NSRoundedBezelStyle];
@@ -898,7 +898,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     [_installerButtonAreaView addSubview:_continueButton];
     
     // Back button (left of continue by 12px), 80x24
-    NSRect backFrame = NSMakeRect(_windowWidth - 20 - 100 - 12 - 80, buttonY, 80, 24);
+    NSRect backFrame = NSMakeRect(_windowWidth - 24 - 100 - 12 - 80, buttonY, 80, 24);
     _backButton = [[NSButton alloc] initWithFrame:backFrame];
     [_backButton setTitle:@"Go Back"];
     [_backButton setBezelStyle:NSRoundedBezelStyle];
@@ -990,8 +990,8 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
 
         CGFloat contentWidth = [_mainContentView frame].size.width;   // full content width
 
-        // Title above the card - position to match the reduced top inset
-        NSRect titleFrame = NSMakeRect(16, 320, contentWidth - 32, 26);
+        // Title above the card - position to match the standard top margin
+        NSRect titleFrame = NSMakeRect(24, 320, contentWidth - 48, 26);
         _installerStepTitleField = [[NSTextField alloc] initWithFrame:titleFrame];
         [_installerStepTitleField setStringValue:[currentStep stepTitle] ?: @""];
         [_installerStepTitleField setBezeled:NO];

@@ -41,12 +41,12 @@
     NSLog(@"[NSNetworkConfigStep] setupView");
     // Match installer card inner area (approx 354x204)
     _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 204)];
-    CGFloat left = 16.0;
-    CGFloat rightInset = 16.0;
-    CGFloat fieldX = 150.0;
-    CGFloat fieldW = 354.0 - fieldX - rightInset; // ~188
+    CGFloat left = 24.0; // Standard left margin  
+    CGFloat rightInset = 24.0; // Standard right margin
+    CGFloat fieldX = 154.0; // Adjusted for new left margin
+    CGFloat fieldW = 354.0 - fieldX - rightInset; // Recalculated width
 
-    // Interface selection
+    // Interface selection with standard spacing
     NSTextField *interfaceLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left, 172, 120, 16)];
     [interfaceLabel setStringValue:@"Network Interface:"];
     [interfaceLabel setBezeled:NO];
@@ -86,7 +86,7 @@
     CGFloat row3Y = 48.0;
     CGFloat row4Y = 20.0;
 
-    NSTextField *ipLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 16, row1Y + 4, 100, 16)];
+    NSTextField *ipLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 24, row1Y + 4, 100, 16)];
     [ipLabel setStringValue:@"IP Address:"];
     [ipLabel setBezeled:NO];
     [ipLabel setDrawsBackground:NO];
@@ -99,7 +99,7 @@
     [_ipAddressField setEnabled:NO];
     [_stepView addSubview:_ipAddressField];
 
-    NSTextField *maskLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 16, row2Y + 4, 100, 16)];
+    NSTextField *maskLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 24, row2Y + 4, 100, 16)];
     [maskLabel setStringValue:@"Subnet Mask:"];
     [maskLabel setBezeled:NO];
     [maskLabel setDrawsBackground:NO];

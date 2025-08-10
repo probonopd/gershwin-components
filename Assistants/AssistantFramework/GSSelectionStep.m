@@ -49,7 +49,7 @@
     _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 480, 360)];
     
     // Main container
-    NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(20, 20, 440, 320)];
+    NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(24, 20, 416, 320)];
     [_stepView addSubview:containerView];
     
     // Create table view

@@ -63,9 +63,9 @@
     [_contentView addSubview:reqLabel];
     [reqLabel release];
 
-    NSTextField *netLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 44, 322, 16)];
+    NSTextField *netLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 44, 306, 16)];
     BOOL hasNet = [self checkNetworkConnection];
-    [netLabel setStringValue:hasNet ? @"✓ Internet connection available" : @"⚠ Internet connection check failed"];
+    [netLabel setStringValue:hasNet ? @"✓ Network connection available" : @"⚠ No network connection detected"];
     [netLabel setBezeled:NO];
     [netLabel setDrawsBackground:NO];
     [netLabel setEditable:NO];
@@ -74,7 +74,7 @@
     [_contentView addSubview:netLabel];
     [netLabel release];
 
-    NSTextField *spaceLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 24, 322, 16)];
+    NSTextField *spaceLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 24, 306, 16)];
     BOOL hasSpace = [self checkDiskSpace];
     [spaceLabel setStringValue:hasSpace ? @"✓ Sufficient disk space available" : @"⚠ Low disk space warning"];
     [spaceLabel setBezeled:NO];

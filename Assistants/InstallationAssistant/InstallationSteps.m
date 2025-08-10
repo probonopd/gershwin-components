@@ -46,7 +46,7 @@
     [scrollView release];
     
     // Agreement checkbox
-    _agreeCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, 20, 350, 20)];
+    _agreeCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(24, 20, 350, 20)];
     [_agreeCheckbox setButtonType:NSSwitchButton];
     [_agreeCheckbox setTitle:@"I agree to the terms and conditions of this license"];
     [_agreeCheckbox setState:NSOffState];

@@ -193,29 +193,29 @@
 {
     _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 204)];
 
-    // Enable Firewall checkbox
-    _enableFirewallCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(16, 164, 322, 18)];
+    // Enable Firewall checkbox with standard spacing
+    _enableFirewallCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(24, 164, 306, 18)];
     [_enableFirewallCheckbox setButtonType:NSSwitchButton];
     [_enableFirewallCheckbox setTitle:@"Enable Firewall"];
     [_enableFirewallCheckbox setState:NSOnState]; // Default to enabled
     [_stepView addSubview:_enableFirewallCheckbox];
 
-    // Enable Automatic Updates checkbox
-    _enableUpdateCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(16, 140, 322, 18)];
+    // Enable Automatic Updates checkbox with standard spacing  
+    _enableUpdateCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(24, 140, 306, 18)];
     [_enableUpdateCheckbox setButtonType:NSSwitchButton];
     [_enableUpdateCheckbox setTitle:@"Enable Automatic Updates"];
     [_enableUpdateCheckbox setState:NSOnState]; // Default to enabled
     [_stepView addSubview:_enableUpdateCheckbox];
 
-    // Enable Location Services checkbox
-    _enableLocationCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(16, 116, 322, 18)];
+    // Enable Location Services checkbox with standard spacing
+    _enableLocationCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(24, 116, 306, 18)];
     [_enableLocationCheckbox setButtonType:NSSwitchButton];
     [_enableLocationCheckbox setTitle:@"Enable Location Services"];
     [_enableLocationCheckbox setState:NSOffState]; // Default to disabled
     [_stepView addSubview:_enableLocationCheckbox];
 
-    // Timezone selection
-    NSTextField *timezoneLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 84, 100, 16)];
+    // Timezone selection with standard spacing
+    NSTextField *timezoneLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 84, 100, 16)];
     [timezoneLabel setStringValue:@"Timezone:"];
     [timezoneLabel setBezeled:NO];
     [timezoneLabel setDrawsBackground:NO];
@@ -224,7 +224,7 @@
     [_stepView addSubview:timezoneLabel];
     [timezoneLabel release];
 
-    _timezonePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(130, 80, 208, 24)];
+    _timezonePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(134, 80, 196, 24)];
     [_timezonePopup addItemsWithTitles:@[@"America/New_York", @"America/Chicago",
                                         @"America/Denver", @"America/Los_Angeles",
                                         @"Europe/London", @"Europe/Paris",

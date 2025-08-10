@@ -205,7 +205,7 @@
     [_contentView addSubview:_urlField];
     
     // Prerelease checkbox
-    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, 220, 200, 18)];
+    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(24, 220, 200, 18)];
     [_prereleaseCheckbox setButtonType:NSSwitchButton];
     [_prereleaseCheckbox setTitle:@"Show pre-release builds"];
     [_prereleaseCheckbox setTarget:self];

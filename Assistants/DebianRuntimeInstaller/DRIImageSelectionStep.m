@@ -208,16 +208,16 @@
 {
     NSLog(@"DRIImageSelectionStep: setupAdditionalViews");
     
-    // Ensure the table fits inside the installer card (354x204). Use 12pt margins.
+    // Ensure the table fits inside the installer card (354x204). Use standard margins.
     NSScrollView *scrollView = [self.tableView enclosingScrollView];
     if (scrollView) {
-        // Table area below the controls
-        NSRect tableFrame = NSMakeRect(12, 12, 330, 126);
+        // Table area below the controls with standard spacing
+        NSRect tableFrame = NSMakeRect(24, 24, 306, 126);
         [scrollView setFrame:tableFrame];
     }
     
-    // Custom URL section (top row)
-    NSTextField *urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 172, 70, 16)];
+    // Custom URL section (top row) with standard spacing
+    NSTextField *urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 172, 70, 16)];
     [urlLabel setStringValue:@"Custom URL:"]; 
     [urlLabel setBezeled:NO];
     [urlLabel setDrawsBackground:NO];
@@ -226,22 +226,22 @@
     [containerView addSubview:urlLabel];
     [urlLabel release];
     
-    _urlField = [[NSTextField alloc] initWithFrame:NSMakeRect(88, 170, 184, 20)];
+    _urlField = [[NSTextField alloc] initWithFrame:NSMakeRect(100, 170, 172, 20)];
     [_urlField setStringValue:@""]; 
     [_urlField setPlaceholderString:@"https://github.com/user/repo/releases/download/tag/file.img"]; 
     [_urlField setTarget:self];
     [_urlField setAction:@selector(urlFieldChanged:)];
     [containerView addSubview:_urlField];
     
-    // Refresh button (top-right)
-    _refreshButton = [[NSButton alloc] initWithFrame:NSMakeRect(278, 168, 64, 24)];
+    // Refresh button (top-right) with standard spacing from right edge
+    _refreshButton = [[NSButton alloc] initWithFrame:NSMakeRect(254, 168, 64, 24)];
     [_refreshButton setTitle:@"Refresh"]; 
     [_refreshButton setTarget:self];
     [_refreshButton setAction:@selector(refreshButtonClicked:)];
     [containerView addSubview:_refreshButton];
     
-    // Prerelease checkbox (second row)
-    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(12, 146, 200, 18)];
+    // Prerelease checkbox (second row) with standard spacing
+    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(24, 146, 200, 18)];
     [_prereleaseCheckbox setButtonType:NSSwitchButton];
     [_prereleaseCheckbox setTitle:@"Show pre-release builds"]; 
     [_prereleaseCheckbox setTarget:self];

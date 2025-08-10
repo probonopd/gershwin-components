@@ -230,11 +230,11 @@ NSView *createColoredBox(NSRect frame, NSColor *color) {
     [_buttonAreaView addSubview:separatorView];
     [separatorView release];
     
-    // Create buttons
-    CGFloat buttonY = (GSInstallerButtonAreaHeight - GSInstallerButtonHeight) / 2;
+    // Create buttons with standard spacing - 20px from bottom edge, 24px height
+    CGFloat buttonY = 20; // 20px from bottom edge as per spacing guidelines
     
-    // Options button (left side, only shown when applicable)
-    NSRect optionsFrame = NSMakeRect(20, buttonY, GSInstallerButtonWidth, GSInstallerButtonHeight);
+    // Options button (left side, only shown when applicable) with standard margin
+    NSRect optionsFrame = NSMakeRect(24, buttonY, GSInstallerButtonWidth, 24);
     _optionsButton = [[NSButton alloc] initWithFrame:optionsFrame];
     [_optionsButton setTitle:@"Options..."];
     [_optionsButton setBezelStyle:NSRoundedBezelStyle];
@@ -243,8 +243,8 @@ NSView *createColoredBox(NSRect frame, NSColor *color) {
     [_optionsButton setHidden:YES]; // Hidden by default
     [_buttonAreaView addSubview:_optionsButton];
     
-    // Continue button (right side)
-    NSRect continueFrame = NSMakeRect(GSInstallerWindowWidth - 20 - 100, buttonY, 100, GSInstallerButtonHeight);
+    // Continue button (right side) with standard margins and spacing
+    NSRect continueFrame = NSMakeRect(GSInstallerWindowWidth - 24 - 100, buttonY, 100, 24);
     _continueButton = [[NSButton alloc] initWithFrame:continueFrame];
     [_continueButton setTitle:@"Continue"];
     [_continueButton setBezelStyle:NSRoundedBezelStyle];
@@ -253,9 +253,9 @@ NSView *createColoredBox(NSRect frame, NSColor *color) {
     [_continueButton setAction:@selector(continueButtonClicked:)];
     [_buttonAreaView addSubview:_continueButton];
     
-    // Go Back button (left of continue button)
-    NSRect backFrame = NSMakeRect(GSInstallerWindowWidth - 20 - 100 - 12 - GSInstallerButtonWidth, 
-                                buttonY, GSInstallerButtonWidth, GSInstallerButtonHeight);
+    // Go Back button (left of continue button) with standard 12px spacing
+    NSRect backFrame = NSMakeRect(GSInstallerWindowWidth - 24 - 100 - 12 - GSInstallerButtonWidth, 
+                                buttonY, GSInstallerButtonWidth, 24);
     _goBackButton = [[NSButton alloc] initWithFrame:backFrame];
     [_goBackButton setTitle:@"Go Back"];
     [_goBackButton setBezelStyle:NSRoundedBezelStyle];

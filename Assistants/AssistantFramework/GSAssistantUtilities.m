@@ -121,7 +121,7 @@
         [combo addItemsWithObjectValues:items];
     }
     
-    // Set minimum height
+    // Set minimum height to standard button height
     [combo addConstraint:[NSLayoutConstraint constraintWithItem:combo
                                                       attribute:NSLayoutAttributeHeight
                                                       relatedBy:NSLayoutRelationGreaterThanOrEqual
@@ -259,12 +259,12 @@
 }
 
 + (void)addStandardConstraintsToView:(NSView *)view inContainer:(NSView *)container {
-    // Create margins manually for GNUstep compatibility
-    CGFloat margin = 20.0;
+    // Create margins using the standard guidelines
+    CGFloat margin = 24.0; // Standard margin from edges
     NSEdgeInsets margins;
-    margins.top = margin;
+    margins.top = 20.0; // Standard top margin
     margins.left = margin;
-    margins.bottom = margin;  
+    margins.bottom = 20.0; // Standard bottom margin
     margins.right = margin;
     [self addStandardConstraintsToView:view inContainer:container margins:margins];
 }

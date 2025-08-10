@@ -250,7 +250,7 @@
     
     // Software package checkboxes
     NSLog(@"[InstallationAssistant] Creating development tools checkbox...");
-    NSButton *devToolsCheck = [[NSButton alloc] initWithFrame:NSMakeRect(20, 260, 250, 20)];
+    NSButton *devToolsCheck = [[NSButton alloc] initWithFrame:NSMakeRect(24, 260, 250, 20)];
     [devToolsCheck setButtonType:NSSwitchButton];
     devToolsCheck.title = @"Development Tools (GCC, Make, etc.)";
     devToolsCheck.state = NSOnState;
@@ -264,7 +264,7 @@
     NSLog(@"[InstallationAssistant] Desktop environment checkbox created: %@", desktopCheck);
     
     NSLog(@"[InstallationAssistant] Creating multimedia checkbox...");
-    NSButton *multimediaCheck = [[NSButton alloc] initWithFrame:NSMakeRect(20, 200, 250, 20)];
+    NSButton *multimediaCheck = [[NSButton alloc] initWithFrame:NSMakeRect(24, 200, 250, 20)];
     [multimediaCheck setButtonType:NSSwitchButton];
     multimediaCheck.title = @"Multimedia Codecs and Players";
     NSLog(@"[InstallationAssistant] Multimedia checkbox created: %@", multimediaCheck);
