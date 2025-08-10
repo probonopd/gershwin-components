@@ -13,3 +13,5 @@
 - Always run commands with `timeout` to prevent hanging.
 - If you run the same command multiple times, write an action to run it instead of repeating the command.
 - We don't have `strace`, so use `truss` for tracing system calls.
+- For all UI elements, use 24px spacing from the window edges but 20 px from the top edge and at the bottom.
+- Buttons are 24 px high and neighboring ones are 12 px apart from each other.
