@@ -6,10 +6,29 @@
 #import "CLMInstallationStep.h"
 #import "CLMController.h"
 #import "CLMDiskUtility.h"
+#import "GSAssistantFramework.h"
 
 @implementation CLMInstallationStep
 
 @synthesize controller = _controller;
+
+// Helper to notify the assistant window to refresh navigation buttons
+- (void)requestNavigationUpdate
+{
+    NSWindow *window = [[self stepView] window];
+    if (!window) {
+        window = [NSApp keyWindow];
+    }
+    NSWindowController *wc = [window windowController];
+    if ([wc isKindOfClass:[GSAssistantWindow class]]) {
+        NSLog(@"CLMInstallationStep: requesting navigation button update");
+        GSAssistantWindow *assistantWindow = (GSAssistantWindow *)wc;
+        // Always call the public method - it should handle layout-specific logic
+        [assistantWindow updateNavigationButtons];
+    } else {
+        NSLog(@"CLMInstallationStep: could not find GSAssistantWindow to update navigation (wc=%@)", wc);
+    }
+}
 
 - (id)init
 {
@@ -247,6 +266,9 @@
         }
         
         [_controller showInstallationSuccess:@"Live medium has been created successfully!"];
+        
+        // Request navigation button update to enable Continue button
+        [self requestNavigationUpdate];
     } else {
         [_statusLabel setStringValue:@"Installation failed"];
         [_progressLabel setStringValue:error ? error : @"Unknown error occurred"];
