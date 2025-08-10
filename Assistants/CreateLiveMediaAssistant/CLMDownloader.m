@@ -273,8 +273,13 @@
         
         // Force sync for the last chunk to ensure it's written
         if (_totalBytes > 0 && _receivedBytes >= _totalBytes) {
-            NSLog(@"CLMDownloader: Final chunk received, forcing sync to disk");
+            NSLog(@"CLMDownloader: Final chunk received, forcing sync to disk and completing download");
             [_outputFile synchronizeFile];
+            // Don't wait for connectionDidFinishLoading - complete immediately
+            [self performSelectorOnMainThread:@selector(completeDownloadImmediately) 
+                                   withObject:nil 
+                                waitUntilDone:NO];
+            return;
         }
     } else {
         NSLog(@"CLMDownloader: No data to write (dataToWrite length = 0)");
@@ -315,7 +320,11 @@
         }
         
         NSLog(@"CLMDownloader: Updating progress: %.4f (%lld/%lld)", progress, _receivedBytes, _totalBytes);
-        [_delegate downloadProgressChanged:progress bytesReceived:_receivedBytes totalBytes:_totalBytes];
+        @try {
+            [_delegate downloadProgressChanged:progress bytesReceived:_receivedBytes totalBytes:_totalBytes];
+        } @catch (NSException *exception) {
+            NSLog(@"CLMDownloader: Exception in progress delegate callback: %@ - %@", [exception name], [exception reason]);
+        }
         
         lastUpdateBytes = _receivedBytes;
         lastUpdateTime = currentTime;
@@ -329,7 +338,11 @@
     if (success && _totalBytes > 0) {
         // Force final progress update to 100%
         NSLog(@"CLMDownloader: Download complete - final progress update to 100%% (%lld bytes)", _receivedBytes);
-        [_delegate downloadProgressChanged:1.0 bytesReceived:_receivedBytes totalBytes:_totalBytes];
+        @try {
+            [_delegate downloadProgressChanged:1.0 bytesReceived:_receivedBytes totalBytes:_totalBytes];
+        } @catch (NSException *exception) {
+            NSLog(@"CLMDownloader: Exception in final progress delegate callback: %@ - %@", [exception name], [exception reason]);
+        }
     }
     
     // Close and cleanup file handle
@@ -354,10 +367,18 @@
     if (_isDownloading) {
         if (success) {
             NSLog(@"CLMDownloader: Download completed successfully");
-            [_delegate downloadCompleted:YES error:nil];
+            @try {
+                [_delegate downloadCompleted:YES error:nil];
+            } @catch (NSException *exception) {
+                NSLog(@"CLMDownloader: Exception in delegate callback: %@ - %@", [exception name], [exception reason]);
+            }
         } else {
             NSLog(@"CLMDownloader: Download failed");
-            [_delegate downloadCompleted:NO error:@"Download failed"];
+            @try {
+                [_delegate downloadCompleted:NO error:@"Download failed"];
+            } @catch (NSException *exception) {
+                NSLog(@"CLMDownloader: Exception in delegate callback: %@ - %@", [exception name], [exception reason]);
+            }
         }
     } else {
         NSLog(@"CLMDownloader: Download was cancelled");
@@ -460,7 +481,11 @@
 - (void)updateProgress:(NSNumber *)progressValue
 {
     float progress = [progressValue floatValue];
-    [_delegate downloadProgressChanged:progress bytesReceived:_receivedBytes totalBytes:_totalBytes];
+    @try {
+        [_delegate downloadProgressChanged:progress bytesReceived:_receivedBytes totalBytes:_totalBytes];
+    } @catch (NSException *exception) {
+        NSLog(@"CLMDownloader: Exception in updateProgress delegate callback: %@ - %@", [exception name], [exception reason]);
+    }
 }
 
 - (void)cancelDownload
@@ -489,6 +514,10 @@
 - (void)startStallDetectionTimer
 {
     NSLog(@"CLMDownloader: Starting stall detection timer");
+    
+    // Stop any existing timer first
+    [self stopStallDetectionTimer];
+    
     _stallTimer = [NSTimer scheduledTimerWithTimeInterval:15.0
                                                    target:self
                                                  selector:@selector(checkForStall:)
@@ -520,33 +549,55 @@
     NSLog(@"CLMDownloader: Stall check - time since last data: %.1f seconds (received: %lld/%lld bytes)", 
           timeSinceLastData, _receivedBytes, _totalBytes);
     
-    // Check if we're very close to completion (within 1MB) and have stalled for more than 30 seconds
-    // This handles cases where servers don't send the final few bytes for some reason
-    if (_totalBytes > 0 && (_totalBytes - _receivedBytes) <= 1048576 && timeSinceLastData > 30.0) {
+    // Check if we've actually completed the download but connection hasn't closed
+    if (_totalBytes > 0 && _receivedBytes >= _totalBytes) {
+        NSLog(@"CLMDownloader: Download appears complete (%lld >= %lld), forcing completion", _receivedBytes, _totalBytes);
+        [self stopStallDetectionTimer];
+        [self handleDownloadCompletion:YES];
+        return;
+    }
+    
+    // Check if we're very close to completion and should retry more aggressively
+    if (_totalBytes > 0 && (_totalBytes - _receivedBytes) <= 5242880 && timeSinceLastData > 30.0) {
         float percentComplete = ((float)_receivedBytes / (float)_totalBytes) * 100.0;
         NSLog(@"CLMDownloader: Very close to completion (%.2f%%, missing only %lld bytes) but stalled for %.1f seconds", 
               percentComplete, _totalBytes - _receivedBytes, timeSinceLastData);
         
-        // If we're > 99.5% complete and stalled, consider it done
-        if (percentComplete > 99.5) {
-            NSLog(@"CLMDownloader: Treating as complete due to being > 99.5%% done and stalled");
-            [self stopStallDetectionTimer];
-            [self handleDownloadCompletion:YES];
-            return;
+        // If we're > 98.0% complete and stalled for >45 seconds, retry immediately
+        if (percentComplete > 98.0 && timeSinceLastData > 45.0) {
+            NSLog(@"CLMDownloader: > 98%% complete but stalled for >45s, retrying immediately");
+            if (_retryCount < _maxRetries) {
+                _retryCount++;
+                [self retryDownload];
+                return;
+            }
         }
     }
     
-    // If no data received for 180 seconds (3 minutes), consider it stalled
-    if (timeSinceLastData > 180.0) {
+    // Determine stall timeout based on completion percentage
+    NSTimeInterval stallTimeout = 180.0; // Default 3 minutes
+    if (_totalBytes > 0) {
+        float percentComplete = ((float)_receivedBytes / (float)_totalBytes) * 100.0;
+        if (percentComplete > 98.0) {
+            stallTimeout = 60.0;  // 1 minute when >98% complete
+        } else if (percentComplete > 95.0) {
+            stallTimeout = 90.0;  // 1.5 minutes when >95% complete
+        } else if (percentComplete > 90.0) {
+            stallTimeout = 120.0; // 2 minutes when >90% complete
+        }
+    }
+    
+    // If no data received for the timeout period, consider it stalled
+    if (timeSinceLastData > stallTimeout) {
         if (_retryCount < _maxRetries) {
             _retryCount++;
-            NSLog(@"CLMDownloader: Download stalled after 3 minutes, attempting retry %d of %d", _retryCount, _maxRetries);
+            NSLog(@"CLMDownloader: Download stalled after %.0f seconds, attempting retry %d of %d", stallTimeout, _retryCount, _maxRetries);
             [self retryDownload];
         } else {
             NSLog(@"CLMDownloader: Download stalled and max retries (%d) exceeded, giving up", _maxRetries);
             [self stopStallDetectionTimer];
             [self cancelDownload];
-            [_delegate downloadCompleted:NO error:[NSString stringWithFormat:@"Download stalled after %d retries - no data received for 3 minutes", _maxRetries]];
+            [_delegate downloadCompleted:NO error:[NSString stringWithFormat:@"Download stalled after %d retries - no data received for %.0f seconds", _maxRetries, stallTimeout]];
         }
     }
 }
@@ -591,11 +642,28 @@
             // For block devices, we cannot seek but we can still resume the HTTP download
             NSLog(@"CLMDownloader: Writing to block device %@, will resume HTTP stream from byte %lld", _destinationPath, _receivedBytes);
             
+            // Check if the block device exists and is writable
+            NSFileManager *fileManager = [NSFileManager defaultManager];
+            if (![fileManager fileExistsAtPath:_destinationPath]) {
+                NSLog(@"CLMDownloader: Block device %@ does not exist", _destinationPath);
+                [_delegate downloadCompleted:NO error:[NSString stringWithFormat:@"Block device %@ does not exist", _destinationPath]];
+                _isDownloading = NO;
+                return;
+            }
+            
+            if (![fileManager isWritableFileAtPath:_destinationPath]) {
+                NSLog(@"CLMDownloader: Block device %@ is not writable (permission denied)", _destinationPath);
+                [_delegate downloadCompleted:NO error:[NSString stringWithFormat:@"Block device %@ is not writable - check permissions", _destinationPath]];
+                _isDownloading = NO;
+                return;
+            }
+            
             // Open the block device for writing (append mode won't work, but we'll position manually)
             _outputFile = [[NSFileHandle fileHandleForWritingAtPath:_destinationPath] retain];
             if (!_outputFile) {
-                NSLog(@"CLMDownloader: Could not open block device for writing on retry");
-                [_delegate downloadCompleted:NO error:@"Could not open block device for writing on retry"];
+                NSLog(@"CLMDownloader: Could not open block device for writing on retry - permission denied or device busy");
+                NSString *errorMsg = [NSString stringWithFormat:@"Could not open block device %@ for writing.\n\nThis may happen if:\n• The device is busy or locked by another process\n• Permissions changed during download\n• The device was unmounted\n\nTry restarting the application or check if the device is in use.", _destinationPath];
+                [_delegate downloadCompleted:NO error:errorMsg];
                 _isDownloading = NO;
                 return;
             }
@@ -722,5 +790,11 @@
             }
         }
     }
+}
+
+- (void)completeDownloadImmediately
+{
+    NSLog(@"CLMDownloader: completeDownloadImmediately called");
+    [self handleDownloadCompletion:YES];
 }
 @end
