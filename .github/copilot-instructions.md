@@ -13,5 +13,9 @@
 - Always run commands with `timeout` to prevent hanging.
 - If you run the same command multiple times, write an action to run it instead of repeating the command.
 - We don't have `strace`, so use `truss` for tracing system calls.
+- Use Model-View-Controller (MVC) architecture where appropriate.
+- Use KVO (Key-Value Observing) for observing changes in properties where needed.
+- Always use a `GNUmakefile` to compile anything involving Foundation or GNUstep.
+- Never "create a simple test to verify" anything. Verify using /System/Applications/LoginWindow.app or other system applications.
 - For all UI elements, use 24px spacing from the window edges but 20 px from the top edge and at the bottom.
 - Buttons are 24 px high and neighboring ones are 12 px apart from each other.
