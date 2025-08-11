@@ -17,6 +17,7 @@ include $(GNUSTEP_MAKEFILES)/tool.make
 
 # Installation directories
 BINDIR = $(GNUSTEP_SYSTEM_TOOLS)
+PREFIX ?= /usr/local
 MANDIR = $(PREFIX)/share/man/man1
 DOCDIR = $(PREFIX)/share/doc/globalshortcutsd
 
