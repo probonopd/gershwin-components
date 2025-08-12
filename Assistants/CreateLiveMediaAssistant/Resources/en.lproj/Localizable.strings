@@ -1,0 +1,35 @@
+/* English localization for CreateLiveMediaAssistant */
+
+/* Application title */
+"Create Live Media" = "Create Live Media";
+
+/* Step titles */
+"Create Live Media" = "Create Live Media";
+"Welcome to the Live Media Creator" = "Welcome to the Live Media Creator";
+"Select Live Image" = "Select Live Image";
+"Select Destination Disk" = "Select Destination Disk";
+"Write Live Medium" = "Write Live Medium";
+"Live Medium Complete" = "Live Medium Complete";
+
+/* Step descriptions */
+"Choose a Live image to download and write to the medium" = "Choose a Live image to download and write to the medium";
+"Choose the disk to write the Live image to" = "Choose the disk to write the Live image to";
+"Downloading and writing the Live image to the selected device. This may take some time depending on the image size and network speed." = "Downloading and writing the Live image to the selected device. This may take some time depending on the image size and network speed.";
+"Your Live medium is ready to use" = "Your Live medium is ready to use";
+
+/* Interface labels */
+"This assistant will help you create bootable Live media from ISO images." = "This assistant will help you create bootable Live media from ISO images.";
+"• Download images from GitHub releases\n• Use local ISO/IMG files\n• Write directly to USB or removable media\n• Verifies required disk space" = "• Download images from GitHub releases\n• Use local ISO/IMG files\n• Write directly to USB or removable media\n• Verifies required disk space";
+"All data on the selected destination disk will be erased." = "All data on the selected destination disk will be erased.";
+"Select the destination disk for the Live medium." = "Select the destination disk for the Live medium.";
+"Device" = "Device";
+"Description" = "Description";
+"Size" = "Size";
+"WARNING: All data on the selected disk will be permanently erased!\nOnly removable drives are shown for safety." = "WARNING: All data on the selected disk will be permanently erased!\nOnly removable drives are shown for safety.";
+"Live Medium Created Successfully!" = "Live Medium Created Successfully!";
+"You can now boot from this Live medium by inserting it and rebooting your computer." = "You can now boot from this Live medium by inserting it and rebooting your computer.";
+"Remember to safely eject the device before removing it." = "Remember to safely eject the device before removing it.";
+"Preparing to download and write Live medium..." = "Preparing to download and write Live medium...";
+
+/* Error messages */
+"Installation Failed" = "Installation Failed";

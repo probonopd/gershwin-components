@@ -90,12 +90,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Welcome to Debian Runtime Installer";
+    return NSLocalizedString(@"Welcome to Debian Runtime Installer", @"");
 }
 
 - (NSString *)stepDescription
 {
-    return @"Install a Debian runtime environment for FreeBSD";
+    return NSLocalizedString(@"Install a Debian runtime environment for FreeBSD", @"");
 }
 
 - (NSView *)stepView
@@ -111,7 +111,7 @@
     
     // Title
     NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 280, 440, 24)];
-    [titleLabel setStringValue:@"Install Debian Runtime"];
+    [titleLabel setStringValue:NSLocalizedString(@"Install Debian Runtime", @"")];
     [titleLabel setFont:[NSFont boldSystemFontOfSize:18]];
     [titleLabel setBezeled:NO];
     [titleLabel setDrawsBackground:NO];
@@ -129,7 +129,7 @@
     
     // Requirements check
     NSTextField *reqLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 80, 440, 16)];
-    [reqLabel setStringValue:@"✓ FreeBSD system detected"];
+    [reqLabel setStringValue:NSLocalizedString(@"✓ FreeBSD system detected", @"")];
     [reqLabel setBezeled:NO];
     [reqLabel setDrawsBackground:NO];
     [reqLabel setEditable:NO];
@@ -138,7 +138,7 @@
     [_contentView addSubview:reqLabel];
     
     NSTextField *netLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 60, 440, 16)];
-    [netLabel setStringValue:@"✓ Internet connection available"];
+    [netLabel setStringValue:NSLocalizedString(@"✓ Internet connection available", @"")];
     [netLabel setBezeled:NO];
     [netLabel setDrawsBackground:NO];
     [netLabel setEditable:NO];
@@ -170,12 +170,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Select Debian Runtime Image";
+    return NSLocalizedString(@"Select Debian Runtime Image", @"");
 }
 
 - (NSString *)stepDescription
 {
-    return @"Choose a runtime image to install";
+    return NSLocalizedString(@"Choose a runtime image to install", @"");
 }
 
 - (NSView *)stepView
@@ -192,7 +192,7 @@
     
     // Title
     NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 280, 440, 24)];
-    [titleLabel setStringValue:@"Select Runtime Image"];
+    [titleLabel setStringValue:NSLocalizedString(@"Select Runtime Image", @"")];
     [titleLabel setFont:[NSFont boldSystemFontOfSize:16]];
     [titleLabel setBezeled:NO];
     [titleLabel setDrawsBackground:NO];
@@ -202,7 +202,7 @@
     
     // Custom URL field
     NSTextField *urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 250, 80, 16)];
-    [urlLabel setStringValue:@"Custom URL:"];
+    [urlLabel setStringValue:NSLocalizedString(@"Custom URL:", @"")];
     [urlLabel setBezeled:NO];
     [urlLabel setDrawsBackground:NO];
     [urlLabel setEditable:NO];
@@ -210,7 +210,7 @@
     [_contentView addSubview:urlLabel];
     
     _urlField = [[NSTextField alloc] initWithFrame:NSMakeRect(110, 248, 350, 20)];
-    [_urlField setStringValue:@""];
+    [_urlField setStringValue:NSLocalizedString(@"", @"")];
     [_urlField setPlaceholderString:@"https://github.com/user/repo/releases/download/tag/file.img"];
     [_contentView addSubview:_urlField];
     
@@ -224,7 +224,7 @@
     
     // Available images table
     NSTextField *listLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 195, 440, 16)];
-    [listLabel setStringValue:@"Available Runtime Images:"];
+    [listLabel setStringValue:NSLocalizedString(@"Available Runtime Images:", @"")];
     [listLabel setBezeled:NO];
     [listLabel setDrawsBackground:NO];
     [listLabel setEditable:NO];
@@ -239,17 +239,17 @@
     
     // Set up table columns
     NSTableColumn *nameColumn = [[NSTableColumn alloc] initWithIdentifier:@"name"];
-    [[nameColumn headerCell] setStringValue:@"Name"];
+    [[nameColumn headerCell] setStringValue:NSLocalizedString(@"Name", @"")];
     [nameColumn setWidth:200];
     [_imageTableView addTableColumn:nameColumn];
     
     NSTableColumn *sizeColumn = [[NSTableColumn alloc] initWithIdentifier:@"size"];
-    [[sizeColumn headerCell] setStringValue:@"Size"];
+    [[sizeColumn headerCell] setStringValue:NSLocalizedString(@"Size", @"")];
     [sizeColumn setWidth:80];
     [_imageTableView addTableColumn:sizeColumn];
     
     NSTableColumn *dateColumn = [[NSTableColumn alloc] initWithIdentifier:@"date"];
-    [[dateColumn headerCell] setStringValue:@"Date"];
+    [[dateColumn headerCell] setStringValue:NSLocalizedString(@"Date", @"")];
     [dateColumn setWidth:120];
     [_imageTableView addTableColumn:dateColumn];
     
@@ -428,7 +428,7 @@
     
     if (row >= (NSInteger)[_availableImages count]) {
         NSLog(@"objectValueForTableColumn: row %ld out of bounds", (long)row);
-        return @"";
+        return NSLocalizedString(@"", @"");
     }
     
     NSDictionary *imageInfo = _availableImages[row];
@@ -442,7 +442,7 @@
         return imageInfo[@"dateFormatted"];
     }
     
-    return @"";
+    return NSLocalizedString(@"", @"");
 }
 
 // NSTableViewDelegate methods
@@ -501,12 +501,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Confirm Installation";
+    return NSLocalizedString(@"Confirm Installation", @"");
 }
 
 - (NSString *)stepDescription
 {
-    return @"Review installation details";
+    return NSLocalizedString(@"Review installation details", @"");
 }
 
 - (NSView *)stepView
@@ -521,7 +521,7 @@
     
     // Title
     NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 280, 440, 24)];
-    [titleLabel setStringValue:@"Ready to Install"];
+    [titleLabel setStringValue:NSLocalizedString(@"Ready to Install", @"")];
     [titleLabel setFont:[NSFont boldSystemFontOfSize:16]];
     [titleLabel setBezeled:NO];
     [titleLabel setDrawsBackground:NO];
@@ -602,7 +602,7 @@
 
 - (NSString *)continueButtonTitle
 {
-    return @"Install";
+    return NSLocalizedString(@"Install", @"");
 }
 
 @end
@@ -621,12 +621,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Installing Debian Runtime";
+    return NSLocalizedString(@"Installing Debian Runtime", @"");
 }
 
 - (NSString *)stepDescription
 {
-    return @"Please wait while the runtime is installed";
+    return NSLocalizedString(@"Please wait while the runtime is installed", @"");
 }
 
 - (NSView *)stepView
@@ -641,7 +641,7 @@
     
     // Title
     NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 280, 440, 24)];
-    [titleLabel setStringValue:@"Installing..."];
+    [titleLabel setStringValue:NSLocalizedString(@"Installing...", @"")];
     [titleLabel setFont:[NSFont boldSystemFontOfSize:16]];
     [titleLabel setBezeled:NO];
     [titleLabel setDrawsBackground:NO];
@@ -651,7 +651,7 @@
     
     // Status label
     _statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 255, 440, 16)];
-    [_statusLabel setStringValue:@"Preparing installation..."];
+    [_statusLabel setStringValue:NSLocalizedString(@"Preparing installation...", @"")];
     [_statusLabel setBezeled:NO];
     [_statusLabel setDrawsBackground:NO];
     [_statusLabel setEditable:NO];
@@ -711,7 +711,7 @@
     
     // Reset status label
     if (_statusLabel) {
-        [_statusLabel setStringValue:@"Preparing installation..."];
+        [_statusLabel setStringValue:NSLocalizedString(@"Preparing installation...", @"")];
     }
 }
 
@@ -800,7 +800,7 @@
     
     if (success) {
         [self logMessage:@"✓ Installation completed successfully!"];
-        [_statusLabel setStringValue:@"Installation completed!"];
+        [_statusLabel setStringValue:NSLocalizedString(@"Installation completed!", @"")];
         [_progressBar setDoubleValue:100];
         _installationCompleted = YES;
         
@@ -839,7 +839,7 @@
         }
     } else {
         [self logMessage:[NSString stringWithFormat:@"✗ Installation failed: %@", message]];
-        [_statusLabel setStringValue:@"Installation failed"];
+        [_statusLabel setStringValue:NSLocalizedString(@"Installation failed", @"")];
         _installationCompleted = NO;
         
         // Show error page
@@ -847,7 +847,7 @@
         if (_assistantWindow) {
             if ([_assistantWindow respondsToSelector:@selector(showErrorPageWithTitle:message:)]) {
                 NSLog(@"Calling showErrorPageWithTitle:message:");
-                [_assistantWindow showErrorPageWithTitle:@"Installation Failed" message:message];
+                [_assistantWindow showErrorPageWithTitle:NSLocalizedString(@"Installation Failed", @"") message:message];
             } else if ([_assistantWindow respondsToSelector:@selector(showErrorPageWithMessage:)]) {
                 NSLog(@"Calling showErrorPageWithMessage:");
                 [_assistantWindow showErrorPageWithMessage:message];
@@ -883,12 +883,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Installation Complete";
+    return NSLocalizedString(@"Installation Complete", @"");
 }
 
 - (NSString *)stepDescription
 {
-    return @"Debian runtime has been installed successfully";
+    return NSLocalizedString(@"Debian runtime has been installed successfully", @"");
 }
 
 - (NSView *)stepView
@@ -911,7 +911,7 @@
     
     // Status label
     _statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 180, 440, 24)];
-    [_statusLabel setStringValue:@"Debian Runtime Installed Successfully"];
+    [_statusLabel setStringValue:NSLocalizedString(@"Debian Runtime Installed Successfully", @"")];
     [_statusLabel setFont:[NSFont boldSystemFontOfSize:16]];
     [_statusLabel setBezeled:NO];
     [_statusLabel setDrawsBackground:NO];
@@ -943,7 +943,7 @@
 
 - (NSString *)finishButtonTitle
 {
-    return @"Done";
+    return NSLocalizedString(@"Done", @"");
 }
 
 - (void)stepWillAppear

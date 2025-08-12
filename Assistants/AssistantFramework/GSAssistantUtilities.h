@@ -64,6 +64,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)withAnimationType:(GSAssistantAnimationType)animationType;
 - (instancetype)withProgressBar:(BOOL)showProgress;
 - (instancetype)allowingCancel:(BOOL)allowCancel;
+- (instancetype)withAutoLocalizedContent:(BOOL)includeLocalizedContent;
 
 - (instancetype)addIntroductionWithMessage:(NSString *)message features:(nullable NSArray<NSString *> *)features;
 - (instancetype)addStep:(id<GSAssistantStepProtocol>)step;
@@ -110,6 +111,47 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)validatePort:(NSString *)port;
 + (BOOL)validateURL:(NSString *)url;
 + (BOOL)validateNotEmpty:(NSString *)text;
+
+@end
+
+/**
+ * Manager for handling localized content files (Welcome.txt, ReadMe.txt, License.txt)
+ */
+@interface GSLocalizedContentManager : NSObject
+
++ (instancetype)sharedManager;
+
+// Check if localized content files exist
++ (BOOL)hasWelcomeContent;
++ (BOOL)hasReadMeContent;
++ (BOOL)hasLicenseContent;
+
+// Get localized content for current locale
++ (nullable NSString *)welcomeContent;
++ (nullable NSString *)readMeContent;
++ (nullable NSString *)licenseContent;
+
+// Get content for specific locale
++ (nullable NSString *)welcomeContentForLocale:(NSString *)locale;
++ (nullable NSString *)readMeContentForLocale:(NSString *)locale;
++ (nullable NSString *)licenseContentForLocale:(NSString *)locale;
+
+// Create assistant steps for available content
++ (nullable id<GSAssistantStepProtocol>)createWelcomeStep;
++ (nullable id<GSAssistantStepProtocol>)createReadMeStep;
++ (nullable id<GSAssistantStepProtocol>)createLicenseStep;
+
+@end
+
+/**
+ * Localization manager for handling string translations and locale-specific resources
+ */
+@interface GSLocalizationManager : NSObject
+
+// Unified localization methods
++ (void)forceLocale:(NSString *)locale;
++ (void)clearForcedLocale;
++ (NSString *)currentLocale;
 
 @end
 

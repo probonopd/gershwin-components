@@ -9,12 +9,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Welcome to Debian Runtime Installer";
+    return NSLocalizedString(@"Welcome to Debian Runtime Installer", @"");
 }
 
 - (NSString *)stepDescription
 {
-    return @"Install a Debian runtime environment for FreeBSD";
+    return NSLocalizedString(@"Install a Debian runtime environment for FreeBSD", @"");
 }
 
 - (NSView *)stepView
@@ -30,7 +30,7 @@
 
     // Intro text inside the card (framework displays title/description outside)
     NSTextField *intro1 = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 148, 322, 36)];
-    [intro1 setStringValue:@"This assistant will install a Debian runtime environment on FreeBSD."];
+    [intro1 setStringValue:NSLocalizedString(@"This assistant will install a Debian runtime environment on FreeBSD.", @"")];
     [intro1 setFont:[NSFont systemFontOfSize:12]];
     [intro1 setBezeled:NO];
     [intro1 setDrawsBackground:NO];
@@ -41,7 +41,7 @@
     [intro1 release];
 
     NSTextField *intro2 = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 110, 322, 48)];
-    [intro2 setStringValue:@"The Debian runtime enables running Linux applications via the compatibility layer."];
+    [intro2 setStringValue:NSLocalizedString(@"The Debian runtime enables running Linux applications via the compatibility layer.", @"")];
     [intro2 setFont:[NSFont systemFontOfSize:12]];
     [intro2 setBezeled:NO];
     [intro2 setDrawsBackground:NO];

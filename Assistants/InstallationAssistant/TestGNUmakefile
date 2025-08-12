@@ -1,0 +1,23 @@
+include $(GNUSTEP_MAKEFILES)/common.make
+
+# Tool configuration
+TOOL_NAME = TestLocalizedContent
+
+# Source files
+TestLocalizedContent_OBJC_FILES = TestLocalizedContent.m
+
+# Link with our framework
+TestLocalizedContent_GUI_LIBS += -lgnustep-gui -lgnustep-base
+TestLocalizedContent_CPPFLAGS += -Wall -Wextra -I./Frameworks/GSAssistantFramework.framework/Versions/1/Headers
+TestLocalizedContent_LDFLAGS += -L./Frameworks/GSAssistantFramework.framework/Versions/1 -lGSAssistantFramework
+
+# Resource files to test with
+TestLocalizedContent_RESOURCE_FILES = \
+	Resources/en.lproj/Welcome.txt \
+	Resources/en.lproj/ReadMe.txt \
+	Resources/en.lproj/License.txt \
+	Resources/de.lproj/Welcome.txt \
+	Resources/de.lproj/ReadMe.txt \
+	Resources/de.lproj/License.txt
+
+include $(GNUSTEP_MAKEFILES)/tool.make

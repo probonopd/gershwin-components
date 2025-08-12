@@ -118,7 +118,7 @@
     
     // Destination selection
     NSTextField *destinationLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 160, 150, 20)];
-    [destinationLabel setStringValue:@"Install to:"];
+    [destinationLabel setStringValue:NSLocalizedString(@"Install to:", @"")];
     [destinationLabel setBezeled:NO];
     [destinationLabel setDrawsBackground:NO];
     [destinationLabel setEditable:NO];
@@ -129,12 +129,12 @@
     _destinationPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(20, 130, 300, 24)];
     [_destinationPopup addItemWithTitle:@"/usr/local"];
     [_destinationPopup addItemWithTitle:@"/opt/gershwin"];
-    [_destinationPopup addItemWithTitle:@"Choose..."];
+    [_destinationPopup addItemWithTitle:NSLocalizedString(@"Choose...", @"")];
     [_stepView addSubview:_destinationPopup];
     
     // Space requirements
     _spaceRequiredLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 90, 350, 20)];
-    [_spaceRequiredLabel setStringValue:@"Space required: 2.5 GB"];
+    [_spaceRequiredLabel setStringValue:NSLocalizedString(@"Space required: 2.5 GB", @"")];
     [_spaceRequiredLabel setBezeled:NO];
     [_spaceRequiredLabel setDrawsBackground:NO];
     [_spaceRequiredLabel setEditable:NO];
@@ -142,7 +142,7 @@
     [_stepView addSubview:_spaceRequiredLabel];
     
     _spaceAvailableLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 70, 350, 20)];
-    [_spaceAvailableLabel setStringValue:@"Space available: 15.2 GB"];
+    [_spaceAvailableLabel setStringValue:NSLocalizedString(@"Space available: 15.2 GB", @"")];
     [_spaceAvailableLabel setBezeled:NO];
     [_spaceAvailableLabel setDrawsBackground:NO];
     [_spaceAvailableLabel setEditable:NO];
@@ -195,7 +195,7 @@
     _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 200)];
     
     NSTextField *optionsLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 170, 350, 20)];
-    [optionsLabel setStringValue:@"Choose optional components to install:"];
+    [optionsLabel setStringValue:NSLocalizedString(@"Choose optional components to install:", @"")];
     [optionsLabel setBezeled:NO];
     [optionsLabel setDrawsBackground:NO];
     [optionsLabel setEditable:NO];

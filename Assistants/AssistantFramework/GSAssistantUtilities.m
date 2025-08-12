@@ -449,6 +449,7 @@
     BOOL _showProgress;
     BOOL _allowCancel;
     NSMutableArray<id<GSAssistantStepProtocol>> *_steps;
+    BOOL _includeLocalizedContent; // New property for auto-localized content
 }
 
 + (instancetype)builder {
@@ -465,6 +466,7 @@
         _showProgress = YES;
         _allowCancel = YES;
         _steps = [[NSMutableArray alloc] init];
+        _includeLocalizedContent = NO; // Default to NO
         NSLog(@"[GSAssistantBuilder] Builder initialized with defaults");
     }
     return self;
@@ -506,6 +508,12 @@
     return self;
 }
 
+- (instancetype)withAutoLocalizedContent:(BOOL)includeLocalizedContent {
+    NSLog(@"[GSAssistantBuilder] Setting auto localized content: %@", includeLocalizedContent ? @"YES" : @"NO");
+    _includeLocalizedContent = includeLocalizedContent;
+    return self;
+}
+
 - (instancetype)addIntroductionWithMessage:(NSString *)message features:(NSArray<NSString *> *)features {
     NSLog(@"[GSAssistantBuilder] Adding introduction step with message: %@", message);
     GSIntroductionStep *step = [[GSIntroductionStep alloc] initWithWelcomeMessage:message featureList:features];
@@ -535,6 +543,49 @@
 
 - (GSAssistantWindow *)build {
     NSLog(@"[GSAssistantBuilder] Building assistant window");
+    
+    // Always auto-insert localized content steps at the beginning if they exist
+    NSLog(@"[GSAssistantBuilder] Auto-detecting and inserting localized content steps");
+    NSMutableArray *localizedSteps = [[NSMutableArray alloc] init];
+    
+    // Add Welcome step if content exists
+    id<GSAssistantStepProtocol> welcomeStep = [GSLocalizedContentManager createWelcomeStep];
+    if (welcomeStep) {
+        NSLog(@"[GSAssistantBuilder] Adding Welcome step");
+        [localizedSteps addObject:welcomeStep];
+    }
+    
+    // Add Read Me step if content exists
+    id<GSAssistantStepProtocol> readMeStep = [GSLocalizedContentManager createReadMeStep];
+    if (readMeStep) {
+        NSLog(@"[GSAssistantBuilder] Adding Read Me step");
+        [localizedSteps addObject:readMeStep];
+    }
+    
+    // Add License step if content exists
+    id<GSAssistantStepProtocol> licenseStep = [GSLocalizedContentManager createLicenseStep];
+    if (licenseStep) {
+        NSLog(@"[GSAssistantBuilder] Adding License step");
+        [localizedSteps addObject:licenseStep];
+    }
+    
+    // Only modify steps array if we found any localized content
+    if (localizedSteps.count > 0) {
+        // Insert localized steps at the beginning
+        NSMutableArray *allSteps = [[NSMutableArray alloc] initWithArray:localizedSteps];
+        [allSteps addObjectsFromArray:_steps];
+        [localizedSteps release];
+        
+        // Replace the original steps array
+        [_steps release];
+        _steps = allSteps;
+        
+        NSLog(@"[GSAssistantBuilder] Total steps after adding localized content: %lu", (unsigned long)_steps.count);
+    } else {
+        [localizedSteps release];
+        NSLog(@"[GSAssistantBuilder] No localized content found, proceeding with existing steps");
+    }
+    
     GSAssistantWindow *assistant = [[GSAssistantWindow alloc] initWithLayoutStyle:_layoutStyle
                                                                              title:_title 
                                                                               icon:_icon
@@ -564,8 +615,8 @@
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
     GSAssistantWindow *assistant = [[[builder withTitle:title]
                                      withIcon:icon]
-                                    addIntroductionWithMessage:@"Welcome to the setup assistant. This will guide you through the initial configuration."
-                                    features:@[@"Configure basic settings", @"Set up user preferences", @"Complete initial setup"]]
+                                    addIntroductionWithMessage:NSLocalizedString(@"Welcome to the setup assistant. This will guide you through the initial configuration.", @"Setup assistant introduction")
+                                    features:@[NSLocalizedString(@"Configure basic settings", @"Setup feature 1"), NSLocalizedString(@"Set up user preferences", @"Setup feature 2"), NSLocalizedString(@"Complete initial setup", @"Setup feature 3")]]
                                    .build;
     
     assistant.delegate = delegate;
@@ -579,8 +630,8 @@
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
     GSAssistantWindow *assistant = [[[builder withTitle:title]
                                      withIcon:icon]
-                                    addIntroductionWithMessage:@"This assistant will help you install the software."
-                                    features:@[@"Verify system requirements", @"Choose installation location", @"Install software components"]]
+                                    addIntroductionWithMessage:NSLocalizedString(@"This assistant will help you install the software.", @"Installation assistant introduction")
+                                    features:@[NSLocalizedString(@"Verify system requirements", @"Installation feature 1"), NSLocalizedString(@"Choose installation location", @"Installation feature 2"), NSLocalizedString(@"Install software components", @"Installation feature 3")]]
                                    .build;
     
     assistant.delegate = delegate;
@@ -594,8 +645,8 @@
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
     GSAssistantWindow *assistant = [[[builder withTitle:title]
                                      withIcon:icon]
-                                    addIntroductionWithMessage:@"Configure your settings with this assistant."
-                                    features:@[@"Set preferences", @"Configure options", @"Apply settings"]]
+                                    addIntroductionWithMessage:NSLocalizedString(@"Configure your settings with this assistant.", @"Configuration assistant introduction")
+                                    features:@[NSLocalizedString(@"Set preferences", @"Configuration feature 1"), NSLocalizedString(@"Configure options", @"Configuration feature 2"), NSLocalizedString(@"Apply settings", @"Configuration feature 3")]]
                                    .build;
     
     assistant.delegate = delegate;
@@ -609,8 +660,8 @@
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
     GSAssistantWindow *assistant = [[[builder withTitle:title]
                                      withIcon:icon]
-                                    addIntroductionWithMessage:@"Set up your network connection."
-                                    features:@[@"Configure network settings", @"Test connection", @"Verify connectivity"]]
+                                    addIntroductionWithMessage:NSLocalizedString(@"Set up your network connection.", @"Network assistant introduction")
+                                    features:@[NSLocalizedString(@"Configure network settings", @"Network feature 1"), NSLocalizedString(@"Test connection", @"Network feature 2"), NSLocalizedString(@"Verify connectivity", @"Network feature 3")]]
                                    .build;
     
     assistant.delegate = delegate;
@@ -673,6 +724,165 @@
 
 + (BOOL)validateNotEmpty:(NSString *)text {
     return text && text.length > 0 && ![[text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] isEqualToString:@""];
+}
+
+@end
+
+#pragma mark - GSLocalizedContentManager
+
+@implementation GSLocalizedContentManager
+
+static NSString *s_forcedLocale = nil;
+
++ (instancetype)sharedManager {
+    static GSLocalizedContentManager *sharedInstance = nil;
+    if (!sharedInstance) {
+        sharedInstance = [[GSLocalizedContentManager alloc] init];
+    }
+    return sharedInstance;
+}
+
++ (NSString *)currentLocale {
+    // Check for explicit locale override via static variable (for testing)
+    if (s_forcedLocale && s_forcedLocale.length > 0) {
+        NSLog(@"[GSLocalizedContentManager] Using forced locale: %@", s_forcedLocale);
+        return s_forcedLocale;
+    }
+    
+    // Use NSLocale preferredLanguages - this is the standard way
+    NSArray *preferredLanguages = [NSLocale preferredLanguages];
+    if (preferredLanguages.count > 0) {
+        NSString *language = preferredLanguages[0];
+        // Extract just the language code (e.g., "en" from "en-US")
+        NSArray *components = [language componentsSeparatedByString:@"-"];
+        NSString *langCode = components[0];
+        
+        NSLog(@"[GSLocalizedContentManager] Detected locale: %@ (from preferred languages: %@)", langCode, preferredLanguages);
+        return langCode;
+    }
+    
+    NSLog(@"[GSLocalizedContentManager] Defaulting to English locale");
+    return @"en"; // Default to English
+}
+
++ (NSString *)pathForResource:(NSString *)resource locale:(NSString *)locale {
+    NSBundle *bundle = [NSBundle mainBundle]; // Use main bundle (the assistant app) instead of framework bundle
+    
+    // First try the localized path structure
+    NSString *localizedPath = [bundle pathForResource:resource 
+                                               ofType:@"txt" 
+                                          inDirectory:[NSString stringWithFormat:@"%@.lproj", locale]];
+    
+    // If not found, try the flattened structure that GNUstep might create
+    if (!localizedPath) {
+        localizedPath = [bundle pathForResource:resource ofType:@"txt"];
+    }
+    
+    // Fallback to English if localized version not found
+    if (!localizedPath && ![locale isEqualToString:@"en"]) {
+        localizedPath = [bundle pathForResource:resource 
+                                         ofType:@"txt" 
+                                    inDirectory:@"en.lproj"];
+        
+        // Try flattened structure for fallback too
+        if (!localizedPath) {
+            localizedPath = [bundle pathForResource:resource ofType:@"txt"];
+        }
+    }
+    
+    return localizedPath;
+}
+
++ (NSString *)contentForResource:(NSString *)resource locale:(NSString *)locale {
+    NSString *path = [self pathForResource:resource locale:locale];
+    if (!path) return nil;
+    
+    NSError *error = nil;
+    NSString *content = [NSString stringWithContentsOfFile:path 
+                                                   encoding:NSUTF8StringEncoding 
+                                                      error:&error];
+    
+    if (error) {
+        NSLog(@"[GSLocalizedContentManager] Error reading %@.txt for locale %@: %@", resource, locale, error.localizedDescription);
+        return nil;
+    }
+    
+    return content;
+}
+
+#pragma mark - Content Availability Checks
+
++ (BOOL)hasWelcomeContent {
+    return [self pathForResource:@"Welcome" locale:[self currentLocale]] != nil;
+}
+
++ (BOOL)hasReadMeContent {
+    return [self pathForResource:@"ReadMe" locale:[self currentLocale]] != nil;
+}
+
++ (BOOL)hasLicenseContent {
+    return [self pathForResource:@"License" locale:[self currentLocale]] != nil;
+}
+
+#pragma mark - Content Retrieval
+
++ (NSString *)welcomeContent {
+    return [self welcomeContentForLocale:[self currentLocale]];
+}
+
++ (NSString *)readMeContent {
+    return [self readMeContentForLocale:[self currentLocale]];
+}
+
++ (NSString *)licenseContent {
+    return [self licenseContentForLocale:[self currentLocale]];
+}
+
++ (NSString *)welcomeContentForLocale:(NSString *)locale {
+    return [self contentForResource:@"Welcome" locale:locale];
+}
+
++ (NSString *)readMeContentForLocale:(NSString *)locale {
+    return [self contentForResource:@"ReadMe" locale:locale];
+}
+
++ (NSString *)licenseContentForLocale:(NSString *)locale {
+    return [self contentForResource:@"License" locale:locale];
+}
+
+#pragma mark - Step Creation
+
++ (id<GSAssistantStepProtocol>)createWelcomeStep {
+    NSString *content = [self welcomeContent];
+    if (!content) return nil;
+    
+    return [[GSWelcomeStep alloc] initWithContent:content];
+}
+
++ (id<GSAssistantStepProtocol>)createReadMeStep {
+    NSString *content = [self readMeContent];
+    if (!content) return nil;
+    
+    return [[GSReadMeStep alloc] initWithContent:content];
+}
+
++ (id<GSAssistantStepProtocol>)createLicenseStep {
+    NSString *content = [self licenseContent];
+    if (!content) return nil;
+    
+    return [[GSLicenseStep alloc] initWithContent:content requiresAcceptance:YES];
+}
+
+#pragma mark - Unified Localization
+
++ (void)forceLocale:(NSString *)locale {
+    NSLog(@"[GSLocalizedContentManager] Forcing locale to: %@", locale);
+    s_forcedLocale = [locale copy];
+}
+
++ (void)clearForcedLocale {
+    NSLog(@"[GSLocalizedContentManager] Clearing forced locale");
+    s_forcedLocale = nil;
 }
 
 @end

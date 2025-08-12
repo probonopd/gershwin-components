@@ -26,12 +26,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Confirm Installation";
+    return NSLocalizedString(@"Confirm Installation", @"");
 }
 
 - (NSString *)stepDescription
 {
-    return @"Review installation details";
+    return NSLocalizedString(@"Review installation details", @"");
 }
 
 - (NSView *)stepView
@@ -46,7 +46,7 @@
 
     // Summary label
     NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 172, 322, 18)];
-    [titleLabel setStringValue:@"Ready to Install"];
+    [titleLabel setStringValue:NSLocalizedString(@"Ready to Install", @"")];
     [titleLabel setFont:[NSFont boldSystemFontOfSize:13]];
     [titleLabel setBezeled:NO];
     [titleLabel setDrawsBackground:NO];
@@ -94,7 +94,7 @@
 
 - (NSString *)continueButtonTitle
 {
-    return @"Install";
+    return NSLocalizedString(@"Install", @"");
 }
 
 - (void)setSelectedImageURL:(NSString *)url

@@ -234,6 +234,14 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         _showsStepIndicators = (layoutStyle == GSAssistantLayoutStyleInstaller);
         _stepIndicatorViews = [[NSMutableArray alloc] init];
         
+        // Set assistant window reference for all steps that support it
+        for (id<GSAssistantStepProtocol> step in _stepsArray) {
+            if ([step isKindOfClass:[GSAssistantStep class]]) {
+                GSAssistantStep *assistantStep = (GSAssistantStep *)step;
+                assistantStep.assistantWindow = self;
+            }
+        }
+        
         [self setupWindow];
         [self setupViews];
         if (_stepsArray.count > 0) {
@@ -277,7 +285,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
 
 - (void)setupWindow {
     NSWindow *window = self.window;
-    window.title = _assistantTitle ?: @"Setup Assistant";
+    window.title = _assistantTitle ?: NSLocalizedString(@"Setup Assistant", @"Default assistant window title");
     
     // Set window size constraints based on layout style
     if (_layoutStyle == GSAssistantLayoutStyleInstaller) {
@@ -393,7 +401,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _titleLabel.drawsBackground = NO;
     _titleLabel.backgroundColor = [NSColor clearColor];
     _titleLabel.font = [NSFont boldSystemFontOfSize:20.0];
-    _titleLabel.stringValue = _assistantTitle ?: @"Setup Assistant";
+    _titleLabel.stringValue = _assistantTitle ?: NSLocalizedString(@"Setup Assistant", @"Default assistant window title");
     [_mainContentView addSubview:_titleLabel];
     
     // Step title
@@ -442,7 +450,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     
     // Cancel button with standard margins and height (20px from bottom)
     _cancelButton = [[NSButton alloc] initWithFrame:NSMakeRect(24, 20, 85, 24)];
-    _cancelButton.title = @"Cancel";
+    _cancelButton.title = NSLocalizedString(@"Cancel", @"Cancel button title");
     _cancelButton.bezelStyle = NSRoundedBezelStyle;
     _cancelButton.font = [NSFont systemFontOfSize:13.0];
     _cancelButton.target = self;
@@ -451,7 +459,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     
     // Back button with standard spacing and height (20px from bottom)
     _backButton = [[NSButton alloc] initWithFrame:NSMakeRect(494, 20, 85, 24)];
-    _backButton.title = @"Go Back";
+    _backButton.title = NSLocalizedString(@"Go Back", @"Go back button title");
     _backButton.bezelStyle = NSRoundedBezelStyle;
     _backButton.font = [NSFont systemFontOfSize:13.0];
     _backButton.target = self;
@@ -460,7 +468,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     
     // Continue button - standard height and spacing (20px from bottom)
     _continueButton = [[NSButton alloc] initWithFrame:NSMakeRect(591, 20, 85, 24)];
-    _continueButton.title = @"Continue";
+    _continueButton.title = NSLocalizedString(@"Continue", @"Continue button title");
     _continueButton.bezelStyle = NSRoundedBezelStyle;
     _continueButton.font = [NSFont systemFontOfSize:13.0];
     _continueButton.keyEquivalent = @"\r";
@@ -491,10 +499,22 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
 
 - (void)addStep:(id<GSAssistantStepProtocol>)step {
     [_stepsArray addObject:step];
+    
+    // Set assistant window reference for all steps that support it
+    if ([step isKindOfClass:[GSAssistantStep class]]) {
+        GSAssistantStep *assistantStep = (GSAssistantStep *)step;
+        assistantStep.assistantWindow = self;
+    }
 }
 
 - (void)insertStep:(id<GSAssistantStepProtocol>)step atIndex:(NSInteger)index {
     [_stepsArray insertObject:step atIndex:index];
+    
+    // Set assistant window reference for all steps that support it
+    if ([step isKindOfClass:[GSAssistantStep class]]) {
+        GSAssistantStep *assistantStep = (GSAssistantStep *)step;
+        assistantStep.assistantWindow = self;
+    }
 }
 
 - (void)removeStepAtIndex:(NSInteger)index {
@@ -697,20 +717,28 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     id<GSAssistantStepProtocol> step = [self currentStep];
     if (!step) return;
     
-    BOOL canContinue = [step canContinue];
+    // Check if this is a completion step that should hide navigation
+    BOOL shouldHideButtons = NO;
+    if ([step isKindOfClass:[GSCompletionStep class]]) {
+        GSCompletionStep *completionStep = (GSCompletionStep *)step;
+        shouldHideButtons = completionStep.hideNavigationButtons;
+    }
+    
+    BOOL canContinue = [step canContinue] && !shouldHideButtons;
     BOOL isLastStep = ((NSUInteger)_currentIndex == _stepsArray.count - 1);
     
     _continueButton.enabled = canContinue;
+    _continueButton.hidden = shouldHideButtons;
     
     if ([step respondsToSelector:@selector(continueButtonTitle)]) {
         NSString *customTitle = [step continueButtonTitle];
         if (customTitle) {
             _continueButton.title = customTitle;
         } else {
-            _continueButton.title = isLastStep ? @"Finish" : @"Continue";
+            _continueButton.title = isLastStep ? NSLocalizedString(@"Finish", @"Finish button title") : NSLocalizedString(@"Continue", @"Continue button title");
         }
     } else {
-        _continueButton.title = isLastStep ? @"Finish" : @"Continue";
+        _continueButton.title = isLastStep ? NSLocalizedString(@"Finish", @"Finish button title") : NSLocalizedString(@"Continue", @"Continue button title");
     }
     
     BOOL canGoBack = (_currentIndex > 0);
@@ -718,18 +746,18 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         canGoBack = canGoBack && [step canGoBack];
     }
     
-    _backButton.enabled = canGoBack;
-    _backButton.hidden = !canGoBack;
+    _backButton.enabled = canGoBack && !shouldHideButtons;
+    _backButton.hidden = !canGoBack || shouldHideButtons;
     
     if ([step respondsToSelector:@selector(backButtonTitle)]) {
         NSString *customTitle = [step backButtonTitle];
         if (customTitle) {
             _backButton.title = customTitle;
         } else {
-            _backButton.title = @"Go Back";
+            _backButton.title = NSLocalizedString(@"Go Back", @"Go back button title");
         }
     } else {
-        _backButton.title = @"Go Back";
+        _backButton.title = NSLocalizedString(@"Go Back", @"Go back button title");
     }
     
     _cancelButton.hidden = !_allowsCancel;
@@ -779,6 +807,26 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     [self showCurrentStep];
     
     [successStep release];
+}
+
+- (void)autoCompleteWithSuccessMessage:(NSString *)message {
+    NSLog(@"[GSAssistantWindow] Auto-completing with success message: %@", message);
+    
+    // Create a completion step that auto-hides navigation buttons
+    GSCompletionStep *successStep = [[GSCompletionStep alloc] initWithCompletionMessage:message success:YES];
+    successStep.title = @"Setup Complete";
+    successStep.stepDescription = @"The process completed successfully.";
+    successStep.hideNavigationButtons = YES; // Hide all navigation buttons
+    
+    [self.steps removeAllObjects];
+    [self addStep:successStep];
+    
+    _currentIndex = 0;
+    [self showCurrentStep];
+    
+    [successStep release];
+    
+    NSLog(@"[GSAssistantWindow] Auto-completion step displayed");
 }
 
 #pragma mark - Installer Layout Methods
@@ -900,7 +948,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     // Back button (left of continue by 12px), 80x24
     NSRect backFrame = NSMakeRect(_windowWidth - 24 - 100 - 12 - 80, buttonY, 80, 24);
     _backButton = [[NSButton alloc] initWithFrame:backFrame];
-    [_backButton setTitle:@"Go Back"];
+    [_backButton setTitle:NSLocalizedString(@"Go Back", @"Go back button title")];
     [_backButton setBezelStyle:NSRoundedBezelStyle];
     [_backButton setTarget:self];
     [_backButton setAction:@selector(backClicked:)];
@@ -1056,10 +1104,10 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         if (customTitle) {
             _continueButton.title = customTitle;
         } else {
-            _continueButton.title = isLastStep ? @"Finish" : @"Continue";
+            _continueButton.title = isLastStep ? NSLocalizedString(@"Finish", @"Finish button title") : NSLocalizedString(@"Continue", @"Continue button title");
         }
     } else {
-        _continueButton.title = isLastStep ? @"Finish" : @"Continue";
+        _continueButton.title = isLastStep ? NSLocalizedString(@"Finish", @"Finish button title") : NSLocalizedString(@"Continue", @"Continue button title");
     }
     
     // Set continue button as default
@@ -1078,10 +1126,10 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         if (customBackTitle) {
             _backButton.title = customBackTitle;
         } else {
-            _backButton.title = @"Go Back";
+            _backButton.title = NSLocalizedString(@"Go Back", @"Go back button title");
         }
     } else {
-        _backButton.title = @"Go Back";
+        _backButton.title = NSLocalizedString(@"Go Back", @"Go back button title");
     }
     
     // Options button is hidden by default

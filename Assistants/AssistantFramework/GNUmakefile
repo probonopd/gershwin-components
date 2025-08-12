@@ -27,7 +27,27 @@ GSAssistantFramework_HEADER_FILES = \
 	GSEnhancedProgressStep.h
 
 # Headers that should be included in the framework headers
-GSAssistantFramework_HEADER_FILES_INSTALL_DIR = /GSAssistantFramework
+# GSAssistantFramework_HEADER_FILES_INSTALL_DIR = /GSAssistantFramework
+
+# Resource files to include in the framework
+GSAssistantFramework_RESOURCE_FILES = \
+	Resources/check.png \
+	Resources/cross.png
+
+# Manual copying approach for localized resources
+after-install::
+	@echo "Manually copying localized resources..."
+	mkdir -p $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework/Versions/1/Resources/en.lproj
+	mkdir -p $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework/Versions/1/Resources/de.lproj
+	cp Resources/en.lproj/Localizable.strings $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework/Versions/1/Resources/en.lproj/
+	cp Resources/de.lproj/Localizable.strings $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework/Versions/1/Resources/de.lproj/
+	cp Resources/en.lproj/Welcome.txt $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework/Versions/1/Resources/en.lproj/
+	cp Resources/de.lproj/Welcome.txt $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework/Versions/1/Resources/de.lproj/
+	cp Resources/en.lproj/ReadMe.txt $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework/Versions/1/Resources/en.lproj/
+	cp Resources/de.lproj/ReadMe.txt $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework/Versions/1/Resources/de.lproj/
+	cp Resources/en.lproj/License.txt $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework/Versions/1/Resources/en.lproj/
+	cp Resources/de.lproj/License.txt $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework/Versions/1/Resources/de.lproj/
+	@echo "Localized resources copied to framework"
 
 # Required frameworks and libraries
 GSAssistantFramework_FRAMEWORKS_DEPEND_UPON = AppKit Foundation
@@ -36,44 +56,30 @@ GSAssistantFramework_FRAMEWORKS_DEPEND_UPON = AppKit Foundation
 GSAssistantFramework_CPPFLAGS += -Wall -Wextra
 GSAssistantFramework_OBJCFLAGS += -O2 -Werror
 
-# Installation directory
-FRAMEWORK_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Frameworks
+# Installation directory - build locally, don't install
+FRAMEWORK_INSTALL_DIR = $(shell pwd)
 
 include $(GNUSTEP_MAKEFILES)/framework.make
 
-# Custom install target that completely overrides built-in behavior
-.PHONY: custom-install custom-uninstall
+# Override all installation targets to do nothing - we'll embed in each assistant bundle
+install::
+	@echo "Framework built locally - no system installation"
+	@echo "Framework available at: $(shell pwd)/$(FRAMEWORK_NAME).framework"
 
-install:: custom-install
-
-custom-install: $(FRAMEWORK_NAME).framework
-	@if [ -n "$(DESTDIR)" ]; then \
-		echo "Installing $(FRAMEWORK_NAME) to $(DESTDIR)$(FRAMEWORK_INSTALL_DIR)"; \
-		mkdir -p $(DESTDIR)$(FRAMEWORK_INSTALL_DIR); \
-		cp -R $(FRAMEWORK_NAME).framework $(DESTDIR)$(FRAMEWORK_INSTALL_DIR)/; \
-	else \
-		echo "Installing $(FRAMEWORK_NAME) to $(FRAMEWORK_INSTALL_DIR)"; \
-		mkdir -p $(FRAMEWORK_INSTALL_DIR); \
-		sudo -A cp -R $(FRAMEWORK_NAME).framework $(FRAMEWORK_INSTALL_DIR)/; \
-	fi
-
-# Override uninstall target to properly support DESTDIR
-uninstall:: custom-uninstall
-
-custom-uninstall:
-	@if [ -n "$(DESTDIR)" ]; then \
-		echo "Uninstalling $(FRAMEWORK_NAME) from $(DESTDIR)$(FRAMEWORK_INSTALL_DIR)"; \
-		rm -rf $(DESTDIR)$(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework; \
-	else \
-		echo "Uninstalling $(FRAMEWORK_NAME) from $(FRAMEWORK_INSTALL_DIR)"; \
-		sudo -A rm -rf $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework; \
-	fi
+uninstall::
+	@echo "No system installation to remove"
 
 # Override built-in install targets to do nothing
 internal-framework-install::
 	@true
 
+internal-framework-install_::
+	@true
+
 shared-instance-framework-install::
+	@true
+
+shared-instance-framework-install_::
 	@true
 
 # Development helpers
@@ -81,8 +87,7 @@ debug:
 	@echo "Framework files:"
 	@echo "  Source files: $(GSAssistantFramework_OBJC_FILES)"
 	@echo "  Header files: $(GSAssistantFramework_HEADER_FILES)"
-	@echo "  Install dir: $(FRAMEWORK_INSTALL_DIR)"
-	@echo "  DESTDIR: $(DESTDIR)"
+	@echo "  Framework location: $(shell pwd)/$(FRAMEWORK_NAME).framework"
 
 clean::
 	@echo "Cleaning $(FRAMEWORK_NAME)..."

@@ -106,7 +106,7 @@
 
 - (NSString *)finishButtonTitle
 {
-    return @"Done";
+    return NSLocalizedString(@"Done", @"");
 }
 
 - (void)stepWillAppear

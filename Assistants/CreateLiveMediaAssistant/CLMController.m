@@ -82,15 +82,8 @@
     // Build the assistant using the builder
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
     [builder withLayoutStyle:GSAssistantLayoutStyleInstaller];
-    [builder withTitle:@"Create Live Media"];
+    [builder withTitle:NSLocalizedString(@"Create Live Media", @"Application title")];
     [builder withIcon:[NSImage imageNamed:@"Create_Live_Media"]];
-    
-    // Add introduction with background image
-    [builder addIntroductionWithMessage:@"This assistant will download a Live image and write it to an attached storage device."
-             features:@[@"Downloads Live images from GitHub releases",
-                       @"Supports custom image URLs and local files", 
-                       @"Writes directly to USB drives and removable media",
-                       @"Verifies disk space requirements"]];
     
     // Add configuration steps directly (not wrapped)
     [builder addStep:_imageSelectionStep];
@@ -149,12 +142,31 @@
     NSLog(@"CLMController: showInstallationError: %@", message);
     _installationSuccessful = NO;
     
-    NSAlert *alert = [NSAlert alertWithMessageText:@"Installation Error"
-                              defaultButton:@"OK"
-                              alternateButton:nil
-                              otherButton:nil
-                              informativeTextWithFormat:@"%@", message];
-    [alert runModal];
+    // Ensure we're on the main thread for UI updates
+    if (![NSThread isMainThread]) {
+        [self performSelectorOnMainThread:@selector(showInstallationError:) 
+                               withObject:message 
+                            waitUntilDone:NO];
+        return;
+    }
+    
+    // Try to navigate to error page with red X graphic
+    if ([_assistantWindow respondsToSelector:@selector(showErrorPageWithTitle:message:)]) {
+        NSLog(@"CLMController: calling showErrorPageWithTitle:message:");
+        [_assistantWindow showErrorPageWithTitle:NSLocalizedString(@"Installation Failed", @"Error title") message:message];
+    } else if ([_assistantWindow respondsToSelector:@selector(showErrorPageWithMessage:)]) {
+        NSLog(@"CLMController: calling showErrorPageWithMessage:");
+        [_assistantWindow showErrorPageWithMessage:message];
+    } else {
+        NSLog(@"CLMController: assistant window doesn't respond to error page methods, showing alert");
+        // Fallback to alert if error page methods are not available
+        NSAlert *alert = [NSAlert alertWithMessageText:@"Installation Error"
+                                      defaultButton:@"OK"
+                                      alternateButton:nil
+                                      otherButton:nil
+                                      informativeTextWithFormat:@"%@", message];
+        [alert runModal];
+    }
 }
 
 #pragma mark - GSAssistantWindowDelegate

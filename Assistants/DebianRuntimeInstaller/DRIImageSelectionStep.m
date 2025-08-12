@@ -37,7 +37,7 @@
         NSAlert *alert = [[NSAlert alloc] init];
         [alert setMessageText:@"No Internet Connection"]; 
         [alert setInformativeText:@"An internet connection is required to download runtime images. Please check your network settings and try again."];
-        [alert addButtonWithTitle:@"OK"]; 
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"")]; 
         [alert setAlertStyle:NSWarningAlertStyle];
         [alert runModal];
         [alert release];
@@ -149,7 +149,7 @@
         NSLog(@"DRIImageSelectionStep: selected image: %@", _selectedImageURL);
         
         // Clear custom URL when selecting from table
-        [_urlField setStringValue:@""];
+        [_urlField setStringValue:NSLocalizedString(@"", @"")];
     } else {
         _selectedImageURL = nil;
     }
@@ -193,7 +193,7 @@
         return imageInfo[@"name"]; 
     }
     
-    return @"Unknown";
+    return NSLocalizedString(@"Unknown", @"");
 }
 
 - (void)setupTableColumns
@@ -218,7 +218,7 @@
     
     // Custom URL section (top row) with standard spacing
     NSTextField *urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 172, 70, 16)];
-    [urlLabel setStringValue:@"Custom URL:"]; 
+    [urlLabel setStringValue:NSLocalizedString(@"Custom URL:", @"")]; 
     [urlLabel setBezeled:NO];
     [urlLabel setDrawsBackground:NO];
     [urlLabel setEditable:NO];
@@ -227,7 +227,7 @@
     [urlLabel release];
     
     _urlField = [[NSTextField alloc] initWithFrame:NSMakeRect(100, 170, 172, 20)];
-    [_urlField setStringValue:@""]; 
+    [_urlField setStringValue:NSLocalizedString(@"", @"")]; 
     [_urlField setPlaceholderString:@"https://github.com/user/repo/releases/download/tag/file.img"]; 
     [_urlField setTarget:self];
     [_urlField setAction:@selector(urlFieldChanged:)];

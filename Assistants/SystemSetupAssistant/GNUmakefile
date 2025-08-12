@@ -6,15 +6,41 @@ APP_NAME = SystemSetupAssistant
 # Source files
 SystemSetupAssistant_OBJC_FILES = SystemSetupAssistant.m SystemSetupSteps.m
 
+# Resource files
+SystemSetupAssistant_RESOURCE_FILES = \
+	Resources/en.lproj/Welcome.txt \
+	Resources/en.lproj/ReadMe.txt \
+	Resources/en.lproj/License.txt \
+	Resources/en.lproj/Localizable.strings \
+	Resources/de.lproj/Welcome.txt \
+	Resources/de.lproj/ReadMe.txt \
+	Resources/de.lproj/License.txt \
+	Resources/de.lproj/Localizable.strings
+
 # Required frameworks and libraries - use GNUstep naming
 SystemSetupAssistant_GUI_LIBS += -lgnustep-gui -lgnustep-base
 
-# Compiler and linker flags - updated for new framework location
-SystemSetupAssistant_CPPFLAGS += -Wall -Wextra -I../Framework/GSAssistantFramework.framework/Versions/1/Headers
-SystemSetupAssistant_LDFLAGS += -L../Framework/GSAssistantFramework.framework/Versions/1 -lGSAssistantFramework 
-SystemSetupAssistant_LDFLAGS += -Wl,-rpath,$(shell pwd)/../Framework/GSAssistantFramework.framework/Versions/1
+# Compiler and linker flags - embed framework in bundle
+SystemSetupAssistant_CPPFLAGS += -Wall -Wextra -I$(shell pwd)/../AssistantFramework/GSAssistantFramework.framework/Versions/1/Headers
+SystemSetupAssistant_LDFLAGS += -L$(shell pwd)/../AssistantFramework/GSAssistantFramework.framework/Versions/1 -lGSAssistantFramework -Wl,-rpath,'$$ORIGIN/Frameworks/GSAssistantFramework.framework/Versions/1'
 
 include $(GNUSTEP_MAKEFILES)/application.make
+
+# Copy framework into app bundle after building
+after-all::
+	@echo "Copying GSAssistantFramework into app bundle..."
+	@mkdir -p $(APP_NAME).app/Frameworks
+	@cp -R ../AssistantFramework/GSAssistantFramework.framework $(APP_NAME).app/Frameworks/
+	@echo "Framework embedded in $(APP_NAME).app/Frameworks/"
+	@echo "Fixing localized resource structure..."
+	@mkdir -p $(APP_NAME).app/Resources/en.lproj
+	@mkdir -p $(APP_NAME).app/Resources/de.lproj
+	@# Move the flattened resources into proper .lproj directories
+	@if [ -f $(APP_NAME).app/Resources/Localizable.strings ]; then \
+		mv $(APP_NAME).app/Resources/Localizable.strings $(APP_NAME).app/Resources/en.lproj/; \
+	fi
+	@cp Resources/de.lproj/Localizable.strings $(APP_NAME).app/Resources/de.lproj/
+	@echo "Localized resource structure fixed"
 
 # Custom install target
 .PHONY: custom-install custom-uninstall

@@ -40,7 +40,7 @@
     
     // Info label
     _infoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 176, 338, 28)];
-    [_infoLabel setStringValue:@"Select the destination disk for the Live medium."];
+    [_infoLabel setStringValue:NSLocalizedString(@"Select the destination disk for the Live medium.", @"")];
     [_infoLabel setBezeled:NO];
     [_infoLabel setDrawsBackground:NO];
     [_infoLabel setEditable:NO];
@@ -62,19 +62,19 @@
     
     // Add columns
     NSTableColumn *deviceColumn = [[NSTableColumn alloc] initWithIdentifier:@"deviceName"];
-    [[deviceColumn headerCell] setStringValue:@"Device"];
+    [[deviceColumn headerCell] setStringValue:NSLocalizedString(@"Device", @"")];
     [deviceColumn setWidth:80];
     [_diskTableView addTableColumn:deviceColumn];
     [deviceColumn release];
     
     NSTableColumn *descColumn = [[NSTableColumn alloc] initWithIdentifier:@"description"];
-    [[descColumn headerCell] setStringValue:@"Description"];
+    [[descColumn headerCell] setStringValue:NSLocalizedString(@"Description", @"")];
     [descColumn setWidth:180];
     [_diskTableView addTableColumn:descColumn];
     [descColumn release];
     
     NSTableColumn *sizeColumn = [[NSTableColumn alloc] initWithIdentifier:@"sizeFormatted"];
-    [[sizeColumn headerCell] setStringValue:@"Size"];
+    [[sizeColumn headerCell] setStringValue:NSLocalizedString(@"Size", @"")];
     [sizeColumn setWidth:70];
     [_diskTableView addTableColumn:sizeColumn];
     [sizeColumn release];
@@ -101,7 +101,7 @@
     
     // Warning label (compact)
     _warningLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 8, 338, 40)];
-    [_warningLabel setStringValue:@"WARNING: All data on the selected disk will be permanently erased!\nOnly removable drives are shown for safety."];
+    [_warningLabel setStringValue:NSLocalizedString(@"WARNING: All data on the selected disk will be permanently erased!\nOnly removable drives are shown for safety.", @"")];
     [_warningLabel setBezeled:NO];
     [_warningLabel setDrawsBackground:NO];
     [_warningLabel setEditable:NO];
@@ -235,12 +235,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Select Destination Disk";
+    return NSLocalizedString(@"Select Destination Disk", @"");
 }
 
 - (NSString *)stepDescription  
 {
-    return @"Choose the disk to write the Live image to";
+    return NSLocalizedString(@"Choose the disk to write the Live image to", @"");
 }
 
 - (NSView *)stepView

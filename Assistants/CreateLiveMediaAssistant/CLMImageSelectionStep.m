@@ -61,7 +61,7 @@
     
     // Repository selection
     NSTextField *repoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 176, 86, 18)];
-    [repoLabel setStringValue:@"Repository:"];
+    [repoLabel setStringValue:NSLocalizedString(@"Repository:", @"")];
     [repoLabel setBezeled:NO];
     [repoLabel setDrawsBackground:NO];
     [repoLabel setEditable:NO];
@@ -70,10 +70,10 @@
     [repoLabel release];
     
     _repositoryPopUp = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(96, 174, 250, 22)];
-    [_repositoryPopUp addItemWithTitle:@"probonopd/ghostbsd-build"];
-    [_repositoryPopUp addItemWithTitle:@"ventoy/Ventoy"];
-    [_repositoryPopUp addItemWithTitle:@"Other..."];
-    [_repositoryPopUp addItemWithTitle:@"Local ISO file..."];
+    [_repositoryPopUp addItemWithTitle:NSLocalizedString(@"probonopd/ghostbsd-build", @"")];
+    [_repositoryPopUp addItemWithTitle:NSLocalizedString(@"ventoy/Ventoy", @"")];
+    [_repositoryPopUp addItemWithTitle:NSLocalizedString(@"Other...", @"")];
+    [_repositoryPopUp addItemWithTitle:NSLocalizedString(@"Local ISO file...", @"")];
     [_repositoryPopUp setTarget:self];
     [_repositoryPopUp setAction:@selector(repositoryChanged:)];
     [_stepView addSubview:_repositoryPopUp];
@@ -97,7 +97,7 @@
     [_loadingIndicator release];
     
     _loadingLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(260, 150, 90, 18)];
-    [_loadingLabel setStringValue:@"Loading..."];
+    [_loadingLabel setStringValue:NSLocalizedString(@"Loading...", @"")];
     [_loadingLabel setBezeled:NO];
     [_loadingLabel setDrawsBackground:NO];
     [_loadingLabel setEditable:NO];
@@ -118,19 +118,19 @@
     
     // Add columns
     NSTableColumn *nameColumn = [[NSTableColumn alloc] initWithIdentifier:@"name"];
-    [[nameColumn headerCell] setStringValue:@"Release"];
+    [[nameColumn headerCell] setStringValue:NSLocalizedString(@"Release", @"")];
     [nameColumn setWidth:190];
     [_releaseTableView addTableColumn:nameColumn];
     [nameColumn release];
     
     NSTableColumn *versionColumn = [[NSTableColumn alloc] initWithIdentifier:@"version"];
-    [[versionColumn headerCell] setStringValue:@"Version"];
+    [[versionColumn headerCell] setStringValue:NSLocalizedString(@"Version", @"")];
     [versionColumn setWidth:70];
     [_releaseTableView addTableColumn:versionColumn];
     [versionColumn release];
     
     NSTableColumn *sizeColumn = [[NSTableColumn alloc] initWithIdentifier:@"sizeFormatted"];
-    [[sizeColumn headerCell] setStringValue:@"Size"];
+    [[sizeColumn headerCell] setStringValue:NSLocalizedString(@"Size", @"")];
     [sizeColumn setWidth:70];
     [_releaseTableView addTableColumn:sizeColumn];
     [sizeColumn release];
@@ -157,7 +157,7 @@
     
     // Info labels (compact, below the table)
     _dateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 20, 338, 14)];
-    [_dateLabel setStringValue:@""];
+    [_dateLabel setStringValue:NSLocalizedString(@"", @"")];
     [_dateLabel setBezeled:NO];
     [_dateLabel setDrawsBackground:NO];
     [_dateLabel setEditable:NO];
@@ -167,7 +167,7 @@
     [_dateLabel release];
     
     _urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 6, 338, 14)];
-    [_urlLabel setStringValue:@""];
+    [_urlLabel setStringValue:NSLocalizedString(@"", @"")];
     [_urlLabel setBezeled:NO];
     [_urlLabel setDrawsBackground:NO];
     [_urlLabel setEditable:NO];
@@ -177,7 +177,7 @@
     [_urlLabel release];
     
     _sizeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, -8, 338, 14)];
-    [_sizeLabel setStringValue:@""];
+    [_sizeLabel setStringValue:NSLocalizedString(@"", @"")];
     [_sizeLabel setBezeled:NO];
     [_sizeLabel setDrawsBackground:NO];
     [_sizeLabel setEditable:NO];
@@ -201,7 +201,7 @@
                              informativeTextWithFormat:@"Enter the GitHub API URL for releases:"];
         
         NSTextField *input = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 300, 24)];
-        [input setStringValue:@"https://api.github.com/repos/owner/repo/releases"];
+        [input setStringValue:NSLocalizedString(@"https://api.github.com/repos/owner/repo/releases", @"")];
         
         // Create a simple input dialog instead of using setAccessoryView
         NSInteger response = [alert runModal];
@@ -386,14 +386,14 @@
             [_dateLabel setStringValue:[NSString stringWithFormat:@"Date: %@", [formatter stringFromDate:updatedAt]]];
             [formatter release];
         } else {
-            [_dateLabel setStringValue:@""];
+            [_dateLabel setStringValue:NSLocalizedString(@"", @"")];
         }
         
         NSString *htmlURL = [selectedRelease objectForKey:@"htmlURL"];
         if (htmlURL && [htmlURL length] > 0) {
             [_urlLabel setStringValue:[NSString stringWithFormat:@"URL: %@", htmlURL]];
         } else {
-            [_urlLabel setStringValue:@""];
+            [_urlLabel setStringValue:NSLocalizedString(@"", @"")];
         }
         
         NSNumber *size = [selectedRelease objectForKey:@"size"];
@@ -406,9 +406,9 @@
         _controller.selectedImageName = @"";
         _controller.selectedImageSize = 0;
         
-        [_dateLabel setStringValue:@""];
-        [_urlLabel setStringValue:@""];
-        [_sizeLabel setStringValue:@""];
+        [_dateLabel setStringValue:NSLocalizedString(@"", @"")];
+        [_urlLabel setStringValue:NSLocalizedString(@"", @"")];
+        [_sizeLabel setStringValue:NSLocalizedString(@"", @"")];
     }
     
     // Ask the assistant window to re-evaluate canContinue and update button state
@@ -419,12 +419,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Select Live Image";
+    return NSLocalizedString(@"Select Live Image", @"");
 }
 
 - (NSString *)stepDescription  
 {
-    return @"Choose a Live image to download and write to the medium";
+    return NSLocalizedString(@"Choose a Live image to download and write to the medium", @"");
 }
 
 - (NSView *)stepView

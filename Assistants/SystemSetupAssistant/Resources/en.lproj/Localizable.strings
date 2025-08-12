@@ -1,0 +1,29 @@
+/* English localization for SystemSetupAssistant */
+
+/* Step titles and descriptions */
+"Welcome" = "Welcome";
+"Read Me" = "Read Me";
+"Software License Agreement" = "Software License Agreement";
+"User Information" = "User Information";
+"System Preferences" = "System Preferences";
+"Applying Settings" = "Applying Settings";
+"Setup Complete" = "Setup Complete";
+
+/* Step descriptions */
+"Welcome to the assistant" = "Welcome to the assistant";
+"Important information" = "Important information";
+"Please read the license agreement" = "Please read the license agreement";
+"Enter your user information" = "Enter your user information";
+"Configure system preferences" = "Configure system preferences";
+"Please wait while we apply your settings..." = "Please wait while we apply your settings...";
+"Setup completed successfully! Your system is now ready to use." = "Setup completed successfully! Your system is now ready to use.";
+
+/* Navigation buttons */
+"Continue" = "Continue";
+"Go Back" = "Go Back";
+"Agree" = "Agree";
+"Disagree" = "Disagree";
+"Quit" = "Quit";
+
+/* Application title */
+"System Setup Assistant" = "System Setup Assistant";

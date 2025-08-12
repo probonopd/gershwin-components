@@ -48,7 +48,7 @@
     
     // Success text
     NSTextField *successLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 100, 330, 24)];
-    [successLabel setStringValue:@"Live Medium Created Successfully!"];
+    [successLabel setStringValue:NSLocalizedString(@"Live Medium Created Successfully!", @"")];
     [successLabel setFont:[NSFont boldSystemFontOfSize:13]];
     [successLabel setAlignment:NSCenterTextAlignment];
     [successLabel setBezeled:NO];
@@ -60,7 +60,7 @@
     
     // Instructions text
     NSTextField *instructLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 54, 330, 40)];
-    [instructLabel setStringValue:@"You can now boot from this Live medium by inserting it and rebooting your computer."];
+    [instructLabel setStringValue:NSLocalizedString(@"You can now boot from this Live medium by inserting it and rebooting your computer.", @"")];
     [instructLabel setFont:[NSFont systemFontOfSize:11]];
     [instructLabel setAlignment:NSCenterTextAlignment];
     [instructLabel setBezeled:NO];
@@ -73,7 +73,7 @@
     
     // Safety reminder
     NSTextField *safetyLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 16, 330, 18)];
-    [safetyLabel setStringValue:@"Remember to safely eject the device before removing it."];
+    [safetyLabel setStringValue:NSLocalizedString(@"Remember to safely eject the device before removing it.", @"")];
     [safetyLabel setFont:[NSFont systemFontOfSize:10]];
     [safetyLabel setAlignment:NSCenterTextAlignment];
     [safetyLabel setBezeled:NO];
@@ -89,12 +89,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Live Medium Complete";
+    return NSLocalizedString(@"Live Medium Complete", @"");
 }
 
 - (NSString *)stepDescription  
 {
-    return @"Your Live medium is ready to use";
+    return NSLocalizedString(@"Your Live medium is ready to use", @"");
 }
 
 - (NSView *)stepView

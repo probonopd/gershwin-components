@@ -1,0 +1,27 @@
+/* English localization for DebianRuntimeInstaller */
+
+/* Step titles */
+"Welcome to Debian Runtime Installer" = "Welcome to Debian Runtime Installer";
+"Installing Debian Runtime" = "Installing Debian Runtime";
+"Confirm Installation" = "Confirm Installation";
+"Done" = "Done";
+
+/* Step descriptions */
+"Install a Debian runtime environment for FreeBSD" = "Install a Debian runtime environment for FreeBSD";
+"Please wait while the runtime is downloaded and installed" = "Please wait while the runtime is downloaded and installed";
+"Review installation details" = "Review installation details";
+
+/* Interface labels */
+"This assistant will install a Debian runtime environment on FreeBSD." = "This assistant will install a Debian runtime environment on FreeBSD.";
+"The Debian runtime enables running Linux applications via the compatibility layer." = "The Debian runtime enables running Linux applications via the compatibility layer.";
+"Custom URL:" = "Custom URL:";
+"Ready to Install" = "Ready to Install";
+"Unknown" = "Unknown";
+"OK" = "OK";
+
+/* Status messages */
+"Preparing..." = "Preparing...";
+"Starting download..." = "Starting download...";
+"Download completed, starting installation..." = "Download completed, starting installation...";
+"Installation completed successfully!" = "Installation completed successfully!";
+"Installation failed" = "Installation failed";

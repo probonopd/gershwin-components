@@ -43,7 +43,7 @@
 
     // Full Name field
     NSTextField *fullNameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left, 160, 100, 16)];
-    [fullNameLabel setStringValue:@"Full Name:"];
+    [fullNameLabel setStringValue:NSLocalizedString(@"Full Name:", @"")];
     [fullNameLabel setBezeled:NO];
     [fullNameLabel setDrawsBackground:NO];
     [fullNameLabel setEditable:NO];
@@ -58,7 +58,7 @@
 
     // Username field
     NSTextField *usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left, 128, 100, 16)];
-    [usernameLabel setStringValue:@"Username:"];
+    [usernameLabel setStringValue:NSLocalizedString(@"Username:", @"")];
     [usernameLabel setBezeled:NO];
     [usernameLabel setDrawsBackground:NO];
     [usernameLabel setEditable:NO];
@@ -73,7 +73,7 @@
 
     // Password field
     NSTextField *passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left, 96, 100, 16)];
-    [passwordLabel setStringValue:@"Password:"];
+    [passwordLabel setStringValue:NSLocalizedString(@"Password:", @"")];
     [passwordLabel setBezeled:NO];
     [passwordLabel setDrawsBackground:NO];
     [passwordLabel setEditable:NO];
@@ -88,7 +88,7 @@
 
     // Confirm Password field
     NSTextField *confirmLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left, 64, 100, 16)];
-    [confirmLabel setStringValue:@"Confirm:"];
+    [confirmLabel setStringValue:NSLocalizedString(@"Confirm:", @"")];
     [confirmLabel setBezeled:NO];
     [confirmLabel setDrawsBackground:NO];
     [confirmLabel setEditable:NO];
@@ -216,7 +216,7 @@
 
     // Timezone selection with standard spacing
     NSTextField *timezoneLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 84, 100, 16)];
-    [timezoneLabel setStringValue:@"Timezone:"];
+    [timezoneLabel setStringValue:NSLocalizedString(@"Timezone:", @"")];
     [timezoneLabel setBezeled:NO];
     [timezoneLabel setDrawsBackground:NO];
     [timezoneLabel setEditable:NO];

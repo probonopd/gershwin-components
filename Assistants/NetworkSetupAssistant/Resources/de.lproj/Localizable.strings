@@ -1,0 +1,32 @@
+/* German localization for NetworkSetupAssistant */
+
+/* Application title */
+"Network Setup Assistant" = "Netzwerk-Einrichtungsassistent";
+
+/* Buttons */
+"Cancel Setup" = "Einrichtung abbrechen";
+"Continue Setup" = "Einrichtung fortsetzen";
+"Quit" = "Beenden";
+
+/* Network interfaces */
+"Ethernet (eth0)" = "Ethernet (eth0)";
+"Wi-Fi (wlan0)" = "Wi-Fi (wlan0)";
+"Loopback (lo)" = "Loopback (lo)";
+"em0 (Ethernet)" = "em0 (Ethernet)";
+"wlan0 (Wireless)" = "wlan0 (Drahtlos)";
+"re0 (Ethernet)" = "re0 (Ethernet)";
+
+/* Interface labels */
+"Network Interface:" = "Netzwerkschnittstelle:";
+"IP Address:" = "IP-Adresse:";
+"Subnet Mask:" = "Subnetzmaske:";
+"Gateway:" = "Gateway:";
+"DNS Server:" = "DNS-Server:";
+"Enter authentication credentials (optional):" = "Geben Sie Authentifizierungsdaten ein (optional):";
+"Username:" = "Benutzername:";
+"Password:" = "Passwort:";
+"Domain:" = "Domäne:";
+
+/* Checkboxes */
+"Show advanced options" = "Erweiterte Optionen anzeigen";
+"Remember this network" = "Dieses Netzwerk merken";

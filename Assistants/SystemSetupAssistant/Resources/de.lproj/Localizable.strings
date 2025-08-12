@@ -1,0 +1,32 @@
+/* German localization for SystemSetupAssistant */
+
+/* Application title */
+"System Setup Assistant" = "System-Einrichtungsassistent";
+
+/* Step titles and descriptions */
+"Welcome" = "Willkommen";
+"Read Me" = "Lies mich";
+"Software License Agreement" = "Software-Lizenzvereinbarung";
+"User Information" = "Benutzerinformationen";
+"System Preferences" = "Systemeinstellungen";
+"Applying Settings" = "Einstellungen werden angewendet";
+"Setup Complete" = "Einrichtung abgeschlossen";
+
+/* Step descriptions */
+"Welcome to the assistant" = "Willkommen beim Assistenten";
+"Important information" = "Wichtige Informationen";
+"Please read the license agreement" = "Bitte lesen Sie die Lizenzvereinbarung";
+"Enter your user information" = "Geben Sie Ihre Benutzerinformationen ein";
+"Configure system preferences" = "Systemeinstellungen konfigurieren";
+"Please wait while we apply your settings..." = "Bitte warten Sie, während wir Ihre Einstellungen anwenden...";
+"Setup completed successfully! Your system is now ready to use." = "Die Einrichtung wurde erfolgreich abgeschlossen! Ihr System ist jetzt einsatzbereit.";
+
+/* Navigation buttons */
+"Continue" = "Weiter";
+"Go Back" = "Zurück";
+"Agree" = "Akzeptieren";
+"Disagree" = "Ablehnen";
+"Quit" = "Beenden";
+
+/* Application title */
+"System Setup Assistant" = "System-Einrichtungsassistent";

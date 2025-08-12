@@ -24,8 +24,6 @@
     NSTimer *_stallTimer;
     int _retryCount;
     int _maxRetries;
-    long long _streamPosition;
-    BOOL _streamPositionInitialized;
 }
 
 @property (nonatomic, assign) id<CLMDownloaderDelegate> delegate;

@@ -33,8 +33,8 @@
         NSAlert *alert = [[NSAlert alloc] init];
         alert.messageText = @"Cancel Network Setup?";
         alert.informativeText = @"Are you sure you want to cancel the network setup?";
-        [alert addButtonWithTitle:@"Cancel Setup"];
-        [alert addButtonWithTitle:@"Continue Setup"];
+        [alert addButtonWithTitle:NSLocalizedString(@"Cancel Setup", @"")];
+        [alert addButtonWithTitle:NSLocalizedString(@"Continue Setup", @"")];
         alert.alertStyle = NSWarningAlertStyle;
         
         NSModalResponse response = [alert runModal];
@@ -56,16 +56,6 @@
     NetworkSetupDelegate *delegate = [[NetworkSetupDelegate alloc] init];
     NSLog(@"[NetworkSetupAssistant] Created delegate: %@", delegate);
     
-    // Create network configuration form
-    NSLog(@"[NetworkSetupAssistant] Creating network config view...");
-    NSView *networkConfigView = [self createNetworkConfigView];
-    NSLog(@"[NetworkSetupAssistant] Created network config view: %@ with frame: %@", networkConfigView, NSStringFromRect(networkConfigView.frame));
-    
-    // Create authentication form
-    NSLog(@"[NetworkSetupAssistant] Creating auth config view...");
-    NSView *authConfigView = [self createAuthConfigView];
-    NSLog(@"[NetworkSetupAssistant] Created auth config view: %@ with frame: %@", authConfigView, NSStringFromRect(authConfigView.frame));
-    
     // Build the assistant using the builder
     NSLog(@"[NetworkSetupAssistant] Creating builder...");
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
@@ -75,16 +65,10 @@
     [builder withLayoutStyle:GSAssistantLayoutStyleInstaller];
     
     NSLog(@"[NetworkSetupAssistant] Setting title...");
-    [builder withTitle:@"Network Setup Assistant"];
+    [builder withTitle:NSLocalizedString(@"Network Setup Assistant", @"")];
     
     NSLog(@"[NetworkSetupAssistant] Setting icon...");
     [builder withIcon:[NSImage imageNamed:@"NSApplicationIcon"]];
-    
-    NSLog(@"[NetworkSetupAssistant] Adding introduction...");
-    [builder addIntroductionWithMessage:@"Welcome to the Network Setup Assistant! This tool will help you configure your network settings."
-           features:@[@"Configure network interfaces",
-                     @"Set up authentication credentials", 
-                     @"Test connectivity"]];
     
     NSLog(@"[NetworkSetupAssistant] Adding network config step...");
     NSNetworkConfigStep *networkConfigStep = [[NSNetworkConfigStep alloc] init];
@@ -137,9 +121,9 @@
     
     NSLog(@"[NetworkSetupAssistant] Creating interface popup...");
     NSPopUpButton *interfacePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(130, 258, 200, 24)];
-    [interfacePopup addItemWithTitle:@"Ethernet (eth0)"];
-    [interfacePopup addItemWithTitle:@"Wi-Fi (wlan0)"];
-    [interfacePopup addItemWithTitle:@"Loopback (lo)"];
+    [interfacePopup addItemWithTitle:NSLocalizedString(@"Ethernet (eth0)", @"")];
+    [interfacePopup addItemWithTitle:NSLocalizedString(@"Wi-Fi (wlan0)", @"")];
+    [interfacePopup addItemWithTitle:NSLocalizedString(@"Loopback (lo)", @"")];
     NSLog(@"[NetworkSetupAssistant] Interface popup created: %@", interfacePopup);
     
     // IP configuration
@@ -196,8 +180,8 @@
     ]];
     
     // Advanced options
-    NSButton *advancedCheck = [GSAssistantUIHelper createCheckboxWithTitle:@"Show advanced options"];
-    NSButton *rememberCheck = [GSAssistantUIHelper createCheckboxWithTitle:@"Remember this network"];
+    NSButton *advancedCheck = [GSAssistantUIHelper createCheckboxWithTitle:NSLocalizedString(@"Show advanced options", @"")];
+    NSButton *rememberCheck = [GSAssistantUIHelper createCheckboxWithTitle:NSLocalizedString(@"Remember this network", @"")];
     [rememberCheck setState:NSOnState];
     
     // Create layout

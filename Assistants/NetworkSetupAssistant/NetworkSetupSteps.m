@@ -48,7 +48,7 @@
 
     // Interface selection with standard spacing
     NSTextField *interfaceLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left, 172, 120, 16)];
-    [interfaceLabel setStringValue:@"Network Interface:"];
+    [interfaceLabel setStringValue:NSLocalizedString(@"Network Interface:", @"")];
     [interfaceLabel setBezeled:NO];
     [interfaceLabel setDrawsBackground:NO];
     [interfaceLabel setEditable:NO];
@@ -57,9 +57,9 @@
     [interfaceLabel release];
 
     _interfacePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(fieldX, 168, fieldW, 24)];
-    [_interfacePopup addItemWithTitle:@"em0 (Ethernet)"];
-    [_interfacePopup addItemWithTitle:@"wlan0 (Wireless)"];
-    [_interfacePopup addItemWithTitle:@"re0 (Ethernet)"];
+    [_interfacePopup addItemWithTitle:NSLocalizedString(@"em0 (Ethernet)", @"")];
+    [_interfacePopup addItemWithTitle:NSLocalizedString(@"wlan0 (Wireless)", @"")];
+    [_interfacePopup addItemWithTitle:NSLocalizedString(@"re0 (Ethernet)", @"")];
     [_stepView addSubview:_interfacePopup];
 
     // Configuration method radio buttons (compact)
@@ -87,7 +87,7 @@
     CGFloat row4Y = 20.0;
 
     NSTextField *ipLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 24, row1Y + 4, 100, 16)];
-    [ipLabel setStringValue:@"IP Address:"];
+    [ipLabel setStringValue:NSLocalizedString(@"IP Address:", @"")];
     [ipLabel setBezeled:NO];
     [ipLabel setDrawsBackground:NO];
     [ipLabel setEditable:NO];
@@ -100,7 +100,7 @@
     [_stepView addSubview:_ipAddressField];
 
     NSTextField *maskLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 24, row2Y + 4, 100, 16)];
-    [maskLabel setStringValue:@"Subnet Mask:"];
+    [maskLabel setStringValue:NSLocalizedString(@"Subnet Mask:", @"")];
     [maskLabel setBezeled:NO];
     [maskLabel setDrawsBackground:NO];
     [maskLabel setEditable:NO];
@@ -113,7 +113,7 @@
     [_stepView addSubview:_subnetMaskField];
 
     NSTextField *gatewayLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 16, row3Y + 4, 100, 16)];
-    [gatewayLabel setStringValue:@"Gateway:"];
+    [gatewayLabel setStringValue:NSLocalizedString(@"Gateway:", @"")];
     [gatewayLabel setBezeled:NO];
     [gatewayLabel setDrawsBackground:NO];
     [gatewayLabel setEditable:NO];
@@ -126,7 +126,7 @@
     [_stepView addSubview:_gatewayField];
 
     NSTextField *dnsLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(left + 16, row4Y + 4, 100, 16)];
-    [dnsLabel setStringValue:@"DNS Server:"];
+    [dnsLabel setStringValue:NSLocalizedString(@"DNS Server:", @"")];
     [dnsLabel setBezeled:NO];
     [dnsLabel setDrawsBackground:NO];
     [dnsLabel setEditable:NO];
@@ -260,7 +260,7 @@
     _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 204)];
 
     NSTextField *infoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 176, 322, 16)];
-    [infoLabel setStringValue:@"Enter authentication credentials (optional):"];
+    [infoLabel setStringValue:NSLocalizedString(@"Enter authentication credentials (optional):", @"")];
     [infoLabel setBezeled:NO];
     [infoLabel setDrawsBackground:NO];
     [infoLabel setEditable:NO];
@@ -270,7 +270,7 @@
 
     // Username field
     NSTextField *usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 148, 100, 16)];
-    [usernameLabel setStringValue:@"Username:"];
+    [usernameLabel setStringValue:NSLocalizedString(@"Username:", @"")];
     [usernameLabel setBezeled:NO];
     [usernameLabel setDrawsBackground:NO];
     [usernameLabel setEditable:NO];
@@ -283,7 +283,7 @@
 
     // Password field
     NSTextField *passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 120, 100, 16)];
-    [passwordLabel setStringValue:@"Password:"];
+    [passwordLabel setStringValue:NSLocalizedString(@"Password:", @"")];
     [passwordLabel setBezeled:NO];
     [passwordLabel setDrawsBackground:NO];
     [passwordLabel setEditable:NO];
@@ -296,7 +296,7 @@
 
     // Domain field
     NSTextField *domainLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 92, 100, 16)];
-    [domainLabel setStringValue:@"Domain:"];
+    [domainLabel setStringValue:NSLocalizedString(@"Domain:", @"")];
     [domainLabel setBezeled:NO];
     [domainLabel setDrawsBackground:NO];
     [domainLabel setEditable:NO];
@@ -318,7 +318,7 @@
 
     // WPA Password field
     NSTextField *wpaPasswordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 32, 100, 16)];
-    [wpaPasswordLabel setStringValue:@"WPA Password:"];
+    [wpaPasswordLabel setStringValue:NSLocalizedString(@"WPA Password:", @"")];
     [wpaPasswordLabel setBezeled:NO];
     [wpaPasswordLabel setDrawsBackground:NO];
     [wpaPasswordLabel setEditable:NO];

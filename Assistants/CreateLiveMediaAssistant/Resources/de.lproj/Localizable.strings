@@ -1,0 +1,35 @@
+/* German localization for CreateLiveMediaAssistant */
+
+/* Application title */
+"Create Live Media" = "Live-Medium erstellen";
+
+/* Step titles */
+"Create Live Media" = "Live-Medium erstellen";
+"Welcome to the Live Media Creator" = "Willkommen beim Live-Medium-Ersteller";
+"Select Live Image" = "Live-Image auswählen";
+"Select Destination Disk" = "Zieldatenträger auswählen";
+"Write Live Medium" = "Live-Medium schreiben";
+"Live Medium Complete" = "Live-Medium fertiggestellt";
+
+/* Step descriptions */
+"Choose a Live image to download and write to the medium" = "Wählen Sie ein Live-Image zum Herunterladen und Schreiben auf das Medium";
+"Choose the disk to write the Live image to" = "Wählen Sie den Datenträger zum Schreiben des Live-Images";
+"Downloading and writing the Live image to the selected device. This may take some time depending on the image size and network speed." = "Das Live-Image wird heruntergeladen und auf das ausgewählte Gerät geschrieben. Dies kann je nach Image-Größe und Netzwerkgeschwindigkeit einige Zeit dauern.";
+"Your Live medium is ready to use" = "Ihr Live-Medium ist einsatzbereit";
+
+/* Interface labels */
+"This assistant will help you create bootable Live media from ISO images." = "Dieser Assistent hilft Ihnen dabei, bootfähige Live-Medien aus ISO-Images zu erstellen.";
+"• Download images from GitHub releases\n• Use local ISO/IMG files\n• Write directly to USB or removable media\n• Verifies required disk space" = "• Images von GitHub-Releases herunterladen\n• Lokale ISO/IMG-Dateien verwenden\n• Direkt auf USB oder Wechselmedien schreiben\n• Überprüft benötigten Speicherplatz";
+"All data on the selected destination disk will be erased." = "Alle Daten auf dem ausgewählten Zieldatenträger werden gelöscht.";
+"Select the destination disk for the Live medium." = "Wählen Sie den Zieldatenträger für das Live-Medium.";
+"Device" = "Gerät";
+"Description" = "Beschreibung";
+"Size" = "Größe";
+"WARNING: All data on the selected disk will be permanently erased!\nOnly removable drives are shown for safety." = "WARNUNG: Alle Daten auf dem ausgewählten Datenträger werden dauerhaft gelöscht!\nAus Sicherheitsgründen werden nur Wechseldatenträger angezeigt.";
+"Live Medium Created Successfully!" = "Live-Medium erfolgreich erstellt!";
+"You can now boot from this Live medium by inserting it and rebooting your computer." = "Sie können jetzt von diesem Live-Medium booten, indem Sie es einlegen und Ihren Computer neu starten.";
+"Remember to safely eject the device before removing it." = "Denken Sie daran, das Gerät sicher auszuwerfen, bevor Sie es entfernen.";
+"Preparing to download and write Live medium..." = "Vorbereitung zum Herunterladen und Schreiben des Live-Mediums...";
+
+/* Error messages */
+"Installation Failed" = "Installation fehlgeschlagen";

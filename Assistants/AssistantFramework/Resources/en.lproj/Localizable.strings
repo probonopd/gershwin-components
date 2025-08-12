@@ -1,0 +1,55 @@
+/*
+ * English localization for GSAssistantFramework
+ */
+
+/* General UI */
+"Setup Assistant" = "Setup Assistant";
+"Cancel" = "Cancel";
+"Go Back" = "Go Back";
+"Continue" = "Continue";
+"Finish" = "Finish";
+"Error" = "Error";
+"Setup Complete" = "Setup Complete";
+"Setup Failed" = "Setup Failed";
+"Close" = "Close";
+
+/* Step titles and descriptions */
+"Welcome" = "Welcome";
+"Read Me" = "Read Me";
+"Software License Agreement" = "Software License Agreement";
+"Welcome to the assistant" = "Welcome to the assistant";
+"Important information" = "Important information";
+"Please read the license agreement" = "Please read the license agreement";
+
+/* Generic messages */
+"Processing..." = "Processing...";
+"Setup completed successfully!" = "Setup completed successfully!";
+"Setup encountered an error." = "Setup encountered an error.";
+"An error occurred during the process." = "An error occurred during the process.";
+"The process completed successfully." = "The process completed successfully.";
+
+/* Introduction step */
+"Welcome to the setup assistant." = "Welcome to the setup assistant.";
+"This assistant will help you:" = "This assistant will help you:";
+"Get Started" = "Get Started";
+
+/* License step */
+"I agree to the terms of this license agreement" = "I agree to the terms of this license agreement";
+
+/* Template messages */
+"Welcome to the setup assistant. This will guide you through the initial configuration." = "Welcome to the setup assistant. This will guide you through the initial configuration.";
+"Configure basic settings" = "Configure basic settings";
+"Set up user preferences" = "Set up user preferences";
+"Complete initial setup" = "Complete initial setup";
+"This assistant will help you install the software." = "This assistant will help you install the software.";
+"Verify system requirements" = "Verify system requirements";
+"Choose installation location" = "Choose installation location";
+"Install software components" = "Install software components";
+"Configure your settings with this assistant." = "Configure your settings with this assistant.";
+"Set preferences" = "Set preferences";
+"Configure options" = "Configure options";
+"Apply settings" = "Apply settings";
+"Set up your network connection." = "Set up your network connection.";
+"Configure network settings" = "Configure network settings";
+"Test connection" = "Test connection";
+"Verify connectivity" = "Verify connectivity";

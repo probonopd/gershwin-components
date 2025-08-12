@@ -53,7 +53,7 @@
     // Build the assistant using the builder
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
     [builder withLayoutStyle:GSAssistantLayoutStyleInstaller];
-    [builder withTitle:@"Debian Runtime Installer"];
+    [builder withTitle:NSLocalizedString(@"Debian Runtime Installer", @"")];
     [builder withIcon:[NSImage imageNamed:@"NSApplicationIcon"]];
     
     // Add introduction
@@ -141,8 +141,8 @@
         NSAlert *alert = [[NSAlert alloc] init];
         [alert setMessageText:@"Cancel Installation?"];
         [alert setInformativeText:@"Are you sure you want to cancel the installation? Any downloads in progress will be stopped and temporary files will be cleaned up."];
-        [alert addButtonWithTitle:@"Cancel Installation"];
-        [alert addButtonWithTitle:@"Continue Installation"];
+        [alert addButtonWithTitle:NSLocalizedString(@"Cancel Installation", @"")];
+        [alert addButtonWithTitle:NSLocalizedString(@"Continue Installation", @"")];
         [alert setAlertStyle:NSWarningAlertStyle];
         
         NSModalResponse response = [alert runModal];
@@ -196,7 +196,7 @@
     // Try multiple approaches to show the error
     if ([_assistantWindow respondsToSelector:@selector(showErrorPageWithTitle:message:)]) {
         NSLog(@"DRIController: calling showErrorPageWithTitle:message:");
-        [_assistantWindow showErrorPageWithTitle:@"Installation Failed" message:message];
+        [_assistantWindow showErrorPageWithTitle:NSLocalizedString(@"Installation Failed", @"") message:message];
     } else if ([_assistantWindow respondsToSelector:@selector(showErrorPageWithMessage:)]) {
         NSLog(@"DRIController: calling showErrorPageWithMessage:");
         [_assistantWindow showErrorPageWithMessage:message];
@@ -205,7 +205,7 @@
         NSAlert *alert = [[NSAlert alloc] init];
         [alert setMessageText:@"Installation Failed"];
         [alert setInformativeText:message];
-        [alert addButtonWithTitle:@"OK"];
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"")];
         [alert setAlertStyle:NSCriticalAlertStyle];
         [alert runModal];
         [alert release];

@@ -10,6 +10,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Assistant Step Types
 typedef NS_ENUM(NSInteger, GSAssistantStepType) {
+    GSAssistantStepTypeWelcome,
+    GSAssistantStepTypeReadMe,
+    GSAssistantStepTypeLicense,
     GSAssistantStepTypeIntroduction,
     GSAssistantStepTypeConfiguration,
     GSAssistantStepTypeProgress,
@@ -146,6 +149,7 @@ extern const CGFloat GSAssistantInstallerButtonAreaHeight;
 - (void)showErrorPageWithMessage:(NSString *)message;
 - (void)showErrorPageWithTitle:(NSString *)title message:(NSString *)message;
 - (void)showSuccessPageWithTitle:(NSString *)title message:(NSString *)message;
+- (void)autoCompleteWithSuccessMessage:(NSString *)message; // Automatically show success without user interaction
 
 @end
 
@@ -163,6 +167,7 @@ extern const CGFloat GSAssistantInstallerButtonAreaHeight;
 @property (nonatomic, strong, nullable) NSString *customContinueTitle;
 @property (nonatomic, strong, nullable) NSString *customBackTitle;
 @property (nonatomic, assign) CGFloat progress; // 0.0 to 1.0
+@property (nonatomic, assign, nullable) GSAssistantWindow *assistantWindow; // Reference to parent window for notifications
 
 - (instancetype)initWithTitle:(NSString *)title 
                   description:(NSString *)description 
@@ -191,6 +196,8 @@ extern const CGFloat GSAssistantInstallerButtonAreaHeight;
 @interface GSProgressStep : GSAssistantStep
 @property (nonatomic, strong, nullable) NSString *currentTask;
 @property (nonatomic, assign) BOOL isIndeterminate;
+@property (nonatomic, assign) BOOL autoCompleteOnFinish; // Automatically show completion when progress reaches 100%
+@property (nonatomic, strong, nullable) NSString *completionMessage; // Message to show on auto-completion
 - (void)updateProgress:(CGFloat)progress withTask:(nullable NSString *)task;
 - (void)updateProgressUI:(NSDictionary *)params;
 @end
@@ -199,7 +206,25 @@ extern const CGFloat GSAssistantInstallerButtonAreaHeight;
 @interface GSCompletionStep : GSAssistantStep
 @property (nonatomic, strong, nullable) NSString *completionMessage;
 @property (nonatomic, assign) BOOL wasSuccessful;
+@property (nonatomic, assign) BOOL hideNavigationButtons; // Hide Continue/Finish button for auto-completion
 - (instancetype)initWithCompletionMessage:(NSString *)message success:(BOOL)success;
+@end
+
+// Localized Content Steps
+@interface GSWelcomeStep : GSAssistantStep
+@property (nonatomic, strong, readonly) NSString *welcomeContent;
+- (instancetype)initWithContent:(NSString *)content;
+@end
+
+@interface GSReadMeStep : GSAssistantStep
+@property (nonatomic, strong, readonly) NSString *readMeContent;
+- (instancetype)initWithContent:(NSString *)content;
+@end
+
+@interface GSLicenseStep : GSAssistantStep
+@property (nonatomic, strong, readonly) NSString *licenseContent;
+@property (nonatomic, assign) BOOL requiresAcceptance;
+- (instancetype)initWithContent:(NSString *)content requiresAcceptance:(BOOL)requiresAcceptance;
 @end
 
 // Test class with NSWindowController inheritance

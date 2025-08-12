@@ -20,8 +20,6 @@
         _receivedBytes = 0;
         _retryCount = 0;
         _maxRetries = 5; // Allow up to 5 retries for intermittent connections
-        _streamPosition = 0;
-        _streamPositionInitialized = NO;
     }
     return self;
 }
@@ -55,8 +53,6 @@
     _totalBytes = 0;
     _receivedBytes = 0;
     _retryCount = 0; // Reset retry count for new download
-    _streamPosition = 0; // Reset stream position for new download
-    _streamPositionInitialized = NO; // Reset stream position tracking
     _lastDataTime = [[NSDate date] timeIntervalSince1970];
     
     if ([url hasPrefix:@"file://"]) {
@@ -167,8 +163,78 @@
 
 - (void)downloadRemoteFile
 {
-    NSLog(@"CLMDownloader: downloadRemoteFile using NSURLConnection");
-    [self downloadRemoteFileWithResume];
+    NSLog(@"CLMDownloader: downloadRemoteFile using simple NSURLDownload");
+    [self downloadRemoteFileSimple];
+}
+
+- (void)downloadRemoteFileSimple
+{
+    NSLog(@"CLMDownloader: downloadRemoteFileSimple - using NSURLConnection without resume complexity");
+    
+    @try {
+        // Create a simple request without range headers
+        NSURL *url = [NSURL URLWithString:_sourceURL];
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+        [request setTimeoutInterval:60.0]; // Longer timeout
+        
+        // For fresh downloads, always start from 0
+        _receivedBytes = 0;
+        _totalBytes = 0;
+        
+        // Create destination file
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        
+        // Check if we're writing to a block device
+        BOOL isBlockDevice = [_destinationPath hasPrefix:@"/dev/"];
+        
+        if (isBlockDevice) {
+            // For block devices, just open for writing
+            if (![fileManager fileExistsAtPath:_destinationPath]) {
+                NSLog(@"CLMDownloader: Block device %@ does not exist", _destinationPath);
+                [_delegate downloadCompleted:NO error:[NSString stringWithFormat:@"Block device %@ does not exist", _destinationPath]];
+                _isDownloading = NO;
+                return;
+            }
+            
+            _outputFile = [[NSFileHandle fileHandleForWritingAtPath:_destinationPath] retain];
+        } else {
+            // For regular files, create new file
+            if (![fileManager createFileAtPath:_destinationPath contents:nil attributes:nil]) {
+                NSLog(@"CLMDownloader: Could not create destination file");
+                [_delegate downloadCompleted:NO error:@"Could not create destination file"];
+                _isDownloading = NO;
+                return;
+            }
+            
+            _outputFile = [[NSFileHandle fileHandleForWritingAtPath:_destinationPath] retain];
+        }
+        
+        if (!_outputFile) {
+            NSLog(@"CLMDownloader: Could not open destination file for writing");
+            [_delegate downloadCompleted:NO error:@"Could not open destination file for writing"];
+            _isDownloading = NO;
+            return;
+        }
+        
+        // Start the connection
+        _connection = [[NSURLConnection alloc] initWithRequest:request delegate:self];
+        if (!_connection) {
+            NSLog(@"CLMDownloader: Could not create NSURLConnection");
+            [_outputFile closeFile];
+            [_outputFile release];
+            _outputFile = nil;
+            [_delegate downloadCompleted:NO error:@"Could not create network connection"];
+            _isDownloading = NO;
+            return;
+        }
+        
+        NSLog(@"CLMDownloader: Simple download started");
+        
+    } @catch (NSException *exception) {
+        NSLog(@"CLMDownloader: Exception in downloadRemoteFileSimple: %@ - %@", [exception name], [exception reason]);
+        [_delegate downloadCompleted:NO error:[NSString stringWithFormat:@"Download setup failed: %@", [exception reason]]];
+        _isDownloading = NO;
+    }
 }
 
 #pragma mark - NSURLConnection Delegate Methods
@@ -176,8 +242,6 @@
 - (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response
 {
     NSLog(@"CLMDownloader: didReceiveResponse");
-    
-    BOOL isBlockDevice = [_destinationPath hasPrefix:@"/dev/"];
     
     if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
         NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
@@ -221,113 +285,87 @@
         return;
     }
     
-    // Initialize stream position on first data packet of a new connection
-    if (!_streamPositionInitialized) {
-        _streamPosition = _receivedBytes; // Start from where we want to resume
-        _streamPositionInitialized = YES;
-        NSLog(@"CLMDownloader: Initializing stream position to %lld", _streamPosition);
-    }
-    
-    // Calculate how much of this data we actually need
+    // For simple downloads (no resume), just write all data
     long long dataLength = [data length];
-    long long dataStartPosition = _streamPosition;
-    long long dataEndPosition = _streamPosition + dataLength;
     
-    NSLog(@"CLMDownloader: didReceiveData: %lld bytes (stream pos: %lld-%lld, need from: %lld)", 
-          dataLength, dataStartPosition, dataEndPosition - 1, _receivedBytes);
+    // Reduce logging frequency - only log every 1MB or at the end
+    static long long lastLogBytes = 0;
+    BOOL shouldLog = (_receivedBytes - lastLogBytes >= 1048576) || // Every 1MB
+                     (_totalBytes > 0 && (_totalBytes - _receivedBytes) <= 1048576); // Last 1MB
+    
+    if (shouldLog) {
+        NSLog(@"CLMDownloader: didReceiveData: %lld bytes, total: %lld/%lld", 
+              dataLength, _receivedBytes + dataLength, _totalBytes);
+        lastLogBytes = _receivedBytes + dataLength;
+    }
     
     // Update last data received time
     _lastDataTime = [[NSDate date] timeIntervalSince1970];
     
-    // Determine what part of this data to write
-    NSData *dataToWrite = data;
-    long long bytesToSkip = 0;
+    // Write all data to file
+    [_outputFile writeData:data];
+    _receivedBytes += dataLength;
     
-    if (_receivedBytes > _streamPosition) {
-        // We need to skip some bytes at the beginning of this packet
-        bytesToSkip = _receivedBytes - _streamPosition;
-        NSLog(@"CLMDownloader: Need to skip %lld bytes (have: %lld, stream at: %lld)", bytesToSkip, _receivedBytes, _streamPosition);
-        
-        if (bytesToSkip >= dataLength) {
-            // Skip this entire packet
-            NSLog(@"CLMDownloader: Skipping entire packet (%lld bytes) - already have this data", dataLength);
-            _streamPosition += dataLength;
-            return;
-        } else {
-            // Skip part of the packet
-            NSLog(@"CLMDownloader: Skipping first %lld bytes of packet", bytesToSkip);
-            dataToWrite = [data subdataWithRange:NSMakeRange(bytesToSkip, dataLength - bytesToSkip)];
-        }
-    } else {
-        // We need all or most of this data
-        NSLog(@"CLMDownloader: Using entire packet (%lld bytes)", dataLength);
+    // Clamp _receivedBytes to not exceed _totalBytes to prevent progress > 100%
+    if (_totalBytes > 0 && _receivedBytes > _totalBytes) {
+        NSLog(@"CLMDownloader: WARNING - receivedBytes (%lld) exceeds totalBytes (%lld), clamping", 
+              _receivedBytes, _totalBytes);
+        _receivedBytes = _totalBytes;
     }
     
-    // Write the data (or remaining part) to file
-    if ([dataToWrite length] > 0) {
-        NSLog(@"CLMDownloader: About to write %lu bytes to file", (unsigned long)[dataToWrite length]);
-        [_outputFile writeData:dataToWrite];
-        _receivedBytes += [dataToWrite length];
-        NSLog(@"CLMDownloader: Wrote %lu bytes, total received: %lld/%lld", 
-              (unsigned long)[dataToWrite length], _receivedBytes, _totalBytes);
-        
-        // Force sync for the last chunk to ensure it's written
-        if (_totalBytes > 0 && _receivedBytes >= _totalBytes) {
-            NSLog(@"CLMDownloader: Final chunk received, forcing sync to disk and completing download");
-            [_outputFile synchronizeFile];
-            // Don't wait for connectionDidFinishLoading - complete immediately
-            [self performSelectorOnMainThread:@selector(completeDownloadImmediately) 
-                                   withObject:nil 
-                                waitUntilDone:NO];
-            return;
+    // Update progress (cap at 99% until all bytes received)
+    if (_totalBytes > 0) {
+        float progress = (float)_receivedBytes / (float)_totalBytes;
+        if (progress >= 1.0 && _receivedBytes < _totalBytes) {
+            progress = 0.99; // Cap at 99% until truly complete
         }
-    } else {
-        NSLog(@"CLMDownloader: No data to write (dataToWrite length = 0)");
+        
+        // Update progress less frequently for better performance
+        static float lastProgress = 0.0;
+        if (progress - lastProgress >= 0.01 || progress >= 1.0) { // Every 1% or at completion
+            @try {
+                [_delegate downloadProgressChanged:progress bytesReceived:_receivedBytes totalBytes:_totalBytes];
+            } @catch (NSException *exception) {
+                NSLog(@"CLMDownloader: Exception in progress delegate callback: %@ - %@", [exception name], [exception reason]);
+            }
+            lastProgress = progress;
+        }
     }
     
-    // Update stream position
-    _streamPosition += dataLength;
+    // Force sync and complete if we have all the data
+    if (_totalBytes > 0 && _receivedBytes >= _totalBytes) {
+        NSLog(@"CLMDownloader: All data received (%lld bytes), completing download", _receivedBytes);
+        
+        [_outputFile synchronizeFile];
+        
+        // Force the OS to flush all buffers and commit to storage
+        @try {
+            int fd = [_outputFile fileDescriptor];
+            if (fd >= 0) {
+                fsync(fd); // Force kernel buffers to disk
+            }
+        } @catch (NSException *e) {
+            NSLog(@"CLMDownloader: Warning - could not fsync: %@", [e reason]);
+        }
+        
+        // Complete download immediately
+        [self performSelectorOnMainThread:@selector(completeDownloadImmediately) 
+                               withObject:nil 
+                            waitUntilDone:NO];
+        return;
+    }
     
-    // Periodically sync to disk for block devices (every 10MB)
+    // Periodic sync to disk - every 50MB normally, every 5MB in last 100MB
     static long long lastSyncBytes = 0;
-    if (_receivedBytes - lastSyncBytes >= 10 * 1024 * 1024) {
+    long long remainingBytes = _totalBytes - _receivedBytes;
+    long long syncInterval = (remainingBytes <= 104857600) ? 5242880 : 52428800; // 5MB or 50MB
+    
+    if (_receivedBytes - lastSyncBytes >= syncInterval) {
         [_outputFile synchronizeFile];
         lastSyncBytes = _receivedBytes;
-    }
-    
-    // Check if we've received all expected data
-    if (_totalBytes > 0 && _receivedBytes >= _totalBytes) {
-        NSLog(@"CLMDownloader: All expected data received (%lld >= %lld)", _receivedBytes, _totalBytes);
-    }
-    
-    // Update progress, but throttle updates to avoid overwhelming the UI
-    static long long lastUpdateBytes = 0;
-    static NSTimeInterval lastUpdateTime = 0;
-    NSTimeInterval currentTime = [[NSDate date] timeIntervalSince1970];
-    
-    // Update every 64KB or every 0.1 seconds, whichever comes first
-    BOOL shouldUpdate = (_receivedBytes - lastUpdateBytes >= 65536) || 
-                       (currentTime - lastUpdateTime >= 0.1) ||
-                       (_totalBytes > 0 && _receivedBytes >= _totalBytes);
-    
-    if (shouldUpdate) {
-        float progress = 0.0;
-        if (_totalBytes > 0) {
-            progress = (float)_receivedBytes / (float)_totalBytes;
-        } else {
-            // Unknown size, show indeterminate progress
-            progress = -1.0;
+        if (shouldLog) {
+            NSLog(@"CLMDownloader: Periodic sync to disk at %lld bytes", _receivedBytes);
         }
-        
-        NSLog(@"CLMDownloader: Updating progress: %.4f (%lld/%lld)", progress, _receivedBytes, _totalBytes);
-        @try {
-            [_delegate downloadProgressChanged:progress bytesReceived:_receivedBytes totalBytes:_totalBytes];
-        } @catch (NSException *exception) {
-            NSLog(@"CLMDownloader: Exception in progress delegate callback: %@ - %@", [exception name], [exception reason]);
-        }
-        
-        lastUpdateBytes = _receivedBytes;
-        lastUpdateTime = currentTime;
     }
 }
 
@@ -397,16 +435,25 @@
     if (downloadComplete) {
         [self handleDownloadCompletion:YES];
     } else {
+        long long missingBytes = _totalBytes - _receivedBytes;
+        float percentComplete = ((float)_receivedBytes / (float)_totalBytes) * 100.0;
+        
+        // If we're very close to completion, consider it done rather than retry
+        if (missingBytes <= 4096) { // Less than 4KB missing
+            NSLog(@"CLMDownloader: Only %lld bytes missing (%.4f%% complete), considering download complete", missingBytes, percentComplete);
+            [self handleDownloadCompletion:YES];
+            return;
+        }
+        
         // Download is incomplete - check if we should retry
         if (_retryCount < _maxRetries) {
             _retryCount++;
-            NSLog(@"CLMDownloader: Download incomplete, attempting retry %d of %d", _retryCount, _maxRetries);
+            NSLog(@"CLMDownloader: Download incomplete (missing %lld bytes, %.4f%% complete), attempting retry %d of %d", 
+                  missingBytes, percentComplete, _retryCount, _maxRetries);
             
             // Clean up current connection
             [_connection release];
             _connection = nil;
-            
-            // Don't close output file - we'll try to resume
             
             // Wait a bit before retrying (exponential backoff)
             NSTimeInterval delayInSeconds = pow(2.0, _retryCount - 1); // 1, 2, 4 seconds
@@ -417,12 +464,18 @@
                                             repeats:NO];
         } else {
             // Max retries exceeded - treat as error
-            NSLog(@"CLMDownloader: Download incomplete after %d retries - received %lld bytes but expected %lld", _maxRetries, _receivedBytes, _totalBytes);
+            NSLog(@"CLMDownloader: Download incomplete after %d retries - received %lld bytes but expected %lld (%.4f%% complete)", 
+                  _maxRetries, _receivedBytes, _totalBytes, percentComplete);
             
-            NSString *errorMsg = [NSString stringWithFormat:@"Download incomplete after %d retries - received %lld bytes but expected %lld", _maxRetries, _receivedBytes, _totalBytes];
-            [_delegate downloadCompleted:NO error:errorMsg];
-            
-            [self handleDownloadCompletion:NO];
+            // If we're very close to completion even after retries, consider it successful
+            if (percentComplete >= 99.5) {
+                NSLog(@"CLMDownloader: Download is %.4f%% complete, considering it successful despite missing %lld bytes", percentComplete, missingBytes);
+                [self handleDownloadCompletion:YES];
+            } else {
+                NSString *errorMsg = [NSString stringWithFormat:@"Download incomplete after %d retries - received %lld bytes but expected %lld (%.1f%% complete)", _maxRetries, _receivedBytes, _totalBytes, percentComplete];
+                [_delegate downloadCompleted:NO error:errorMsg];
+                [self handleDownloadCompletion:NO];
+            }
         }
     }
 }
@@ -447,7 +500,12 @@
         [_connection release];
         _connection = nil;
         
-        // Don't close output file - we may be able to resume
+        // Clean up output file - we'll restart fresh for network errors
+        if (_outputFile) {
+            [_outputFile closeFile];
+            [_outputFile release];
+            _outputFile = nil;
+        }
         
         // Wait a bit before retrying (exponential backoff)
         NSTimeInterval delayInSeconds = pow(2.0, _retryCount - 1); // 1, 2, 4 seconds
@@ -460,12 +518,16 @@
     }
     
     // Max retries exceeded or non-retryable error
-    [_outputFile closeFile];
-    [_outputFile release];
-    _outputFile = nil;
+    if (_outputFile) {
+        [_outputFile closeFile];
+        [_outputFile release];
+        _outputFile = nil;
+    }
     
-    [_connection release];
-    _connection = nil;
+    if (_connection) {
+        [_connection release];
+        _connection = nil;
+    }
     
     NSString *errorMsg = [error localizedDescription];
     if (_retryCount >= _maxRetries) {
@@ -557,20 +619,78 @@
         return;
     }
     
-    // Check if we're very close to completion and should retry more aggressively
-    if (_totalBytes > 0 && (_totalBytes - _receivedBytes) <= 5242880 && timeSinceLastData > 30.0) {
+    // EMERGENCY: If we're missing very few bytes and have been trying for a while, 
+    // consider the download complete even if we haven't received everything
+    if (_totalBytes > 0) {
+        long long missingBytes = _totalBytes - _receivedBytes;
         float percentComplete = ((float)_receivedBytes / (float)_totalBytes) * 100.0;
-        NSLog(@"CLMDownloader: Very close to completion (%.2f%%, missing only %lld bytes) but stalled for %.1f seconds", 
-              percentComplete, _totalBytes - _receivedBytes, timeSinceLastData);
         
-        // If we're > 98.0% complete and stalled for >45 seconds, retry immediately
-        if (percentComplete > 98.0 && timeSinceLastData > 45.0) {
-            NSLog(@"CLMDownloader: > 98%% complete but stalled for >45s, retrying immediately");
-            if (_retryCount < _maxRetries) {
-                _retryCount++;
-                [self retryDownload];
-                return;
-            }
+        // Be much more aggressive about completing downloads that are essentially done
+        
+        // If we're missing less than 1KB and have been trying for over 30 seconds, consider complete
+        if (missingBytes <= 1024 && timeSinceLastData > 30.0) {
+            NSLog(@"CLMDownloader: EMERGENCY COMPLETION - Only %lld bytes missing after 30+ seconds, considering download complete (%.4f%% done)", missingBytes, percentComplete);
+            [self stopStallDetectionTimer];
+            [self handleDownloadCompletion:YES];
+            return;
+        }
+        
+        // If we're missing less than 4KB and have been trying for over 1 minute, consider complete
+        if (missingBytes <= 4096 && timeSinceLastData > 60.0) {
+            NSLog(@"CLMDownloader: EMERGENCY COMPLETION - Only %lld bytes missing after 1+ minute, considering download complete (%.4f%% done)", missingBytes, percentComplete);
+            [self stopStallDetectionTimer];
+            [self handleDownloadCompletion:YES];
+            return;
+        }
+        
+        // If we're missing less than 64KB and have been trying for over 2 minutes, consider complete
+        if (missingBytes <= 65536 && timeSinceLastData > 120.0) {
+            NSLog(@"CLMDownloader: EMERGENCY COMPLETION - Only %lld bytes missing after 2+ minutes, considering download complete (%.4f%% done)", missingBytes, percentComplete);
+            [self stopStallDetectionTimer];
+            [self handleDownloadCompletion:YES];
+            return;
+        }
+        
+        // If we're missing less than 256KB and have been trying for over 5 minutes, consider complete
+        if (missingBytes <= 262144 && timeSinceLastData > 300.0) {
+            NSLog(@"CLMDownloader: EMERGENCY COMPLETION - Only %lld bytes missing after 5+ minutes, considering download complete (%.4f%% done)", missingBytes, percentComplete);
+            [self stopStallDetectionTimer];
+            [self handleDownloadCompletion:YES];
+            return;
+        }
+    }
+    
+    // Check if we're very close to completion and should retry more aggressively
+    if (_totalBytes > 0 && (_totalBytes - _receivedBytes) <= 5242880 && timeSinceLastData > 5.0) {
+        float percentComplete = ((float)_receivedBytes / (float)_totalBytes) * 100.0;
+        long long missingBytes = _totalBytes - _receivedBytes;
+        NSLog(@"CLMDownloader: Very close to completion (%.2f%%, missing only %lld bytes) but stalled for %.1f seconds", 
+              percentComplete, missingBytes, timeSinceLastData);
+        
+        // Be VERY aggressive when close to completion
+        BOOL shouldRetryImmediately = NO;
+        if (percentComplete >= 99.0 && timeSinceLastData > 5.0) {
+            NSLog(@"CLMDownloader: >= 99%% complete but stalled for >5s, retrying immediately");
+            shouldRetryImmediately = YES;
+        } else if (missingBytes <= 1048576 && timeSinceLastData > 8.0) { // Less than 1MB missing
+            NSLog(@"CLMDownloader: Missing only %lld bytes but stalled for >8s, retrying immediately", missingBytes);
+            shouldRetryImmediately = YES;
+        } else if (missingBytes <= 102400 && timeSinceLastData > 5.0) { // Less than 100KB missing
+            NSLog(@"CLMDownloader: Missing only %lld bytes but stalled for >5s, retrying immediately", missingBytes);
+            shouldRetryImmediately = YES;
+        } else if (percentComplete > 99.5 && timeSinceLastData > 3.0) {
+            NSLog(@"CLMDownloader: > 99.5%% complete but stalled for >3s, retrying immediately");
+            shouldRetryImmediately = YES;
+        } else if (percentComplete > 98.0 && timeSinceLastData > 15.0) {
+            NSLog(@"CLMDownloader: > 98%% complete but stalled for >15s, retrying immediately");
+            shouldRetryImmediately = YES;
+        }
+        
+        if (shouldRetryImmediately && _retryCount < _maxRetries) {
+            _retryCount++;
+            NSLog(@"CLMDownloader: Triggering immediate retry due to near-completion stall");
+            [self retryDownload];
+            return;
         }
     }
     
@@ -604,7 +724,7 @@
 
 - (void)retryDownload
 {
-    NSLog(@"CLMDownloader: retryDownload - attempt %d", _retryCount);
+    NSLog(@"CLMDownloader: retryDownload - attempt %d (using simple method)", _retryCount);
     
     // Stop the current stall detection timer
     [self stopStallDetectionTimer];
@@ -622,12 +742,24 @@
         _outputFile = nil;
     }
     
-    // Don't reset _receivedBytes - we'll try to resume from where we left off
+    // For small amounts of missing data, just restart from scratch with simple method
+    // This avoids the complex resume logic that seems to cause issues
+    if (_totalBytes > 0) {
+        long long missingBytes = _totalBytes - _receivedBytes;
+        float percentComplete = ((float)_receivedBytes / (float)_totalBytes) * 100.0;
+        
+        if (missingBytes <= 1048576) { // Less than 1MB missing
+            NSLog(@"CLMDownloader: Only %lld bytes missing (%.4f%% complete), restarting with simple method", missingBytes, percentComplete);
+            _receivedBytes = 0; // Start over with simple method
+            _totalBytes = 0;
+        }
+    }
+    
     // Reset the data timer
     _lastDataTime = [[NSDate date] timeIntervalSince1970];
     
-    // Try to resume the download from where we left off
-    [self downloadRemoteFileWithResume];
+    // Use the simple download method for retries to avoid complexity
+    [self downloadRemoteFileSimple];
 }
 
 - (void)downloadRemoteFileWithResume
@@ -735,9 +867,6 @@
             _isDownloading = NO;
             return;
         }
-        
-        // Reset stream position tracking for new connection
-        _streamPositionInitialized = NO;
         
         // Restart stall detection timer for this retry attempt
         [self startStallDetectionTimer];

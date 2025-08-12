@@ -33,8 +33,8 @@
         NSAlert *alert = [[NSAlert alloc] init];
         alert.messageText = @"Cancel Setup?";
         alert.informativeText = @"Are you sure you want to cancel the setup? Any progress will be lost.";
-        [alert addButtonWithTitle:@"Cancel Setup"];
-        [alert addButtonWithTitle:@"Continue Setup"];
+        [alert addButtonWithTitle:NSLocalizedString(@"Cancel Setup", @"")];
+        [alert addButtonWithTitle:NSLocalizedString(@"Continue Setup", @"")];
         alert.alertStyle = NSWarningAlertStyle;
         
         NSModalResponse response = [alert runModal];
@@ -65,16 +65,10 @@
     [builder withLayoutStyle:GSAssistantLayoutStyleInstaller];
     
     NSLog(@"[SystemSetupAssistant] Setting title...");
-    [builder withTitle:@"System Setup Assistant"];
+    [builder withTitle:NSLocalizedString(@"System Setup Assistant", @"")];
     
     NSLog(@"[SystemSetupAssistant] Setting icon...");
     [builder withIcon:[NSImage imageNamed:@"NSApplicationIcon"]];
-    
-    NSLog(@"[SystemSetupAssistant] Adding introduction...");
-    [builder addIntroductionWithMessage:@"Welcome to Gershwin! This assistant will help you set up your system for first use."
-           features:@[@"Configure user account settings",
-                     @"Set system preferences", 
-                     @"Complete initial setup"]];
     
     NSLog(@"[SystemSetupAssistant] Adding user info step...");
     SSUserInfoStep *userInfoStep = [[SSUserInfoStep alloc] init];

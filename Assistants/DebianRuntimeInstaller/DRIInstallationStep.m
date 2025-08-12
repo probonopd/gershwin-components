@@ -49,12 +49,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Installing Debian Runtime";
+    return NSLocalizedString(@"Installing Debian Runtime", @"");
 }
 
 - (NSString *)stepDescription
 {
-    return @"Please wait while the runtime is downloaded and installed";
+    return NSLocalizedString(@"Please wait while the runtime is downloaded and installed", @"");
 }
 
 - (NSView *)stepView
@@ -65,7 +65,7 @@
         
         // Status label (top)
         _statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 170, 330, 16)];
-        [_statusLabel setStringValue:@"Preparing..."]; 
+        [_statusLabel setStringValue:NSLocalizedString(@"Preparing...", @"")]; 
         [_statusLabel setFont:[NSFont systemFontOfSize:12]];
         [_statusLabel setBezeled:NO];
         [_statusLabel setDrawsBackground:NO];
@@ -121,7 +121,7 @@
 
 - (NSString *)finishButtonTitle
 {
-    return @"Done";
+    return NSLocalizedString(@"Done", @"");
 }
 
 - (BOOL)isLastStep
@@ -204,7 +204,7 @@
     }
     
     [self logMessage:@"Starting Debian Runtime installation..."]; 
-    if (_statusLabel) { [_statusLabel setStringValue:@"Starting download..."]; }
+    if (_statusLabel) { [_statusLabel setStringValue:NSLocalizedString(@"Starting download...", @"")]; }
     
     // Create download path
     NSString *tmp = NSTemporaryDirectory();
@@ -246,7 +246,7 @@
 {
     NSLog(@"DRIInstallationStep: download completed: %@", filePath);
     [self logMessage:@"✓ Download completed successfully"]; 
-    if (_statusLabel) { [_statusLabel setStringValue:@"Download completed, starting installation..."]; }
+    if (_statusLabel) { [_statusLabel setStringValue:NSLocalizedString(@"Download completed, starting installation...", @"")]; }
     if (_progressBar) { [_progressBar setDoubleValue:80.0]; }
     
     // Start system installation
@@ -298,7 +298,7 @@
     
     if (success) {
         [self logMessage:[NSString stringWithFormat:@"✓ %@", message]]; 
-        if (_statusLabel) { [_statusLabel setStringValue:@"Installation completed successfully!"]; }
+        if (_statusLabel) { [_statusLabel setStringValue:NSLocalizedString(@"Installation completed successfully!", @"")]; }
         if (_progressBar) { [_progressBar setDoubleValue:100.0]; }
         
         // Clean up downloaded file
@@ -324,7 +324,7 @@
 {
     NSLog(@"DRIInstallationStep: installation failed: %@", error);
     [self logMessage:[NSString stringWithFormat:@"\n=== INSTALLATION FAILED ===\nError: %@", error]]; 
-    if (_statusLabel) { [_statusLabel setStringValue:@"Installation failed"]; }
+    if (_statusLabel) { [_statusLabel setStringValue:NSLocalizedString(@"Installation failed", @"")]; }
     
     // Clean up downloaded file on failure
     if (_downloadPath && [[NSFileManager defaultManager] fileExistsAtPath:_downloadPath]) {

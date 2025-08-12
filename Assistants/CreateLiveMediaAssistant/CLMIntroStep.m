@@ -32,7 +32,7 @@
     
     // Inside-card welcome/info content (titles are handled by the framework outside the card)
     NSTextField *welcomeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 150, 322, 36)];
-    [welcomeLabel setStringValue:@"This assistant will help you create bootable Live media from ISO images."];
+    [welcomeLabel setStringValue:NSLocalizedString(@"This assistant will help you create bootable Live media from ISO images.", @"Intro welcome message")];
     [welcomeLabel setFont:[NSFont systemFontOfSize:12]];
     [welcomeLabel setAlignment:NSCenterTextAlignment];
     [welcomeLabel setBezeled:NO];
@@ -45,7 +45,7 @@
     
     // Feature bullets
     NSTextField *features = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 56, 306, 88)];
-    [features setStringValue:@"• Download images from GitHub releases\n• Use local ISO/IMG files\n• Write directly to USB or removable media\n• Verifies required disk space"];
+    [features setStringValue:NSLocalizedString(@"• Download images from GitHub releases\n• Use local ISO/IMG files\n• Write directly to USB or removable media\n• Verifies required disk space", @"Feature list")];
     [features setFont:[NSFont systemFontOfSize:11]];
     [features setBezeled:NO];
     [features setDrawsBackground:NO];
@@ -57,7 +57,7 @@
     
     // Subtle warning
     NSTextField *warningLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 12, 322, 28)];
-    [warningLabel setStringValue:@"All data on the selected destination disk will be erased."];
+    [warningLabel setStringValue:NSLocalizedString(@"All data on the selected destination disk will be erased.", @"Warning message")];
     [warningLabel setFont:[NSFont boldSystemFontOfSize:10]];
     [warningLabel setAlignment:NSCenterTextAlignment];
     [warningLabel setBezeled:NO];
@@ -73,12 +73,12 @@
 
 - (NSString *)stepTitle
 {
-    return @"Create Live Media";
+    return NSLocalizedString(@"Create Live Media", @"Step title");
 }
 
 - (NSString *)stepDescription  
 {
-    return @"Welcome to the Live Media Creator";
+    return NSLocalizedString(@"Welcome to the Live Media Creator", @"Step description");
 }
 
 - (NSView *)stepView

@@ -1,0 +1,32 @@
+/* English localization for InstallationAssistant */
+
+/* Application title */
+"Software Installation" = "Software Installation";
+
+/* Interface labels */
+"Install to:" = "Install to:";
+"/usr/local" = "/usr/local";
+"/opt/gershwin" = "/opt/gershwin";
+"Choose..." = "Choose...";
+"Space required: 2.5 GB" = "Space required: 2.5 GB";
+"Space available: 15.2 GB" = "Space available: 15.2 GB";
+"Choose optional components to install:" = "Choose optional components to install:";
+
+/* Buttons */
+"Cancel Installation" = "Cancel Installation";
+"Continue Installation" = "Continue Installation";
+"I agree to the license terms" = "I agree to the license terms";
+"Create desktop shortcuts" = "Create desktop shortcuts";
+"Add to system PATH" = "Add to system PATH";
+
+/* Component options */
+"Gershwin Core System (Required)" = "Gershwin Core System (Required)";
+"Standard Applications" = "Standard Applications";
+"Development Tools" = "Development Tools";
+"Games and Entertainment" = "Games and Entertainment";
+"Documentation and Examples" = "Documentation and Examples";
+
+/* Installation types */
+"Typical Installation" = "Typical Installation";
+"Custom Installation" = "Custom Installation";
+"Minimal Installation" = "Minimal Installation";

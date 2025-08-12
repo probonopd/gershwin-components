@@ -1,0 +1,32 @@
+/* English localization for NetworkSetupAssistant */
+
+/* Application title */
+"Network Setup Assistant" = "Network Setup Assistant";
+
+/* Buttons */
+"Cancel Setup" = "Cancel Setup";
+"Continue Setup" = "Continue Setup";
+"Quit" = "Quit";
+
+/* Network interfaces */
+"Ethernet (eth0)" = "Ethernet (eth0)";
+"Wi-Fi (wlan0)" = "Wi-Fi (wlan0)";
+"Loopback (lo)" = "Loopback (lo)";
+"em0 (Ethernet)" = "em0 (Ethernet)";
+"wlan0 (Wireless)" = "wlan0 (Wireless)";
+"re0 (Ethernet)" = "re0 (Ethernet)";
+
+/* Interface labels */
+"Network Interface:" = "Network Interface:";
+"IP Address:" = "IP Address:";
+"Subnet Mask:" = "Subnet Mask:";
+"Gateway:" = "Gateway:";
+"DNS Server:" = "DNS Server:";
+"Enter authentication credentials (optional):" = "Enter authentication credentials (optional):";
+"Username:" = "Username:";
+"Password:" = "Password:";
+"Domain:" = "Domain:";
+
+/* Checkboxes */
+"Show advanced options" = "Show advanced options";
+"Remember this network" = "Remember this network";

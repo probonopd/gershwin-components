@@ -3,7 +3,7 @@
 - Avoid bashisms; use POSIX sh.
 - Build the application until it works, even with multiple attempts.
 - Use -Wall -Wextra -Werror -O2, fix all compiler warnings, regardless of severity.
-- Use `sudo -A` for commands requiring root privileges.
+- Use `sudo -A -E` for commands requiring root privileges.
 - Compile with `clang19`, never `gcc`.
 - Use extensive logging for debugging with NSLog.
 - If you build a preference pane, test with `/System/Applications/SystemPreferences.app/SystemPreferences`.
@@ -19,3 +19,5 @@
 - Never "create a simple test to verify" anything. Verify using /System/Applications/LoginWindow.app or other system applications.
 - For all UI elements, use 24px spacing from the window edges but 20 px from the top edge and at the bottom.
 - Buttons are 24 px high and neighboring ones are 12 px apart from each other.
+- Use `NSLocalizedString` for all user-facing strings to ensure they are localizable.
+- Unless specifically asked to do so never write test cases; instead, use the existing real applications to verify functionality.

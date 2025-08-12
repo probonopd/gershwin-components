@@ -33,8 +33,8 @@
         NSAlert *alert = [[NSAlert alloc] init];
         alert.messageText = @"Cancel Installation?";
         alert.informativeText = @"Are you sure you want to cancel the installation?";
-        [alert addButtonWithTitle:@"Cancel Installation"];
-        [alert addButtonWithTitle:@"Continue Installation"];
+        [alert addButtonWithTitle:NSLocalizedString(@"Cancel Installation", @"")];
+        [alert addButtonWithTitle:NSLocalizedString(@"Continue Installation", @"")];
         alert.alertStyle = NSWarningAlertStyle;
         
         NSModalResponse response = [alert runModal];
@@ -56,26 +56,6 @@
     InstallationDelegate *delegate = [[InstallationDelegate alloc] init];
     NSLog(@"[InstallationAssistant] Created delegate: %@", delegate);
     
-    // Create license view
-    NSLog(@"[InstallationAssistant] Creating license view...");
-    NSView *licenseView = [self createLicenseView];
-    NSLog(@"[InstallationAssistant] Created license view: %@ with frame: %@", licenseView, NSStringFromRect(licenseView.frame));
-    
-    // Create destination view
-    NSLog(@"[InstallationAssistant] Creating destination view...");
-    NSView *destinationView = [self createDestinationView];
-    NSLog(@"[InstallationAssistant] Created destination view: %@ with frame: %@", destinationView, NSStringFromRect(destinationView.frame));
-    
-    // Create options view
-    NSLog(@"[InstallationAssistant] Creating options view...");
-    NSView *optionsView = [self createInstallOptionsView];
-    NSLog(@"[InstallationAssistant] Created options view: %@ with frame: %@", optionsView, NSStringFromRect(optionsView.frame));
-    
-    // Create software selection view
-    NSLog(@"[InstallationAssistant] Creating software selection view...");
-    NSView *softwareView = [self createSoftwareSelectionView];
-    NSLog(@"[InstallationAssistant] Created software selection view: %@ with frame: %@", softwareView, NSStringFromRect(softwareView.frame));
-    
     NSLog(@"[InstallationAssistant] Creating builder...");
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
     NSLog(@"[InstallationAssistant] Created builder: %@", builder);
@@ -84,21 +64,10 @@
     [builder withLayoutStyle:GSAssistantLayoutStyleInstaller];
     
     NSLog(@"[InstallationAssistant] Setting title...");
-    [builder withTitle:@"Software Installation"];
+    [builder withTitle:NSLocalizedString(@"Software Installation", @"")];
     
     NSLog(@"[InstallationAssistant] Setting icon...");
     [builder withIcon:[NSImage imageNamed:@"NSApplicationIcon"]];
-    
-    NSLog(@"[InstallationAssistant] Adding introduction...");
-    [builder addIntroductionWithMessage:@"Install Gershwin system components and applications."
-           features:@[@"Review software license",
-                     @"Choose installation location",
-                     @"Select components to install"]];
-    
-    NSLog(@"[InstallationAssistant] Adding license step...");
-    IALicenseStep *licenseStep = [[IALicenseStep alloc] init];
-    [builder addStep:licenseStep];
-    [licenseStep release];
     
     NSLog(@"[InstallationAssistant] Adding destination step...");
     IADestinationStep *destinationStep = [[IADestinationStep alloc] init];
@@ -160,7 +129,7 @@
     scrollView.documentView = textView;
     
     // Agreement checkbox
-    NSButton *agreeCheck = [GSAssistantUIHelper createCheckboxWithTitle:@"I agree to the license terms"];
+    NSButton *agreeCheck = [GSAssistantUIHelper createCheckboxWithTitle:NSLocalizedString(@"I agree to the license terms", @"")];
     
     // Create layout
     NSArray *views = @[licenseLabel, scrollView, agreeCheck];
@@ -191,8 +160,8 @@
     
     // Installation options
     NSTextField *optionsLabel = [GSAssistantUIHelper createTitleLabelWithText:@"Installation Options:"];
-    NSButton *createShortcutCheck = [GSAssistantUIHelper createCheckboxWithTitle:@"Create desktop shortcuts"];
-    NSButton *addToPathCheck = [GSAssistantUIHelper createCheckboxWithTitle:@"Add to system PATH"];
+    NSButton *createShortcutCheck = [GSAssistantUIHelper createCheckboxWithTitle:NSLocalizedString(@"Create desktop shortcuts", @"")];
+    NSButton *addToPathCheck = [GSAssistantUIHelper createCheckboxWithTitle:NSLocalizedString(@"Add to system PATH", @"")];
     [createShortcutCheck setState:NSOnState];
     [addToPathCheck setState:NSOnState];
     
@@ -216,27 +185,27 @@
     // Component selection
     NSTextField *componentsLabel = [GSAssistantUIHelper createTitleLabelWithText:@"Components to Install:"];
     
-    NSButton *coreCheck = [GSAssistantUIHelper createCheckboxWithTitle:@"Gershwin Core System (Required)"];
+    NSButton *coreCheck = [GSAssistantUIHelper createCheckboxWithTitle:NSLocalizedString(@"Gershwin Core System (Required)", @"")];
     [coreCheck setState:NSOnState];
     coreCheck.enabled = NO; // Required component
     
-    NSButton *appsCheck = [GSAssistantUIHelper createCheckboxWithTitle:@"Standard Applications"];
+    NSButton *appsCheck = [GSAssistantUIHelper createCheckboxWithTitle:NSLocalizedString(@"Standard Applications", @"")];
     [appsCheck setState:NSOnState];
     
-    NSButton *devsCheck = [GSAssistantUIHelper createCheckboxWithTitle:@"Development Tools"];
+    NSButton *devsCheck = [GSAssistantUIHelper createCheckboxWithTitle:NSLocalizedString(@"Development Tools", @"")];
     [devsCheck setState:NSOffState];
     
-    NSButton *gamesCheck = [GSAssistantUIHelper createCheckboxWithTitle:@"Games and Entertainment"];
+    NSButton *gamesCheck = [GSAssistantUIHelper createCheckboxWithTitle:NSLocalizedString(@"Games and Entertainment", @"")];
     [gamesCheck setState:NSOffState];
     
-    NSButton *docsCheck = [GSAssistantUIHelper createCheckboxWithTitle:@"Documentation and Examples"];
+    NSButton *docsCheck = [GSAssistantUIHelper createCheckboxWithTitle:NSLocalizedString(@"Documentation and Examples", @"")];
     [docsCheck setState:NSOnState];
     
     // Installation type
     NSTextField *typeLabel = [GSAssistantUIHelper createTitleLabelWithText:@"Installation Type:"];
-    NSButton *typicalRadio = [GSAssistantUIHelper createRadioButtonWithTitle:@"Typical Installation"];
-    NSButton *customRadio = [GSAssistantUIHelper createRadioButtonWithTitle:@"Custom Installation"];
-    NSButton *minimalRadio = [GSAssistantUIHelper createRadioButtonWithTitle:@"Minimal Installation"];
+    NSButton *typicalRadio = [GSAssistantUIHelper createRadioButtonWithTitle:NSLocalizedString(@"Typical Installation", @"")];
+    NSButton *customRadio = [GSAssistantUIHelper createRadioButtonWithTitle:NSLocalizedString(@"Custom Installation", @"")];
+    NSButton *minimalRadio = [GSAssistantUIHelper createRadioButtonWithTitle:NSLocalizedString(@"Minimal Installation", @"")];
     [typicalRadio setState:NSOnState];
     
     // Size information

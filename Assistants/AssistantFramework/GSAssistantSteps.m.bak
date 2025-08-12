@@ -1,0 +1,738 @@
+#import "GSAssistantFramework.h"
+
+// Helper function to get framework bundle for localization
+static NSBundle *getFrameworkBundle() {
+    static NSBundle *frameworkBundle = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        // Try to find the framework bundle
+        frameworkBundle = [NSBundle bundleWithIdentifier:@"org.gnustep.GSAssistantFramework"];
+        if (!frameworkBundle) {
+            // If not found by identifier, try to find it in the app bundle
+            NSBundle *mainBundle = [NSBundle mainBundle];
+            NSString *frameworkPath = [[[mainBundle bundlePath] stringByAppendingPathComponent:@"Frameworks"] 
+                                      stringByAppendingPathComponent:@"GSAssistantFramework.framework"];
+            frameworkBundle = [NSBundle bundleWithPath:frameworkPath];
+        }
+        if (!frameworkBundle) {
+            // Fallback to main bundle
+            frameworkBundle = [NSBundle mainBundle];
+        }
+    });
+    return frameworkBundle;
+}
+
+// Macro for framework localized strings
+#define GSLocalizedString(key, comment) NSLocalizedStringFromTableInBundle(key, nil, getFrameworkBundle(), comment)
+
+// Base Assistant Step Implementation
+@implementation GSAssistantStep
+
+- (instancetype)initWithTitle:(NSString *)title 
+                  description:(NSString *)description 
+                         view:(NSView *)view {
+    NSLog(@"[GSAssistantStep] Initializing step with title: '%@', description: '%@', view: %@", title, description, view);
+    self = [super init];
+    if (self) {
+        _title = [title copy];
+        _stepDescription = [description copy];
+        _view = view;
+        _stepType = GSAssistantStepTypeConfiguration; // Default type
+        _canProceed = NO; // Disabled by default - steps must explicitly enable continuation
+        _canReturn = YES;
+        _progress = 0.0;
+    }
+    NSLog(@"[GSAssistantStep] Step initialized successfully");
+    return self;
+}
+
+// GSAssistantStepProtocol implementation
+- (NSString *)stepTitle {
+    return self.title;
+}
+
+- (NSString *)stepDescription {
+    return _stepDescription;
+}
+
+- (NSView *)stepView {
+    NSLog(@"[GSAssistantStep] stepView called on step: %@", self);
+    NSLog(@"[GSAssistantStep] Returning view: %@ with frame: %@", self.view, NSStringFromRect(self.view.frame));
+    return self.view;
+}
+
+- (BOOL)canContinue {
+    return self.canProceed;
+}
+
+@end
+
+@implementation GSIntroductionStep
+
+- (instancetype)initWithTitle:(NSString *)title 
+                  description:(NSString *)description 
+                         view:(NSView *)view {
+    self = [super initWithTitle:title description:description view:view];
+    if (self) {
+        self.stepType = GSAssistantStepTypeIntroduction;
+        self.customContinueTitle = NSLocalizedString(@"Get Started", @"Button title for starting the assistant");
+        self.canReturn = NO; // Usually can't go back from introduction
+        self.canProceed = YES; // Introduction steps can usually continue immediately
+    }
+    return self;
+}
+
+- (instancetype)initWithWelcomeMessage:(NSString *)welcomeMessage 
+                           featureList:(NSArray<NSString *> *)featureList {
+    NSView *introView = [self createIntroductionViewWithMessage:welcomeMessage features:featureList];
+    self = [super initWithTitle:GSLocalizedString(@"Welcome", @"Welcome step title") description:welcomeMessage view:introView];
+    if (self) {
+        self.stepType = GSAssistantStepTypeIntroduction;
+        self.customContinueTitle = NSLocalizedString(@"Get Started", @"Button title for starting the assistant");
+        self.canReturn = NO;
+        self.canProceed = YES; // Introduction steps can usually continue immediately
+        _welcomeMessage = [welcomeMessage copy];
+        _featureList = [featureList copy];
+    }
+    return self;
+}
+
+- (NSView *)createIntroductionViewWithMessage:(NSString *)message features:(NSArray<NSString *> *)features {
+    NSLog(@"[GSIntroductionStep] Creating introduction view with message: %@", message);
+    
+    // Create container with explicit frame instead of relying solely on Auto Layout
+    NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
+    containerView.translatesAutoresizingMaskIntoConstraints = NO;
+    NSLog(@"[GSIntroductionStep] Created container view with frame: %@", NSStringFromRect(containerView.frame));
+    
+    // Welcome message with explicit frame positioning - moved much lower
+    NSTextField *messageLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 180, 360, 40)];
+    messageLabel.editable = NO;
+    messageLabel.selectable = NO;
+    messageLabel.bordered = NO;
+    messageLabel.bezeled = NO;
+    messageLabel.drawsBackground = NO;
+    messageLabel.backgroundColor = [NSColor clearColor];
+    messageLabel.font = [NSFont systemFontOfSize:14.0];
+    messageLabel.stringValue = message ?: NSLocalizedString(@"Welcome to the setup assistant.", @"Default welcome message");
+    [containerView addSubview:messageLabel];
+    NSLog(@"[GSIntroductionStep] Added message label: %@", messageLabel);
+    
+    CGFloat currentY = 130; // Moved down from 200 to 130
+    
+    // Feature list
+    if (features && features.count > 0) {
+        NSTextField *featuresLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, currentY, 360, 20)];
+        featuresLabel.editable = NO;
+        featuresLabel.selectable = NO;
+        featuresLabel.bordered = NO;
+        featuresLabel.bezeled = NO;
+        featuresLabel.drawsBackground = NO;
+        featuresLabel.backgroundColor = [NSColor clearColor];
+        featuresLabel.font = [NSFont boldSystemFontOfSize:12.0];
+        featuresLabel.stringValue = NSLocalizedString(@"This assistant will help you:", @"Features list header");
+        [containerView addSubview:featuresLabel];
+        NSLog(@"[GSIntroductionStep] Added features label");
+        
+        currentY -= 30;
+        
+        for (NSString *feature in features) {
+            NSTextField *featureLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(40, currentY, 320, 20)];
+            featureLabel.editable = NO;
+            featureLabel.selectable = NO;
+            featureLabel.bordered = NO;
+            featureLabel.bezeled = NO;
+            featureLabel.drawsBackground = NO;
+            featureLabel.backgroundColor = [NSColor clearColor];
+            featureLabel.font = [NSFont systemFontOfSize:12.0];
+            featureLabel.stringValue = [NSString stringWithFormat:@"• %@", feature];
+            [containerView addSubview:featureLabel];
+            NSLog(@"[GSIntroductionStep] Added feature: %@", feature);
+            
+            currentY -= 25;
+        }
+    }
+    
+    NSLog(@"[GSIntroductionStep] Introduction view creation complete, container has %lu subviews", (unsigned long)containerView.subviews.count);
+    return containerView;
+}
+
+@end
+
+@implementation GSConfigurationStep
+
+- (instancetype)initWithTitle:(NSString *)title 
+                  description:(NSString *)description 
+                         view:(NSView *)view {
+    self = [super initWithTitle:title description:description view:view];
+    if (self) {
+        self.stepType = GSAssistantStepTypeConfiguration;
+        _configuration = [[NSMutableDictionary alloc] init];
+    }
+    return self;
+}
+
+- (BOOL)validateConfiguration {
+    // Override in subclasses to provide specific validation
+    return YES;
+}
+
+- (BOOL)validateStep {
+    return [self validateConfiguration];
+}
+
+@end
+
+@implementation GSProgressStep
+
+- (instancetype)initWithTitle:(NSString *)title 
+                  description:(NSString *)description 
+                         view:(NSView *)view {
+    self = [super initWithTitle:title description:description view:view];
+    if (self) {
+        self.stepType = GSAssistantStepTypeProgress;
+        self.canReturn = NO; // Usually can't go back during progress
+        self.canProceed = NO; // Usually controlled by the progress itself
+        _isIndeterminate = NO;
+        if (!view) {
+            self.view = [self createProgressView];
+        }
+    }
+    return self;
+}
+
+- (NSView *)createProgressView {
+    NSView *containerView = [[NSView alloc] init];
+    containerView.translatesAutoresizingMaskIntoConstraints = NO;
+    
+    // Current task label
+    NSTextField *taskLabel = [[NSTextField alloc] init];
+    taskLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    taskLabel.editable = NO;
+    taskLabel.selectable = NO;
+    taskLabel.bordered = NO;
+    taskLabel.bezeled = NO;
+    taskLabel.drawsBackground = NO;
+    taskLabel.backgroundColor = [NSColor clearColor];
+    taskLabel.font = [NSFont systemFontOfSize:14.0];
+    taskLabel.stringValue = _currentTask ?: NSLocalizedString(@"Processing...", @"Default progress task message");
+    taskLabel.alignment = NSCenterTextAlignment;
+    [containerView addSubview:taskLabel];
+    
+    // Progress indicator
+    NSProgressIndicator *progressIndicator = [[NSProgressIndicator alloc] init];
+    progressIndicator.translatesAutoresizingMaskIntoConstraints = NO;
+    progressIndicator.style = NSProgressIndicatorBarStyle;
+    progressIndicator.indeterminate = _isIndeterminate;
+    if (_isIndeterminate) {
+        [progressIndicator startAnimation:nil];
+    } else {
+        progressIndicator.minValue = 0.0;
+        progressIndicator.maxValue = 1.0;
+        progressIndicator.doubleValue = self.progress;
+    }
+    [containerView addSubview:progressIndicator];
+    
+    // Constraints
+    [containerView addConstraint:[NSLayoutConstraint constraintWithItem:taskLabel
+                                                             attribute:NSLayoutAttributeCenterX
+                                                             relatedBy:NSLayoutRelationEqual
+                                                                toItem:containerView
+                                                             attribute:NSLayoutAttributeCenterX
+                                                            multiplier:1.0
+                                                              constant:0.0]];
+    
+    [containerView addConstraint:[NSLayoutConstraint constraintWithItem:taskLabel
+                                                             attribute:NSLayoutAttributeCenterY
+                                                             relatedBy:NSLayoutRelationEqual
+                                                                toItem:containerView
+                                                             attribute:NSLayoutAttributeCenterY
+                                                            multiplier:1.0
+                                                              constant:-30.0]];
+    
+    [containerView addConstraint:[NSLayoutConstraint constraintWithItem:progressIndicator
+                                                             attribute:NSLayoutAttributeLeading
+                                                             relatedBy:NSLayoutRelationEqual
+                                                                toItem:containerView
+                                                             attribute:NSLayoutAttributeLeading
+                                                            multiplier:1.0
+                                                              constant:60.0]];
+    
+    [containerView addConstraint:[NSLayoutConstraint constraintWithItem:progressIndicator
+                                                             attribute:NSLayoutAttributeTrailing
+                                                             relatedBy:NSLayoutRelationEqual
+                                                                toItem:containerView
+                                                             attribute:NSLayoutAttributeTrailing
+                                                            multiplier:1.0
+                                                              constant:-60.0]];
+    
+    [containerView addConstraint:[NSLayoutConstraint constraintWithItem:progressIndicator
+                                                             attribute:NSLayoutAttributeTop
+                                                             relatedBy:NSLayoutRelationEqual
+                                                                toItem:taskLabel
+                                                             attribute:NSLayoutAttributeBottom
+                                                            multiplier:1.0
+                                                              constant:20.0]];
+    
+    return containerView;
+}
+
+- (void)updateProgress:(CGFloat)progress withTask:(NSString *)task {
+    self.progress = progress;
+    _currentTask = [task copy];
+    
+    // Update UI if the view exists
+    if (self.view) {
+        // Use performSelectorOnMainThread instead of dispatch_async for GNUstep compatibility
+        [self performSelectorOnMainThread:@selector(updateProgressUI:) 
+              withObject:@{@"progress": @(progress), @"task": task ?: @"Processing..."} 
+              waitUntilDone:NO];
+    }
+    
+    // Check for auto-completion when progress reaches 100%
+    if (_autoCompleteOnFinish && progress >= 1.0) {
+        if (self.assistantWindow != nil) {
+            NSLog(@"[GSProgressStep] Auto-completing: progress=%.2f, autoComplete=%d", progress, _autoCompleteOnFinish);
+                 // Delay auto-completion slightly to let users see the 100% progress
+        NSString *message = _completionMessage ?: NSLocalizedString(@"Setup completed successfully!", @"Default completion message");
+        [NSTimer scheduledTimerWithTimeInterval:1.5
+                                              target:self
+                                            selector:@selector(performAutoCompletion:)
+                                            userInfo:@{@"message": message}
+                                             repeats:NO];
+        }
+    }
+}
+
+- (void)updateProgressUI:(NSDictionary *)params {
+    NSNumber *progressValue = params[@"progress"];
+    NSString *task = params[@"task"];
+    
+    // Find and update the labels and progress indicators
+    for (NSView *subview in self.view.subviews) {
+        if ([subview isKindOfClass:[NSTextField class]]) {
+            NSTextField *label = (NSTextField *)subview;
+            label.stringValue = task;
+        } else if ([subview isKindOfClass:[NSProgressIndicator class]]) {
+            NSProgressIndicator *indicator = (NSProgressIndicator *)subview;
+            if (![indicator isIndeterminate]) {
+                indicator.doubleValue = [progressValue doubleValue];
+            }
+        }
+    }
+}
+
+- (void)performAutoCompletion:(NSTimer *)timer {
+    NSString *message = timer.userInfo[@"message"];
+    if (self.assistantWindow && message) {
+        [self.assistantWindow autoCompleteWithSuccessMessage:message];
+    }
+}
+
+- (BOOL)showsProgress {
+    return YES;
+}
+
+- (CGFloat)progressValue {
+    return self.progress;
+}
+
+- (void)dealloc {
+    [_currentTask release];
+    [_completionMessage release];
+    [super dealloc];
+}
+
+@end
+
+@implementation GSCompletionStep
+
+- (instancetype)initWithTitle:(NSString *)title 
+                  description:(NSString *)description 
+                         view:(NSView *)view {
+    self = [super initWithTitle:title description:description view:view];
+    if (self) {
+        self.stepType = GSAssistantStepTypeCompletion;
+        self.customContinueTitle = NSLocalizedString(@"Finish", @"Button title for finishing the assistant");
+        self.canReturn = NO; // Can't go back from completion
+        self.canProceed = YES; // Completion steps can finish immediately
+        _wasSuccessful = YES;
+        if (!view) {
+            self.view = [self createCompletionView];
+        }
+    }
+    return self;
+}
+
+- (instancetype)initWithCompletionMessage:(NSString *)message success:(BOOL)success {
+    NSView *completionView = [self createCompletionViewWithMessage:message success:success];
+    NSString *title = success ? NSLocalizedString(@"Setup Complete", @"Success completion title") : NSLocalizedString(@"Setup Failed", @"Error completion title");
+    self = [super initWithTitle:title description:message view:completionView];
+    if (self) {
+        self.stepType = GSAssistantStepTypeCompletion;
+        self.customContinueTitle = success ? NSLocalizedString(@"Finish", @"Button title for finishing the assistant") : NSLocalizedString(@"Close", @"Button title for closing after error");
+        self.canReturn = NO; // Can't go back from completion
+        self.canProceed = YES; // Completion steps can finish immediately
+        _completionMessage = [message copy];
+        _wasSuccessful = success;
+        _hideNavigationButtons = success; // Hide navigation for successful completion
+    }
+    return self;
+}
+
+- (NSView *)createCompletionView {
+    return [self createCompletionViewWithMessage:_completionMessage success:_wasSuccessful];
+}
+
+- (NSView *)createCompletionViewWithMessage:(NSString *)message success:(BOOL)success {
+    // Create container view with explicit frame to ensure proper sizing
+    NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 460, 190)];
+    containerView.translatesAutoresizingMaskIntoConstraints = YES; // Use frame-based layout
+    
+    // Status icon - try to use PNG assets from framework bundle first, fallback to Unicode characters
+    NSString *iconFileName = success ? @"check" : @"cross";
+    
+    // Look for icons in the framework bundle first
+    NSBundle *frameworkBundle = [NSBundle bundleWithIdentifier:@"org.gnustep.GSAssistantFramework"];
+    if (!frameworkBundle) {
+        // Fallback to finding the framework bundle by path relative to main bundle
+        NSBundle *mainBundle = [NSBundle mainBundle];
+        NSString *frameworkPath = [[[mainBundle bundlePath] stringByAppendingPathComponent:@"Frameworks"] 
+                                 stringByAppendingPathComponent:@"GSAssistantFramework.framework"];
+        if (frameworkPath && [[NSFileManager defaultManager] fileExistsAtPath:frameworkPath]) {
+            frameworkBundle = [NSBundle bundleWithPath:frameworkPath];
+            NSLog(@"[GSCompletionStep] Found framework bundle at: %@", frameworkPath);
+        } else {
+            NSLog(@"[GSCompletionStep] Framework bundle not found at expected path: %@", frameworkPath);
+        }
+    }
+    
+    NSString *iconPath = nil;
+    if (frameworkBundle) {
+        iconPath = [frameworkBundle pathForResource:iconFileName ofType:@"png"];
+        NSLog(@"[GSCompletionStep] Looking for %@.png in framework bundle: %@", iconFileName, iconPath);
+    }
+    
+    // If not found in framework, try main bundle as fallback
+    if (!iconPath) {
+        iconPath = [[NSBundle mainBundle] pathForResource:iconFileName ofType:@"png"];
+        NSLog(@"[GSCompletionStep] Fallback: Looking for %@.png in main bundle: %@", iconFileName, iconPath);
+    }
+    
+    if (iconPath) {
+        // Use PNG icon
+        NSImageView *statusIcon = [[NSImageView alloc] initWithFrame:NSMakeRect(198, 110, 64, 64)];
+        NSImage *icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
+        if (icon) {
+            [statusIcon setImage:icon];
+            [statusIcon setImageScaling:NSImageScaleProportionallyUpOrDown];
+            [icon release];
+        }
+        [containerView addSubview:statusIcon];
+        [statusIcon release];
+    } else {
+        // Fallback to Unicode characters
+        NSTextField *statusIcon = [[NSTextField alloc] initWithFrame:NSMakeRect(198, 110, 64, 64)];
+        statusIcon.editable = NO;
+        statusIcon.selectable = NO;
+        statusIcon.bordered = NO;
+        statusIcon.bezeled = NO;
+        statusIcon.drawsBackground = NO;
+        statusIcon.backgroundColor = [NSColor clearColor];
+        statusIcon.font = [NSFont systemFontOfSize:48.0];
+        statusIcon.alignment = NSCenterTextAlignment;
+        
+        if (success) {
+            statusIcon.stringValue = @"✓"; // Checkmark
+            statusIcon.textColor = [NSColor colorWithCalibratedRed:0.0 green:0.7 blue:0.0 alpha:1.0]; // Green
+        } else {
+            statusIcon.stringValue = @"✗"; // X mark
+            statusIcon.textColor = [NSColor colorWithCalibratedRed:0.8 green:0.0 blue:0.0 alpha:1.0]; // Red
+        }
+        
+        [containerView addSubview:statusIcon];
+        [statusIcon release];
+    }
+    
+    // Status message
+    NSTextField *statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(40, 60, 380, 40)];
+    statusLabel.editable = NO;
+    statusLabel.selectable = NO;
+    statusLabel.bordered = NO;
+    statusLabel.bezeled = NO;
+    statusLabel.drawsBackground = NO;
+    statusLabel.backgroundColor = [NSColor clearColor];
+    statusLabel.font = [NSFont systemFontOfSize:16.0];
+    statusLabel.stringValue = message ?: (success ? NSLocalizedString(@"Setup completed successfully!", @"Default success message") : NSLocalizedString(@"Setup encountered an error.", @"Default error message"));
+    statusLabel.alignment = NSCenterTextAlignment;
+    [containerView addSubview:statusLabel];
+    [statusLabel release]; // Release our reference since the container view retains it
+    
+    return containerView;
+}
+
+- (BOOL)canGoBack {
+    return NO; // Never allow going back from completion steps
+}
+
+- (void)dealloc
+{
+    [_completionMessage release];
+    [super dealloc];
+}
+
+@end
+
+#pragma mark - Localized Content Steps
+
+@implementation GSWelcomeStep
+
+- (instancetype)initWithContent:(NSString *)content {
+    NSLog(@"[GSWelcomeStep] Initializing welcome step with content length: %lu", (unsigned long)content.length);
+    
+    NSView *welcomeView = [self createContentViewWithText:content title:@"Welcome"];
+    
+    self = [super initWithTitle:NSLocalizedString(@"Welcome", @"Welcome step title") 
+                    description:NSLocalizedString(@"Welcome to the assistant", @"Welcome step description")
+                           view:welcomeView];
+    if (self) {
+        _welcomeContent = [content copy];
+        self.stepType = GSAssistantStepTypeWelcome;
+        self.canProceed = YES; // Welcome pages can always be continued
+    }
+    NSLog(@"[GSWelcomeStep] Welcome step initialized successfully");
+    return self;
+}
+
+- (NSView *)createContentViewWithText:(NSString *)text title:(NSString *)title {
+    NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 500, 350)];
+    
+    // Title with proper spacing from top (20px)
+    NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 306, 452, 24)];
+    titleLabel.editable = NO;
+    titleLabel.selectable = NO;
+    titleLabel.bordered = NO;
+    titleLabel.bezeled = NO;
+    titleLabel.drawsBackground = NO;
+    titleLabel.backgroundColor = [NSColor clearColor];
+    titleLabel.font = [NSFont boldSystemFontOfSize:18.0];
+    titleLabel.stringValue = title;
+    [containerView addSubview:titleLabel];
+    [titleLabel release];
+    
+    // Text content in scroll view with proper spacing (24px from sides, 20px from bottom)
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(24, 20, 452, 276)];
+    scrollView.hasVerticalScroller = YES;
+    scrollView.hasHorizontalScroller = NO;
+    scrollView.autohidesScrollers = YES;
+    scrollView.borderType = NSBezelBorder;
+    
+    NSTextView *textView = [[NSTextView alloc] init];
+    textView.editable = NO;
+    textView.selectable = YES;
+    textView.font = [NSFont systemFontOfSize:12.0];
+    textView.backgroundColor = [NSColor textBackgroundColor];
+    textView.textColor = [NSColor textColor];
+    
+    // Set the text and ensure it's displayed
+    [textView setString:text];
+    [textView setNeedsDisplay:YES];
+    
+    // Configure the text view frame properly
+    NSSize textSize = [textView.textStorage size];
+    [textView setFrame:NSMakeRect(0, 0, 452, MAX(276, textSize.height))];
+    
+    scrollView.documentView = textView;
+    [textView release];
+    
+    [containerView addSubview:scrollView];
+    [scrollView release];
+    
+    return [containerView autorelease];
+}
+
+- (void)dealloc {
+    [_welcomeContent release];
+    [super dealloc];
+}
+
+@end
+
+@implementation GSReadMeStep
+
+- (instancetype)initWithContent:(NSString *)content {
+    NSLog(@"[GSReadMeStep] Initializing read me step with content length: %lu", (unsigned long)content.length);
+    
+    NSView *readMeView = [self createContentViewWithText:content title:@"Read Me"];
+    
+    self = [super initWithTitle:NSLocalizedString(@"Read Me", @"Read Me step title") 
+                    description:NSLocalizedString(@"Important information", @"Read Me step description")
+                           view:readMeView];
+    if (self) {
+        _readMeContent = [content copy];
+        self.stepType = GSAssistantStepTypeReadMe;
+        self.canProceed = YES; // Read me pages can always be continued
+    }
+    NSLog(@"[GSReadMeStep] Read me step initialized successfully");
+    return self;
+}
+
+- (NSView *)createContentViewWithText:(NSString *)text title:(NSString *)title {
+    NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 500, 350)];
+    
+    // Title with proper spacing from top (20px)
+    NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 306, 452, 24)];
+    titleLabel.editable = NO;
+    titleLabel.selectable = NO;
+    titleLabel.bordered = NO;
+    titleLabel.bezeled = NO;
+    titleLabel.drawsBackground = NO;
+    titleLabel.backgroundColor = [NSColor clearColor];
+    titleLabel.font = [NSFont boldSystemFontOfSize:18.0];
+    titleLabel.stringValue = title;
+    [containerView addSubview:titleLabel];
+    [titleLabel release];
+    
+    // Text content in scroll view with proper spacing (24px from sides, 20px from bottom)
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(24, 20, 452, 276)];
+    scrollView.hasVerticalScroller = YES;
+    scrollView.hasHorizontalScroller = NO;
+    scrollView.autohidesScrollers = YES;
+    scrollView.borderType = NSBezelBorder;
+    
+    NSTextView *textView = [[NSTextView alloc] init];
+    textView.editable = NO;
+    textView.selectable = YES;
+    textView.font = [NSFont systemFontOfSize:12.0];
+    textView.backgroundColor = [NSColor textBackgroundColor];
+    textView.textColor = [NSColor textColor];
+    
+    // Set the text and ensure it's displayed
+    [textView setString:text];
+    [textView setNeedsDisplay:YES];
+    
+    // Configure the text view frame properly
+    NSSize textSize = [textView.textStorage size];
+    [textView setFrame:NSMakeRect(0, 0, 452, MAX(276, textSize.height))];
+    
+    scrollView.documentView = textView;
+    [textView release];
+    
+    [containerView addSubview:scrollView];
+    [scrollView release];
+    
+    return [containerView autorelease];
+}
+
+- (void)dealloc {
+    [_readMeContent release];
+    [super dealloc];
+}
+
+@end
+
+@implementation GSLicenseStep
+
+- (instancetype)initWithContent:(NSString *)content requiresAcceptance:(BOOL)requiresAcceptance {
+    NSLog(@"[GSLicenseStep] Initializing license step with content length: %lu, requires acceptance: %@", 
+          (unsigned long)content.length, requiresAcceptance ? @"YES" : @"NO");
+    
+    NSView *licenseView = [self createLicenseViewWithText:content requiresAcceptance:requiresAcceptance];
+    
+    self = [super initWithTitle:NSLocalizedString(@"Software License Agreement", @"License step title") 
+                    description:NSLocalizedString(@"Please read the license agreement", @"License step description")
+                           view:licenseView];
+    if (self) {
+        _licenseContent = [content copy];
+        _requiresAcceptance = requiresAcceptance;
+        self.stepType = GSAssistantStepTypeLicense;
+        self.canProceed = !requiresAcceptance; // Can only proceed if acceptance not required or checkbox is checked
+    }
+    NSLog(@"[GSLicenseStep] License step initialized successfully");
+    return self;
+}
+
+- (NSView *)createLicenseViewWithText:(NSString *)text requiresAcceptance:(BOOL)requiresAcceptance {
+    NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 500, 350)];
+    
+    // Title with proper spacing from top (20px)
+    NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 306, 452, 24)];
+    titleLabel.editable = NO;
+    titleLabel.selectable = NO;
+    titleLabel.bordered = NO;
+    titleLabel.bezeled = NO;
+    titleLabel.drawsBackground = NO;
+    titleLabel.backgroundColor = [NSColor clearColor];
+    titleLabel.font = [NSFont boldSystemFontOfSize:18.0];
+    titleLabel.stringValue = NSLocalizedString(@"Software License Agreement", @"License agreement title");
+    [containerView addSubview:titleLabel];
+    [titleLabel release];
+    
+    // Determine scroll view frame based on whether acceptance checkbox is needed (24px from sides, spacing for checkbox)
+    NSRect scrollFrame = requiresAcceptance ? 
+        NSMakeRect(24, 56, 452, 240) :   // Leave 56px from bottom (20px + 24px for checkbox + 12px spacing)
+        NSMakeRect(24, 20, 452, 276);    // Standard 20px from bottom
+    
+    // Text content in scroll view
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:scrollFrame];
+    scrollView.hasVerticalScroller = YES;
+    scrollView.hasHorizontalScroller = NO;
+    scrollView.autohidesScrollers = YES;
+    scrollView.borderType = NSBezelBorder;
+    
+    NSTextView *textView = [[NSTextView alloc] init];
+    textView.editable = NO;
+    textView.selectable = YES;
+    textView.font = [NSFont systemFontOfSize:12.0];
+    textView.backgroundColor = [NSColor textBackgroundColor];
+    textView.textColor = [NSColor textColor];
+    
+    // Set the text and ensure it's displayed
+    [textView setString:text];
+    [textView setNeedsDisplay:YES];
+    
+    // Configure the text view frame properly
+    NSSize textSize = [textView.textStorage size];
+    CGFloat scrollHeight = requiresAcceptance ? 240 : 276;
+    [textView setFrame:NSMakeRect(0, 0, 452, MAX(scrollHeight, textSize.height))];
+    
+    scrollView.documentView = textView;
+    [textView release];
+    
+    [containerView addSubview:scrollView];
+    [scrollView release];
+    
+    // Add acceptance checkbox if required (24px from sides, 20px from bottom, 24px height)
+    if (requiresAcceptance) {
+        NSButton *acceptCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(24, 20, 452, 24)];
+        acceptCheckbox.title = NSLocalizedString(@"I agree to the terms of this license agreement", @"License agreement checkbox");
+        [acceptCheckbox setButtonType:NSSwitchButton];
+        acceptCheckbox.target = self;
+        acceptCheckbox.action = @selector(acceptanceChanged:);
+        [containerView addSubview:acceptCheckbox];
+        [acceptCheckbox release];
+    }
+    
+    return [containerView autorelease];
+}
+
+- (void)acceptanceChanged:(NSButton *)sender {
+    NSLog(@"[GSLicenseStep] License acceptance changed to: %@", sender.state == NSOnState ? @"YES" : @"NO");
+    self.canProceed = (sender.state == NSOnState);
+    
+    // Notify the assistant window to update navigation buttons
+    if (self.assistantWindow) {
+        [self.assistantWindow updateNavigationButtons];
+    }
+}
+
+- (NSString *)continueButtonTitle {
+    return NSLocalizedString(@"Continue", @"Continue button title");
+}
+
+- (void)dealloc {
+    [_licenseContent release];
+    [super dealloc];
+}
+
+@end
