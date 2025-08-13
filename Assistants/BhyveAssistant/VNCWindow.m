@@ -104,7 +104,7 @@
 {
     // Make window accept key events
     [self setAcceptsMouseMovedEvents:YES];
-    [self makeFirstResponder:_imageView];
+    [self makeFirstResponder:self];  // Make window the first responder for keyboard events
     
     // Create tracking area for mouse events - using older API
     _trackingArea = [[NSTrackingArea alloc] 
@@ -237,40 +237,123 @@
         return;
     }
     
-    // Convert NSEvent to VNC key code
-    NSString *characters = [event characters];
-    if ([characters length] > 0) {
-        unichar character = [characters characterAtIndex:0];
-        [_vncClient sendKeyboardEvent:character pressed:YES];
-    }
-    
-    // Handle special keys
     NSUInteger keyCode = [event keyCode];
+    NSUInteger modifierFlags = [event modifierFlags];
+    
+    // Handle special keys first with proper VNC key codes
+    BOOL specialKeyHandled = YES;
+    uint32_t vncKeyCode = 0;
+    
     switch (keyCode) {
-        case 36: // Return
-            [_vncClient sendKeyboardEvent:0xFF0D pressed:YES];
+        case 36: // Return/Enter
+            vncKeyCode = 0xFF0D;
             break;
         case 48: // Tab
-            [_vncClient sendKeyboardEvent:0xFF09 pressed:YES];
+            vncKeyCode = 0xFF09;
             break;
         case 51: // Backspace
-            [_vncClient sendKeyboardEvent:0xFF08 pressed:YES];
+            vncKeyCode = 0xFF08;
             break;
         case 53: // Escape
-            [_vncClient sendKeyboardEvent:0xFF1B pressed:YES];
+            vncKeyCode = 0xFF1B;
             break;
         case 123: // Left Arrow
-            [_vncClient sendKeyboardEvent:0xFF51 pressed:YES];
+            vncKeyCode = 0xFF51;
             break;
         case 124: // Right Arrow
-            [_vncClient sendKeyboardEvent:0xFF53 pressed:YES];
+            vncKeyCode = 0xFF53;
             break;
         case 125: // Down Arrow
-            [_vncClient sendKeyboardEvent:0xFF54 pressed:YES];
+            vncKeyCode = 0xFF54;
             break;
         case 126: // Up Arrow
-            [_vncClient sendKeyboardEvent:0xFF52 pressed:YES];
+            vncKeyCode = 0xFF52;
             break;
+        case 122: // F1
+            vncKeyCode = 0xFFBE;
+            break;
+        case 120: // F2
+            vncKeyCode = 0xFFBF;
+            break;
+        case 99: // F3
+            vncKeyCode = 0xFFC0;
+            break;
+        case 118: // F4
+            vncKeyCode = 0xFFC1;
+            break;
+        case 96: // F5
+            vncKeyCode = 0xFFC2;
+            break;
+        case 97: // F6
+            vncKeyCode = 0xFFC3;
+            break;
+        case 98: // F7
+            vncKeyCode = 0xFFC4;
+            break;
+        case 100: // F8
+            vncKeyCode = 0xFFC5;
+            break;
+        case 101: // F9
+            vncKeyCode = 0xFFC6;
+            break;
+        case 109: // F10
+            vncKeyCode = 0xFFC7;
+            break;
+        case 103: // F11
+            vncKeyCode = 0xFFC8;
+            break;
+        case 111: // F12
+            vncKeyCode = 0xFFC9;
+            break;
+        case 49: // Space
+            vncKeyCode = 0x0020;
+            break;
+        case 117: // Delete (Forward Delete)
+            vncKeyCode = 0xFFFF;
+            break;
+        case 116: // Page Up
+            vncKeyCode = 0xFF55;
+            break;
+        case 121: // Page Down
+            vncKeyCode = 0xFF56;
+            break;
+        case 115: // Home
+            vncKeyCode = 0xFF50;
+            break;
+        case 119: // End
+            vncKeyCode = 0xFF57;
+            break;
+        default:
+            specialKeyHandled = NO;
+            break;
+    }
+    
+    // Send modifier keys first
+    if (modifierFlags & NSControlKeyMask) {
+        [_vncClient sendKeyboardEvent:0xFFE3 pressed:YES]; // Left Control
+    }
+    if (modifierFlags & NSAlternateKeyMask) {
+        [_vncClient sendKeyboardEvent:0xFFE9 pressed:YES]; // Left Alt
+    }
+    if (modifierFlags & NSShiftKeyMask) {
+        [_vncClient sendKeyboardEvent:0xFFE1 pressed:YES]; // Left Shift
+    }
+    if (modifierFlags & NSCommandKeyMask) {
+        [_vncClient sendKeyboardEvent:0xFFEB pressed:YES]; // Left Meta/Cmd
+    }
+    
+    if (specialKeyHandled && vncKeyCode != 0) {
+        // Send special key
+        [_vncClient sendKeyboardEvent:vncKeyCode pressed:YES];
+    } else {
+        // Handle regular characters
+        NSString *characters = [event characters];
+        if ([characters length] > 0) {
+            for (NSUInteger i = 0; i < [characters length]; i++) {
+                unichar character = [characters characterAtIndex:i];
+                [_vncClient sendKeyboardEvent:character pressed:YES];
+            }
+        }
     }
 }
 
@@ -281,40 +364,123 @@
         return;
     }
     
-    // Convert NSEvent to VNC key code
-    NSString *characters = [event characters];
-    if ([characters length] > 0) {
-        unichar character = [characters characterAtIndex:0];
-        [_vncClient sendKeyboardEvent:character pressed:NO];
-    }
-    
-    // Handle special keys
     NSUInteger keyCode = [event keyCode];
+    NSUInteger modifierFlags = [event modifierFlags];
+    
+    // Handle special keys first with proper VNC key codes
+    BOOL specialKeyHandled = YES;
+    uint32_t vncKeyCode = 0;
+    
     switch (keyCode) {
-        case 36: // Return
-            [_vncClient sendKeyboardEvent:0xFF0D pressed:NO];
+        case 36: // Return/Enter
+            vncKeyCode = 0xFF0D;
             break;
         case 48: // Tab
-            [_vncClient sendKeyboardEvent:0xFF09 pressed:NO];
+            vncKeyCode = 0xFF09;
             break;
         case 51: // Backspace
-            [_vncClient sendKeyboardEvent:0xFF08 pressed:NO];
+            vncKeyCode = 0xFF08;
             break;
         case 53: // Escape
-            [_vncClient sendKeyboardEvent:0xFF1B pressed:NO];
+            vncKeyCode = 0xFF1B;
             break;
         case 123: // Left Arrow
-            [_vncClient sendKeyboardEvent:0xFF51 pressed:NO];
+            vncKeyCode = 0xFF51;
             break;
         case 124: // Right Arrow
-            [_vncClient sendKeyboardEvent:0xFF53 pressed:NO];
+            vncKeyCode = 0xFF53;
             break;
         case 125: // Down Arrow
-            [_vncClient sendKeyboardEvent:0xFF54 pressed:NO];
+            vncKeyCode = 0xFF54;
             break;
         case 126: // Up Arrow
-            [_vncClient sendKeyboardEvent:0xFF52 pressed:NO];
+            vncKeyCode = 0xFF52;
             break;
+        case 122: // F1
+            vncKeyCode = 0xFFBE;
+            break;
+        case 120: // F2
+            vncKeyCode = 0xFFBF;
+            break;
+        case 99: // F3
+            vncKeyCode = 0xFFC0;
+            break;
+        case 118: // F4
+            vncKeyCode = 0xFFC1;
+            break;
+        case 96: // F5
+            vncKeyCode = 0xFFC2;
+            break;
+        case 97: // F6
+            vncKeyCode = 0xFFC3;
+            break;
+        case 98: // F7
+            vncKeyCode = 0xFFC4;
+            break;
+        case 100: // F8
+            vncKeyCode = 0xFFC5;
+            break;
+        case 101: // F9
+            vncKeyCode = 0xFFC6;
+            break;
+        case 109: // F10
+            vncKeyCode = 0xFFC7;
+            break;
+        case 103: // F11
+            vncKeyCode = 0xFFC8;
+            break;
+        case 111: // F12
+            vncKeyCode = 0xFFC9;
+            break;
+        case 49: // Space
+            vncKeyCode = 0x0020;
+            break;
+        case 117: // Delete (Forward Delete)
+            vncKeyCode = 0xFFFF;
+            break;
+        case 116: // Page Up
+            vncKeyCode = 0xFF55;
+            break;
+        case 121: // Page Down
+            vncKeyCode = 0xFF56;
+            break;
+        case 115: // Home
+            vncKeyCode = 0xFF50;
+            break;
+        case 119: // End
+            vncKeyCode = 0xFF57;
+            break;
+        default:
+            specialKeyHandled = NO;
+            break;
+    }
+    
+    if (specialKeyHandled && vncKeyCode != 0) {
+        // Send special key release
+        [_vncClient sendKeyboardEvent:vncKeyCode pressed:NO];
+    } else {
+        // Handle regular characters
+        NSString *characters = [event characters];
+        if ([characters length] > 0) {
+            for (NSUInteger i = 0; i < [characters length]; i++) {
+                unichar character = [characters characterAtIndex:i];
+                [_vncClient sendKeyboardEvent:character pressed:NO];
+            }
+        }
+    }
+    
+    // Release modifier keys
+    if (!(modifierFlags & NSControlKeyMask)) {
+        [_vncClient sendKeyboardEvent:0xFFE3 pressed:NO]; // Left Control
+    }
+    if (!(modifierFlags & NSAlternateKeyMask)) {
+        [_vncClient sendKeyboardEvent:0xFFE9 pressed:NO]; // Left Alt
+    }
+    if (!(modifierFlags & NSShiftKeyMask)) {
+        [_vncClient sendKeyboardEvent:0xFFE1 pressed:NO]; // Left Shift
+    }
+    if (!(modifierFlags & NSCommandKeyMask)) {
+        [_vncClient sendKeyboardEvent:0xFFEB pressed:NO]; // Left Meta/Cmd
     }
 }
 

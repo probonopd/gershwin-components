@@ -207,7 +207,7 @@
     _bootModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(100, yPos, 120, 22)];
     [_bootModePopup addItemWithTitle:NSLocalizedString(@"BIOS (Legacy)", @"BIOS boot mode")];
     [_bootModePopup addItemWithTitle:NSLocalizedString(@"UEFI", @"UEFI boot mode")];
-    [_bootModePopup selectItemAtIndex:0]; // Default to BIOS
+    [_bootModePopup selectItemAtIndex:1]; // Default to UEFI
     [_bootModePopup setTarget:self];
     [_bootModePopup setAction:@selector(bootModeChanged:)];
     [_stepView addSubview:_bootModePopup];
@@ -372,6 +372,13 @@
             [_networkPopup selectItemAtIndex:1];
         } else {
             [_networkPopup selectItemAtIndex:2];
+        }
+        
+        // Select boot mode
+        if ([_controller.bootMode isEqualToString:@"uefi"]) {
+            [_bootModePopup selectItemAtIndex:1];
+        } else {
+            [_bootModePopup selectItemAtIndex:0];
         }
     }
 }

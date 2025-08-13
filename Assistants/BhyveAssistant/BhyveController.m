@@ -9,6 +9,10 @@
 #import "BhyveRunningStep.h"
 #import "VNCClient.h"
 #import "VNCWindow.h"
+#import <sys/socket.h>
+#import <netinet/in.h>
+#import <arpa/inet.h>
+#import <sys/time.h>
 
 @interface BhyveController()
 @property (nonatomic, strong) BhyveISOSelectionStep *isoSelectionStep;
@@ -35,17 +39,22 @@
 {
     if (self = [super init]) {
         NSLog(@"BhyveController: init");
-        _selectedISOPath = @"";
-        _selectedISOName = @"";
-        _selectedISOSize = 0;
-        _vmName = @"FreeBSD-Live";
-        _allocatedRAM = 2048; // 2GB default
-        _allocatedCPUs = 2;
-        _diskSize = 20; // 20GB default
-        _enableVNC = YES;
-        _vncPort = 5900;
-        _networkMode = @"bridge";
-        _bootMode = @"bios";
+        
+        // Load user settings first
+        [self loadUserSettings];
+        
+        // Set defaults if no settings exist
+        if (!_selectedISOPath) _selectedISOPath = [@"" retain];
+        if (!_selectedISOName) _selectedISOName = [@"" retain];
+        if (_selectedISOSize == 0) _selectedISOSize = 0;
+        if (!_vmName) _vmName = [@"FreeBSD-Live" retain];
+        if (_allocatedRAM == 0) _allocatedRAM = 2048; // 2GB default
+        if (_allocatedCPUs == 0) _allocatedCPUs = 2;
+        if (_diskSize == 0) _diskSize = 20; // 20GB default
+        _enableVNC = YES; // Always enable VNC
+        if (_vncPort == 0) _vncPort = [self findUnusedVNCPort]; // Find unused port
+        if (!_networkMode) _networkMode = [@"bridge" retain];
+        if (!_bootMode) _bootMode = [@"uefi" retain]; // Default to UEFI boot mode
         _vmRunning = NO;
         _bhyveTask = nil;
         _vncWindow = nil;
@@ -377,8 +386,8 @@
     
     // For UEFI mode, we need different setup
     if ([_bootMode isEqualToString:@"uefi"]) {
-        // UEFI requires specific configuration
-        [command appendString:@"bhyve -A -H -P -w"];
+        // UEFI requires specific configuration - use more conservative options
+        [command appendString:@"bhyve -A -H -P"];
         
         // Memory
         [command appendFormat:@" -m %ldM", (long)_allocatedRAM];
@@ -410,8 +419,8 @@
             [command appendString:[self generateVNCFramebufferConfig]];
         }
         
-        // Console output
-        [command appendString:@" -l com1,stdio"];
+        // Console output disabled to prevent bhyve startup issues
+        // Note: Removed -l com1,/dev/null as it causes "Inappropriate ioctl" errors
         
         // UEFI firmware - check multiple possible paths
         NSArray *uefiPaths = @[
@@ -472,8 +481,8 @@
             [command appendString:[self generateVNCFramebufferConfig]];
         }
         
-        // Console output to stdio
-        [command appendString:@" -l com1,stdio"];
+        // Console output disabled to prevent bhyve startup issues
+        // Note: Removed -l com1,/dev/null as it causes "Inappropriate ioctl" errors
         
         // Both BIOS and modern ISOs need UEFI firmware to boot properly
         // Check multiple possible paths for UEFI firmware
@@ -504,6 +513,9 @@
         // VM name (must be last)
         [command appendFormat:@" \"%@\"", _vmName];
     }
+    
+    // Don't redirect bhyve output so we can see errors for debugging
+    // [command appendString:@" >/dev/null 2>&1"];
     
     NSLog(@"BhyveController: Generated VM command: %@", command);
     return [NSString stringWithString:command];
@@ -562,6 +574,13 @@
     if (_vmRunning) {
         NSLog(@"BhyveController: VM is already running");
         return;
+    }
+    
+    // Find an unused VNC port before starting VM
+    NSInteger newVNCPort = [self findUnusedVNCPort];
+    if (newVNCPort != _vncPort) {
+        NSLog(@"BhyveController: Using VNC port %ld instead of %ld", (long)newVNCPort, (long)_vncPort);
+        [self setVncPort:newVNCPort];
     }
     
     if (![self validateVMConfiguration]) {
@@ -731,28 +750,115 @@
         _vncWindow = nil;
     }
     
-    NSLog(@"BhyveController: Creating VNC window for localhost:%ld", (long)_vncPort);
+    // Show status that we're waiting for VNC server
+    [self showVMStatus:@"Waiting for VNC server to start..."];
+    
+    // Wait longer for bhyve VNC server to initialize properly
+    [self performSelector:@selector(tryVNCConnection) withObject:nil afterDelay:5.0];
+}
+
+- (void)tryVNCConnection
+{
+    [self tryVNCConnectionWithRetry:0];
+}
+
+- (void)tryVNCConnectionWithRetry:(NSInteger)retryCount
+{
+    NSLog(@"BhyveController: tryVNCConnectionWithRetry: %ld", (long)retryCount);
+    
+    if (retryCount >= 8) { // Increased max retries
+        [self showVMError:[NSString stringWithFormat:@"Failed to connect to VNC server on 127.0.0.1:%ld after multiple attempts", (long)_vncPort]];
+        return;
+    }
+    
+    // Check if VNC port is accepting connections
+    if (![self isVNCServerRunning]) {
+        NSLog(@"BhyveController: VNC server not ready on port %ld, retrying in 3 seconds...", (long)_vncPort);
+        [self showVMStatus:[NSString stringWithFormat:@"Waiting for VNC server... (attempt %ld/8)", (long)(retryCount + 1)]];
+        [self performSelector:@selector(retryVNCConnection:) 
+                   withObject:@(retryCount + 1) 
+                   afterDelay:3.0];
+        return;
+    }
+    
+    NSLog(@"BhyveController: VNC server is ready, creating VNC window for 127.0.0.1:%ld", (long)_vncPort);
     
     // Create VNC window with initial size
     NSRect windowRect = NSMakeRect(100, 100, 1024, 768);
     _vncWindow = [[VNCWindow alloc] initWithContentRect:windowRect 
-                                               hostname:@"localhost" 
+                                               hostname:@"127.0.0.1" 
                                                    port:_vncPort];
     
     if (_vncWindow) {
         // Make window visible
         [_vncWindow makeKeyAndOrderFront:nil];
         
+        // Show connecting status
+        [self showVMStatus:[NSString stringWithFormat:@"Connecting to VNC server on 127.0.0.1:%ld...", (long)_vncPort]];
+        
         // Attempt connection
         BOOL connected = [_vncWindow connectToVNC];
         if (connected) {
-            [self showVMStatus:[NSString stringWithFormat:@"VNC viewer connecting to localhost:%ld", (long)_vncPort]];
+            [self showVMStatus:[NSString stringWithFormat:@"VNC viewer connected to 127.0.0.1:%ld", (long)_vncPort]];
             [self performSelector:@selector(showVNCConnectionInfo) withObject:nil afterDelay:1.0];
         } else {
-            [self showVMError:[NSString stringWithFormat:@"Failed to connect to VNC server on port %ld", (long)_vncPort]];
+            NSLog(@"BhyveController: VNC connection failed, retrying...");
+            [_vncWindow close];
+            [_vncWindow release];
+            _vncWindow = nil;
+            
+            [self performSelector:@selector(retryVNCConnection:) 
+                       withObject:@(retryCount + 1) 
+                       afterDelay:3.0];
         }
     } else {
         [self showVMError:@"Failed to create VNC viewer window"];
+    }
+}
+
+- (void)retryVNCConnection:(NSNumber *)retryNumber
+{
+    [self tryVNCConnectionWithRetry:[retryNumber integerValue]];
+}
+
+- (BOOL)isVNCServerRunning
+{
+    // Try to connect to the VNC port to see if it's accepting connections
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        return NO;
+    }
+    
+    // Set socket timeout
+    struct timeval timeout;
+    timeout.tv_sec = 2;
+    timeout.tv_usec = 0;
+    
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+        close(sockfd);
+        return NO;
+    }
+    
+    if (setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
+        close(sockfd);
+        return NO;
+    }
+    
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    addr.sin_port = htons((uint16_t)_vncPort);
+    
+    int result = connect(sockfd, (struct sockaddr*)&addr, sizeof(addr));
+    close(sockfd);
+    
+    if (result == 0) {
+        NSLog(@"BhyveController: VNC server is accepting connections on port %ld", (long)_vncPort);
+        return YES;
+    } else {
+        NSLog(@"BhyveController: VNC server not ready on port %ld (errno: %d)", (long)_vncPort, errno);
+        return NO;
     }
 }
 
@@ -1147,7 +1253,7 @@
     // - w=1280,h=1024: Good resolution that works well with X11
     // - tcp=0.0.0.0: Listen on all interfaces
     // - Using slot 29 to avoid conflicts with other devices
-    [vncConfig appendFormat:@" -s 29:0,fbuf,tcp=0.0.0.0:%ld,w=1280,h=1024,wait", (long)_vncPort];
+    [vncConfig appendFormat:@" -s 29:0,fbuf,tcp=127.0.0.1:%ld,w=1280,h=1024", (long)_vncPort];
     
     // Add tablet device for better mouse handling in VNC
     // This provides absolute mouse positioning which works better than relative mouse in VNC
@@ -1171,7 +1277,7 @@
         @"VNC Server Information:\n\n"
         @"• VNC Port: %ld\n"
         @"• Display Number: %ld\n"
-        @"• VNC Address: localhost:%ld\n"
+        @"• VNC Address: 127.0.0.1:%ld\n"
         @"• Alternative: :%ld\n\n"
         @"Resolution: 1280x1024\n"
         @"Wait Mode: Enabled (for better X11 sync)\n\n"
@@ -1184,6 +1290,191 @@
         (long)_vncPort, (long)displayNumber, (long)_vncPort, (long)displayNumber];
     
     [self showVMStatus:vncInfo];
+}
+
+#pragma mark - Port Management
+
+- (NSInteger)findUnusedVNCPort
+{
+    NSLog(@"BhyveController: findUnusedVNCPort");
+    
+    // Start checking from port 5900 (standard VNC port)
+    for (NSInteger port = 5900; port <= 5999; port++) {
+        if ([self isPortAvailable:port]) {
+            NSLog(@"BhyveController: Found unused VNC port: %ld", (long)port);
+            return port;
+        }
+    }
+    
+    // If no standard VNC ports available, try higher range
+    for (NSInteger port = 6000; port <= 6099; port++) {
+        if ([self isPortAvailable:port]) {
+            NSLog(@"BhyveController: Found unused VNC port in extended range: %ld", (long)port);
+            return port;
+        }
+    }
+    
+    NSLog(@"BhyveController: Warning - no unused VNC ports found, using 5900");
+    return 5900; // Fallback to standard port
+}
+
+- (BOOL)isPortAvailable:(NSInteger)port
+{
+    // Create a socket to test if the port is available
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        return NO;
+    }
+    
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    addr.sin_port = htons((uint16_t)port);
+    
+    int result = bind(sockfd, (struct sockaddr*)&addr, sizeof(addr));
+    close(sockfd);
+    
+    return (result == 0);
+}
+
+#pragma mark - Settings Persistence
+
+- (void)loadUserSettings
+{
+    NSLog(@"BhyveController: loadUserSettings");
+    
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    
+    // Load all persistent settings
+    NSString *savedVMName = [defaults stringForKey:@"BhyveAssistant.vmName"];
+    if (savedVMName) {
+        _vmName = [savedVMName retain];
+    }
+    
+    NSInteger savedRAM = [defaults integerForKey:@"BhyveAssistant.allocatedRAM"];
+    if (savedRAM > 0) {
+        _allocatedRAM = savedRAM;
+    }
+    
+    NSInteger savedCPUs = [defaults integerForKey:@"BhyveAssistant.allocatedCPUs"];
+    if (savedCPUs > 0) {
+        _allocatedCPUs = savedCPUs;
+    }
+    
+    NSInteger savedDiskSize = [defaults integerForKey:@"BhyveAssistant.diskSize"];
+    if (savedDiskSize > 0) {
+        _diskSize = savedDiskSize;
+    }
+    
+    NSString *savedNetworkMode = [defaults stringForKey:@"BhyveAssistant.networkMode"];
+    if (savedNetworkMode) {
+        _networkMode = [savedNetworkMode retain];
+    }
+    
+    NSString *savedBootMode = [defaults stringForKey:@"BhyveAssistant.bootMode"];
+    if (savedBootMode) {
+        _bootMode = [savedBootMode retain];
+    }
+    
+    NSInteger savedVNCPort = [defaults integerForKey:@"BhyveAssistant.vncPort"];
+    if (savedVNCPort > 0) {
+        _vncPort = savedVNCPort;
+    }
+    
+    NSLog(@"BhyveController: Loaded settings - VM: %@, RAM: %ld MB, CPUs: %ld, Disk: %ld GB, Network: %@, Boot: %@, VNC Port: %ld", 
+          _vmName, (long)_allocatedRAM, (long)_allocatedCPUs, (long)_diskSize, _networkMode, _bootMode, (long)_vncPort);
+}
+
+- (void)saveUserSettings
+{
+    NSLog(@"BhyveController: saveUserSettings");
+    
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    
+    // Save all persistent settings
+    if (_vmName) {
+        [defaults setObject:_vmName forKey:@"BhyveAssistant.vmName"];
+    }
+    
+    [defaults setInteger:_allocatedRAM forKey:@"BhyveAssistant.allocatedRAM"];
+    [defaults setInteger:_allocatedCPUs forKey:@"BhyveAssistant.allocatedCPUs"];
+    [defaults setInteger:_diskSize forKey:@"BhyveAssistant.diskSize"];
+    [defaults setInteger:_vncPort forKey:@"BhyveAssistant.vncPort"];
+    
+    if (_networkMode) {
+        [defaults setObject:_networkMode forKey:@"BhyveAssistant.networkMode"];
+    }
+    
+    if (_bootMode) {
+        [defaults setObject:_bootMode forKey:@"BhyveAssistant.bootMode"];
+    }
+    
+    [defaults synchronize];
+    
+    NSLog(@"BhyveController: Saved settings - VM: %@, RAM: %ld MB, CPUs: %ld, Disk: %ld GB, Network: %@, Boot: %@, VNC Port: %ld", 
+          _vmName, (long)_allocatedRAM, (long)_allocatedCPUs, (long)_diskSize, _networkMode, _bootMode, (long)_vncPort);
+}
+
+#pragma mark - Property Setters with Persistence
+
+- (void)setVmName:(NSString *)vmName
+{
+    if (_vmName != vmName) {
+        [_vmName release];
+        _vmName = [vmName retain];
+        [self saveUserSettings];
+    }
+}
+
+- (void)setAllocatedRAM:(NSInteger)allocatedRAM
+{
+    if (_allocatedRAM != allocatedRAM) {
+        _allocatedRAM = allocatedRAM;
+        [self saveUserSettings];
+    }
+}
+
+- (void)setAllocatedCPUs:(NSInteger)allocatedCPUs
+{
+    if (_allocatedCPUs != allocatedCPUs) {
+        _allocatedCPUs = allocatedCPUs;
+        [self saveUserSettings];
+    }
+}
+
+- (void)setDiskSize:(NSInteger)diskSize
+{
+    if (_diskSize != diskSize) {
+        _diskSize = diskSize;
+        [self saveUserSettings];
+    }
+}
+
+- (void)setVncPort:(NSInteger)vncPort
+{
+    if (_vncPort != vncPort) {
+        _vncPort = vncPort;
+        [self saveUserSettings];
+    }
+}
+
+- (void)setNetworkMode:(NSString *)networkMode
+{
+    if (_networkMode != networkMode) {
+        [_networkMode release];
+        _networkMode = [networkMode retain];
+        [self saveUserSettings];
+    }
+}
+
+- (void)setBootMode:(NSString *)bootMode
+{
+    if (_bootMode != bootMode) {
+        [_bootMode release];
+        _bootMode = [bootMode retain];
+        [self saveUserSettings];
+    }
 }
 
 @end

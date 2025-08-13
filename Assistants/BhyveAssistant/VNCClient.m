@@ -128,20 +128,13 @@ static rfbBool VNCMallocFrameBuffer(rfbClient *client)
     
     client->frameBuffer = vncClient->_framebuffer;
     
-    // Set up pixel format for proper color handling (fix blue->orange issue)
-    // Force RGB format with proper byte order
-    client->format.depth = 24;
-    client->format.bitsPerPixel = 32;
-    client->format.redShift = 16;
-    client->format.greenShift = 8;
-    client->format.blueShift = 0;
-    client->format.redMax = 0xFF;
-    client->format.greenMax = 0xFF;
-    client->format.blueMax = 0xFF;
-    client->format.trueColour = TRUE;
-    client->format.bigEndian = FALSE; // Little endian for proper color order
+    // Accept the server's pixel format instead of forcing our own
+    // The server reported: "shift red 16 green 8 blue 0" which is RGB format
+    // Let's use the server's format and handle color conversion in the image creation
+    NSLog(@"VNCClient: Using server pixel format - red:%d green:%d blue:%d",
+          client->format.redShift, client->format.greenShift, client->format.blueShift);
     
-    SetFormatAndEncodings(client);
+    // Don't call SetFormatAndEncodings() to avoid changing the server's format
     
     // Notify delegate on main thread
     if (vncClient->_delegate && [vncClient->_delegate respondsToSelector:@selector(vncClient:framebufferDidUpdate:)]) {
@@ -171,7 +164,7 @@ static void VNCGotFrameBufferUpdate(rfbClient *client, int x, int y, int w, int 
     }
 }
 
-// Log callback
+// Log callback with more detailed error information
 static void VNCLog(const char *format, ...)
 {
     va_list args;
@@ -180,6 +173,19 @@ static void VNCLog(const char *format, ...)
     char buffer[1024];
     vsnprintf(buffer, sizeof(buffer), format, args);
     NSLog(@"VNCClient libvncclient: %s", buffer);
+    
+    va_end(args);
+}
+
+// Error callback
+static void VNCErr(const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    
+    char buffer[1024];
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    NSLog(@"VNCClient libvncclient ERROR: %s", buffer);
     
     va_end(args);
 }
@@ -278,7 +284,7 @@ static void VNCLog(const char *format, ...)
     
     // Initialize libvncclient
     rfbClientLog = VNCLog;
-    rfbClientErr = VNCLog;
+    rfbClientErr = VNCErr;
     
     _rfbClient = rfbGetClient(8, 3, 4); // 8 bits per sample, 3 samples per pixel, 4 bytes per pixel
     if (!_rfbClient) {
@@ -295,14 +301,45 @@ static void VNCLog(const char *format, ...)
     client->MallocFrameBuffer = VNCMallocFrameBuffer;
     client->GotFrameBufferUpdate = VNCGotFrameBufferUpdate;
     
-    // Connection parameters
+    // Configure client settings for better compatibility
+    client->canHandleNewFBSize = TRUE;
+    client->format.depth = 24;
+    client->format.bitsPerPixel = 32;
+    client->format.trueColour = TRUE;
+    
+    // Connection parameters - ensure we use IPv4 address
     client->serverHost = strdup([_hostname UTF8String]);
     client->serverPort = (int)_port;
     
-    // Initialize connection
-    if (!rfbInitClient(client, NULL, NULL)) {
-        NSLog(@"VNCClient: Failed to initialize client connection");
-        [self notifyConnectionResult:NO error:@"Failed to connect to VNC server"];
+    NSLog(@"VNCClient: Attempting to connect to %s:%d", client->serverHost, client->serverPort);
+    
+    // Add connection timeout handling
+    int connectResult = 0;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (_shouldStop) {
+            NSLog(@"VNCClient: Connection cancelled before attempt %d", attempt + 1);
+            [self notifyConnectionResult:NO error:@"Connection cancelled"];
+            goto cleanup;
+        }
+        
+        NSLog(@"VNCClient: Connection attempt %d/3", attempt + 1);
+        
+        // Try to connect
+        connectResult = rfbInitClient(client, NULL, NULL);
+        if (connectResult) {
+            NSLog(@"VNCClient: Connection successful on attempt %d", attempt + 1);
+            break;
+        }
+        
+        NSLog(@"VNCClient: Connection attempt %d failed, waiting before retry...", attempt + 1);
+        if (attempt < 2) { // Don't sleep after the last attempt
+            sleep(2);
+        }
+    }
+    
+    if (!connectResult) {
+        NSLog(@"VNCClient: All connection attempts failed");
+        [self notifyConnectionResult:NO error:@"Failed to connect to VNC server after multiple attempts"];
         goto cleanup;
     }
     
@@ -459,10 +496,35 @@ cleanup:
     }
     
     int bytesPerPixel = 4; // Always use 32-bit RGBA
+    size_t bufferSize = _width * _height * bytesPerPixel;
     
-    // Create bitmap representation
+    // Create a converted buffer with proper color order for NSBitmapImageRep
+    unsigned char *convertedBuffer = (unsigned char *)malloc(bufferSize);
+    if (!convertedBuffer) {
+        return nil;
+    }
+    
+    // Convert from server's RGB format to what NSBitmapImageRep expects
+    // Server uses: red shift 16, green shift 8, blue shift 0 (RGB)
+    // NSBitmapImageRep expects: RGBA in memory order
+    for (int i = 0; i < _width * _height; i++) {
+        uint32_t pixel = ((uint32_t*)_framebuffer)[i];
+        
+        // Extract RGB components from server format
+        unsigned char red = (pixel >> 16) & 0xFF;
+        unsigned char green = (pixel >> 8) & 0xFF;
+        unsigned char blue = pixel & 0xFF;
+        
+        // Store in RGBA format
+        convertedBuffer[i * 4 + 0] = red;
+        convertedBuffer[i * 4 + 1] = green;
+        convertedBuffer[i * 4 + 2] = blue;
+        convertedBuffer[i * 4 + 3] = 0xFF; // Alpha
+    }
+    
+    // Create bitmap representation with converted data
     NSBitmapImageRep *bitmapRep = [[NSBitmapImageRep alloc] 
-        initWithBitmapDataPlanes:&_framebuffer
+        initWithBitmapDataPlanes:&convertedBuffer
                       pixelsWide:_width
                       pixelsHigh:_height
                    bitsPerSample:8
@@ -474,6 +536,7 @@ cleanup:
                     bitsPerPixel:32];
     
     if (!bitmapRep) {
+        free(convertedBuffer);
         return nil;
     }
     
@@ -481,6 +544,9 @@ cleanup:
     NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(_width, _height)];
     [image addRepresentation:bitmapRep];
     [bitmapRep release];
+    
+    // Clean up converted buffer
+    free(convertedBuffer);
     
     return [image autorelease];
 }

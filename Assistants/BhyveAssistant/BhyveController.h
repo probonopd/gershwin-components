@@ -47,6 +47,9 @@
 @property (nonatomic, assign) BOOL vmRunning;
 
 - (void)showAssistant;
+- (NSInteger)findUnusedVNCPort;
+- (void)loadUserSettings;
+- (void)saveUserSettings;
 
 // VM Management
 - (void)startVirtualMachine;
