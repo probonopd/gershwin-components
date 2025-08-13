@@ -21,3 +21,5 @@
 - Buttons are 24 px high and neighboring ones are 12 px apart from each other.
 - Use `NSLocalizedString` for all user-facing strings to ensure they are localizable.
 - Unless specifically asked to do so never write test cases; instead, use the existing real applications to verify functionality.
+- NEVER write any .md or other summary files, unless specifically requested to do so. Never summarize successes.
+- The GCD dispatch functions aren't available.
