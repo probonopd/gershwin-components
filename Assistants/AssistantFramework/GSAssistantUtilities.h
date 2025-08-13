@@ -60,7 +60,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype)withTitle:(NSString *)title;
 - (instancetype)withIcon:(NSImage *)icon;
-- (instancetype)withLayoutStyle:(GSAssistantLayoutStyle)layoutStyle;
 - (instancetype)withAnimationType:(GSAssistantAnimationType)animationType;
 - (instancetype)withProgressBar:(BOOL)showProgress;
 - (instancetype)allowingCancel:(BOOL)allowCancel;

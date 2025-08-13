@@ -461,13 +461,13 @@
     NSLog(@"[GSAssistantBuilder] Initializing builder");
     self = [super init];
     if (self) {
-        _layoutStyle = GSAssistantLayoutStyleDefault;
+        _layoutStyle = GSAssistantLayoutStyleInstaller; // Force installer layout as default and only option
         _animationType = GSAssistantAnimationTypeSlideLeft;
         _showProgress = YES;
         _allowCancel = YES;
         _steps = [[NSMutableArray alloc] init];
         _includeLocalizedContent = NO; // Default to NO
-        NSLog(@"[GSAssistantBuilder] Builder initialized with defaults");
+        NSLog(@"[GSAssistantBuilder] Builder initialized");
     }
     return self;
 }
@@ -481,12 +481,6 @@
 - (instancetype)withIcon:(NSImage *)icon {
     NSLog(@"[GSAssistantBuilder] Setting icon: %@", icon);
     _icon = icon;
-    return self;
-}
-
-- (instancetype)withLayoutStyle:(GSAssistantLayoutStyle)layoutStyle {
-    NSLog(@"[GSAssistantBuilder] Setting layout style: %ld", (long)layoutStyle);
-    _layoutStyle = layoutStyle;
     return self;
 }
 
