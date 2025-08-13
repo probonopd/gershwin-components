@@ -4,8 +4,11 @@
 # Projects to build
 PROJECTS="BootEnvironments Display GlobalShortcuts StartupDisk LoginWindow globalshortcutsd SudoAskPass initgfx"
 
-# Additional frameworks and tools
-FRAMEWORKS="" # "Assistants/Framework"
+# Assistant applications to build
+ASSISTANTS="Assistants/BhyveAssistant Assistants/CreateLiveMediaAssistant Assistants/DebianRuntimeInstaller"
+
+# Additional frameworks and tools (framework must be built first as assistants depend on it)
+FRAMEWORKS="Assistants/AssistantFramework"
 EXAMPLES="" # "Assistants/DebianRuntimeInstaller"
 
 export CC=clang
@@ -172,12 +175,13 @@ for FRAMEWORK in $FRAMEWORKS; do
         # Build and install with DESTDIR for packaging
         if gmake install DESTDIR=root; then
             if [ -d root ]; then
-                echo "Creating ${FRAMEWORK}.tar.zst..."
-                (cd root && tar --zstd -cf "../${FRAMEWORK}.tar.zst" .)
-                echo "Created ${FRAMEWORK}.tar.zst"
+                FRAMEWORK_NAME=$(basename "$FRAMEWORK")
+                echo "Creating ${FRAMEWORK_NAME}.tar.zst..."
+                (cd root && tar --zstd -cf "../${FRAMEWORK_NAME}.tar.zst" .)
+                echo "Created ${FRAMEWORK_NAME}.tar.zst"
                 
                 # Create pkg manifest and pkg file
-                framework_lower=$(echo "$FRAMEWORK" | tr '[:upper:]' '[:lower:]')
+                framework_lower=$(echo "$FRAMEWORK_NAME" | tr '[:upper:]' '[:lower:]')
                 create_pkg_manifest "$framework_lower" "$HERE/$FRAMEWORK" "$HERE/$FRAMEWORK/root"
                 create_pkg_file "$framework_lower" "$HERE/$FRAMEWORK" "$HERE/$FRAMEWORK/root"
                 
@@ -246,6 +250,54 @@ for PROJECT in $PROJECTS; do
     echo ""
 done
 
+# Build assistant applications
+echo "=== Building Assistant Applications ==="
+
+for ASSISTANT in $ASSISTANTS; do
+    echo "Building $ASSISTANT..."
+    
+    # Check if assistant directory exists
+    if [ ! -d "$HERE/$ASSISTANT" ]; then
+        echo "Warning: Directory $ASSISTANT does not exist in $HERE, skipping..."
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        continue
+    fi
+    
+    cd "$HERE/$ASSISTANT"
+    
+    # Clean any existing root directory
+    if [ -d root ]; then
+        rm -rf root
+    fi
+    
+    # Build and install with DESTDIR (continue on error)
+    if gmake install DESTDIR=root; then
+        # Create tar.zst archive if root directory exists
+        if [ -d root ]; then
+            ASSISTANT_NAME=$(basename "$ASSISTANT")
+            echo "Creating ${ASSISTANT_NAME}.tar.zst..."
+            (cd root && tar --zstd -cf "../${ASSISTANT_NAME}.tar.zst" .)
+            echo "Created ${ASSISTANT_NAME}.tar.zst"
+            
+            # Create pkg manifest and pkg file
+            assistant_lower=$(echo "$ASSISTANT_NAME" | tr '[:upper:]' '[:lower:]')
+            create_pkg_manifest "$assistant_lower" "$HERE/$ASSISTANT" "$HERE/$ASSISTANT/root"
+            create_pkg_file "$assistant_lower" "$HERE/$ASSISTANT" "$HERE/$ASSISTANT/root"
+            
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+        else
+            echo "Warning: No root directory created for $ASSISTANT"
+            FAIL_COUNT=$((FAIL_COUNT + 1))
+        fi
+    else
+        echo "Error: Failed to build $ASSISTANT"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+    
+    echo "Finished $ASSISTANT"
+    echo ""
+done
+
 echo "Build summary:"
 echo "  Successful: $SUCCESS_COUNT"
 echo "  Failed: $FAIL_COUNT"
@@ -259,14 +311,15 @@ COLLECTED_COUNT=0
 
 # Collect framework archives and pkg files
 for FRAMEWORK in $FRAMEWORKS; do
-    if [ -f "$HERE/$FRAMEWORK/${FRAMEWORK}.tar.zst" ]; then
-        echo "  Copying ${FRAMEWORK}.tar.zst to out/"
-        cp "$HERE/$FRAMEWORK/${FRAMEWORK}.tar.zst" "$HERE/out/"
+    FRAMEWORK_NAME=$(basename "$FRAMEWORK")
+    if [ -f "$HERE/$FRAMEWORK/${FRAMEWORK_NAME}.tar.zst" ]; then
+        echo "  Copying ${FRAMEWORK_NAME}.tar.zst to out/"
+        cp "$HERE/$FRAMEWORK/${FRAMEWORK_NAME}.tar.zst" "$HERE/out/"
         COLLECTED_COUNT=$((COLLECTED_COUNT + 1))
     fi
     
     # Look for pkg files with framework name (case insensitive)
-    framework_lower=$(echo "$FRAMEWORK" | tr '[:upper:]' '[:lower:]')
+    framework_lower=$(echo "$FRAMEWORK_NAME" | tr '[:upper:]' '[:lower:]')
     for pkg_file in "$HERE/$FRAMEWORK"/gershwin-"$framework_lower"-*.pkg; do
         if [ -f "$pkg_file" ]; then
             echo "  Copying $(basename "$pkg_file") to out/"
@@ -287,6 +340,26 @@ for PROJECT in $PROJECTS; do
     # Look for pkg files with project name (case insensitive)
     project_lower=$(echo "$PROJECT" | tr '[:upper:]' '[:lower:]')
     for pkg_file in "$HERE/$PROJECT"/gershwin-"$project_lower"-*.pkg; do
+        if [ -f "$pkg_file" ]; then
+            echo "  Copying $(basename "$pkg_file") to out/"
+            cp "$pkg_file" "$HERE/out/"
+            COLLECTED_COUNT=$((COLLECTED_COUNT + 1))
+        fi
+    done
+done
+
+# Collect assistant archives and pkg files
+for ASSISTANT in $ASSISTANTS; do
+    ASSISTANT_NAME=$(basename "$ASSISTANT")
+    if [ -f "$HERE/$ASSISTANT/${ASSISTANT_NAME}.tar.zst" ]; then
+        echo "  Copying ${ASSISTANT_NAME}.tar.zst to out/"
+        cp "$HERE/$ASSISTANT/${ASSISTANT_NAME}.tar.zst" "$HERE/out/"
+        COLLECTED_COUNT=$((COLLECTED_COUNT + 1))
+    fi
+    
+    # Look for pkg files with assistant name (case insensitive)
+    assistant_lower=$(echo "$ASSISTANT_NAME" | tr '[:upper:]' '[:lower:]')
+    for pkg_file in "$HERE/$ASSISTANT"/gershwin-"$assistant_lower"-*.pkg; do
         if [ -f "$pkg_file" ]; then
             echo "  Copying $(basename "$pkg_file") to out/"
             cp "$pkg_file" "$HERE/out/"
@@ -318,7 +391,7 @@ mkdir -p "$REPO_DIR"
 # Count and move all .pkg files to repository directory
 PKG_COUNT=0
 echo "Moving all .pkg files to repository directory..."
-for pkg_file in "$HERE"/*/*.pkg "$HERE/out"/*.pkg; do
+for pkg_file in "$HERE"/*/*.pkg "$HERE"/Assistants/*/*.pkg "$HERE/out"/*.pkg; do
     if [ -f "$pkg_file" ]; then
         echo "  Moving $(basename "$pkg_file") to $ABI/"
         mv "$pkg_file" "$REPO_DIR/"
