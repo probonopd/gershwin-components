@@ -384,8 +384,8 @@ static NSBundle *getFrameworkBundle() {
 }
 
 - (NSView *)createCompletionViewWithMessage:(NSString *)message success:(BOOL)success {
-    // Create container view with explicit frame to ensure proper sizing
-    NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 460, 190)];
+    // Create container view with explicit frame to ensure proper sizing for installer cards
+    NSView *containerView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 378, 264)];
     containerView.translatesAutoresizingMaskIntoConstraints = YES; // Use frame-based layout
     
     // Status icon - try to use PNG assets from framework bundle first, fallback to Unicode characters
@@ -419,8 +419,8 @@ static NSBundle *getFrameworkBundle() {
     }
     
     if (iconPath) {
-        // Use PNG icon
-        NSImageView *statusIcon = [[NSImageView alloc] initWithFrame:NSMakeRect(198, 110, 64, 64)];
+        // Use PNG icon - center it in the upper area
+        NSImageView *statusIcon = [[NSImageView alloc] initWithFrame:NSMakeRect(157, 170, 64, 64)];
         NSImage *icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
         if (icon) {
             [statusIcon setImage:icon];
@@ -430,8 +430,8 @@ static NSBundle *getFrameworkBundle() {
         [containerView addSubview:statusIcon];
         [statusIcon release];
     } else {
-        // Fallback to Unicode characters
-        NSTextField *statusIcon = [[NSTextField alloc] initWithFrame:NSMakeRect(198, 110, 64, 64)];
+        // Fallback to Unicode characters - center in upper area
+        NSTextField *statusIcon = [[NSTextField alloc] initWithFrame:NSMakeRect(157, 170, 64, 64)];
         statusIcon.editable = NO;
         statusIcon.selectable = NO;
         statusIcon.bordered = NO;
@@ -453,17 +453,23 @@ static NSBundle *getFrameworkBundle() {
         [statusIcon release];
     }
     
-    // Status message
-    NSTextField *statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(40, 60, 380, 40)];
+    // Status message - use proper layout with word wrapping and centering within card bounds
+    NSTextField *statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 40, 338, 120)];
     statusLabel.editable = NO;
     statusLabel.selectable = NO;
     statusLabel.bordered = NO;
     statusLabel.bezeled = NO;
     statusLabel.drawsBackground = NO;
     statusLabel.backgroundColor = [NSColor clearColor];
-    statusLabel.font = [NSFont systemFontOfSize:16.0];
+    statusLabel.font = [NSFont systemFontOfSize:14.0];
     statusLabel.stringValue = message ?: (success ? GSLocalizedString(@"Setup completed successfully!", @"Default success message") : GSLocalizedString(@"Setup encountered an error.", @"Default error message"));
     statusLabel.alignment = NSCenterTextAlignment;
+    
+    // Configure text wrapping through the cell
+    NSTextFieldCell *cell = [statusLabel cell];
+    [cell setWraps:YES];
+    [cell setLineBreakMode:NSLineBreakByWordWrapping];
+    
     [containerView addSubview:statusLabel];
     [statusLabel release]; // Release our reference since the container view retains it
     

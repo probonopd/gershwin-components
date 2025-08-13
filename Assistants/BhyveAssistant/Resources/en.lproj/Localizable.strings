@@ -1,0 +1,59 @@
+/* Localizable.strings - English */
+
+/* Application */
+"Bhyve Virtual Machine" = "Bhyve Virtual Machine";
+"Application title" = "Bhyve Virtual Machine";
+
+/* Step Titles */
+"Select ISO Image" = "Select ISO Image";
+"VM Configuration" = "VM Configuration";
+"Virtual Machine" = "Virtual Machine";
+
+/* Step Descriptions */
+"Choose the ISO file to boot" = "Choose the ISO file to boot";
+"Configure virtual machine settings" = "Configure virtual machine settings";
+"Control the virtual machine" = "Control the virtual machine";
+
+/* ISO Selection Step */
+"Select an ISO image file to boot in the virtual machine. This can be any x86_64 bootable ISO." = "Select an ISO image file to boot in the virtual machine. This can be any x86_64 bootable ISO.";
+"Browse..." = "Browse...";
+"No ISO file selected" = "No ISO file selected";
+"Supported: ISO, IMG. Most Linux distributions, BSD systems, and installation media work." = "Supported: ISO, IMG. Most Linux distributions, BSD systems, and installation media work.";
+"Select ISO Image" = "Select ISO Image";
+"Select" = "Select";
+
+/* Configuration Step */
+"VM Name:" = "VM Name:";
+"RAM (MB):" = "RAM (MB):";
+"CPUs:" = "CPUs:";
+"Disk (GB):" = "Disk (GB):";
+"Enable VNC" = "Enable VNC";
+"Port:" = "Port:";
+"Network:" = "Network:";
+"Boot Mode:" = "Boot Mode:";
+"Bridge" = "Bridge";
+"NAT" = "NAT";
+"None" = "None";
+"BIOS (Legacy)" = "BIOS (Legacy)";
+"UEFI" = "UEFI";
+
+/* Running Step */
+"Ready to start virtual machine" = "Ready to start virtual machine";
+"Start VM" = "Start VM";
+"Stop VM" = "Stop VM";
+"VNC" = "VNC";
+"Starting virtual machine..." = "Starting virtual machine...";
+"Stopping virtual machine..." = "Stopping virtual machine...";
+"Virtual machine is running" = "Virtual machine is running";
+"Error: bhyve not available on this system" = "Error: bhyve not available on this system";
+"Click 'Start VM' to boot the virtual machine with your selected ISO. VNC will be available for graphical access if enabled. Use 'Stop VM' to cleanly shut down." = "Click 'Start VM' to boot the virtual machine with your selected ISO. VNC will be available for graphical access if enabled. Use 'Stop VM' to cleanly shut down.";
+
+/* Error Messages */
+"VM Error" = "VM Error";
+"No VNC client found in PATH. Please install a VNC viewer (vncviewer) to access the virtual machine display." = "No VNC client found in PATH. Please install a VNC viewer (vncviewer) to access the virtual machine display.";
+"Failed to create virtual disk" = "Failed to create virtual disk";
+"bhyve is not available on this system. Please ensure bhyve is installed." = "bhyve is not available on this system. Please ensure bhyve is installed.";
+"bhyve is only available on FreeBSD" = "bhyve is only available on FreeBSD";
+"Unable to determine operating system" = "Unable to determine operating system";
+"Invalid VM configuration" = "Invalid VM configuration";
+"Failed to start VNC viewer. Please check your VNC client installation." = "Failed to start VNC viewer. Please check your VNC client installation.";

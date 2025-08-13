@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleExecutable</key>
+	<string>BhyveAssistant</string>
+	<key>CFBundleGetInfoString</key>
+	<string>Bhyve Virtual Machine Assistant 1.0</string>
+	<key>CFBundleIconFile</key>
+	<string>Bhyve_VM.png</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.gershwin.BhyveAssistant</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>BhyveAssistant</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleSignature</key>
+	<string>BHYV</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>NSMainNibFile</key>
+	<string></string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSRequiresNativeExecution</key>
+	<true/>
+</dict>
+</plist>
