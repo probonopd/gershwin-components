@@ -6,6 +6,7 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import <GSAssistantFramework.h>
+#import "VNCWindow.h"
 
 @interface BhyveController : NSObject <GSAssistantWindowDelegate>
 {
@@ -22,7 +23,7 @@
     NSString *_networkMode;
     BOOL _vmRunning;
     NSTask *_bhyveTask;
-    NSTask *_vncViewerTask;
+    VNCWindow *_vncWindow;
     NSString *_bootMode;
     
     // Log viewing
@@ -60,7 +61,7 @@
 - (void)showSystemRequirementsError:(NSString *)message;
 - (BOOL)checkBhyveAvailable;
 - (BOOL)testBhyveBasicFunction;
-- (BOOL)checkVNCClientAvailable;
+- (BOOL)checkLibVNCClientAvailable;
 - (BOOL)validateVMConfiguration;
 - (NSString *)generateVMCommand;
 - (NSString *)generateVNCFramebufferConfig;

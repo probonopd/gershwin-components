@@ -7,6 +7,8 @@
 #import "BhyveISOSelectionStep.h"
 #import "BhyveConfigurationStep.h"
 #import "BhyveRunningStep.h"
+#import "VNCClient.h"
+#import "VNCWindow.h"
 
 @interface BhyveController()
 @property (nonatomic, strong) BhyveISOSelectionStep *isoSelectionStep;
@@ -46,7 +48,7 @@
         _bootMode = @"bios";
         _vmRunning = NO;
         _bhyveTask = nil;
-        _vncViewerTask = nil;
+        _vncWindow = nil;
         _logWindow = nil;
         _logTextView = nil;
         _logFileHandle = nil;
@@ -61,6 +63,11 @@
     [self stopVirtualMachine];
     [self cleanupTemporaryFiles];
     [self closeLogWindow];
+    if (_vncWindow) {
+        [_vncWindow close];
+        [_vncWindow release];
+        _vncWindow = nil;
+    }
     [_assistantWindow release];
     [_selectedISOPath release];
     [_selectedISOName release];
@@ -175,6 +182,11 @@
         return @"UEFI firmware not found.\n\nMost modern ISOs (including GhostBSD and Linux) require UEFI firmware to boot in bhyve.\n\nPlease install the firmware:\n\nsudo pkg install bhyve-firmware\n\nThis will install the necessary UEFI boot ROM files.";
     }
     
+    // Check if libvncclient is available for VNC support
+    if (![self checkLibVNCClientAvailable]) {
+        return @"libvncclient not found.\n\nVNC display support requires libvncclient.\n\nPlease install it:\n\nsudo pkg install libvncserver\n\nThis will enable integrated VNC display for virtual machines.";
+    }
+    
     NSLog(@"BhyveController: All system requirements met");
     return nil; // No error
 }
@@ -230,49 +242,11 @@
     return YES;
 }
 
-- (BOOL)checkVNCClientAvailable
+- (BOOL)checkLibVNCClientAvailable
 {
-    NSLog(@"BhyveController: checkVNCClientAvailable");
+    NSLog(@"BhyveController: checkLibVNCClientAvailable");
     
-    // Check common VNC viewer paths
-    NSArray *vncViewers = @[@"/usr/local/bin/vncviewer", @"/usr/bin/vncviewer", @"vncviewer"];
-    
-    for (NSString *vncPath in vncViewers) {
-        if ([vncPath hasPrefix:@"/"]) {
-            // Absolute path check
-            if ([[NSFileManager defaultManager] fileExistsAtPath:vncPath]) {
-                NSLog(@"BhyveController: Found VNC viewer at %@", vncPath);
-                return YES;
-            }
-        } else {
-            // Check if command is in PATH
-            NSTask *task = [[NSTask alloc] init];
-            [task setLaunchPath:@"/usr/bin/which"];
-            [task setArguments:@[vncPath]];
-            
-            NSPipe *pipe = [NSPipe pipe];
-            [task setStandardOutput:pipe];
-            [task setStandardError:pipe];
-            
-            @try {
-                [task launch];
-                [task waitUntilExit];
-                int exitStatus = [task terminationStatus];
-                [task release];
-                
-                if (exitStatus == 0) {
-                    NSLog(@"BhyveController: Found VNC viewer '%@' in PATH", vncPath);
-                    return YES;
-                }
-            } @catch (NSException *exception) {
-                NSLog(@"BhyveController: Error checking VNC client in PATH: %@", [exception reason]);
-                [task release];
-            }
-        }
-    }
-    
-    NSLog(@"BhyveController: No VNC viewer found");
-    return NO;
+    return [VNCClient isLibVNCClientAvailable];
 }
 
 - (BOOL)validateVMConfiguration
@@ -744,119 +718,42 @@
 {
     NSLog(@"BhyveController: startVNCViewer");
     
-    // Check if VNC client is available first
-    if (![self checkVNCClientAvailable]) {
-        [self showVMError:@"No VNC client found in PATH. Please install a VNC viewer (vncviewer) to access the virtual machine display."];
+    // Check if libvncclient is available first
+    if (![self checkLibVNCClientAvailable]) {
+        [self showVMError:@"libvncclient not available. Please install libvncserver package to enable VNC display."];
         return;
     }
     
-    // Calculate display number (VNC display = port - 5900)
-    NSInteger displayNumber = _vncPort - 5900;
-    
-    // Different address formats that VNC clients might expect
-    NSArray *addressFormats = @[
-        [NSString stringWithFormat:@"localhost:%ld", (long)_vncPort],              // Full port format
-        [NSString stringWithFormat:@"localhost:%ld", (long)displayNumber],         // Display number format  
-        [NSString stringWithFormat:@":%ld", (long)displayNumber],                  // Short display format
-        [NSString stringWithFormat:@"localhost::%ld", (long)_vncPort],             // Double colon format
-        [NSString stringWithFormat:@"127.0.0.1:%ld", (long)_vncPort]               // IP address format
-    ];
-    
-    // Try different VNC viewers with different address formats
-    NSArray *vncViewers = @[
-        @"/usr/local/bin/vncviewer",    // TigerVNC, TightVNC
-        @"/usr/bin/vncviewer",          // System VNC viewer
-        @"/usr/local/bin/tigervnc-viewer", // TigerVNC alternative name
-        @"/usr/local/bin/tightvnc-viewer", // TightVNC alternative name
-        @"vncviewer",                   // Any vncviewer in PATH
-        @"tigervnc-viewer",             // TigerVNC in PATH
-        @"tightvnc-viewer"              // TightVNC in PATH
-    ];
-    
-    for (NSString *vncPath in vncViewers) {
-        BOOL vncExists = NO;
-        
-        if ([vncPath hasPrefix:@"/"]) {
-            // Absolute path - check if file exists
-            vncExists = [[NSFileManager defaultManager] fileExistsAtPath:vncPath];
-        } else {
-            // Check if command exists in PATH
-            NSTask *whichTask = [[NSTask alloc] init];
-            [whichTask setLaunchPath:@"/usr/bin/which"];
-            [whichTask setArguments:@[vncPath]];
-            [whichTask setStandardOutput:[NSPipe pipe]];
-            [whichTask setStandardError:[NSPipe pipe]];
-            
-            @try {
-                [whichTask launch];
-                [whichTask waitUntilExit];
-                vncExists = ([whichTask terminationStatus] == 0);
-                [whichTask release];
-            } @catch (NSException *exception) {
-                [whichTask release];
-                vncExists = NO;
-            }
-        }
-        
-        if (!vncExists) {
-            continue; // Try next VNC viewer
-        }
-        
-        NSLog(@"BhyveController: Found VNC viewer: %@", vncPath);
-        
-        // Try different address formats with this VNC viewer
-        for (NSString *address in addressFormats) {
-            NSLog(@"BhyveController: Trying VNC connection to %@", address);
-            
-            _vncViewerTask = [[NSTask alloc] init];
-            
-            if ([vncPath hasPrefix:@"/"]) {
-                // Absolute path
-                [_vncViewerTask setLaunchPath:vncPath];
-                [_vncViewerTask setArguments:@[address]];
-            } else {
-                // Command in PATH
-                [_vncViewerTask setLaunchPath:@"/usr/bin/env"];
-                [_vncViewerTask setArguments:@[vncPath, address]];
-            }
-            
-            // Redirect output to avoid terminal noise
-            NSPipe *outputPipe = [NSPipe pipe];
-            [_vncViewerTask setStandardOutput:outputPipe];
-            [_vncViewerTask setStandardError:outputPipe];
-            
-            @try {
-                [_vncViewerTask launch];
-                
-                // Give VNC viewer a moment to start
-                [NSThread sleepForTimeInterval:0.5];
-                
-                if ([_vncViewerTask isRunning]) {
-                    NSLog(@"BhyveController: VNC viewer started successfully with address %@", address);
-                    [self showVMStatus:[NSString stringWithFormat:@"VNC viewer connected to %@", address]];
-                    
-                    // Show detailed VNC information and X11 troubleshooting tips
-                    [self performSelector:@selector(showVNCConnectionInfo) withObject:nil afterDelay:1.0];
-                    
-                    return; // Success!
-                } else {
-                    // VNC viewer exited immediately, try next format
-                    NSLog(@"BhyveController: VNC viewer exited immediately with address %@", address);
-                    [_vncViewerTask release];
-                    _vncViewerTask = nil;
-                }
-                
-            } @catch (NSException *exception) {
-                NSLog(@"BhyveController: Error starting VNC viewer with address %@: %@", address, [exception reason]);
-                [_vncViewerTask release];
-                _vncViewerTask = nil;
-            }
-        }
+    // Close existing VNC window if open
+    if (_vncWindow) {
+        [_vncWindow close];
+        [_vncWindow release];
+        _vncWindow = nil;
     }
     
-    // If we get here, all attempts failed
-    NSString *errorMsg = [NSString stringWithFormat:@"Failed to start VNC viewer.\n\nTried connecting to port %ld (display %ld).\n\nPlease ensure:\n• A VNC viewer is installed (vncviewer, tigervnc-viewer, etc.)\n• The virtual machine is running\n• VNC is enabled in VM configuration", (long)_vncPort, (long)displayNumber];
-    [self showVMError:errorMsg];
+    NSLog(@"BhyveController: Creating VNC window for localhost:%ld", (long)_vncPort);
+    
+    // Create VNC window with initial size
+    NSRect windowRect = NSMakeRect(100, 100, 1024, 768);
+    _vncWindow = [[VNCWindow alloc] initWithContentRect:windowRect 
+                                               hostname:@"localhost" 
+                                                   port:_vncPort];
+    
+    if (_vncWindow) {
+        // Make window visible
+        [_vncWindow makeKeyAndOrderFront:nil];
+        
+        // Attempt connection
+        BOOL connected = [_vncWindow connectToVNC];
+        if (connected) {
+            [self showVMStatus:[NSString stringWithFormat:@"VNC viewer connecting to localhost:%ld", (long)_vncPort]];
+            [self performSelector:@selector(showVNCConnectionInfo) withObject:nil afterDelay:1.0];
+        } else {
+            [self showVMError:[NSString stringWithFormat:@"Failed to connect to VNC server on port %ld", (long)_vncPort]];
+        }
+    } else {
+        [self showVMError:@"Failed to create VNC viewer window"];
+    }
 }
 
 - (void)stopVirtualMachine
@@ -868,11 +765,12 @@
         return;
     }
     
-    // Stop VNC viewer
-    if (_vncViewerTask && [_vncViewerTask isRunning]) {
-        [_vncViewerTask terminate];
-        [_vncViewerTask release];
-        _vncViewerTask = nil;
+    // Stop VNC window
+    if (_vncWindow) {
+        [_vncWindow disconnectFromVNC];
+        [_vncWindow close];
+        [_vncWindow release];
+        _vncWindow = nil;
     }
     
     // Stop bhyve VM
@@ -887,6 +785,10 @@
     NSTask *destroyTask = [[NSTask alloc] init];
     [destroyTask setLaunchPath:@"/usr/sbin/bhyvectl"];
     [destroyTask setArguments:@[@"--destroy", [@"--vm=" stringByAppendingString:_vmName]]];
+    
+    NSPipe *pipe = [NSPipe pipe];
+    [destroyTask setStandardOutput:pipe];
+    [destroyTask setStandardError:pipe];
     
     @try {
         [destroyTask launch];
