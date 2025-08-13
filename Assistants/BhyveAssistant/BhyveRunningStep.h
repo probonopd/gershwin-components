@@ -14,8 +14,6 @@
     NSView *_stepView;
     NSTextField *_statusLabel;
     NSTextField *_vmInfoLabel;
-    NSButton *_startButton;
-    NSButton *_stopButton;
     NSButton *_logButton;
     BhyveController *_controller;
 }

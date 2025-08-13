@@ -12,6 +12,7 @@
 @synthesize port = _port;
 @synthesize password = _password;
 @synthesize connected = _connected;
+@synthesize vncDelegate = _vncDelegate;
 
 #pragma mark - Initialization
 
@@ -145,6 +146,9 @@
 - (void)disconnectFromVNC
 {
     NSLog(@"VNCWindow: Disconnecting from VNC");
+    
+    // Make window invisible when disconnecting
+    [self orderOut:nil];
     
     if (_vncClient) {
         [_vncClient setDelegate:nil];
@@ -638,6 +642,15 @@
 - (BOOL)canBecomeKeyWindow
 {
     return YES;
+}
+
+- (void)windowWillClose:(NSNotification *)notification
+{
+    NSLog(@"VNCWindow: Window closing, notifying delegate");
+    if (_vncDelegate && [_vncDelegate respondsToSelector:@selector(vncWindowWillClose:)]) {
+        [_vncDelegate vncWindowWillClose:self];
+    }
+    [self disconnectFromVNC];
 }
 
 #pragma mark - VNCClient Delegate

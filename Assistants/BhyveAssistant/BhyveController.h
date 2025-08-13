@@ -8,7 +8,7 @@
 #import <GSAssistantFramework.h>
 #import "VNCWindow.h"
 
-@interface BhyveController : NSObject <GSAssistantWindowDelegate>
+@interface BhyveController : NSObject <GSAssistantWindowDelegate, VNCWindowDelegate>
 {
     GSAssistantWindow *_assistantWindow;
     NSString *_selectedISOPath;
@@ -42,6 +42,7 @@
 @property (nonatomic, assign) NSInteger diskSize;
 @property (nonatomic, assign) BOOL enableVNC;
 @property (nonatomic, assign) NSInteger vncPort;
+@property (nonatomic, retain) NSString *vncWindowSize;
 @property (nonatomic, retain) NSString *networkMode;
 @property (nonatomic, retain) NSString *bootMode;
 @property (nonatomic, assign) BOOL vmRunning;
@@ -76,6 +77,9 @@
 - (void)updateLogTextView:(NSString *)logText;
 - (void)closeLogWindow;
 - (void)monitorVMOutput:(NSArray *)pipes;
+
+// VNC management
+- (NSSize)parseVNCWindowSize:(NSString *)sizeString;
 
 // Cleanup
 - (void)cleanupTemporaryFiles;

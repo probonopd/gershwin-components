@@ -169,6 +169,22 @@
     [_vncPortField setAction:@selector(vncPortChanged:)];
     [_stepView addSubview:_vncPortField];
     
+    NSTextField *vncSizeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(255, yPos, 35, 16)];
+    [vncSizeLabel setStringValue:NSLocalizedString(@"Size:", @"VNC Size label")];
+    [vncSizeLabel setFont:[NSFont systemFontOfSize:11]];
+    [vncSizeLabel setBezeled:NO];
+    [vncSizeLabel setDrawsBackground:NO];
+    [vncSizeLabel setEditable:NO];
+    [vncSizeLabel setSelectable:NO];
+    [_stepView addSubview:vncSizeLabel];
+    [vncSizeLabel release];
+    
+    _vncSizePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(295, yPos, 120, 20)];
+    [self populateVNCResolutions];
+    [_vncSizePopup setTarget:self];
+    [_vncSizePopup setAction:@selector(vncSizeChanged:)];
+    [_stepView addSubview:_vncSizePopup];
+    
     yPos -= 25;
     
     // Network Configuration
@@ -277,6 +293,75 @@
     }
 }
 
+- (void)vncSizeChanged:(id)sender
+{
+    id<NSMenuItem> selectedItem = [_vncSizePopup selectedItem];
+    if (selectedItem && [selectedItem representedObject]) {
+        NSString *sizeString = [selectedItem representedObject];
+        NSLog(@"BhyveConfigurationStep: VNC size changed to: %@", sizeString);
+        if (_controller) {
+            [_controller setVncWindowSize:sizeString];
+        }
+    }
+}
+
+- (void)populateVNCResolutions
+{
+    NSLog(@"BhyveConfigurationStep: populateVNCResolutions");
+    
+    // Get host screen size to filter available resolutions
+    NSScreen *mainScreen = [NSScreen mainScreen];
+    NSRect screenFrame = [mainScreen frame];
+    CGFloat screenWidth = screenFrame.size.width;
+    CGFloat screenHeight = screenFrame.size.height;
+    
+    NSLog(@"BhyveConfigurationStep: Host screen size: %.0fx%.0f", screenWidth, screenHeight);
+    
+    // Predefined VNC resolutions (must be smaller than host display)
+    NSArray *allResolutions = @[
+        @{@"width": @1920, @"height": @1200, @"name": @"1920 x 1200"},
+        @{@"width": @1920, @"height": @1080, @"name": @"1920 x 1080"},
+        @{@"width": @1600, @"height": @1200, @"name": @"1600 x 1200"},
+        @{@"width": @1600, @"height": @900,  @"name": @"1600 x 900"},
+        @{@"width": @1280, @"height": @1024, @"name": @"1280 x 1024"},
+        @{@"width": @1280, @"height": @720,  @"name": @"1280 x 720"},
+        @{@"width": @1024, @"height": @768,  @"name": @"1024 x 768"},
+        @{@"width": @800,  @"height": @600,  @"name": @"800 x 600"},
+        @{@"width": @640,  @"height": @480,  @"name": @"640 x 480"}
+    ];
+    
+    // Clear existing items
+    [_vncSizePopup removeAllItems];
+    
+    // Add only resolutions that fit within the host display
+    BOOL hasDefault = NO;
+    for (NSDictionary *resolution in allResolutions) {
+        CGFloat width = [[resolution objectForKey:@"width"] floatValue];
+        CGFloat height = [[resolution objectForKey:@"height"] floatValue];
+        NSString *name = [resolution objectForKey:@"name"];
+        
+        // Only add if resolution is smaller than host display
+        if (width < screenWidth && height < screenHeight) {
+            [_vncSizePopup addItemWithTitle:name];
+            id<NSMenuItem> item = [_vncSizePopup lastItem];
+            [item setRepresentedObject:name];
+            
+            // Set 1024x768 as default if available
+            if (width == 1024 && height == 768) {
+                [_vncSizePopup selectItem:item];
+                hasDefault = YES;
+            }
+        }
+    }
+    
+    // If no default was set, select the largest available resolution
+    if (!hasDefault && [[_vncSizePopup itemArray] count] > 0) {
+        [_vncSizePopup selectItemAtIndex:0];
+    }
+    
+    NSLog(@"BhyveConfigurationStep: Added %ld VNC resolution options", (long)[[_vncSizePopup itemArray] count]);
+}
+
 - (void)networkChanged:(id)sender
 {
     NSString *networkMode;
@@ -364,6 +449,14 @@
         [_vncCheckbox setState:_controller.enableVNC ? NSOnState : NSOffState];
         [_vncPortField setStringValue:[NSString stringWithFormat:@"%ld", (long)_controller.vncPort]];
         [_vncPortField setEnabled:_controller.enableVNC];
+        
+        // Select VNC window size
+        if (_controller.vncWindowSize) {
+            NSInteger selectedIndex = [_vncSizePopup indexOfItemWithRepresentedObject:_controller.vncWindowSize];
+            if (selectedIndex != NSNotFound) {
+                [_vncSizePopup selectItemAtIndex:selectedIndex];
+            }
+        }
         
         // Select network mode
         if ([_controller.networkMode isEqualToString:@"bridge"]) {

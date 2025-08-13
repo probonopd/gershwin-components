@@ -7,6 +7,13 @@
 #import <AppKit/AppKit.h>
 #import "VNCClient.h"
 
+@class VNCWindow;
+
+@protocol VNCWindowDelegate <NSObject>
+@optional
+- (void)vncWindowWillClose:(VNCWindow *)window;
+@end
+
 @interface VNCWindow : NSWindow <VNCClientDelegate>
 {
     VNCClient *_vncClient;
@@ -31,6 +38,7 @@
 @property (nonatomic, assign) NSInteger port;
 @property (nonatomic, retain) NSString *password;
 @property (nonatomic, assign) BOOL connected;
+@property (nonatomic, assign) id<VNCWindowDelegate> vncDelegate;
 
 // Initialization
 - (id)initWithContentRect:(NSRect)contentRect hostname:(NSString *)hostname port:(NSInteger)port;

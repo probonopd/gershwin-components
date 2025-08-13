@@ -31,6 +31,7 @@
 @synthesize diskSize = _diskSize;
 @synthesize enableVNC = _enableVNC;
 @synthesize vncPort = _vncPort;
+@synthesize vncWindowSize = _vncWindowSize;
 @synthesize networkMode = _networkMode;
 @synthesize bootMode = _bootMode;
 @synthesize vmRunning = _vmRunning;
@@ -53,6 +54,7 @@
         if (_diskSize == 0) _diskSize = 20; // 20GB default
         _enableVNC = YES; // Always enable VNC
         if (_vncPort == 0) _vncPort = [self findUnusedVNCPort]; // Find unused port
+        if (!_vncWindowSize) _vncWindowSize = [@"1024 x 768" retain]; // Default size
         if (!_networkMode) _networkMode = [@"bridge" retain];
         if (!_bootMode) _bootMode = [@"uefi" retain]; // Default to UEFI boot mode
         _vmRunning = NO;
@@ -81,6 +83,7 @@
     [_selectedISOPath release];
     [_selectedISOName release];
     [_vmName release];
+    [_vncWindowSize release];
     [_networkMode release];
     [_bootMode release];
     [_vmLogBuffer release];
@@ -107,11 +110,10 @@
     _runningStep = [[BhyveRunningStep alloc] init];
     [_runningStep setController:self];
     
-    // Build the assistant using the builder - use basic layout without auto-generated steps
+    // Build the assistant using the builder
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
-    [builder withLayoutStyle:GSAssistantLayoutStyleInstaller];
     [builder withTitle:NSLocalizedString(@"Bhyve Virtual Machine", @"Application title")];
-    [builder withIcon:[NSImage imageNamed:@"Bhyve_VM"]];
+    [builder withIcon:[NSImage imageNamed:@"bhyve_logo"]];
     
     // Add configuration steps directly
     [builder addStep:_isoSelectionStep];
@@ -164,12 +166,12 @@
     
     // Check if bhyve is available
     if (![self checkBhyveAvailable]) {
-        return @"bhyve is not available on this system.\n\nPlease ensure that:\n• bhyve is installed (pkg install bhyve-firmware)\n• The vmm kernel module is loaded\n• You have root privileges\n• Hardware virtualization is enabled in BIOS\n\nFor more information, see the FreeBSD Handbook chapter on bhyve.";
+        return @"bhyve is not available on this system. Please ensure bhyve is installed (pkg install bhyve-firmware), the vmm kernel module is loaded, you have root privileges, and hardware virtualization is enabled in BIOS. For more information, see the FreeBSD Handbook chapter on bhyve.";
     }
     
     // Test bhyve basic functionality
     if (![self testBhyveBasicFunction]) {
-        return @"bhyve permission test failed.\n\nThis usually indicates:\n• Insufficient privileges (not running as root)\n• Hardware virtualization not enabled in BIOS\n• Conflicting hypervisor software running\n• VMM kernel module issues\n\nPlease run the assistant with 'sudo -A -E' and ensure hardware virtualization is enabled.";
+        return @"bhyve permission test failed. This usually indicates insufficient privileges (not running as root), hardware virtualization not enabled in BIOS, conflicting hypervisor software running, or VMM kernel module issues. Please run the assistant with 'sudo -A -E' and ensure hardware virtualization is enabled.";
     }
     
     // Check if UEFI firmware is available (required for most ISOs)
@@ -188,12 +190,12 @@
     }
     
     if (!uefiFound) {
-        return @"UEFI firmware not found.\n\nMost modern ISOs (including GhostBSD and Linux) require UEFI firmware to boot in bhyve.\n\nPlease install the firmware:\n\nsudo pkg install bhyve-firmware\n\nThis will install the necessary UEFI boot ROM files.";
+        return @"UEFI firmware not found. Most modern ISOs (including GhostBSD and Linux) require UEFI firmware to boot in bhyve. Please install the firmware: sudo pkg install bhyve-firmware";
     }
     
     // Check if libvncclient is available for VNC support
     if (![self checkLibVNCClientAvailable]) {
-        return @"libvncclient not found.\n\nVNC display support requires libvncclient.\n\nPlease install it:\n\nsudo pkg install libvncserver\n\nThis will enable integrated VNC display for virtual machines.";
+        return @"libvncclient not found. VNC display support requires libvncclient. Please install it: sudo pkg install libvncserver";
     }
     
     NSLog(@"BhyveController: All system requirements met");
@@ -206,9 +208,8 @@
     
     // Create a minimal assistant builder just to show the error page
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
-    // [builder withLayoutStyle:GSAssistantLayoutStyleWizard]; // Try without layout style to avoid auto-steps
     [builder withTitle:NSLocalizedString(@"Bhyve Virtual Machine", @"Application title")];
-    [builder withIcon:[NSImage imageNamed:@"Bhyve_VM"]];
+    [builder withIcon:[NSImage imageNamed:@"bhyve_logo"]];
     
     // Build the assistant window but don't add any steps
     _assistantWindow = [builder build];
@@ -684,17 +685,9 @@
             NSMutableString *errorMessage = [NSMutableString string];
             
             if ([fullOutput containsString:@"Operation not permitted"]) {
-                [errorMessage appendString:@"bhyve Permission Error\n\n"];
-                [errorMessage appendString:@"bhyve requires root privileges and proper system configuration. "];
-                [errorMessage appendString:@"Please ensure:\n"];
-                [errorMessage appendString:@"• Running as root (use sudo)\n"];
-                [errorMessage appendString:@"• VMM kernel module is loaded\n"];
-                [errorMessage appendString:@"• Hardware virtualization is enabled in BIOS\n"];
-                [errorMessage appendString:@"• No conflicting hypervisors are running\n\n"];
+                [errorMessage appendString:@"bhyve Permission Error - bhyve requires root privileges and proper system configuration. Please ensure you are running as root (use sudo), VMM kernel module is loaded, hardware virtualization is enabled in BIOS, and no conflicting hypervisors are running."];
             } else if ([fullOutput containsString:@"Usage: bhyve"]) {
-                [errorMessage appendString:@"bhyve Command Syntax Error\n\n"];
-                [errorMessage appendString:@"The bhyve command has invalid syntax. This is likely "];
-                [errorMessage appendString:@"a configuration issue in the BhyveAssistant.\n\n"];
+                [errorMessage appendString:@"bhyve Command Syntax Error - The bhyve command has invalid syntax. This is likely a configuration issue in the BhyveAssistant."];
             } else if ([fullOutput containsString:@"exit_reason"]) {
                 NSArray *lines = [fullOutput componentsSeparatedByString:@"\n"];
                 for (NSString *line in lines) {
@@ -703,15 +696,15 @@
                         break;
                     }
                 }
-                [errorMessage appendFormat:@"bhyve VM Exit\n\n%@\n\n", exitReason];
+                [errorMessage appendFormat:@"bhyve VM Exit - %@", exitReason];
             } else {
-                [errorMessage appendFormat:@"VM failed to start (exit code %d)\n\n", exitStatus];
+                [errorMessage appendFormat:@"VM failed to start (exit code %d)", exitStatus];
             }
             
             if ([fullOutput length] > 0) {
-                [errorMessage appendFormat:@"Full Output:\n%@", fullOutput];
+                [errorMessage appendFormat:@" Full Output: %@", fullOutput];
             } else {
-                [errorMessage appendString:@"No output captured from bhyve process."];
+                [errorMessage appendString:@" No output captured from bhyve process."];
             }
             
             NSLog(@"BhyveController: VM process died immediately (exit code %d): %@", exitStatus, fullOutput);
@@ -783,13 +776,18 @@
     
     NSLog(@"BhyveController: VNC server is ready, creating VNC window for 127.0.0.1:%ld", (long)_vncPort);
     
-    // Create VNC window with initial size
-    NSRect windowRect = NSMakeRect(100, 100, 1024, 768);
+    // Create VNC window with selected size
+    NSSize vncSize = [self parseVNCWindowSize:_vncWindowSize];
+    NSRect windowRect = NSMakeRect(100, 100, vncSize.width, vncSize.height);
+    NSLog(@"BhyveController: Creating VNC window with size: %.0fx%.0f", vncSize.width, vncSize.height);
     _vncWindow = [[VNCWindow alloc] initWithContentRect:windowRect 
                                                hostname:@"127.0.0.1" 
                                                    port:_vncPort];
     
     if (_vncWindow) {
+        // Set delegate to receive close notifications
+        [_vncWindow setVncDelegate:self];
+        
         // Make window visible
         [_vncWindow makeKeyAndOrderFront:nil];
         
@@ -1274,20 +1272,10 @@
     NSInteger displayNumber = _vncPort - 5900;
     
     NSString *vncInfo = [NSString stringWithFormat:
-        @"VNC Server Information:\n\n"
-        @"• VNC Port: %ld\n"
-        @"• Display Number: %ld\n"
-        @"• VNC Address: 127.0.0.1:%ld\n"
-        @"• Alternative: :%ld\n\n"
-        @"Resolution: 1280x1024\n"
-        @"Wait Mode: Enabled (for better X11 sync)\n\n"
-        @"Troubleshooting X11 Issues:\n"
-        @"• Text console should appear immediately\n"
-        @"• X11 may take 10-30 seconds to start\n"
-        @"• If X11 doesn't appear, try restarting VNC viewer\n"
-        @"• Some X11 sessions may need manual refresh\n"
-        @"• Check VM log for X11 startup messages",
-        (long)_vncPort, (long)displayNumber, (long)_vncPort, (long)displayNumber];
+        @"VNC Server Information: Port %ld, Display Number %ld, Address 127.0.0.1:%ld, Resolution 1280x1024. "
+        @"Text console should appear immediately, X11 may take 10-30 seconds to start. "
+        @"If X11 doesn't appear, try restarting VNC viewer.",
+        (long)_vncPort, (long)displayNumber, (long)_vncPort];
     
     [self showVMStatus:vncInfo];
 }
@@ -1347,6 +1335,21 @@
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     
     // Load all persistent settings
+    NSString *savedISOPath = [defaults stringForKey:@"BhyveAssistant.selectedISOPath"];
+    if (savedISOPath) {
+        _selectedISOPath = [savedISOPath retain];
+    }
+    
+    NSString *savedISOName = [defaults stringForKey:@"BhyveAssistant.selectedISOName"];
+    if (savedISOName) {
+        _selectedISOName = [savedISOName retain];
+    }
+    
+    NSInteger savedISOSize = [defaults integerForKey:@"BhyveAssistant.selectedISOSize"];
+    if (savedISOSize > 0) {
+        _selectedISOSize = savedISOSize;
+    }
+    
     NSString *savedVMName = [defaults stringForKey:@"BhyveAssistant.vmName"];
     if (savedVMName) {
         _vmName = [savedVMName retain];
@@ -1367,6 +1370,9 @@
         _diskSize = savedDiskSize;
     }
     
+    BOOL savedEnableVNC = [defaults boolForKey:@"BhyveAssistant.enableVNC"];
+    _enableVNC = savedEnableVNC; // VNC is always enabled but load the setting anyway
+    
     NSString *savedNetworkMode = [defaults stringForKey:@"BhyveAssistant.networkMode"];
     if (savedNetworkMode) {
         _networkMode = [savedNetworkMode retain];
@@ -1382,8 +1388,13 @@
         _vncPort = savedVNCPort;
     }
     
-    NSLog(@"BhyveController: Loaded settings - VM: %@, RAM: %ld MB, CPUs: %ld, Disk: %ld GB, Network: %@, Boot: %@, VNC Port: %ld", 
-          _vmName, (long)_allocatedRAM, (long)_allocatedCPUs, (long)_diskSize, _networkMode, _bootMode, (long)_vncPort);
+    NSString *savedVNCWindowSize = [defaults stringForKey:@"BhyveAssistant.vncWindowSize"];
+    if (savedVNCWindowSize) {
+        _vncWindowSize = [savedVNCWindowSize retain];
+    }
+    
+    NSLog(@"BhyveController: Loaded settings - ISO: %@, VM: %@, RAM: %ld MB, CPUs: %ld, Disk: %ld GB, Network: %@, Boot: %@, VNC Port: %ld, VNC Size: %@", 
+          _selectedISOPath ? _selectedISOPath : @"(none)", _vmName, (long)_allocatedRAM, (long)_allocatedCPUs, (long)_diskSize, _networkMode, _bootMode, (long)_vncPort, _vncWindowSize);
 }
 
 - (void)saveUserSettings
@@ -1393,6 +1404,16 @@
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     
     // Save all persistent settings
+    if (_selectedISOPath) {
+        [defaults setObject:_selectedISOPath forKey:@"BhyveAssistant.selectedISOPath"];
+    }
+    
+    if (_selectedISOName) {
+        [defaults setObject:_selectedISOName forKey:@"BhyveAssistant.selectedISOName"];
+    }
+    
+    [defaults setInteger:_selectedISOSize forKey:@"BhyveAssistant.selectedISOSize"];
+    
     if (_vmName) {
         [defaults setObject:_vmName forKey:@"BhyveAssistant.vmName"];
     }
@@ -1401,6 +1422,7 @@
     [defaults setInteger:_allocatedCPUs forKey:@"BhyveAssistant.allocatedCPUs"];
     [defaults setInteger:_diskSize forKey:@"BhyveAssistant.diskSize"];
     [defaults setInteger:_vncPort forKey:@"BhyveAssistant.vncPort"];
+    [defaults setBool:_enableVNC forKey:@"BhyveAssistant.enableVNC"];
     
     if (_networkMode) {
         [defaults setObject:_networkMode forKey:@"BhyveAssistant.networkMode"];
@@ -1410,10 +1432,14 @@
         [defaults setObject:_bootMode forKey:@"BhyveAssistant.bootMode"];
     }
     
+    if (_vncWindowSize) {
+        [defaults setObject:_vncWindowSize forKey:@"BhyveAssistant.vncWindowSize"];
+    }
+    
     [defaults synchronize];
     
-    NSLog(@"BhyveController: Saved settings - VM: %@, RAM: %ld MB, CPUs: %ld, Disk: %ld GB, Network: %@, Boot: %@, VNC Port: %ld", 
-          _vmName, (long)_allocatedRAM, (long)_allocatedCPUs, (long)_diskSize, _networkMode, _bootMode, (long)_vncPort);
+    NSLog(@"BhyveController: Saved settings - ISO: %@, VM: %@, RAM: %ld MB, CPUs: %ld, Disk: %ld GB, Network: %@, Boot: %@, VNC Port: %ld, VNC Size: %@", 
+          _selectedISOPath ? _selectedISOPath : @"(none)", _vmName, (long)_allocatedRAM, (long)_allocatedCPUs, (long)_diskSize, _networkMode, _bootMode, (long)_vncPort, _vncWindowSize);
 }
 
 #pragma mark - Property Setters with Persistence
@@ -1475,6 +1501,87 @@
         _bootMode = [bootMode retain];
         [self saveUserSettings];
     }
+}
+
+- (void)setSelectedISOPath:(NSString *)selectedISOPath
+{
+    if (_selectedISOPath != selectedISOPath) {
+        [_selectedISOPath release];
+        _selectedISOPath = [selectedISOPath retain];
+        [self saveUserSettings];
+    }
+}
+
+- (void)setSelectedISOName:(NSString *)selectedISOName
+{
+    if (_selectedISOName != selectedISOName) {
+        [_selectedISOName release];
+        _selectedISOName = [selectedISOName retain];
+        [self saveUserSettings];
+    }
+}
+
+- (void)setSelectedISOSize:(long long)selectedISOSize
+{
+    if (_selectedISOSize != selectedISOSize) {
+        _selectedISOSize = selectedISOSize;
+        [self saveUserSettings];
+    }
+}
+
+- (void)setEnableVNC:(BOOL)enableVNC
+{
+    if (_enableVNC != enableVNC) {
+        _enableVNC = enableVNC;
+        [self saveUserSettings];
+    }
+}
+
+- (void)setVncWindowSize:(NSString *)vncWindowSize
+{
+    if (_vncWindowSize != vncWindowSize) {
+        [_vncWindowSize release];
+        _vncWindowSize = [vncWindowSize retain];
+        [self saveUserSettings];
+    }
+}
+
+- (NSSize)parseVNCWindowSize:(NSString *)sizeString
+{
+    NSLog(@"BhyveController: parseVNCWindowSize: %@", sizeString);
+    
+    // Default size if parsing fails
+    NSSize defaultSize = NSMakeSize(1024, 768);
+    
+    if (!sizeString || [sizeString length] == 0) {
+        return defaultSize;
+    }
+    
+    // Parse format like "1024 x 768"
+    NSArray *components = [sizeString componentsSeparatedByString:@" x "];
+    if ([components count] != 2) {
+        NSLog(@"BhyveController: Invalid VNC size format: %@", sizeString);
+        return defaultSize;
+    }
+    
+    NSInteger width = [[components objectAtIndex:0] integerValue];
+    NSInteger height = [[components objectAtIndex:1] integerValue];
+    
+    if (width <= 0 || height <= 0) {
+        NSLog(@"BhyveController: Invalid VNC size values: %ldx%ld", (long)width, (long)height);
+        return defaultSize;
+    }
+    
+    NSLog(@"BhyveController: Parsed VNC size: %ldx%ld", (long)width, (long)height);
+    return NSMakeSize(width, height);
+}
+
+#pragma mark - VNCWindowDelegate
+
+- (void)vncWindowWillClose:(VNCWindow *)window
+{
+    NSLog(@"BhyveController: VNC window closing, stopping VM");
+    [self stopVirtualMachine];
 }
 
 @end

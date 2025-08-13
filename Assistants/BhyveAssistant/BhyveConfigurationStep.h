@@ -21,6 +21,7 @@
     NSTextField *_diskLabel;
     NSButton *_vncCheckbox;
     NSTextField *_vncPortField;
+    NSPopUpButton *_vncSizePopup;
     NSPopUpButton *_networkPopup;
     NSPopUpButton *_bootModePopup;
     BhyveController *_controller;
