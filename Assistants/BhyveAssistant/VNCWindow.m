@@ -166,17 +166,30 @@
     
     NSImage *newImage = [_vncClient framebufferImage];
     if (newImage) {
+        // Always update the image to avoid missing frames
         [_currentImage release];
         _currentImage = [newImage retain];
-        [_imageView setImage:_currentImage];
         
-        // Update framebuffer size
+        // Update on main thread but don't wait to avoid blocking
+        [self performSelectorOnMainThread:@selector(setImageOnMainThread:)
+                               withObject:_currentImage
+                            waitUntilDone:NO];
+        
+        // Update framebuffer size only when needed
         NSSize imageSize = [newImage size];
         if (!NSEqualSizes(_framebufferSize, imageSize)) {
             _framebufferSize = imageSize;
-            [self resizeWindowToFitFramebuffer];
+            [self performSelectorOnMainThread:@selector(resizeWindowToFitFramebuffer)
+                                   withObject:nil
+                                waitUntilDone:NO];
         }
     }
+}
+
+- (void)setImageOnMainThread:(NSImage *)image
+{
+    [_imageView setImage:image];
+    [_imageView setNeedsDisplay:YES];
 }
 
 - (void)resizeWindowToFitFramebuffer
@@ -240,7 +253,7 @@
     NSUInteger keyCode = [event keyCode];
     NSUInteger modifierFlags = [event modifierFlags];
     
-    // Handle special keys first with proper VNC key codes
+    // Handle special keys with proper VNC key codes
     BOOL specialKeyHandled = YES;
     uint32_t vncKeyCode = 0;
     
@@ -248,7 +261,7 @@
         case 36: // Return/Enter
             vncKeyCode = 0xFF0D;
             break;
-        case 48: // Tab
+        case 48: // Tab - critical for navigation
             vncKeyCode = 0xFF09;
             break;
         case 51: // Backspace
@@ -328,29 +341,19 @@
             break;
     }
     
-    // Send modifier keys first
-    if (modifierFlags & NSControlKeyMask) {
-        [_vncClient sendKeyboardEvent:0xFFE3 pressed:YES]; // Left Control
-    }
-    if (modifierFlags & NSAlternateKeyMask) {
-        [_vncClient sendKeyboardEvent:0xFFE9 pressed:YES]; // Left Alt
-    }
-    if (modifierFlags & NSShiftKeyMask) {
-        [_vncClient sendKeyboardEvent:0xFFE1 pressed:YES]; // Left Shift
-    }
-    if (modifierFlags & NSCommandKeyMask) {
-        [_vncClient sendKeyboardEvent:0xFFEB pressed:YES]; // Left Meta/Cmd
-    }
-    
     if (specialKeyHandled && vncKeyCode != 0) {
-        // Send special key
+        // Send special key immediately
         [_vncClient sendKeyboardEvent:vncKeyCode pressed:YES];
     } else {
-        // Handle regular characters
-        NSString *characters = [event characters];
+        // Handle regular characters - use charactersIgnoringModifiers for better handling
+        NSString *characters = [event charactersIgnoringModifiers];
         if ([characters length] > 0) {
             for (NSUInteger i = 0; i < [characters length]; i++) {
                 unichar character = [characters characterAtIndex:i];
+                // Convert to upper case if shift is pressed and it's a letter
+                if ((modifierFlags & NSShiftKeyMask) && character >= 'a' && character <= 'z') {
+                    character = character - 'a' + 'A';
+                }
                 [_vncClient sendKeyboardEvent:character pressed:YES];
             }
         }
@@ -367,7 +370,7 @@
     NSUInteger keyCode = [event keyCode];
     NSUInteger modifierFlags = [event modifierFlags];
     
-    // Handle special keys first with proper VNC key codes
+    // Handle special keys with proper VNC key codes
     BOOL specialKeyHandled = YES;
     uint32_t vncKeyCode = 0;
     
@@ -375,9 +378,8 @@
         case 36: // Return/Enter
             vncKeyCode = 0xFF0D;
             break;
-        case 48: // Tab
-            vncKeyCode = 0xFF09;
-            break;
+        case 48: // Tab - handled in keyDown with immediate keyup
+            return;
         case 51: // Backspace
             vncKeyCode = 0xFF08;
             break;
@@ -459,29 +461,56 @@
         // Send special key release
         [_vncClient sendKeyboardEvent:vncKeyCode pressed:NO];
     } else {
-        // Handle regular characters
-        NSString *characters = [event characters];
+        // Handle regular characters - use charactersIgnoringModifiers for consistency
+        NSString *characters = [event charactersIgnoringModifiers];
         if ([characters length] > 0) {
             for (NSUInteger i = 0; i < [characters length]; i++) {
                 unichar character = [characters characterAtIndex:i];
+                // Convert to upper case if shift is pressed and it's a letter
+                if ((modifierFlags & NSShiftKeyMask) && character >= 'a' && character <= 'z') {
+                    character = character - 'a' + 'A';
+                }
                 [_vncClient sendKeyboardEvent:character pressed:NO];
             }
         }
     }
+}
+
+- (void)flagsChanged:(NSEvent *)event
+{
+    if (!_connected || !_vncClient) {
+        [super flagsChanged:event];
+        return;
+    }
     
-    // Release modifier keys
-    if (!(modifierFlags & NSControlKeyMask)) {
-        [_vncClient sendKeyboardEvent:0xFFE3 pressed:NO]; // Left Control
+    NSUInteger currentFlags = [event modifierFlags];
+    static NSUInteger previousFlags = 0;
+    
+    // Check for Control key changes
+    if ((currentFlags & NSControlKeyMask) != (previousFlags & NSControlKeyMask)) {
+        BOOL pressed = (currentFlags & NSControlKeyMask) != 0;
+        [_vncClient sendKeyboardEvent:0xFFE3 pressed:pressed]; // Left Control
     }
-    if (!(modifierFlags & NSAlternateKeyMask)) {
-        [_vncClient sendKeyboardEvent:0xFFE9 pressed:NO]; // Left Alt
+    
+    // Check for Alt key changes
+    if ((currentFlags & NSAlternateKeyMask) != (previousFlags & NSAlternateKeyMask)) {
+        BOOL pressed = (currentFlags & NSAlternateKeyMask) != 0;
+        [_vncClient sendKeyboardEvent:0xFFE9 pressed:pressed]; // Left Alt
     }
-    if (!(modifierFlags & NSShiftKeyMask)) {
-        [_vncClient sendKeyboardEvent:0xFFE1 pressed:NO]; // Left Shift
+    
+    // Check for Shift key changes
+    if ((currentFlags & NSShiftKeyMask) != (previousFlags & NSShiftKeyMask)) {
+        BOOL pressed = (currentFlags & NSShiftKeyMask) != 0;
+        [_vncClient sendKeyboardEvent:0xFFE1 pressed:pressed]; // Left Shift
     }
-    if (!(modifierFlags & NSCommandKeyMask)) {
-        [_vncClient sendKeyboardEvent:0xFFEB pressed:NO]; // Left Meta/Cmd
+    
+    // Check for Command key changes
+    if ((currentFlags & NSCommandKeyMask) != (previousFlags & NSCommandKeyMask)) {
+        BOOL pressed = (currentFlags & NSCommandKeyMask) != 0;
+        [_vncClient sendKeyboardEvent:0xFFEB pressed:pressed]; // Left Meta/Cmd
     }
+    
+    previousFlags = currentFlags;
 }
 
 - (void)mouseDown:(NSEvent *)event

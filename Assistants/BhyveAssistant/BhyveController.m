@@ -107,7 +107,7 @@
     _runningStep = [[BhyveRunningStep alloc] init];
     [_runningStep setController:self];
     
-    // Build the assistant using the builder
+    // Build the assistant using the builder - use basic layout without auto-generated steps
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
     [builder withLayoutStyle:GSAssistantLayoutStyleInstaller];
     [builder withTitle:NSLocalizedString(@"Bhyve Virtual Machine", @"Application title")];
@@ -206,7 +206,7 @@
     
     // Create a minimal assistant builder just to show the error page
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
-    [builder withLayoutStyle:GSAssistantLayoutStyleInstaller];
+    // [builder withLayoutStyle:GSAssistantLayoutStyleWizard]; // Try without layout style to avoid auto-steps
     [builder withTitle:NSLocalizedString(@"Bhyve Virtual Machine", @"Application title")];
     [builder withIcon:[NSImage imageNamed:@"Bhyve_VM"]];
     

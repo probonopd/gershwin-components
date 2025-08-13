@@ -16,7 +16,6 @@
     NSTextField *_vmInfoLabel;
     NSButton *_startButton;
     NSButton *_stopButton;
-    NSButton *_vncButton;
     NSButton *_logButton;
     BhyveController *_controller;
 }

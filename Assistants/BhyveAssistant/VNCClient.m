@@ -495,36 +495,44 @@ cleanup:
         return nil;
     }
     
+    static unsigned char *staticConvertedBuffer = NULL;
+    static size_t staticBufferSize = 0;
+    
     int bytesPerPixel = 4; // Always use 32-bit RGBA
     size_t bufferSize = _width * _height * bytesPerPixel;
     
-    // Create a converted buffer with proper color order for NSBitmapImageRep
-    unsigned char *convertedBuffer = (unsigned char *)malloc(bufferSize);
-    if (!convertedBuffer) {
+    // Reuse buffer to reduce memory allocation overhead
+    if (staticBufferSize != bufferSize) {
+        if (staticConvertedBuffer) {
+            free(staticConvertedBuffer);
+        }
+        staticConvertedBuffer = (unsigned char *)malloc(bufferSize);
+        staticBufferSize = bufferSize;
+    }
+    
+    if (!staticConvertedBuffer) {
         return nil;
     }
     
-    // Convert from server's RGB format to what NSBitmapImageRep expects
-    // Server uses: red shift 16, green shift 8, blue shift 0 (RGB)
-    // NSBitmapImageRep expects: RGBA in memory order
+    // Fast memory copy and conversion from server's RGB format to RGBA
+    uint32_t *sourcePixels = (uint32_t*)_framebuffer;
+    uint32_t *destPixels = (uint32_t*)staticConvertedBuffer;
+    
     for (int i = 0; i < _width * _height; i++) {
-        uint32_t pixel = ((uint32_t*)_framebuffer)[i];
+        uint32_t pixel = sourcePixels[i];
         
-        // Extract RGB components from server format
+        // Extract RGB components and reorder for NSBitmapImageRep
         unsigned char red = (pixel >> 16) & 0xFF;
         unsigned char green = (pixel >> 8) & 0xFF;
         unsigned char blue = pixel & 0xFF;
         
-        // Store in RGBA format
-        convertedBuffer[i * 4 + 0] = red;
-        convertedBuffer[i * 4 + 1] = green;
-        convertedBuffer[i * 4 + 2] = blue;
-        convertedBuffer[i * 4 + 3] = 0xFF; // Alpha
+        // Pack into RGBA format as a single 32-bit write
+        destPixels[i] = (0xFF << 24) | (blue << 16) | (green << 8) | red;
     }
     
     // Create bitmap representation with converted data
     NSBitmapImageRep *bitmapRep = [[NSBitmapImageRep alloc] 
-        initWithBitmapDataPlanes:&convertedBuffer
+        initWithBitmapDataPlanes:&staticConvertedBuffer
                       pixelsWide:_width
                       pixelsHigh:_height
                    bitsPerSample:8
@@ -536,17 +544,14 @@ cleanup:
                     bitsPerPixel:32];
     
     if (!bitmapRep) {
-        free(convertedBuffer);
         return nil;
     }
     
-    // Create NSImage
+    // Create NSImage with caching to improve performance
     NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(_width, _height)];
+    [image setCacheMode:NSImageCacheAlways];
     [image addRepresentation:bitmapRep];
     [bitmapRep release];
-    
-    // Clean up converted buffer
-    free(convertedBuffer);
     
     return [image autorelease];
 }

@@ -56,10 +56,10 @@
     [_statusLabel setSelectable:NO];
     [_stepView addSubview:_statusLabel];
     
-    // Control Buttons - 4 buttons now
+    // Control Buttons - 3 buttons (removed VNC button)
     CGFloat buttonWidth = 70;
-    CGFloat buttonSpacing = 8;
-    CGFloat totalButtonWidth = (4 * buttonWidth) + (3 * buttonSpacing);
+    CGFloat buttonSpacing = 12;
+    CGFloat totalButtonWidth = (3 * buttonWidth) + (2 * buttonSpacing);
     CGFloat startX = (354 - totalButtonWidth) / 2;
     
     // Start Button
@@ -79,17 +79,8 @@
     [_stopButton setEnabled:NO];
     [_stepView addSubview:_stopButton];
     
-    // VNC Button
-    _vncButton = [[NSButton alloc] initWithFrame:NSMakeRect(startX + (2 * (buttonWidth + buttonSpacing)), 70, buttonWidth, 24)];
-    [_vncButton setTitle:NSLocalizedString(@"VNC", @"VNC button")];
-    [_vncButton setBezelStyle:NSRoundedBezelStyle];
-    [_vncButton setTarget:self];
-    [_vncButton setAction:@selector(openVNC:)];
-    [_vncButton setEnabled:NO];
-    [_stepView addSubview:_vncButton];
-    
     // Show Log Button
-    _logButton = [[NSButton alloc] initWithFrame:NSMakeRect(startX + (3 * (buttonWidth + buttonSpacing)), 70, buttonWidth, 24)];
+    _logButton = [[NSButton alloc] initWithFrame:NSMakeRect(startX + (2 * (buttonWidth + buttonSpacing)), 70, buttonWidth, 24)];
     [_logButton setTitle:NSLocalizedString(@"Show Log", @"Show Log button")];
     [_logButton setBezelStyle:NSRoundedBezelStyle];
     [_logButton setTarget:self];
@@ -99,7 +90,7 @@
     
     // Instructions
     NSTextField *instructionsLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 12, 322, 48)];
-    [instructionsLabel setStringValue:NSLocalizedString(@"Click 'Start VM' to boot the virtual machine with your selected ISO. VNC will be available for graphical access if enabled. Use 'Stop VM' to cleanly shut down.", @"Instructions")];
+    [instructionsLabel setStringValue:NSLocalizedString(@"The virtual machine will start automatically when you reach this step. VNC display will open automatically if enabled. Use 'Stop VM' to cleanly shut down the virtual machine.", @"Instructions")];
     [instructionsLabel setFont:[NSFont systemFontOfSize:10]];
     [instructionsLabel setAlignment:NSCenterTextAlignment];
     [instructionsLabel setBezeled:NO];
@@ -149,9 +140,6 @@
         
         // Update button states
         [_stopButton setEnabled:YES];
-        if (_controller.enableVNC) {
-            [_vncButton setEnabled:YES];
-        }
     }
 }
 
@@ -161,7 +149,6 @@
     
     if (_controller) {
         [_stopButton setEnabled:NO];
-        [_vncButton setEnabled:NO];
         [self updateStatus:NSLocalizedString(@"Stopping virtual machine...", @"Stopping status")];
         
         // Stop VM in background
@@ -169,18 +156,6 @@
         
         // Update button states
         [_startButton setEnabled:YES];
-    }
-}
-
-- (void)openVNC:(id)sender
-{
-    NSLog(@"BhyveRunningStep: openVNC");
-    
-    if (_controller && _controller.enableVNC) {
-        [_controller startVNCViewer];
-        
-        // Also show connection info to help with X11 troubleshooting
-        [_controller performSelector:@selector(showVNCConnectionInfo) withObject:nil afterDelay:0.5];
     }
 }
 
@@ -230,15 +205,28 @@
                            (long)_controller.diskSize];
         [_vmInfoLabel setStringValue:vmInfo];
         
-        // Update button states based on current VM state
-        [_startButton setEnabled:!_controller.vmRunning];
-        [_stopButton setEnabled:_controller.vmRunning];
-        [_vncButton setEnabled:_controller.vmRunning && _controller.enableVNC];
-        
-        if (_controller.vmRunning) {
-            [self updateStatus:NSLocalizedString(@"Virtual machine is running", @"Running status")];
+        // If VM is not already running, start it automatically
+        if (!_controller.vmRunning) {
+            NSLog(@"BhyveRunningStep: Auto-starting VM");
+            [self updateStatus:NSLocalizedString(@"Auto-starting virtual machine...", @"Auto-starting status")];
+            
+            // Check bhyve availability first
+            if (![_controller checkBhyveAvailable]) {
+                [self updateStatus:NSLocalizedString(@"Error: bhyve not available on this system", @"Bhyve not available")];
+                return;
+            }
+            
+            // Disable start button and enable stop button
+            [_startButton setEnabled:NO];
+            [_stopButton setEnabled:YES];
+            
+            // Start VM in background after a short delay to let UI update
+            [_controller performSelector:@selector(startVirtualMachine) withObject:nil afterDelay:0.5];
         } else {
-            [self updateStatus:NSLocalizedString(@"Ready to start virtual machine", @"Ready status")];
+            // VM is already running
+            [_startButton setEnabled:NO];
+            [_stopButton setEnabled:YES];
+            [self updateStatus:NSLocalizedString(@"Virtual machine is running", @"Running status")];
         }
     }
 }
