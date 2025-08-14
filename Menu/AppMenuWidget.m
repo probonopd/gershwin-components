@@ -26,7 +26,9 @@
 
 - (void)updateForActiveWindow
 {
+    
     if (!_dbusMenuImporter) {
+        NSLog(@"AppMenuWidget: No DBus importer available");
         return;
     }
     

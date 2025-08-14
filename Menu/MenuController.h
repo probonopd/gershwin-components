@@ -14,10 +14,15 @@
     NSTimer *_updateTimer;
 }
 
+- (id)init;
 - (void)applicationDidFinishLaunching:(NSNotification *)notification;
 - (void)applicationWillTerminate:(NSNotification *)notification;
 - (void)setupMenuBar;
 - (void)updateActiveWindow:(NSTimer *)timer;
 - (void)windowDidBecomeKey:(NSNotification *)notification;
+- (void)createDBusImporter;
+- (void)initializeDBusConnection;
+- (void)setupWindowMonitoring;
+- (void)announceGlobalMenuSupport;
 
 @end

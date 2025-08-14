@@ -12,6 +12,7 @@
 }
 
 - (BOOL)connectToDBus;
+- (void)showDBusErrorAndExit;
 - (BOOL)hasMenuForWindow:(unsigned long)windowId;
 - (NSMenu *)getMenuForWindow:(unsigned long)windowId;
 - (void)activateMenuItem:(NSMenuItem *)menuItem forWindow:(unsigned long)windowId;

@@ -16,6 +16,10 @@ echo "Waiting for Menu.app to start..."
 sleep 3
 
 echo "Starting Chrome with DBus menu support..."
+# Set environment variables to enable global menu support
+export UBUNTU_MENUPROXY=1
+export QT_QPA_PLATFORMTHEME=appmenu-qt5
+export APPMENU_DISPLAY_BOTH=1
 timeout 30 chrome --new-window http://example.com &
 CHROME_PID=$!
 

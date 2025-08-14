@@ -41,22 +41,7 @@
         NSLog(@"DBusMenuImporter: DBus session bus address: %@", 
               [[NSProcessInfo processInfo] environment][@"DBUS_SESSION_BUS_ADDRESS"]);
         
-        // Show alert and exit the application
-        NSLog(@"DBusMenuImporter: Showing error alert...");
-        NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:NSLocalizedString(@"DBus Connection Failed", @"DBus connection error title")];
-        [alert setInformativeText:NSLocalizedString(@"Could not connect to the DBus session bus. The global menu service requires DBus to be running.\n\nThe application will now exit.", @"DBus connection error message")];
-        [alert setAlertStyle:NSCriticalAlertStyle];
-        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
-        
-        NSLog(@"DBusMenuImporter: Running modal alert...");
-        [alert runModal];
-        [alert release];
-        NSLog(@"DBusMenuImporter: Alert dismissed, terminating application...");
-        
-        // Terminate the application gracefully
-        [[NSApplication sharedApplication] terminate:nil];
-        
+        [self showDBusErrorAndExit];
         return NO;
     }
     
@@ -536,6 +521,24 @@
     [helpItem release];
     
     return [menu autorelease];
+}
+
+- (void)showDBusErrorAndExit
+{
+    NSLog(@"DBusMenuImporter: Showing error alert...");
+    
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:NSLocalizedString(@"DBus Connection Error", @"DBus error dialog title")];
+    [alert setInformativeText:NSLocalizedString(@"Failed to connect to DBus session bus. The global menu service cannot function without DBus.", @"DBus error dialog message")];
+    [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
+    [alert setAlertStyle:NSCriticalAlertStyle];
+    
+    NSLog(@"DBusMenuImporter: Running modal alert...");
+    [alert runModal];
+    [alert release];
+    
+    NSLog(@"DBusMenuImporter: Alert dismissed, exiting application...");
+    exit(1);
 }
 
 - (void)dealloc
