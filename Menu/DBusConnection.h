@@ -1,7 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 
-// DBus connection wrapper for GNUstep - avoiding glib dependencies
+// DBus connection wrapper for GNUstep
 @interface GNUDBusConnection : NSObject
 {
     void *_connection; // DBusConnection pointer (opaque)

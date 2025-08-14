@@ -16,6 +16,7 @@ Menu_OBJC_FILES = \
 	MenuBarView.m \
 	AppMenuWidget.m \
 	DBusMenuImporter.m \
+	DBusMenuParser.m \
 	DBusConnection.m \
 	MenuUtils.m
 
@@ -26,6 +27,7 @@ Menu_HEADER_FILES = \
 	MenuBarView.h \
 	AppMenuWidget.h \
 	DBusMenuImporter.h \
+	DBusMenuParser.h \
 	DBusConnection.h \
 	MenuUtils.h
 
