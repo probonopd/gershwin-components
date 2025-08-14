@@ -30,9 +30,32 @@
 
 - (BOOL)connectToDBus
 {
+    NSLog(@"DBusMenuImporter: Attempting to connect to DBus session bus...");
     _dbusConnection = [GNUDBusConnection sessionBus];
+    
+    NSLog(@"DBusMenuImporter: DBus connection object: %@", _dbusConnection);
+    
     if (![_dbusConnection isConnected]) {
         NSLog(@"DBusMenuImporter: Failed to get DBus connection");
+        NSLog(@"DBusMenuImporter: DBus session bus address: %@", 
+              [[NSProcessInfo processInfo] environment][@"DBUS_SESSION_BUS_ADDRESS"]);
+        
+        // Show alert and exit the application
+        NSLog(@"DBusMenuImporter: Showing error alert...");
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:NSLocalizedString(@"DBus Connection Failed", @"DBus connection error title")];
+        [alert setInformativeText:NSLocalizedString(@"Could not connect to the DBus session bus. The global menu service requires DBus to be running.\n\nThe application will now exit.", @"DBus connection error message")];
+        [alert setAlertStyle:NSCriticalAlertStyle];
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
+        
+        NSLog(@"DBusMenuImporter: Running modal alert...");
+        [alert runModal];
+        [alert release];
+        NSLog(@"DBusMenuImporter: Alert dismissed, terminating application...");
+        
+        // Terminate the application
+        [[NSApplication sharedApplication] terminate:nil];
+        
         return NO;
     }
     
@@ -99,10 +122,7 @@
             objectPath = x11Path;
         } else {
             NSLog(@"DBusMenuImporter: No service/path found for window %lu (checked both DBus registry and X11 properties)", windowId);
-            
-            // Only create test menu for debugging purposes and specific cases
-            // Don't show fallback menus for regular applications that don't export menus
-            return nil;
+
         }
     }
     
@@ -125,12 +145,30 @@
 
 - (NSMenu *)loadMenuFromDBus:(NSString *)serviceName objectPath:(NSString *)objectPath
 {
+    NSLog(@"DBusMenuImporter: Attempting to load menu from service=%@ path=%@", serviceName, objectPath);
+    
+    // First, try to introspect the service to see what interfaces it supports
+    id introspectResult = [_dbusConnection callMethod:@"Introspect"
+                                            onService:serviceName
+                                           objectPath:objectPath
+                                            interface:@"org.freedesktop.DBus.Introspectable"
+                                            arguments:nil];
+    
+    if (introspectResult) {
+        NSLog(@"DBusMenuImporter: Service introspection successful");
+    } else {
+        NSLog(@"DBusMenuImporter: Service introspection failed - service may not be available");
+    }
+    
     // Call GetLayout method on the dbusmenu interface
+    // The DBus menu spec requires: GetLayout(parentId: int32, recursionDepth: int32, propertyNames: array of strings)
     NSArray *arguments = [NSArray arrayWithObjects:
                          [NSNumber numberWithInt:0],    // parentId (0 = root)
                          [NSNumber numberWithInt:-1],   // recursionDepth (-1 = full tree)
                          [NSArray array],               // propertyNames (empty = all properties)
                          nil];
+    
+    NSLog(@"DBusMenuImporter: Calling GetLayout with parentId=0, recursionDepth=-1, propertyNames=[]");
     
     id result = [_dbusConnection callMethod:@"GetLayout"
                                   onService:serviceName
@@ -139,7 +177,9 @@
                                   arguments:arguments];
     
     if (!result) {
-        NSLog(@"DBusMenuImporter: Failed to get menu layout from %@%@", serviceName, objectPath);
+        NSLog(@"DBusMenuImporter: Failed to get menu layout from %@%@ - DBus call failed", serviceName, objectPath);
+        NSLog(@"DBusMenuImporter: Application registered for menus but GetLayout call failed");
+        NSLog(@"DBusMenuImporter: This may indicate a problem with the application's menu export");
         return nil;
     }
     

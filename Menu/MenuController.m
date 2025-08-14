@@ -10,7 +10,10 @@
     NSLog(@"MenuController: Application did finish launching");
     
     // Initialize DBus menu importer first
+    NSLog(@"MenuController: Creating DBusMenuImporter...");
     _dbusMenuImporter = [[DBusMenuImporter alloc] init];
+    
+    NSLog(@"MenuController: Attempting to connect to DBus...");
     if (![_dbusMenuImporter connectToDBus]) {
         NSLog(@"MenuController: Failed to connect to DBus - continuing anyway");
     } else {
@@ -24,6 +27,7 @@
                                        repeats:YES];
     }
     
+    NSLog(@"MenuController: Setting up menu bar...");
     [self setupMenuBar];
     
     // Set up timer to monitor active window changes
@@ -38,6 +42,8 @@
                                              selector:@selector(windowDidBecomeKey:)
                                                  name:NSWindowDidBecomeKeyNotification
                                                object:nil];
+    
+    NSLog(@"MenuController: Application setup complete");
 }
 
 - (void)processDBusMessages:(NSTimer *)timer

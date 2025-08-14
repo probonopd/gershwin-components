@@ -171,6 +171,19 @@ static GNUDBusConnection *sharedSessionBus = nil;
                     dbus_uint32_t val = [argument unsignedIntValue];
                     dbus_message_iter_append_basic(&iter, DBUS_TYPE_UINT32, &val);
                 }
+            } else if ([argument isKindOfClass:[NSArray class]]) {
+                // Handle array arguments (like propertyNames in GetLayout)
+                DBusMessageIter arrayIter;
+                dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "s", &arrayIter);
+                
+                for (id item in (NSArray *)argument) {
+                    if ([item isKindOfClass:[NSString class]]) {
+                        const char *str = [item UTF8String];
+                        dbus_message_iter_append_basic(&arrayIter, DBUS_TYPE_STRING, &str);
+                    }
+                }
+                
+                dbus_message_iter_close_container(&iter, &arrayIter);
             }
         }
     }
@@ -184,7 +197,8 @@ static GNUDBusConnection *sharedSessionBus = nil;
     dbus_message_unref(message);
     
     if (dbus_error_is_set(&error)) {
-        NSLog(@"DBusConnection: Method call failed: %s", error.message);
+        NSLog(@"DBusConnection: Method call failed for %@.%@ on %@%@: %s", 
+              interfaceName, method, serviceName, objectPath, error.message);
         dbus_error_free(&error);
         return nil;
     }
