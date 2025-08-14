@@ -53,7 +53,7 @@
         [alert release];
         NSLog(@"DBusMenuImporter: Alert dismissed, terminating application...");
         
-        // Terminate the application
+        // Terminate the application gracefully
         [[NSApplication sharedApplication] terminate:nil];
         
         return NO;
