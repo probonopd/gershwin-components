@@ -6,7 +6,7 @@
 @interface AppMenuWidget : NSView
 {
     DBusMenuImporter *_dbusMenuImporter;
-    NSMutableArray *_menuButtons;
+    NSMenuView *_menuView;
     NSString *_currentApplicationName;
     unsigned long _currentWindowId;
     NSMenu *_currentMenu;
@@ -18,8 +18,6 @@
 - (void)updateForActiveWindow;
 - (void)clearMenu;
 - (void)displayMenuForWindow:(unsigned long)windowId;
-- (void)createMenuButtonsFromMenu:(NSMenu *)menu;
-- (NSButton *)createMenuButtonWithTitle:(NSString *)title action:(SEL)action;
-- (void)menuButtonClicked:(id)sender;
+- (void)setupMenuViewWithMenu:(NSMenu *)menu;
 
 @end

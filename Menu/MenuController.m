@@ -44,6 +44,10 @@
     [_updateTimer release];
     _updateTimer = nil;
     
+    [_menuScanTimer invalidate];
+    [_menuScanTimer release];
+    _menuScanTimer = nil;
+    
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     
     [_dbusMenuImporter release];
@@ -126,10 +130,10 @@
 
 - (void)setupWindowMonitoring
 {
-    NSLog(@"MenuController: Setting up window monitoring");
+    NSLog(@"MenuController: Setting up window monitoring with aggressive menu scanning");
     
-    // Set up timer to monitor active window changes
-    _updateTimer = [NSTimer scheduledTimerWithTimeInterval:0.5
+    // Set up timer to monitor active window changes - start with faster polling
+    _updateTimer = [NSTimer scheduledTimerWithTimeInterval:0.1
                                                     target:self
                                                   selector:@selector(updateActiveWindow:)
                                                   userInfo:nil
@@ -139,7 +143,19 @@
     [[NSRunLoop currentRunLoop] addTimer:_updateTimer forMode:NSDefaultRunLoopMode];
     [[NSRunLoop currentRunLoop] addTimer:_updateTimer forMode:NSRunLoopCommonModes];
     
+    // Set up aggressive menu scanning timer - scan for new menus frequently
+    // for the first few minutes, then reduce frequency
+    _menuScanTimer = [NSTimer scheduledTimerWithTimeInterval:0.5
+                                                      target:self
+                                                    selector:@selector(scanForNewMenus:)
+                                                    userInfo:nil
+                                                     repeats:YES];
+    
+    [[NSRunLoop currentRunLoop] addTimer:_menuScanTimer forMode:NSDefaultRunLoopMode];
+    [[NSRunLoop currentRunLoop] addTimer:_menuScanTimer forMode:NSRunLoopCommonModes];
+    
     NSLog(@"MenuController: Timer created: %@", _updateTimer);
+    NSLog(@"MenuController: Menu scan timer created: %@", _menuScanTimer);
     
     // Test the timer by calling updateActiveWindow immediately
     NSLog(@"MenuController: Testing timer by calling updateActiveWindow immediately");
@@ -150,6 +166,13 @@
                                              selector:@selector(windowDidBecomeKey:)
                                                  name:NSWindowDidBecomeKeyNotification
                                                object:nil];
+    
+    // Reduce menu scanning frequency after 2 minutes
+    [NSTimer scheduledTimerWithTimeInterval:120.0
+                                     target:self
+                                   selector:@selector(reduceMenuScanFrequency:)
+                                   userInfo:nil
+                                    repeats:NO];
     
     NSLog(@"MenuController: Window monitoring setup complete");
 }
@@ -221,6 +244,42 @@
     XCloseDisplay(display);
     
     NSLog(@"MenuController: Global menu support announcement complete");
+}
+
+- (void)scanForNewMenus:(NSTimer *)timer
+{
+    NSLog(@"MenuController: Scanning for new menu services");
+    
+    if (_dbusMenuImporter) {
+        [_dbusMenuImporter scanForExistingMenuServices];
+        
+        // Force an immediate update of the current window to check if it now has a menu
+        if (_appMenuWidget) {
+            [_appMenuWidget updateForActiveWindow];
+        }
+    }
+}
+
+- (void)reduceMenuScanFrequency:(NSTimer *)timer
+{
+    NSLog(@"MenuController: Reducing menu scan frequency after initial startup period");
+    
+    if (_menuScanTimer) {
+        [_menuScanTimer invalidate];
+        [_menuScanTimer release];
+        
+        // Create a new timer with reduced frequency (every 5 seconds instead of 0.5)
+        _menuScanTimer = [NSTimer scheduledTimerWithTimeInterval:5.0
+                                                          target:self
+                                                        selector:@selector(scanForNewMenus:)
+                                                        userInfo:nil
+                                                         repeats:YES];
+        
+        [[NSRunLoop currentRunLoop] addTimer:_menuScanTimer forMode:NSDefaultRunLoopMode];
+        [[NSRunLoop currentRunLoop] addTimer:_menuScanTimer forMode:NSRunLoopCommonModes];
+        
+        NSLog(@"MenuController: Menu scan frequency reduced to 5 second intervals");
+    }
 }
 
 - (void)dealloc

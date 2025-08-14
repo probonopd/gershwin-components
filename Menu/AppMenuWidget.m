@@ -13,7 +13,7 @@
 {
     self = [super initWithFrame:frameRect];
     if (self) {
-        _menuButtons = [[NSMutableArray alloc] init];
+        _menuView = nil;
         _currentApplicationName = nil;
         _currentWindowId = 0;
         _currentMenu = nil;
@@ -67,11 +67,12 @@
 
 - (void)clearMenu
 {
-    // Remove all existing menu buttons
-    for (NSButton *button in _menuButtons) {
-        [button removeFromSuperview];
+    // Remove the current menu view if it exists
+    if (_menuView) {
+        [_menuView removeFromSuperview];
+        [_menuView release];
+        _menuView = nil;
     }
-    [_menuButtons removeAllObjects];
     
     [_currentMenu release];
     _currentMenu = nil;
@@ -102,13 +103,19 @@
     
     // Check if this window has a DBus menu registered
     if (![_dbusMenuImporter hasMenuForWindow:windowId]) {
-        NSLog(@"DBusMenuImporter: No registered DBus menu for window %lu, checking for menus...", windowId);
+        NSLog(@"DBusMenuImporter: No registered DBus menu for window %lu, triggering scan for new menus...", windowId);
         
-        // For windows without registered menus, don't show any fallback menu
-        // This prevents showing fake menus for applications like Chrome/VS Code
-        // that don't export DBus menus
-        NSLog(@"AppMenuWidget: No menu available for window %lu", windowId);
-        return;
+        // Aggressively scan for new menu services when a window doesn't have a menu
+        // This helps catch applications that set their menu properties after window creation
+        [_dbusMenuImporter scanForExistingMenuServices];
+        
+        // Check again after scanning
+        if (![_dbusMenuImporter hasMenuForWindow:windowId]) {
+            NSLog(@"AppMenuWidget: Still no menu available for window %lu after scan", windowId);
+            return;
+        } else {
+            NSLog(@"AppMenuWidget: Found menu for window %lu after scan!", windowId);
+        }
     }
     
     // Get the menu from DBus for registered windows
@@ -119,94 +126,33 @@
     }
     
     _currentMenu = [menu retain];
-    [self createMenuButtonsFromMenu:menu];
+    [self setupMenuViewWithMenu:menu];
     
     NSLog(@"AppMenuWidget: Successfully loaded menu with %lu items", (unsigned long)[[menu itemArray] count]);
 }
 
-- (void)createMenuButtonsFromMenu:(NSMenu *)menu
+- (void)setupMenuViewWithMenu:(NSMenu *)menu
 {
-    CGFloat xOffset = 0;
-    NSArray *menuItems = [menu itemArray];
+    NSLog(@"AppMenuWidget: Setting up menu view with menu: %@", [menu title]);
     
-    for (NSMenuItem *menuItem in menuItems) {
-        if ([menuItem isSeparatorItem]) {
-            continue;
-        }
-        
-        NSString *title = [menuItem title];
-        if (!title || [title length] == 0) {
-            continue;
-        }
-        
-        NSButton *button = [self createMenuButtonWithTitle:title action:@selector(menuButtonClicked:)];
-        [button setTag:[menuItems indexOfObject:menuItem]]; // Use tag instead of representedObject
-        
-        // Position the button
-        NSSize buttonSize = [button frame].size;
-        [button setFrame:NSMakeRect(xOffset, 2, buttonSize.width, 20)];
-        [self addSubview:button];
-        [_menuButtons addObject:button];
-        
-        xOffset += buttonSize.width + 4; // 4px spacing between buttons
-        
-        NSLog(@"AppMenuWidget: Added menu button '%@' at x=%.0f", title, xOffset - buttonSize.width - 4);
-    }
+    // Create a new horizontal menu view that fits within our widget frame
+    NSRect menuViewFrame = NSMakeRect(0, 0, [self bounds].size.width, [self bounds].size.height);
+    _menuView = [[NSMenuView alloc] initWithFrame:menuViewFrame];
+    
+    // Configure the menu view for horizontal display (like a menu bar)
+    [_menuView setHorizontal:YES];
+    [_menuView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    
+    // Set the menu for the menu view
+    [_menuView setMenu:menu];
+    
+    // Add the menu view to our widget
+    [self addSubview:_menuView];
     
     [self setNeedsDisplay:YES];
-}
-
-- (NSButton *)createMenuButtonWithTitle:(NSString *)title action:(SEL)action
-{
-    NSButton *button = [[NSButton alloc] init];
-    [button setTitle:title];
-    [button setButtonType:NSMomentaryPushInButton];
-    [button setBezelStyle:NSTexturedRoundedBezelStyle];
-    [button setBordered:NO];
-    [button setTarget:self];
-    [button setAction:action];
     
-    // Configure appearance
-    NSFont *font = [NSFont systemFontOfSize:13.0];
-    [button setFont:font];
-    
-    // Calculate size based on title
-    NSDictionary *attributes = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName];
-    NSSize titleSize = [title sizeWithAttributes:attributes];
-    [button setFrame:NSMakeRect(0, 0, titleSize.width + 16, 20)]; // 16px padding
-    
-    return [button autorelease];
-}
-
-- (void)menuButtonClicked:(id)sender
-{
-    NSButton *button = (NSButton *)sender;
-    NSInteger tag = [button tag];
-    
-    if (!_currentMenu || tag < 0 || tag >= (NSInteger)[[_currentMenu itemArray] count]) {
-        NSLog(@"AppMenuWidget: Invalid menu item tag: %ld", (long)tag);
-        return;
-    }
-    
-    NSMenuItem *menuItem = [[_currentMenu itemArray] objectAtIndex:tag];
-    
-    NSLog(@"AppMenuWidget: Menu button clicked: '%@'", [menuItem title]);
-    
-    // If the menu item has a submenu, show it as a popup
-    NSMenu *submenu = [menuItem submenu];
-    if (submenu) {
-        NSPoint buttonFrame = [button frame].origin;
-        // Remove unused variable warning
-        (void)buttonFrame;
-        
-        // Show the submenu as a popup
-        [NSMenu popUpContextMenu:submenu 
-                       withEvent:[NSApp currentEvent] 
-                         forView:self];
-    } else {
-        // Execute the menu item action through DBus
-        [_dbusMenuImporter activateMenuItem:menuItem forWindow:_currentWindowId];
-    }
+    NSLog(@"AppMenuWidget: Menu view setup complete with %lu menu items", 
+          (unsigned long)[[menu itemArray] count]);
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -227,7 +173,7 @@
 
 - (void)dealloc
 {
-    [_menuButtons release];
+    [_menuView release];
     [_currentApplicationName release];
     [_currentMenu release];
     [super dealloc];

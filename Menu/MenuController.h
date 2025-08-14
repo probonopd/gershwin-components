@@ -12,6 +12,7 @@
     AppMenuWidget *_appMenuWidget;
     DBusMenuImporter *_dbusMenuImporter;
     NSTimer *_updateTimer;
+    NSTimer *_menuScanTimer;
 }
 
 - (id)init;
