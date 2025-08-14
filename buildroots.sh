@@ -5,7 +5,7 @@
 PROJECTS="BootEnvironments Display GlobalShortcuts StartupDisk LoginWindow globalshortcutsd SudoAskPass initgfx"
 
 # Assistant applications to build
-ASSISTANTS="Assistants/BhyveAssistant Assistants/CreateLiveMediaAssistant Assistants/DebianRuntimeInstaller"
+ASSISTANTS="Assistants/BhyveAssistant Assistants/CreateLiveMediaAssistant Assistants/DebianRuntimeInstaller Assistants/BhyveAssistant"
 
 # Additional frameworks and tools (framework must be built first as assistants depend on it)
 FRAMEWORKS="Assistants/AssistantFramework"
