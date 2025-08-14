@@ -184,6 +184,20 @@
     }
     
     NSLog(@"DBusMenuImporter: Received menu layout from %@%@", serviceName, objectPath);
+    NSLog(@"DBusMenuImporter: Raw result object: %@", result);
+    NSLog(@"DBusMenuImporter: Raw result class: %@", [result class]);
+    NSLog(@"DBusMenuImporter: Raw result description: %@", [result description]);
+    
+    // Log the result in detail
+    if ([result respondsToSelector:@selector(count)]) {
+        NSLog(@"DBusMenuImporter: Result has count: %lu", (unsigned long)[result count]);
+    }
+    if ([result respondsToSelector:@selector(objectAtIndex:)] && [result count] > 0) {
+        for (NSUInteger i = 0; i < [result count]; i++) {
+            id item = [result objectAtIndex:i];
+            NSLog(@"DBusMenuImporter: Result[%lu]: %@ (%@)", i, item, [item class]);
+        }
+    }
     
     // Parse the menu structure and create NSMenu
     // The result should be a structure containing menu items with their properties
@@ -219,15 +233,240 @@
 
 - (NSMenu *)parseMenuFromDBusResult:(id)result serviceName:(NSString *)serviceName
 {
-    NSLog(@"DBusMenuImporter: Parsing menu structure from %@", serviceName);
+    NSLog(@"DBusMenuImporter: ===== PARSING MENU STRUCTURE =====");
+    NSLog(@"DBusMenuImporter: Parsing menu structure from service: %@", serviceName);
     NSLog(@"DBusMenuImporter: Menu result type: %@", [result class]);
-    NSLog(@"DBusMenuImporter: Menu result content: %@", result);
+    NSLog(@"DBusMenuImporter: Menu result object: %@", result);
+    NSLog(@"DBusMenuImporter: Menu result description: %@", [result description]);
     
-    // TODO: Implement proper DBus menu structure parsing
-    // The DBus menu format is complex and requires parsing a nested structure
-    // For now, we'll return nil to use the fallback menu
+    // Check if result is a number (error case)
+    if ([result isKindOfClass:[NSNumber class]]) {
+        NSLog(@"DBusMenuImporter: ERROR: Received NSNumber instead of array structure!");
+        NSLog(@"DBusMenuImporter: This suggests the DBus method call failed or returned an error code");
+        NSLog(@"DBusMenuImporter: Number value: %@", result);
+        return nil;
+    }
     
-    return nil;
+    if (![result isKindOfClass:[NSArray class]]) {
+        NSLog(@"DBusMenuImporter: ERROR: Expected array result, got %@", [result class]);
+        NSLog(@"DBusMenuImporter: Raw object details:");
+        NSLog(@"DBusMenuImporter:   - Class: %@", [result class]);
+        NSLog(@"DBusMenuImporter:   - Superclass: %@", [[result class] superclass]);
+        NSLog(@"DBusMenuImporter:   - Description: %@", [result description]);
+        if ([result respondsToSelector:@selector(stringValue)]) {
+            NSLog(@"DBusMenuImporter:   - String value: %@", [result stringValue]);
+        }
+        return nil;
+    }
+    
+    NSArray *resultArray = (NSArray *)result;
+    NSLog(@"DBusMenuImporter: Result array has %lu elements", (unsigned long)[resultArray count]);
+    
+    if ([resultArray count] < 2) {
+        NSLog(@"DBusMenuImporter: ERROR: GetLayout result should have at least 2 elements (revision + layout)");
+        NSLog(@"DBusMenuImporter: Actual count: %lu", (unsigned long)[resultArray count]);
+        for (NSUInteger i = 0; i < [resultArray count]; i++) {
+            id item = [resultArray objectAtIndex:i];
+            NSLog(@"DBusMenuImporter: Element[%lu]: %@ (%@)", i, item, [item class]);
+        }
+        return nil;
+    }
+    
+    // First element is revision number (uint32)
+    NSNumber *revision = [resultArray objectAtIndex:0];
+    NSLog(@"DBusMenuImporter: Menu revision: %@ (class: %@)", revision, [revision class]);
+    
+    // Second element is the layout item structure: (ia{sv}av)
+    id layoutItem = [resultArray objectAtIndex:1];
+    NSLog(@"DBusMenuImporter: Layout item type: %@", [layoutItem class]);
+    NSLog(@"DBusMenuImporter: Layout item content: %@", layoutItem);
+    NSLog(@"DBusMenuImporter: Layout item description: %@", [layoutItem description]);
+    
+    NSMenu *menu = [self parseLayoutItem:layoutItem isRoot:YES];
+    if (menu) {
+        NSLog(@"DBusMenuImporter: ===== MENU PARSING SUCCESS =====");
+        NSLog(@"DBusMenuImporter: Successfully parsed menu with %lu items", 
+              (unsigned long)[[menu itemArray] count]);
+        
+        // Log each menu item
+        NSArray *items = [menu itemArray];
+        for (NSUInteger i = 0; i < [items count]; i++) {
+            NSMenuItem *item = [items objectAtIndex:i];
+            NSLog(@"DBusMenuImporter: Menu[%lu]: '%@' (enabled: %@, hasSubmenu: %@)", 
+                  i, [item title], [item isEnabled] ? @"YES" : @"NO", 
+                  [item hasSubmenu] ? @"YES" : @"NO");
+        }
+    } else {
+        NSLog(@"DBusMenuImporter: ===== MENU PARSING FAILED =====");
+        NSLog(@"DBusMenuImporter: Failed to parse layout item");
+    }
+    
+    return menu;
+}
+
+- (NSMenu *)parseLayoutItem:(id)layoutItem isRoot:(BOOL)isRoot
+{
+    NSLog(@"DBusMenuImporter: ===== PARSING LAYOUT ITEM (isRoot=%@) =====", isRoot ? @"YES" : @"NO");
+    NSLog(@"DBusMenuImporter: Layout item class: %@", [layoutItem class]);
+    NSLog(@"DBusMenuImporter: Layout item object: %@", layoutItem);
+    
+    if (![layoutItem isKindOfClass:[NSArray class]]) {
+        NSLog(@"DBusMenuImporter: ERROR: Layout item should be an array, got %@", [layoutItem class]);
+        return nil;
+    }
+    
+    NSArray *itemArray = (NSArray *)layoutItem;
+    NSLog(@"DBusMenuImporter: Layout item array has %lu elements", (unsigned long)[itemArray count]);
+    
+    if ([itemArray count] < 3) {
+        NSLog(@"DBusMenuImporter: ERROR: Layout item should have at least 3 elements (id, properties, children)");
+        NSLog(@"DBusMenuImporter: Actual count: %lu", (unsigned long)[itemArray count]);
+        for (NSUInteger i = 0; i < [itemArray count]; i++) {
+            id element = [itemArray objectAtIndex:i];
+            NSLog(@"DBusMenuImporter: Element[%lu]: %@ (%@)", i, element, [element class]);
+        }
+        return nil;
+    }
+    
+    // Extract the layout item components: (ia{sv}av)
+    NSNumber *itemId = [itemArray objectAtIndex:0];
+    id propertiesObj = [itemArray objectAtIndex:1];
+    id childrenObj = [itemArray objectAtIndex:2];
+    
+    NSLog(@"DBusMenuImporter: Item ID: %@ (class: %@)", itemId, [itemId class]);
+    NSLog(@"DBusMenuImporter: Properties object: %@ (class: %@)", propertiesObj, [propertiesObj class]);
+    NSLog(@"DBusMenuImporter: Children object: %@ (class: %@)", childrenObj, [childrenObj class]);
+    
+    // Convert properties to dictionary if needed
+    NSDictionary *properties = nil;
+    if ([propertiesObj isKindOfClass:[NSDictionary class]]) {
+        properties = (NSDictionary *)propertiesObj;
+    } else {
+        NSLog(@"DBusMenuImporter: WARNING: Properties is not a dictionary, creating empty one");
+        properties = [NSDictionary dictionary];
+    }
+    
+    // Convert children to array if needed
+    NSArray *children = nil;
+    if ([childrenObj isKindOfClass:[NSArray class]]) {
+        children = (NSArray *)childrenObj;
+    } else {
+        NSLog(@"DBusMenuImporter: WARNING: Children is not an array, creating empty one");
+        children = [NSArray array];
+    }
+    
+    NSLog(@"DBusMenuImporter: Properties dict has %lu entries:", (unsigned long)[properties count]);
+    for (NSString *key in [properties allKeys]) {
+        id value = [properties objectForKey:key];
+        NSLog(@"DBusMenuImporter:   %@ = %@ (%@)", key, value, [value class]);
+    }
+    
+    NSLog(@"DBusMenuImporter: Children array has %lu elements", (unsigned long)[children count]);
+    
+    // For root item, create the main menu
+    NSMenu *menu = nil;
+    if (isRoot) {
+        NSString *menuTitle = [properties objectForKey:@"label"];
+        if (!menuTitle || [menuTitle length] == 0) {
+            menuTitle = @"App Menu";
+        }
+        NSLog(@"DBusMenuImporter: Creating root menu with title: '%@'", menuTitle);
+        menu = [[NSMenu alloc] initWithTitle:menuTitle];
+        
+        // Process children of root item
+        NSLog(@"DBusMenuImporter: Processing %lu children of root item", (unsigned long)[children count]);
+        for (NSUInteger i = 0; i < [children count]; i++) {
+            id childItem = [children objectAtIndex:i];
+            NSLog(@"DBusMenuImporter: Processing child %lu: %@ (%@)", i, childItem, [childItem class]);
+            
+            NSMenuItem *menuItem = [self createMenuItemFromLayoutItem:childItem];
+            if (menuItem) {
+                [menu addItem:menuItem];
+                NSLog(@"DBusMenuImporter: Added menu item: '%@'", [menuItem title]);
+            } else {
+                NSLog(@"DBusMenuImporter: Failed to create menu item from child %lu", i);
+            }
+        }
+        
+        NSLog(@"DBusMenuImporter: Root menu created with %lu items", (unsigned long)[[menu itemArray] count]);
+    } else {
+        // This shouldn't happen for root parsing, but handle it
+        NSLog(@"DBusMenuImporter: ERROR: parseLayoutItem called with isRoot=NO");
+        return nil;
+    }
+    
+    return [menu autorelease];
+}
+
+- (NSMenuItem *)createMenuItemFromLayoutItem:(id)layoutItem
+{
+    if (![layoutItem isKindOfClass:[NSArray class]]) {
+        NSLog(@"DBusMenuImporter: Layout item should be an array");
+        return nil;
+    }
+    
+    NSArray *itemArray = (NSArray *)layoutItem;
+    if ([itemArray count] < 3) {
+        NSLog(@"DBusMenuImporter: Layout item should have at least 3 elements");
+        return nil;
+    }
+    
+    NSNumber *itemId = [itemArray objectAtIndex:0];
+    NSDictionary *properties = [itemArray objectAtIndex:1];
+    NSArray *children = [itemArray objectAtIndex:2];
+    
+    // Get menu item properties
+    NSString *label = [properties objectForKey:@"label"];
+    NSString *type = [properties objectForKey:@"type"];
+    NSNumber *visible = [properties objectForKey:@"visible"];
+    NSNumber *enabled = [properties objectForKey:@"enabled"];
+    
+    // Skip invisible items
+    if (visible && ![visible boolValue]) {
+        return nil;
+    }
+    
+    // Handle separators
+    if (type && [type isEqualToString:@"separator"]) {
+        return (NSMenuItem *)[NSMenuItem separatorItem];
+    }
+    
+    // Create menu item
+    if (!label) {
+        label = @"";
+    }
+    
+    NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:label
+                                                      action:nil
+                                               keyEquivalent:@""];
+    
+    // Set enabled state
+    if (enabled) {
+        [menuItem setEnabled:[enabled boolValue]];
+    }
+    
+    // Store item ID for event handling
+    [menuItem setTag:[itemId intValue]];
+    
+    // Process children (submenu)
+    if ([children count] > 0) {
+        NSMenu *submenu = [[NSMenu alloc] initWithTitle:label];
+        
+        for (id childItem in children) {
+            NSMenuItem *childMenuItem = [self createMenuItemFromLayoutItem:childItem];
+            if (childMenuItem) {
+                [submenu addItem:childMenuItem];
+            }
+        }
+        
+        [menuItem setSubmenu:submenu];
+        [submenu release];
+    }
+    
+    NSLog(@"DBusMenuImporter: Created menu item: '%@' (ID=%@, enabled=%@, children=%lu)",
+          label, itemId, enabled, (unsigned long)[children count]);
+    
+    return [menuItem autorelease];
 }
 
 - (void)activateMenuItem:(NSMenuItem *)menuItem forWindow:(unsigned long)windowId
