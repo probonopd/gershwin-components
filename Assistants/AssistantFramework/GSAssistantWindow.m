@@ -1156,7 +1156,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
 #pragma mark - NSWindowDelegate
 
 - (void)windowWillClose:(NSNotification *)notification {
-    NSLog(@"[GSAssistantWindow] Window closing, terminating application");
+    NSLog(@"[GSAssistantWindow] Window closing - user requested shutdown");
     [NSApp terminate:nil];
 }
 

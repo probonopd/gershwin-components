@@ -1,0 +1,123 @@
+/* Backup Assistant Localizable Strings */
+
+/* General */
+"Backup Assistant" = "Backup Assistant";
+"Continue" = "Continue";
+"Finish" = "Finish";
+
+/* Introduction Step */
+"Welcome to Backup Assistant" = "Welcome to Backup Assistant";
+"Back up and restore your home directory using ZFS" = "Back up and restore your home directory using ZFS";
+"The Backup Assistant helps you create secure backups of your home directory using the ZFS filesystem." = "The Backup Assistant helps you create secure backups of your home directory using the ZFS filesystem.";
+"Features:" = "Features:";
+"• Create full backups to removable ZFS disks" = "• Create full backups to removable ZFS disks";
+"• Perform incremental backups with snapshots" = "• Perform incremental backups with snapshots";
+"• Restore entire home directory or specific files" = "• Restore entire home directory or specific files";
+"• Automatic disk analysis and setup" = "• Automatic disk analysis and setup";
+"• Safe handling of existing backup disks" = "• Safe handling of existing backup disks";
+"Requirements: ZFS filesystem support and root privileges" = "Requirements: ZFS filesystem support and root privileges";
+
+/* Disk Selection Step */
+"Select Backup Disk" = "Select Backup Disk";
+"Choose a removable disk for backup operations" = "Choose a removable disk for backup operations";
+"Device" = "Device";
+"Description" = "Description";
+"Available" = "Available";
+"Size" = "Size";
+"Scanning for removable disks..." = "Scanning for removable disks...";
+"No removable disks found. Please connect a USB or external disk." = "No removable disks found. Please connect a USB or external disk.";
+"Found %lu removable disk(s)" = "Found %lu removable disk(s)";
+"Analyzing disk..." = "Analyzing disk...";
+"Empty disk - can create new backup" = "Empty disk - can create new backup";
+"Existing backup found - can update or restore" = "Existing backup found - can update or restore";
+"Corrupted ZFS pool detected" = "Corrupted ZFS pool detected";
+"Incompatible disk format" = "Incompatible disk format";
+
+/* Operation Selection Step */
+"Select Operation" = "Select Operation";
+"Choose the backup operation to perform" = "Choose the backup operation to perform";
+"Selected disk: %@" = "Selected disk: %@";
+"Create New Backup" = "Create New Backup";
+"Initialize the disk and create a full backup of your home directory" = "Initialize the disk and create a full backup of your home directory";
+"Update Existing Backup" = "Update Existing Backup";
+"Add a new snapshot with recent changes to the existing backup" = "Add a new snapshot with recent changes to the existing backup";
+"Restore from Backup" = "Restore from Backup";
+"Restore files from the backup to your home directory" = "Restore files from the backup to your home directory";
+"WARNING: Creating a new backup will completely erase all data on the selected disk!" = "WARNING: Creating a new backup will completely erase all data on the selected disk!";
+"Note: Restoring will overwrite existing files in your home directory." = "Note: Restoring will overwrite existing files in your home directory.";
+
+/* Configuration Step */
+"Configure Operation" = "Configure Operation";
+"Review and configure the backup operation" = "Review and configure the backup operation";
+"Create a new backup of your home directory. This will completely erase the selected disk and create a fresh ZFS backup." = "Create a new backup of your home directory. This will completely erase the selected disk and create a fresh ZFS backup.";
+"Update the existing backup with recent changes from your home directory. A new snapshot will be created." = "Update the existing backup with recent changes from your home directory. A new snapshot will be created.";
+"Restore files from the backup to your home directory. Select a snapshot and choose which items to restore." = "Restore files from the backup to your home directory. Select a snapshot and choose which items to restore.";
+"I understand that all data on the selected disk will be erased" = "I understand that all data on the selected disk will be erased";
+"I want to update the backup with current data" = "I want to update the backup with current data";
+"I understand that existing files may be overwritten" = "I understand that existing files may be overwritten";
+"Available Snapshots" = "Available Snapshots";
+"Date" = "Date";
+"Items to Restore" = "Items to Restore";
+"Required: %@, Available: %@ ✓" = "Required: %@, Available: %@ ✓";
+"Required: %@, Available: %@ ⚠️ Insufficient space!" = "Required: %@, Available: %@ ⚠️ Insufficient space!";
+"Calculating space requirements..." = "Calculating space requirements...";
+"Create Backup" = "Create Backup";
+"Update Backup" = "Update Backup";
+"Restore Files" = "Restore Files";
+
+/* Progress Step */
+"Operation in Progress" = "Operation in Progress";
+"Please wait while the operation completes" = "Please wait while the operation completes";
+"Creating new backup..." = "Creating new backup...";
+"Updating existing backup..." = "Updating existing backup...";
+"Restoring files from backup..." = "Restoring files from backup...";
+"Processing..." = "Processing...";
+"Do not disconnect the disk or close this application during the operation." = "Do not disconnect the disk or close this application during the operation.";
+"Preparing..." = "Preparing...";
+"Preparing backup..." = "Preparing backup...";
+"Preparing incremental backup..." = "Preparing incremental backup...";
+"Preparing restore..." = "Preparing restore...";
+"Copying files..." = "Copying files...";
+"Synchronizing changes..." = "Synchronizing changes...";
+"Creating snapshot..." = "Creating snapshot...";
+"Rolling back to snapshot..." = "Rolling back to snapshot...";
+"Restoring files..." = "Restoring files...";
+"Backup completed" = "Backup completed";
+"Incremental backup completed" = "Incremental backup completed";
+"Restore completed" = "Restore completed";
+"Operation completed successfully" = "Operation completed successfully";
+"Starting file copy..." = "Starting file copy...";
+
+/* Completion Step */
+"Operation Complete" = "Operation Complete";
+"The backup operation has finished" = "The backup operation has finished";
+"Operation Completed Successfully!" = "Operation Completed Successfully!";
+"Operation Failed" = "Operation Failed";
+"Your home directory has been successfully backed up to the ZFS disk with snapshot protection." = "Your home directory has been successfully backed up to the ZFS disk with snapshot protection.";
+"Store the backup disk in a safe place. You can use this assistant again to update the backup or restore files." = "Store the backup disk in a safe place. You can use this assistant again to update the backup or restore files.";
+"The backup has been updated with your latest changes and a new snapshot has been created." = "The backup has been updated with your latest changes and a new snapshot has been created.";
+"Your backup now contains the most recent version of your files with historical snapshots available." = "Your backup now contains the most recent version of your files with historical snapshots available.";
+"The selected files have been successfully restored to your home directory from the backup." = "The selected files have been successfully restored to your home directory from the backup.";
+"Check your restored files to ensure they are as expected. Original files may have been overwritten." = "Check your restored files to ensure they are as expected. Original files may have been overwritten.";
+"The backup operation completed without errors." = "The backup operation completed without errors.";
+"You can close this assistant." = "You can close this assistant.";
+"The backup operation could not be completed. Please check the error messages and try again." = "The backup operation could not be completed. Please check the error messages and try again.";
+"Ensure the disk is properly connected and has sufficient space, then restart the assistant." = "Ensure the disk is properly connected and has sufficient space, then restart the assistant.";
+"You can now safely disconnect the backup disk." = "You can now safely disconnect the backup disk.";
+
+/* Error Messages */
+"Root Privileges Required" = "Root Privileges Required";
+"The Backup Assistant requires root privileges but failed to re-execute with sudo.\n\nPlease run this application manually with:\nsudo -A -E %s" = "The Backup Assistant requires root privileges but failed to re-execute with sudo.\n\nPlease run this application manually with:\nsudo -A -E %s";
+"ZFS Not Available" = "ZFS Not Available";
+"The ZFS filesystem is not available on this system. Please install ZFS support before using the Backup Assistant." = "The ZFS filesystem is not available on this system. Please install ZFS support before using the Backup Assistant.";
+"Failed to create ZFS pool on the selected disk." = "Failed to create ZFS pool on the selected disk.";
+"Failed to import existing ZFS pool from the disk." = "Failed to import existing ZFS pool from the disk.";
+"Unknown operation type." = "Unknown operation type.";
+"Operation failed: %@" = "Operation failed: %@";
+"The operation failed for an unknown reason." = "The operation failed for an unknown reason.";
+"Operation Completed" = "Operation Completed";
+"Operation Failed" = "Operation Failed";
+"Your home directory has been successfully backed up to the ZFS disk." = "Your home directory has been successfully backed up to the ZFS disk.";
+"The backup has been successfully updated with your latest changes." = "The backup has been successfully updated with your latest changes.";
+"Your selected files have been successfully restored from the backup." = "Your selected files have been successfully restored from the backup.";
+"The operation completed successfully." = "The operation completed successfully.";
