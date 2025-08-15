@@ -215,7 +215,9 @@ static GNUDBusConnection *sharedSessionBus = nil;
     
     // Parse reply
     id result = nil;
-    if (dbus_message_get_type(reply) == DBUS_MESSAGE_TYPE_METHOD_RETURN) {
+    int messageType = dbus_message_get_type(reply);
+    
+    if (messageType == DBUS_MESSAGE_TYPE_METHOD_RETURN) {
         DBusMessageIter iter;
         if (dbus_message_iter_init(reply, &iter)) {
             // Check if there are multiple return values
@@ -240,6 +242,30 @@ static GNUDBusConnection *sharedSessionBus = nil;
                 result = multipleResults;
             }
         }
+    } else if (messageType == DBUS_MESSAGE_TYPE_ERROR) {
+        // Handle error replies
+        const char *errorName = dbus_message_get_error_name(reply);
+        NSString *errorNameStr = errorName ? [NSString stringWithUTF8String:errorName] : @"Unknown";
+        
+        // Try to get error message from reply arguments
+        NSString *errorMessage = @"";
+        DBusMessageIter iter;
+        if (dbus_message_iter_init(reply, &iter)) {
+            int argType = dbus_message_iter_get_arg_type(&iter);
+            if (argType == DBUS_TYPE_STRING) {
+                char *str;
+                dbus_message_iter_get_basic(&iter, &str);
+                errorMessage = str ? [NSString stringWithUTF8String:str] : @"";
+            }
+        }
+        
+        NSLog(@"DBusConnection: Method call %@.%@ returned error '%@': %@", 
+              interfaceName, method, errorNameStr, errorMessage);
+        result = nil;
+    } else {
+        NSLog(@"DBusConnection: Unexpected message type %d for method call %@.%@", 
+              messageType, interfaceName, method);
+        result = nil;
     }
     
     dbus_message_unref(reply);

@@ -2,6 +2,8 @@
 #import "MenuBarView.h"
 #import "AppMenuWidget.h"
 #import "DBusMenuImporter.h"
+#import "RoundedCornersView.h"
+#import "GNUstepGUI/GSTheme.h"
 #import <X11/Xlib.h>
 #import <X11/Xatom.h>
 
@@ -17,79 +19,119 @@
     return self;
 }
 
+- (NSColor *)backgroundColor
+{
+    NSColor *color = [[GSTheme theme] menuItemBackgroundColor];
+    return color;
+}
+
+- (NSColor *)transparentColor
+{
+    NSColor *color = [NSColor colorWithCalibratedRed:0.992 green:0.992 blue:0.992 alpha:0.0];
+    return color;
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
     NSLog(@"MenuController: Application did finish launching");
     
-    // Application setup is already done in main(), just set up timers and notifications
-    
+    [_topBar orderFront:self];
     [self setupWindowMonitoring];
     
     NSLog(@"MenuController: Application setup complete");
-}
-
-- (void)processDBusMessages:(NSTimer *)timer
-{
-    // Process incoming DBus messages
-    if (_dbusMenuImporter && [[_dbusMenuImporter valueForKey:@"_dbusConnection"] isConnected]) {
-        [[_dbusMenuImporter valueForKey:@"_dbusConnection"] processMessages];
-    }
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification
 {
     NSLog(@"MenuController: Application will terminate");
     
-    [_updateTimer invalidate];
-    [_updateTimer release];
-    _updateTimer = nil;
+    // Signal the X11 monitoring thread to stop
+    _shouldStopMonitoring = YES;
     
-    [_menuScanTimer invalidate];
-    [_menuScanTimer release];
-    _menuScanTimer = nil;
+    // Wait for the thread to finish (with timeout to avoid hanging)
+    if (_x11Thread && ![_x11Thread isFinished]) {
+        // Give the thread a chance to exit gracefully
+        [NSThread sleepForTimeInterval:0.1];
+        
+        if (![_x11Thread isFinished]) {
+            NSLog(@"MenuController: X11 thread did not exit gracefully");
+        }
+    }
+    
+    [_x11Thread release];
+    _x11Thread = nil;
+    
+    // Close X11 display
+    if (_display) {
+        XCloseDisplay(_display);
+        _display = NULL;
+    }
     
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     
     [_dbusMenuImporter release];
     _dbusMenuImporter = nil;
+    
+    [_roundedCornersView release];
+    _roundedCornersView = nil;
+}
+
+- (void)createTopBar
+{
+    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    NSRect rect;
+    NSColor *color;
+    NSFont *menuFont = [NSFont menuBarFontOfSize:0];
+    NSMutableDictionary *attributes;
+    
+    attributes = [NSMutableDictionary new];
+    [attributes setObject:menuFont forKey:NSFontAttributeName];
+    
+    _screenFrame = [[NSScreen mainScreen] frame];
+    _screenSize = _screenFrame.size;
+    color = [self backgroundColor];
+        
+    // Creation of the topBar
+    rect = NSMakeRect(0, _screenSize.height - menuBarHeight, _screenSize.width, menuBarHeight);
+    _topBar = [[NSWindow alloc] initWithContentRect:rect
+                                          styleMask:NSBorderlessWindowMask
+                                            backing:NSBackingStoreBuffered
+                                              defer:NO];
+    [_topBar setTitle:@"TopBar"];
+    [_topBar setBackgroundColor:color];
+    [_topBar setAlphaValue:1.0];
+    [_topBar setLevel:NSTornOffMenuWindowLevel-1];
+    [_topBar setCanHide:NO];
+    [_topBar setHidesOnDeactivate:NO];
+    [_topBar setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
+                                   NSWindowCollectionBehaviorStationary];
+    
+    // Create app menu widget for displaying DBus menus
+    _appMenuWidget = [[AppMenuWidget alloc] initWithFrame:NSMakeRect(20, 0, 400, menuBarHeight)];
+    [_appMenuWidget setDbusMenuImporter:_dbusMenuImporter];
+    
+    // probono: Create rounded corners view for black top corners like in old/src/mainwindow.cpp
+    // Position it at the top of the menu bar, with height enough for the corner radius effect
+    CGFloat cornerHeight = 10.0; // 2 * corner radius (5px)
+    _roundedCornersView = [[RoundedCornersView alloc] initWithFrame:NSMakeRect(0, menuBarHeight - cornerHeight, _screenSize.width, cornerHeight)];
+    
+    // Add subviews (corners on top so they're drawn last)
+    [[_topBar contentView] addSubview:_appMenuWidget];
+    [[_topBar contentView] addSubview:_roundedCornersView];
+    
+    [attributes release];
 }
 
 - (void)setupMenuBar
 {
-    NSScreen *screen = [NSScreen mainScreen];
-    NSRect screenRect = [screen frame];
-    
-    // Create menu bar window at top of screen
-    NSRect menuRect = NSMakeRect(0, screenRect.size.height - 24, screenRect.size.width, 24);
-    
-    _menuWindow = [[NSWindow alloc] initWithContentRect:menuRect
-                                              styleMask:NSBorderlessWindowMask
-                                                backing:NSBackingStoreBuffered
-                                                  defer:NO];
-    
-    [_menuWindow setLevel:NSMainMenuWindowLevel + 1];
-    [_menuWindow setOpaque:NO];
-    [_menuWindow setHasShadow:NO];
-    [_menuWindow setCanHide:NO];
-    [_menuWindow setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
-                                       NSWindowCollectionBehaviorStationary];
-    
-    // Create menu bar view
-    _menuBarView = [[MenuBarView alloc] initWithFrame:NSMakeRect(0, 0, menuRect.size.width, 24)];
-    [_menuWindow setContentView:_menuBarView];
-    
-    // Create app menu widget
-    _appMenuWidget = [[AppMenuWidget alloc] initWithFrame:NSMakeRect(20, 0, 400, 24)];
-    [_appMenuWidget setDbusMenuImporter:_dbusMenuImporter];
-    [_menuBarView addSubview:_appMenuWidget];
-    
-    [_menuWindow makeKeyAndOrderFront:nil];
+    NSLog(@"MenuController: Setting up menu bar using createTopBar method");
+    [self createTopBar];
     
     NSLog(@"MenuController: Menu bar setup complete at %.0f,%.0f %.0fx%.0f", 
-          menuRect.origin.x, menuRect.origin.y, menuRect.size.width, menuRect.size.height);
+          _screenFrame.origin.x, _screenFrame.origin.y, _screenSize.width, [[GSTheme theme] menuBarHeight]);
 }
 
-- (void)updateActiveWindow:(NSTimer *)timer
+- (void)updateActiveWindow
 {
     // Get the currently active window and update app menu
     if (_appMenuWidget) {
@@ -99,12 +141,6 @@
     }
 }
 
-- (void)windowDidBecomeKey:(NSNotification *)notification
-{
-    NSLog(@"MenuController: Window did become key: %@", [[notification object] title]);
-    [self updateActiveWindow:nil];
-}
-
 - (void)initializeDBusConnection
 {
     NSLog(@"MenuController: Attempting to connect to DBus...");
@@ -112,13 +148,12 @@
         NSLog(@"MenuController: Failed to connect to DBus - continuing anyway");
     } else {
         NSLog(@"MenuController: DBus menu importer initialized successfully");
-        
-        // Set up timer to process DBus messages
-        [NSTimer scheduledTimerWithTimeInterval:0.1
-                                        target:self
-                                      selector:@selector(processDBusMessages:)
-                                      userInfo:nil
-                                       repeats:YES];
+    }
+    
+    // Set the reverse connection so DBusMenuImporter can trigger immediate menu display
+    if (_dbusMenuImporter && _appMenuWidget) {
+        [_dbusMenuImporter setAppMenuWidget:_appMenuWidget];
+        NSLog(@"MenuController: Set up bidirectional connection between DBusMenuImporter and AppMenuWidget");
     }
 }
 
@@ -130,49 +165,37 @@
 
 - (void)setupWindowMonitoring
 {
-    NSLog(@"MenuController: Setting up window monitoring with aggressive menu scanning");
+    NSLog(@"MenuController: Setting up X11 _NET_ACTIVE_WINDOW monitoring");
     
-    // Set up timer to monitor active window changes - start with faster polling
-    _updateTimer = [NSTimer scheduledTimerWithTimeInterval:0.1
-                                                    target:self
-                                                  selector:@selector(updateActiveWindow:)
-                                                  userInfo:nil
-                                                   repeats:YES];
+    // Initialize monitoring flag
+    _shouldStopMonitoring = NO;
     
-    // Add the timer to the current run loop in multiple modes to ensure it fires
-    [[NSRunLoop currentRunLoop] addTimer:_updateTimer forMode:NSDefaultRunLoopMode];
-    [[NSRunLoop currentRunLoop] addTimer:_updateTimer forMode:NSRunLoopCommonModes];
+    // Open X11 display connection
+    _display = XOpenDisplay(NULL);
+    if (!_display) {
+        NSLog(@"MenuController: Cannot open X11 display for window monitoring");
+        return;
+    }
     
-    // Set up aggressive menu scanning timer - scan for new menus frequently
-    // for the first few minutes, then reduce frequency
-    _menuScanTimer = [NSTimer scheduledTimerWithTimeInterval:0.5
-                                                      target:self
-                                                    selector:@selector(scanForNewMenus:)
-                                                    userInfo:nil
-                                                     repeats:YES];
+    _rootWindow = DefaultRootWindow(_display);
+    _netActiveWindowAtom = XInternAtom(_display, "_NET_ACTIVE_WINDOW", False);
     
-    [[NSRunLoop currentRunLoop] addTimer:_menuScanTimer forMode:NSDefaultRunLoopMode];
-    [[NSRunLoop currentRunLoop] addTimer:_menuScanTimer forMode:NSRunLoopCommonModes];
+    // Select PropertyNotify events on the root window to detect _NET_ACTIVE_WINDOW changes
+    XSelectInput(_display, _rootWindow, PropertyChangeMask);
     
-    NSLog(@"MenuController: Timer created: %@", _updateTimer);
-    NSLog(@"MenuController: Menu scan timer created: %@", _menuScanTimer);
+    NSLog(@"MenuController: X11 display opened, monitoring _NET_ACTIVE_WINDOW property changes");
     
-    // Test the timer by calling updateActiveWindow immediately
-    NSLog(@"MenuController: Testing timer by calling updateActiveWindow immediately");
-    [self updateActiveWindow:nil];
+    // Start X11 event loop in a separate NSThread
+    _x11Thread = [[NSThread alloc] initWithTarget:self
+                                         selector:@selector(x11ActiveWindowMonitor)
+                                           object:nil];
+    [_x11Thread setName:@"X11ActiveWindowMonitor"];
+    [_x11Thread start];
     
-    // Listen for window focus changes
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(windowDidBecomeKey:)
-                                                 name:NSWindowDidBecomeKeyNotification
-                                               object:nil];
+    NSLog(@"MenuController: X11 monitoring thread started successfully");
     
-    // Reduce menu scanning frequency after 2 minutes
-    [NSTimer scheduledTimerWithTimeInterval:120.0
-                                     target:self
-                                   selector:@selector(reduceMenuScanFrequency:)
-                                   userInfo:nil
-                                    repeats:NO];
+    // Perform initial active window update
+    [self updateActiveWindow];
     
     NSLog(@"MenuController: Window monitoring setup complete");
 }
@@ -196,15 +219,15 @@
     Atom supportingWmAtom = XInternAtom(display, "_NET_SUPPORTING_WM", False);
     Atom windowAtom = XInternAtom(display, "WINDOW", False);
     
-    // Use our menu window as the supporting window
-    Window menuWindow = 0;
-    if (_menuWindow) {
-        menuWindow = (Window)[_menuWindow windowNumber];
+    // Use our top bar window as the supporting window
+    Window topBarWindow = 0;
+    if (_topBar) {
+        topBarWindow = (Window)[_topBar windowNumber];
     }
     
-    if (menuWindow) {
+    if (topBarWindow) {
         XChangeProperty(display, root, supportingWmAtom, windowAtom, 32,
-                       PropModeReplace, (unsigned char*)&menuWindow, 1);
+                       PropModeReplace, (unsigned char*)&topBarWindow, 1);
         
         NSLog(@"MenuController: Set _NET_SUPPORTING_WM property");
     }
@@ -246,7 +269,7 @@
     NSLog(@"MenuController: Global menu support announcement complete");
 }
 
-- (void)scanForNewMenus:(NSTimer *)timer
+- (void)scanForNewMenus
 {
     NSLog(@"MenuController: Scanning for new menu services");
     
@@ -260,31 +283,58 @@
     }
 }
 
-- (void)reduceMenuScanFrequency:(NSTimer *)timer
+- (AppMenuWidget *)appMenuWidget
 {
-    NSLog(@"MenuController: Reducing menu scan frequency after initial startup period");
+    return _appMenuWidget;
+}
+
+- (void)x11ActiveWindowMonitor
+{
+    NSLog(@"MenuController: X11 _NET_ACTIVE_WINDOW monitor thread started");
     
-    if (_menuScanTimer) {
-        [_menuScanTimer invalidate];
-        [_menuScanTimer release];
+    // Create an autorelease pool for this thread
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    
+    while (!_shouldStopMonitoring) {
+        XEvent event;
         
-        // Create a new timer with reduced frequency (every 5 seconds instead of 0.5)
-        _menuScanTimer = [NSTimer scheduledTimerWithTimeInterval:5.0
-                                                          target:self
-                                                        selector:@selector(scanForNewMenus:)
-                                                        userInfo:nil
-                                                         repeats:YES];
+        // Process DBus messages continuously to import menus as soon as they arrive
+        if (_dbusMenuImporter && [[_dbusMenuImporter valueForKey:@"_dbusConnection"] isConnected]) {
+            [[_dbusMenuImporter valueForKey:@"_dbusConnection"] processMessages];
+            
+            // No need for continuous scanning - menus are displayed immediately when registered
+        }
         
-        [[NSRunLoop currentRunLoop] addTimer:_menuScanTimer forMode:NSDefaultRunLoopMode];
-        [[NSRunLoop currentRunLoop] addTimer:_menuScanTimer forMode:NSRunLoopCommonModes];
-        
-        NSLog(@"MenuController: Menu scan frequency reduced to 5 second intervals");
+        // Use XCheckTypedWindowEvent with a timeout to avoid blocking forever
+        if (XPending(_display) > 0) {
+            XNextEvent(_display, &event);
+            
+            // Check if this is a PropertyNotify event for _NET_ACTIVE_WINDOW
+            if (event.type == PropertyNotify && 
+                event.xproperty.window == _rootWindow &&
+                event.xproperty.atom == _netActiveWindowAtom) {
+                
+                NSLog(@"MenuController: _NET_ACTIVE_WINDOW property changed - active window changed");
+                
+                // Update the app menu widget for the new active window
+                // No need to scan - if the window has a menu, it's already registered
+                if (_appMenuWidget) {
+                    [_appMenuWidget updateForActiveWindow];
+                }
+            }
+        } else {
+            // No events pending, sleep briefly to avoid busy waiting
+            [NSThread sleepForTimeInterval:0.01];
+        }
     }
+    
+    NSLog(@"MenuController: X11 monitor thread exiting");
+    [pool release];
 }
 
 - (void)dealloc
 {
-    [_menuWindow release];
+    [_topBar release];
     [_menuBarView release];
     [_appMenuWidget release];
     [_dbusMenuImporter release];

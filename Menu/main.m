@@ -2,6 +2,7 @@
 #import <Foundation/Foundation.h>
 #import "MenuController.h"
 #import "MenuApplication.h"
+#import "DBusMenuParser.h"
 
 int main(int argc, const char *argv[])
 {
@@ -27,10 +28,10 @@ int main(int argc, const char *argv[])
     NSLog(@"Menu.app: Creating DBus importer...");
     [controller createDBusImporter];
     
-    NSLog(@"Menu.app: Setting up initial menu bar...");
+    NSLog(@"Menu.app: Setting up top bar...");
     [controller setupMenuBar];
     
-    // Initialize DBus connection after menu bar is created
+    // Initialize DBus connection after top bar is created
     NSLog(@"Menu.app: Initializing DBus connection...");
     [controller initializeDBusConnection];
     
@@ -50,6 +51,10 @@ int main(int argc, const char *argv[])
     [app run];
     
     NSLog(@"Menu.app: Application finished running");
+    
+    // Clean up global shortcuts before exiting
+    NSLog(@"Menu.app: Cleaning up global shortcuts...");
+    [DBusMenuParser cleanup];
     
     [controller release];
     [pool release];

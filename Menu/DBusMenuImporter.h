@@ -2,6 +2,8 @@
 #import <AppKit/AppKit.h>
 #import "DBusConnection.h"
 
+@class AppMenuWidget;
+
 @interface DBusMenuImporter : NSObject
 {
     GNUDBusConnection *_dbusConnection;
@@ -9,7 +11,10 @@
     NSMutableDictionary *_windowMenuPaths;   // windowId -> object path
     NSMutableDictionary *_menuCache;         // windowId -> NSMenu
     NSTimer *_cleanupTimer;
+    AppMenuWidget *_appMenuWidget;  // Reference to AppMenuWidget for immediate menu display
 }
+
+@property (nonatomic, assign) AppMenuWidget *appMenuWidget;
 
 - (BOOL)connectToDBus;
 - (void)showDBusErrorAndExit;

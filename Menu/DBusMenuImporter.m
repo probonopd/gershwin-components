@@ -1,6 +1,7 @@
 #import "DBusMenuImporter.h"
 #import "DBusMenuParser.h"
 #import "MenuUtils.h"
+#import "AppMenuWidget.h"
 #import <dbus/dbus.h>
 
 // Forward declare the sendReply method to avoid header issues
@@ -9,6 +10,8 @@
 @end
 
 @implementation DBusMenuImporter
+
+@synthesize appMenuWidget = _appMenuWidget;
 
 - (id)init
 {
@@ -191,7 +194,10 @@
     
     // Parse the menu structure and create NSMenu
     // The result should be a structure containing menu items with their properties
-    NSMenu *menu = [DBusMenuParser parseMenuFromDBusResult:result serviceName:serviceName];
+    NSMenu *menu = [DBusMenuParser parseMenuFromDBusResult:result 
+                                               serviceName:serviceName 
+                                                objectPath:objectPath 
+                                            dbusConnection:_dbusConnection];
     
     if (!menu) {
         // Fallback: create a simple placeholder menu if parsing fails
@@ -278,6 +284,14 @@
     
     NSLog(@"DBusMenuImporter: Registered window %lu with service %@ path %@", 
           windowId, serviceName, objectPath);
+    
+    // Check if this newly registered window is the currently active window
+    // and display its menu immediately if so
+    if (_appMenuWidget) {
+        [_appMenuWidget checkAndDisplayMenuForNewlyRegisteredWindow:windowId];
+    } else {
+        NSLog(@"DBusMenuImporter: AppMenuWidget not set, cannot check for immediate menu display");
+    }
 }
 
 - (void)unregisterWindow:(unsigned long)windowId

@@ -3,7 +3,7 @@
 
 @class DBusMenuImporter;
 
-@interface AppMenuWidget : NSView
+@interface AppMenuWidget : NSView <NSMenuDelegate>
 {
     DBusMenuImporter *_dbusMenuImporter;
     NSMenuView *_menuView;
@@ -19,5 +19,10 @@
 - (void)clearMenu;
 - (void)displayMenuForWindow:(unsigned long)windowId;
 - (void)setupMenuViewWithMenu:(NSMenu *)menu;
+- (void)checkAndDisplayMenuForNewlyRegisteredWindow:(unsigned long)windowId;
+
+// Debug methods
+- (void)debugLogCurrentMenuState;
+- (void)menuItemClicked:(NSMenuItem *)sender;
 
 @end

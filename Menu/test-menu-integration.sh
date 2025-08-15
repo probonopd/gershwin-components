@@ -29,10 +29,10 @@ echo "Chrome PID: $CHROME_PID"
 echo "Waiting for Chrome to register menus..."
 sleep 5
 
-echo "Chrome should now be registered. Switching focus to Chrome to test menu loading..."
+echo "Chrome should now be registered. Switch window focus to Chrome to test menu loading..."
 sleep 2
 echo "Chrome window should be active now. Checking Menu.app logs..."
-sleep 5
+sleep 15
 
 echo "Terminating processes..."
 kill $CHROME_PID 2>/dev/null
