@@ -3,6 +3,7 @@
 #import "AppMenuWidget.h"
 #import "DBusMenuImporter.h"
 #import "RoundedCornersView.h"
+#import "X11ShortcutManager.h"
 #import "GNUstepGUI/GSTheme.h"
 #import <X11/Xlib.h>
 #import <X11/Xatom.h>
@@ -44,6 +45,10 @@
 - (void)applicationWillTerminate:(NSNotification *)notification
 {
     NSLog(@"MenuController: Application will terminate");
+    
+    // Clean up global shortcuts first
+    NSLog(@"MenuController: Cleaning up global shortcuts...");
+    [[X11ShortcutManager sharedManager] cleanup];
     
     // Signal the X11 monitoring thread to stop
     _shouldStopMonitoring = YES;
@@ -334,6 +339,10 @@
 
 - (void)dealloc
 {
+    // Ensure shortcuts are cleaned up if dealloc is called
+    NSLog(@"MenuController: dealloc - cleaning up global shortcuts...");
+    [[X11ShortcutManager sharedManager] cleanup];
+    
     [_topBar release];
     [_menuBarView release];
     [_appMenuWidget release];

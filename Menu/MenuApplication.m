@@ -1,4 +1,6 @@
 #import "MenuApplication.h"
+#import "X11ShortcutManager.h"
+#import "DBusMenuParser.h"
 
 @implementation MenuApplication
 
@@ -18,6 +20,12 @@
 - (void)terminate:(id)sender
 {
     NSLog(@"MenuApplication: Application terminating");
+    
+    // Ensure global shortcuts are cleaned up before termination
+    NSLog(@"MenuApplication: Cleaning up global shortcuts...");
+    [[X11ShortcutManager sharedManager] cleanup];
+    [DBusMenuParser cleanup];
+    
     [super terminate:sender];
 }
 
