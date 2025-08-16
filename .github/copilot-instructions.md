@@ -1,3 +1,4 @@
+- Write GNUstep compatible code. Don't use features unavailable in GNUstep such as CoreFoundation, Grand Central Dispatch, etc.
 - Use commands from `$PATH`, not hardcoded paths.
 - Use `gmake`, not `make`.
 - Avoid bashisms; use POSIX sh.

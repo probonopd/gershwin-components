@@ -9,6 +9,10 @@
 #import "DSStore.h"
 #import "DSStoreCodecs.h"
 
+// Byte order conversion macros for GNUstep
+#define CFSwapInt32BigToHost(x) NSSwapBigIntToHost(x)
+#define CFSwapInt16BigToHost(x) NSSwapBigShortToHost(x)
+
 // Constants from .DS_Store format specification
 #define DSDB_MAGIC 0x44534442  // "DSDB"
 
@@ -107,8 +111,9 @@ static uint32_t swapBytes32(uint32_t x) {
         return NO;
     }
     
-    // Read root block (contains B-tree superblock)
-    DSBuddyBlock *rootBlock = [_allocator blockAtOffset:rootOffset size:rootSize];
+    // Read root block (contains buddy allocator metadata)
+    // NOTE: Reference library skips first 4 bytes of root block
+    DSBuddyBlock *rootBlock = [_allocator blockAtOffset:rootOffset + 4 size:rootSize - 4];
     if (!rootBlock) {
         return NO;
     }
@@ -117,66 +122,68 @@ static uint32_t swapBytes32(uint32_t x) {
     uint32_t offsetCount = [rootBlock readUInt32];
     uint32_t unknown2 __attribute__((unused)) = [rootBlock readUInt32];
     
-    // Read offset table (count padded to 256 boundary)
-    // Some files have offsetCount=0, others have offsetCount=1
-    uint32_t paddedCount = (offsetCount + 255) & ~255;
-    if (paddedCount == 0) paddedCount = 256; // Handle offsetCount=0 case
+    NSLog(@"Root block: offsetCount=%u, unknown=%u", offsetCount, unknown2);
     
+    // Read offset table (always 256 entries, padded with zeros)
     NSMutableArray *offsets = [NSMutableArray arrayWithCapacity:offsetCount];
-    for (uint32_t i = 0; i < paddedCount; i++) {
+    for (uint32_t i = 0; i < 256; i++) {
         uint32_t offset = [rootBlock readUInt32];
         if (i < offsetCount) {
             [offsets addObject:[NSNumber numberWithUnsignedInt:offset]];
+            NSLog(@"Offset[%u]: 0x%08x", i, offset);
         }
     }
     
-    // Now read TOC count first
+    // Read TOC count
     uint32_t tocCount = [rootBlock readUInt32];
+    NSLog(@"TOC count: %u", tocCount);
     
     // Look for DSDB entry in ToC
-    uint32_t dsdbOffset = 0;
+    uint32_t dsdbBlockNum = UINT32_MAX;
     for (uint32_t i = 0; i < tocCount; i++) {
         uint8_t nameLen = [rootBlock readUInt8];
         NSData *nameData = [rootBlock readBytes:nameLen];
-        uint32_t directOffset = [rootBlock readUInt32];
+        uint32_t blockNum = [rootBlock readUInt32];
         
         NSString *name = [[NSString alloc] initWithData:nameData encoding:NSASCIIStringEncoding];
         
+        NSLog(@"TOC[%u]: name='%@' -> block %u", i, name, blockNum);
+        
         if ([name isEqualToString:@"DSDB"]) {
-            dsdbOffset = directOffset;
+            dsdbBlockNum = blockNum;
         }
         [name release];
     }
     
-    // Skip free lists (32 lists) - NOTE: This comes AFTER the TOC
-    for (int i = 0; i < 32; i++) {
-        uint32_t freeCount = [rootBlock readUInt32];
-        [rootBlock seek:[rootBlock tell] + (freeCount * 4)];
-    }
-    
     [rootBlock close];
     
-    if (dsdbOffset == 0) {
+    if (dsdbBlockNum == UINT32_MAX || dsdbBlockNum >= [offsets count]) {
+        NSLog(@"DSDB block not found or invalid");
         return NO;
     }
-
-    // Read DSDB block (B-tree header is 20 bytes: 5 uint32_t values)
-    DSBuddyBlock *dsdbBlock = [_allocator blockAtOffset:dsdbOffset size:20];
+    
+    // Get DSDB block address from offset table
+    uint32_t dsdbAddr = [[offsets objectAtIndex:dsdbBlockNum] unsignedIntValue];
+    uint32_t dsdbOffset = dsdbAddr & ~0x1F;  // Remove size bits
+    uint32_t dsdbSize = 1 << (dsdbAddr & 0x1F);  // Extract size bits
+    
+    NSLog(@"DSDB block %u: addr=0x%08x, offset=0x%x, size=%u", dsdbBlockNum, dsdbAddr, dsdbOffset, dsdbSize);
+    
+    // Read DSDB superblock (NOTE: +4 for reference library file offset correction)
+    DSBuddyBlock *dsdbBlock = [_allocator blockAtOffset:dsdbOffset + 4 size:dsdbSize];
     if (!dsdbBlock) {
-        NSLog(@"Failed to read DSDB block at offset %u", dsdbOffset);
+        NSLog(@"Failed to read DSDB block at offset %u", dsdbOffset + 4);
         return NO;
     }
     
-    NSLog(@"DEBUG: DSDB block read successfully");
-    
-    // Read B-tree header
+    // Read DSDB superblock header (5 uint32_t values)
     uint32_t rootAddress = [dsdbBlock readUInt32];
     uint32_t levelsNumber = [dsdbBlock readUInt32];
     uint32_t recordsNumber = [dsdbBlock readUInt32];
     uint32_t nodesNumber = [dsdbBlock readUInt32];
     uint32_t pageSize = [dsdbBlock readUInt32];
     
-    NSLog(@"B-tree info: rootAddr=%u levels=%u records=%u nodes=%u pageSize=%u",
+    NSLog(@"DSDB: rootAddr=%u levels=%u records=%u nodes=%u pageSize=%u",
           rootAddress, levelsNumber, recordsNumber, nodesNumber, pageSize);
     
     [_entries removeAllObjects];
@@ -190,116 +197,177 @@ static uint32_t swapBytes32(uint32_t x) {
     
     [dsdbBlock close];
     
-    // B-tree root address is relative to file start
-    // Calculate the size of B-tree data (remaining file size)
-    NSFileManager *fileManager = [NSFileManager defaultManager];
-    NSError *error = nil;
-    NSDictionary *fileAttrs = [fileManager attributesOfItemAtPath:_filePath error:&error];
-    NSUInteger totalFileSize = [[fileAttrs objectForKey:NSFileSize] unsignedIntegerValue];
-    NSUInteger btreeOffset = dsdbOffset + rootAddress;
-    NSUInteger btreeSize = totalFileSize - btreeOffset;
-    
-    // Read B-tree data from the correct location
-    DSBuddyBlock *btreeBlock = [_allocator blockAtOffset:btreeOffset size:btreeSize];
-    if (!btreeBlock) {
-        NSLog(@"Failed to read B-tree block");
-        return NO;
-    }
-    
-    @try {
-        [self readBTreeNode:btreeBlock address:0 isLeaf:(levelsNumber == 1)];
-        _isLoaded = YES;
-        [btreeBlock close];
-        return YES;
-    }
-    @catch (NSException *exception) {
-        NSLog(@"Error parsing B-tree: %@", [exception description]);
-        [btreeBlock close];
-        return NO;
+    // The B-tree root address points to another block in the offset table
+    // If rootAddress >= offsetCount, it's likely an offset relative to DSDB block
+    if (rootAddress < [offsets count]) {
+        // Root address is a block number
+        uint32_t btreeAddr = [[offsets objectAtIndex:rootAddress] unsignedIntValue];
+        uint32_t btreeOffset = btreeAddr & ~0x1F;
+        uint32_t btreeSize = 1 << (btreeAddr & 0x1F);
+        
+        NSLog(@"B-tree block %u: addr=0x%08x, offset=0x%x, size=%u", rootAddress, btreeAddr, btreeOffset, btreeSize);
+        
+        // Read B-tree data (+4 for file offset correction)
+        DSBuddyBlock *btreeBlock = [_allocator blockAtOffset:btreeOffset + 4 size:btreeSize];
+        if (!btreeBlock) {
+            NSLog(@"Failed to read B-tree block");
+            return NO;
+        }
+        
+        @try {
+            [self readBTreeNode:btreeBlock address:0 isLeaf:(levelsNumber <= 1)];
+            _isLoaded = YES;
+            [btreeBlock close];
+            return YES;
+        }
+        @catch (NSException *exception) {
+            NSLog(@"Error parsing B-tree: %@", [exception description]);
+            [btreeBlock close];
+            return NO;
+        }
+    } else {
+        // Root address is relative to DSDB block
+        // Seek to rootAddress within DSDB block data 
+        NSUInteger btreeOffset = dsdbOffset + 4 + rootAddress;
+        NSUInteger btreeSize = pageSize;  // Use pageSize from DSDB
+        
+        NSLog(@"B-tree at relative offset %u (absolute 0x%lx), size=%lu", rootAddress, (unsigned long)btreeOffset, (unsigned long)btreeSize);
+        
+        // Read B-tree data
+        DSBuddyBlock *btreeBlock = [_allocator blockAtOffset:btreeOffset size:btreeSize];
+        if (!btreeBlock) {
+            NSLog(@"Failed to read B-tree block at relative offset");
+            return NO;
+        }
+        
+        @try {
+            [self readBTreeNode:btreeBlock address:0 isLeaf:(levelsNumber <= 1)];
+            _isLoaded = YES;
+            [btreeBlock close];
+            return YES;
+        }
+        @catch (NSException *exception) {
+            NSLog(@"Error parsing B-tree: %@", [exception description]);
+            [btreeBlock close];
+            return NO;
+        }
     }
 }
 
 - (void)readBTreeNode:(DSBuddyBlock *)block address:(uint32_t)address isLeaf:(BOOL)isLeaf {
-    [block seek:address];
+    NSLog(@"Reading B-tree node at address 0x%x, isLeaf: %@", address, isLeaf ? @"YES" : @"NO");
     
-    uint32_t nodeKind = [block readUInt32];
-    uint32_t recordCount = [block readUInt32];
+    uint32_t nodeId = [block readUInt32];
+    uint32_t recordsCount = [block readUInt32];
     
-    NSLog(@"Node at %u: kind=%u count=%u isLeaf=%d", address, nodeKind, recordCount, isLeaf);
+    NSLog(@"Node ID: 0x%x, Records count: %u", nodeId, recordsCount);
     
     if (isLeaf) {
-        // Leaf node - contains actual entries
-        for (uint32_t i = 0; i < recordCount; i++) {
-            // Read filename length and filename (UTF-16BE)
-            uint32_t nameLen = [block readUInt32];
-            NSData *nameData = [block readBytes:(nameLen * 2)];
-            NSString *filename = [[NSString alloc] initWithData:nameData encoding:NSUTF16BigEndianStringEncoding];
+        // Read leaf records (actual DS_Store entries)
+        for (uint32_t i = 0; i < recordsCount; i++) {
+            NSLog(@"Reading leaf record %u", i);
             
-            // Read code (4 bytes, null-terminated)
+            uint32_t filenameLength = [block readUInt32];
+            if (filenameLength == 0 || filenameLength > 1024) {
+                NSLog(@"Invalid filename length: %u", filenameLength);
+                break;
+            }
+            
+            NSData *unicodeData = [block readBytes:filenameLength * 2];
+            NSString *filename = [[NSString alloc] initWithData:unicodeData encoding:NSUTF16BigEndianStringEncoding];
+            
+            // Read code (4 bytes ASCII)
             NSData *codeData = [block readBytes:4];
             NSString *code = [[NSString alloc] initWithData:codeData encoding:NSASCIIStringEncoding];
-            code = [code stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"\0"]];
             
-            // Read type (4 bytes, null-terminated)
+            // Read type (4 bytes ASCII)  
             NSData *typeData = [block readBytes:4];
             NSString *type = [[NSString alloc] initWithData:typeData encoding:NSASCIIStringEncoding];
-            type = [type stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"\0"]];
+            
+            NSLog(@"Entry: filename='%@', code='%@', type='%@'", filename, code, type);
             
             // Read value based on type
             id value = nil;
             if ([type isEqualToString:@"bool"]) {
                 uint8_t boolVal = [block readUInt8];
                 value = [NSNumber numberWithBool:(boolVal != 0)];
-            } else if ([type isEqualToString:@"long"] || [type isEqualToString:@"shor"]) {
+            } else if ([type isEqualToString:@"long"]) {
                 uint32_t intVal = [block readUInt32];
                 value = [NSNumber numberWithUnsignedInt:intVal];
+            } else if ([type isEqualToString:@"shor"]) {
+                uint16_t shortVal = [block readUInt16];
+                value = [NSNumber numberWithUnsignedShort:shortVal];
             } else if ([type isEqualToString:@"blob"]) {
                 uint32_t blobLen = [block readUInt32];
-                value = [block readBytes:blobLen];
+                if (blobLen > 0 && blobLen < 65536) {
+                    value = [block readBytes:blobLen];
+                }
             } else if ([type isEqualToString:@"ustr"]) {
                 uint32_t strLen = [block readUInt32];
-                NSData *strData = [block readBytes:(strLen * 2)];
-                value = [[NSString alloc] initWithData:strData encoding:NSUTF16BigEndianStringEncoding];
+                if (strLen > 0 && strLen < 1024) {
+                    NSData *strData = [block readBytes:strLen * 2];
+                    value = [[NSString alloc] initWithData:strData encoding:NSUTF16BigEndianStringEncoding];
+                }
             } else if ([type isEqualToString:@"type"]) {
                 NSData *typeValue = [block readBytes:4];
                 value = [[NSString alloc] initWithData:typeValue encoding:NSASCIIStringEncoding];
-            } else if ([type isEqualToString:@"comp"] || [type isEqualToString:@"dutc"]) {
+            } else if ([type isEqualToString:@"comp"]) {
                 uint64_t longVal = [block readUInt64];
                 value = [NSNumber numberWithUnsignedLongLong:longVal];
+            } else if ([type isEqualToString:@"dutc"]) {
+                uint64_t longVal = [block readUInt64];
+                value = [NSNumber numberWithUnsignedLongLong:longVal];
+            } else {
+                // Unknown type - try to read as blob
+                uint32_t valueLen = [block readUInt32];
+                if (valueLen > 0 && valueLen < 65536) {
+                    value = [block readBytes:valueLen];
+                }
             }
             
-            DSStoreEntry *entry = [[DSStoreEntry alloc] initWithFilename:filename 
-                                                                    code:code 
-                                                                    type:type
-                                                                   value:value];
-            [_entries addObject:entry];
-            [entry release];
+            DSStoreEntry *entry = [[DSStoreEntry alloc] initWithFilename:filename
+                                                                     code:code
+                                                                     type:type
+                                                                    value:value];
+            if (entry) {
+                [_entries addObject:entry];
+                [entry release];
+            }
             [filename release];
             [code release];
             [type release];
             if ([type isEqualToString:@"ustr"] || [type isEqualToString:@"type"]) {
                 [value release];
             }
-            
-            NSLog(@"Entry: %@ -> %@ (%@)", filename, code, value);
         }
     } else {
-        // Internal node - contains pointers to other nodes
-        for (uint32_t i = 0; i < recordCount; i++) {
-            uint32_t nameLen = [block readUInt32];
-            NSData *nameData = [block readBytes:(nameLen * 2)];
-            NSString *filename = [[NSString alloc] initWithData:nameData encoding:NSUTF16BigEndianStringEncoding];
+        // Read internal node pointers
+        for (uint32_t i = 0; i < recordsCount; i++) {
+            NSLog(@"Reading internal record %u", i);
             
-            NSData *codeData = [block readBytes:4];
-            NSString *code = [[NSString alloc] initWithData:codeData encoding:NSASCIIStringEncoding];
+            uint32_t childAddress = [block readUInt32];
+            uint32_t filenameLength = [block readUInt32];
             
-            uint32_t pointer = [block readUInt32];
+            if (filenameLength > 0 && filenameLength < 1024) {
+                NSData *unicodeData = [block readBytes:filenameLength * 2];
+                // Skip the filename for internal nodes
+            }
             
             // Recursively read child node
-            [self readBTreeNode:block address:pointer isLeaf:NO];
-            
-            [filename release];
-            [code release];
+            if (childAddress != 0) {
+                NSLog(@"Following child pointer to address 0x%x", childAddress);
+                
+                // Decode child address
+                uint32_t childOffset = childAddress & ~0x1F;
+                uint32_t childSizeBits = childAddress & 0x1F;
+                uint32_t childSize = 1 << childSizeBits;
+                
+                DSBuddyBlock *childBlock = [_allocator blockAtOffset:childOffset size:childSize];
+                if (childBlock) {
+                    [self readBTreeNode:childBlock address:childOffset isLeaf:YES]; // Assume next level is leaf for now
+                    [childBlock close];
+                }
+            }
         }
     }
 }
