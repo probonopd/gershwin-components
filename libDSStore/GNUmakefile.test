@@ -1,0 +1,13 @@
+# GNUmakefile for test
+
+include $(GNUSTEP_MAKEFILES)/common.make
+
+TOOL_NAME = test_dsstore  
+test_dsstore_OBJC_FILES = test_dsstore.m
+test_dsstore_TOOL_LIBS = -lDSStore
+test_dsstore_LIB_DIRS = -L./obj
+
+ADDITIONAL_OBJCFLAGS = -Wall -O2
+ADDITIONAL_LDFLAGS = -lgnustep-base
+
+include $(GNUSTEP_MAKEFILES)/tool.make
