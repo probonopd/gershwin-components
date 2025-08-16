@@ -208,7 +208,7 @@ static uint32_t swapBytes32(uint32_t x) {
         NSLog(@"B-tree block %u: addr=0x%08x, offset=0x%x, size=%u", rootAddress, btreeAddr, btreeOffset, btreeSize);
         
         // Read B-tree data (+4 for file offset correction)
-        DSBuddyBlock *btreeBlock = [_allocator blockAtOffset:btreeOffset + 4 size:btreeSize];
+        DSBuddyBlock *btreeBlock = [_allocator blockAtOffset:btreeOffset + 4 size:btreeSize - 4];
         if (!btreeBlock) {
             NSLog(@"Failed to read B-tree block");
             return NO;
@@ -234,7 +234,7 @@ static uint32_t swapBytes32(uint32_t x) {
         NSLog(@"B-tree at relative offset %u (absolute 0x%lx), size=%lu", rootAddress, (unsigned long)btreeOffset, (unsigned long)btreeSize);
         
         // Read B-tree data
-        DSBuddyBlock *btreeBlock = [_allocator blockAtOffset:btreeOffset size:btreeSize];
+        DSBuddyBlock *btreeBlock = [_allocator blockAtOffset:btreeOffset size:btreeSize - 4];
         if (!btreeBlock) {
             NSLog(@"Failed to read B-tree block at relative offset");
             return NO;
@@ -380,7 +380,7 @@ static uint32_t swapBytes32(uint32_t x) {
     
     NSMutableData *fileData = [NSMutableData data];
     
-    // Write the buddy allocator header per .DS_Store specification
+    // Write the buddy allocator header
     struct {
         uint32_t magic1;        // 1
         uint32_t magic2;        // "Bud1"
@@ -395,9 +395,10 @@ static uint32_t swapBytes32(uint32_t x) {
     header.rootOffset = swapBytes32(2048);
     header.headerSize = swapBytes32(2048);  // Changed to 2048
     header.rootOffset2 = swapBytes32(2048);
-    header.padding[0] = swapBytes32(0x0010000C);
-    header.padding[1] = swapBytes32(0x00000087);
-    header.padding[2] = swapBytes32(0x0020000B);
+    // Write padding values directly as they appear in reference file
+    header.padding[0] = 0x0C100000;  // Will be stored as: 00 00 10 0c
+    header.padding[1] = 0x87000000;  // Will be stored as: 00 00 00 87  
+    header.padding[2] = 0x0B200000;  // Will be stored as: 00 00 20 0b
     header.padding[3] = 0;
     
     [fileData appendBytes:&header length:sizeof(header)];
@@ -493,13 +494,13 @@ static uint32_t swapBytes32(uint32_t x) {
     NSMutableData *tempData = [NSMutableData dataWithData:fileData];
     
     // Create DSDB superblock (32 bytes at offset 0x20)
-    uint32_t btreeRoot = swapBytes32(20);  // B-tree data starts after DSDB header
+    uint32_t btreeRoot = swapBytes32(2);   // B-tree is in block 2 (not offset 20!)
     uint32_t levels = swapBytes32(1);      // Single level (leaf only)
     uint32_t records = swapBytes32([_entries count]);
     uint32_t nodes = swapBytes32(1);       // Single node
     uint32_t pageSize = swapBytes32(4096);
     
-    // Insert DSDB block data at position 0x20
+    // Insert DSDB block data at position 0x24 (like reference file with +4 offset)
     NSMutableData *dsdbData = [NSMutableData data];
     [dsdbData appendBytes:&btreeRoot length:4];
     [dsdbData appendBytes:&levels length:4];
@@ -513,8 +514,8 @@ static uint32_t swapBytes32(uint32_t x) {
         [dsdbData appendBytes:&zero length:1];
     }
     
-    // Replace data at position 0x20
-    [tempData replaceBytesInRange:NSMakeRange(dsdbStart, 32) withBytes:[dsdbData bytes] length:32];
+    // Replace data at position 0x24 (0x20 + 4 offset)
+    [tempData replaceBytesInRange:NSMakeRange(dsdbStart + 4, 32) withBytes:[dsdbData bytes] length:32];
     fileData = tempData;
     
     // Pad to B-tree block start (0x2000)
@@ -524,10 +525,14 @@ static uint32_t swapBytes32(uint32_t x) {
         [fileData appendBytes:&zero length:1];
     }
     
-    // Write B-tree leaf node at 0x2000
-    uint32_t nodeType = swapBytes32(0);              // Leaf node
+    // Write 4 dummy bytes first (for reference format compatibility)
+    uint32_t btreeDummy = 0;
+    [fileData appendBytes:&btreeDummy length:4];
+    
+    // Write B-tree leaf node at 0x2000+4
+    uint32_t nodeType = swapBytes32(0);              // Leaf node (big-endian)
     uint32_t entryCount = [_entries count];
-    uint32_t recordCount = swapBytes32(entryCount);
+    uint32_t recordCount = swapBytes32(entryCount);  // Convert to big-endian
     
     NSLog(@"DEBUG SAVE: Writing %u entries, swapped recordCount=0x%08x", entryCount, recordCount);
     
@@ -543,6 +548,13 @@ static uint32_t swapBytes32(uint32_t x) {
         if (entryData) {
             [fileData appendData:entryData];
         }
+    }
+    
+    // Pad to full B-tree block size (8192 bytes from 0x2000)
+    NSUInteger fullBtreeEnd = 0x2000 + 8192;
+    while ([fileData length] < fullBtreeEnd) {
+        char zero = 0;
+        [fileData appendBytes:&zero length:1];
     }
     
     // Write to file
