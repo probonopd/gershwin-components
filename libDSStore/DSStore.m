@@ -325,12 +325,12 @@ static uint32_t swapBytes32(uint32_t x) {
     header.magic1 = swapBytes32(1);
     header.magic2 = swapBytes32(0x42756431);  // "Bud1"
     header.rootOffset = swapBytes32(2048);
-    header.headerSize = swapBytes32(1264);
+    header.headerSize = swapBytes32(2048);  // Changed to 2048
     header.rootOffset2 = swapBytes32(2048);
-    header.padding[0] = 0;
-    header.padding[1] = swapBytes32(0x0010000C);
-    header.padding[2] = swapBytes32(0x00000087);
-    header.padding[3] = swapBytes32(0x0020000B);
+    header.padding[0] = swapBytes32(0x0010000C);
+    header.padding[1] = swapBytes32(0x00000087);
+    header.padding[2] = swapBytes32(0x0020000B);
+    header.padding[3] = 0;
     
     [fileData appendBytes:&header length:sizeof(header)];
     
@@ -340,24 +340,45 @@ static uint32_t swapBytes32(uint32_t x) {
     [fileData appendBytes:padding length:paddingSize];
     free(padding);
     
-    // Write root block (buddy allocator metadata)
-    // Root block structure compatible with reference implementation:
-    // - offset count (0) - this is what the reference library expects!
-    // - unknown (0) 
-    // - 256 padding entries (since count is 0, all are padding)
-    // - ToC count (1 for DSDB)
-    // - ToC entry: "DSDB" -> offset
-    // - Free lists
+    // Write root block (buddy allocator metadata) 
+    // NOTE: The reference library skips the first 4 bytes of the root block!
+    // So we need to write 4 dummy bytes first
+    uint32_t dummy = 0;
+    [fileData appendBytes:&dummy length:4];
     
-    uint32_t offsetCount = swapBytes32(0);  // Changed from 1 to 0!
-    uint32_t unknown = swapBytes32(0);
-    uint32_t dsdbBlockOffset = 2048 + 1264; // After root block
+    // Now write the actual root block content that reference library will read
+    // Match reference implementation structure exactly:
+    // - offset count (3) - like reference
+    // - unknown (varies) 
+    // - offset entries (3 real entries + 253 padding)
+    // - ToC count (1 for DSDB)
+    // - ToC entry: "DSDB" -> block number 1
+    // - Free lists (32 entries with counts + offsets)
+    
+    uint32_t offsetCount = swapBytes32(3);  // Like reference - 3 allocated blocks
+    uint32_t unknown = swapBytes32(0);      
+    
+    // Block addresses like reference:
+    // Block 0: 0x80b (offset=0x800, size=2048) - root block
+    // Block 1: 0x25 (offset=0x20, size=32) - DSDB superblock  
+    // Block 2: 0x200d (offset=0x2000, size=8192) - B-tree data
+    uint32_t rootBlockAddr = 0x800 | 11;  // 2048 = 2^11
+    uint32_t dsdbBlockAddr = 0x20 | 5;    // 32 = 2^5  
+    uint32_t btreeBlockAddr = 0x2000 | 13; // 8192 = 2^13
     
     [fileData appendBytes:&offsetCount length:4];
     [fileData appendBytes:&unknown length:4];
     
-    // 256 padding entries (since offset count is 0)
-    for (int i = 0; i < 256; i++) {
+    // 3 real offset entries + 253 zeros
+    uint32_t offset0 = swapBytes32(rootBlockAddr);
+    uint32_t offset1 = swapBytes32(dsdbBlockAddr);
+    uint32_t offset2 = swapBytes32(btreeBlockAddr);
+    [fileData appendBytes:&offset0 length:4];
+    [fileData appendBytes:&offset1 length:4];
+    [fileData appendBytes:&offset2 length:4];
+    
+    // 253 padding entries
+    for (int i = 3; i < 256; i++) {
         uint32_t zero = 0;
         [fileData appendBytes:&zero length:4];
     }
@@ -366,43 +387,76 @@ static uint32_t swapBytes32(uint32_t x) {
     uint32_t tocCount = swapBytes32(1);
     [fileData appendBytes:&tocCount length:4];
     
-    // ToC entry: length (4) + "DSDB" + offset
+    // ToC entry: length (4) + "DSDB" + block_number (1 - like reference)
     uint8_t nameLen = 4;
     [fileData appendBytes:&nameLen length:1];
     [fileData appendBytes:"DSDB" length:4];
-    uint32_t dsdbOffset = swapBytes32(dsdbBlockOffset);
-    [fileData appendBytes:&dsdbOffset length:4];
+    uint32_t dsdbBlockNum = swapBytes32(1); // Block 1 like reference
+    [fileData appendBytes:&dsdbBlockNum length:4];
     
-    // Free lists (simplified - mostly zeros for small files)
-    // 32 free list entries * 4 bytes each for count + data
-    for (int i = 0; i < 32; i++) {
+    // Free lists (32 entries matching reference pattern)
+    // Reference has specific pattern for buddy allocator
+    for (int i = 0; i < 5; i++) {
         uint32_t freeCount = 0;
         [fileData appendBytes:&freeCount length:4];
     }
+    // Free blocks of various sizes
+    for (int i = 5; i < 31; i++) {
+        uint32_t freeCount = swapBytes32(1);
+        [fileData appendBytes:&freeCount length:4];
+        uint32_t freeOffset = swapBytes32(1 << i);
+        [fileData appendBytes:&freeOffset length:4];
+    }
+    // Last entry
+    uint32_t freeCount = 0;
+    [fileData appendBytes:&freeCount length:4];
     
-    // Pad to end of root block (1264 bytes total)
+    // Pad to end of root block (2048 bytes total)
     NSUInteger currentSize = [fileData length] - 2048;
-    if (currentSize < 1264) {
-        NSUInteger remaining = 1264 - currentSize;
+    if (currentSize < 2048) {
+        NSUInteger remaining = 2048 - currentSize;
         char *rootPadding = calloc(remaining, 1);
         [fileData appendBytes:rootPadding length:remaining];
         free(rootPadding);
     }
     
-    // Write DSDB block 
+    // Rewind to write DSDB block at offset 0x20 (before root block!)
+    NSUInteger dsdbStart = 0x20;
+    NSMutableData *tempData = [NSMutableData dataWithData:fileData];
+    
+    // Create DSDB superblock (32 bytes at offset 0x20)
     uint32_t btreeRoot = swapBytes32(20);  // B-tree data starts after DSDB header
     uint32_t levels = swapBytes32(1);      // Single level (leaf only)
     uint32_t records = swapBytes32([_entries count]);
     uint32_t nodes = swapBytes32(1);       // Single node
     uint32_t pageSize = swapBytes32(4096);
     
-    [fileData appendBytes:&btreeRoot length:4];
-    [fileData appendBytes:&levels length:4];
-    [fileData appendBytes:&records length:4];
-    [fileData appendBytes:&nodes length:4];
-    [fileData appendBytes:&pageSize length:4];
+    // Insert DSDB block data at position 0x20
+    NSMutableData *dsdbData = [NSMutableData data];
+    [dsdbData appendBytes:&btreeRoot length:4];
+    [dsdbData appendBytes:&levels length:4];
+    [dsdbData appendBytes:&records length:4];
+    [dsdbData appendBytes:&nodes length:4];
+    [dsdbData appendBytes:&pageSize length:4];
     
-    // Write B-tree leaf node
+    // Pad DSDB block to 32 bytes
+    while ([dsdbData length] < 32) {
+        char zero = 0;
+        [dsdbData appendBytes:&zero length:1];
+    }
+    
+    // Replace data at position 0x20
+    [tempData replaceBytesInRange:NSMakeRange(dsdbStart, 32) withBytes:[dsdbData bytes] length:32];
+    fileData = tempData;
+    
+    // Pad to B-tree block start (0x2000)
+    NSUInteger btreeStart = 0x2000;
+    while ([fileData length] < btreeStart) {
+        char zero = 0;
+        [fileData appendBytes:&zero length:1];
+    }
+    
+    // Write B-tree leaf node at 0x2000
     uint32_t nodeType = swapBytes32(0);              // Leaf node
     uint32_t entryCount = [_entries count];
     uint32_t recordCount = swapBytes32(entryCount);
