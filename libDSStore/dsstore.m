@@ -6,6 +6,7 @@ void printUsage(void) {
     printf("libDSStore command line tool\n\n");
     printf("Usage:\n");
     printf("  dsstore list [path]                    List entries in .DS_Store file\n");
+    printf("  dsstore dump [path]                    Dump ALL data from .DS_Store file\n");
     printf("  dsstore create <path>                  Create new empty .DS_Store file\n");
     printf("  dsstore set-icon-pos <file> <filename> <x> <y>  Set icon position\n");
     printf("  dsstore get-icon-pos <file> <filename> Get icon position\n");
@@ -22,6 +23,7 @@ void printUsage(void) {
     printf("  list                  List view\n");
     printf("\nExamples:\n");
     printf("  dsstore list\n");
+    printf("  dsstore dump .DS_Store\n");
     printf("  dsstore create new.DS_Store\n");
     printf("  dsstore set-icon-pos .DS_Store file.txt 100 150\n");
     printf("  dsstore set-background .DS_Store color 1.0 0.8 0.6\n");
@@ -47,6 +49,128 @@ int listEntries(NSString *path) {
         printf("  %-20s %s\n", 
                [[entry filename] UTF8String], 
                [[entry code] UTF8String]);
+    }
+    
+    return 0;
+}
+
+int dumpAll(NSString *path) {
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        printf("Error: File not found: %s\n", [path UTF8String]);
+        return 1;
+    }
+    
+    DSStore *store = [[[DSStore alloc] initWithPath:path] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    NSArray *entries = [store entries];
+    printf("=== COMPLETE DS_STORE DUMP: %s ===\n", [path UTF8String]);
+    printf("Total entries: %lu\n\n", (unsigned long)[entries count]);
+    
+    // Group entries by filename
+    NSMutableDictionary *entriesByFile = [NSMutableDictionary dictionary];
+    for (DSStoreEntry *entry in entries) {
+        NSString *filename = [entry filename];
+        NSMutableArray *fileEntries = [entriesByFile objectForKey:filename];
+        if (!fileEntries) {
+            fileEntries = [NSMutableArray array];
+            [entriesByFile setObject:fileEntries forKey:filename];
+        }
+        [fileEntries addObject:entry];
+    }
+    
+    // Sort filenames for consistent output  
+    NSArray *sortedFilenames = [[entriesByFile allKeys] sortedArrayUsingSelector:@selector(compare:)];
+    
+    for (NSString *filename in sortedFilenames) {
+        printf("File: '%s'\n", [filename UTF8String]);
+        NSArray *fileEntries = [entriesByFile objectForKey:filename];
+        
+        for (DSStoreEntry *entry in fileEntries) {
+            NSString *code = [entry code];
+            NSString *type = [entry type]; 
+            id value = [entry value];
+            
+            printf("  %s (%s): ", [code UTF8String], [type UTF8String]);
+            
+            // Interpret known codes
+            if ([code isEqualToString:@"Iloc"] && [type isEqualToString:@"blob"]) {
+                if ([value isKindOfClass:[NSData class]]) {
+                    NSData *data = (NSData *)value;
+                    if ([data length] >= 8) {
+                        const uint8_t *bytes = [data bytes];
+                        uint32_t x = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+                        uint32_t y = (bytes[4] << 24) | (bytes[5] << 16) | (bytes[6] << 8) | bytes[7];
+                        printf("Icon position (%u, %u)", x, y);
+                        if ([data length] > 8) {
+                            printf(" + %lu extra bytes", (unsigned long)[data length] - 8);
+                        }
+                    } else {
+                        printf("Invalid Iloc data (too short)");
+                    }
+                } else {
+                    printf("Invalid Iloc data (not NSData)");
+                }
+            } else if ([code isEqualToString:@"bwsp"]) {
+                printf("Background/Window settings (plist data)");
+            } else if ([code isEqualToString:@"icvp"]) {
+                printf("Icon view properties (plist data)");
+            } else if ([code isEqualToString:@"lsvp"] || [code isEqualToString:@"lsvP"]) {
+                printf("List view properties (plist data)");
+            } else if ([code isEqualToString:@"vstl"]) {
+                printf("View style");
+            } else if ([code isEqualToString:@"BKGD"]) {
+                printf("Background (legacy)");
+            } else if ([code isEqualToString:@"cmmt"]) {
+                printf("Comments");
+            } else if ([code isEqualToString:@"dilc"]) {
+                printf("Desktop icon location");
+            } else if ([code isEqualToString:@"dscl"]) {
+                printf("Disclosure state");
+            } else if ([code isEqualToString:@"fwi0"]) {
+                printf("Finder window info");
+            } else if ([code isEqualToString:@"icgo"]) {
+                printf("Icon grid offset");
+            } else if ([code isEqualToString:@"icsp"]) {
+                printf("Icon spacing");
+            } else if ([code isEqualToString:@"icvo"]) {
+                printf("Icon view options");
+            } else if ([code isEqualToString:@"ICVO"]) {
+                printf("Icon view overlay");
+            } else if ([code isEqualToString:@"LSVO"]) {
+                printf("List view overlay");
+            } else if ([code isEqualToString:@"GRP0"]) {
+                printf("Group (unknown)");
+            } else {
+                printf("Unknown code");
+            }
+            
+            // Show raw value for small data
+            if ([value isKindOfClass:[NSData class]]) {
+                NSData *data = (NSData *)value;
+                if ([data length] <= 16) {
+                    printf(" [");
+                    const uint8_t *bytes = [data bytes];
+                    for (NSUInteger i = 0; i < [data length]; i++) {
+                        printf("%02x", bytes[i]);
+                        if (i < [data length] - 1) printf(" ");
+                    }
+                    printf("]");
+                } else {
+                    printf(" [%lu bytes]", (unsigned long)[data length]);
+                }
+            } else if ([value isKindOfClass:[NSString class]]) {
+                printf(" \"%s\"", [(NSString *)value UTF8String]);
+            } else if ([value isKindOfClass:[NSNumber class]]) {
+                printf(" %s", [[(NSNumber *)value description] UTF8String]);
+            }
+            
+            printf("\n");
+        }
+        printf("\n");
     }
     
     return 0;
@@ -330,6 +454,12 @@ int main(int argc, const char * argv[]) {
             path = [NSString stringWithUTF8String:argv[2]];
         }
         result = listEntries(path);
+    } else if (strcmp(command, "dump") == 0) {
+        NSString *path = @".DS_Store";
+        if (argc > 2) {
+            path = [NSString stringWithUTF8String:argv[2]];
+        }
+        result = dumpAll(path);
     } else if (strcmp(command, "create") == 0) {
         if (argc < 3) {
             printf("Error: create command requires path\n");
