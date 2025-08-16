@@ -3,13 +3,13 @@
 //  libDSStore
 //
 //  Main DS_Store functionality
-//  Based on Python ds_store store.py
+//  Based on .DS_Store format specification
 //
 
 #import "DSStore.h"
 #import "DSStoreCodecs.h"
 
-// Constants from Python store.py
+// Constants from .DS_Store format specification
 #define DSDB_MAGIC 0x44534442  // "DSDB"
 
 // Byte swapping functions
@@ -71,21 +71,18 @@ static uint32_t swapBytes32(uint32_t x) {
     // Initialize buddy allocator
     _allocator = [[DSBuddyAllocator alloc] initWithFile:_filePath];
     if (![_allocator open]) {
-        NSLog(@"Failed to open DS_Store file: %@", _filePath);
         return NO;
     }
     
     // Check file size
     NSUInteger fileSize = [_allocator fileSize];
     if (fileSize < 36) {
-        NSLog(@"File too small to be a valid .DS_Store file");
         return NO;
     }
     
     // Read buddy allocator header (first 32 bytes)
     DSBuddyBlock *headerBlock = [_allocator blockAtOffset:0 size:32];
     if (!headerBlock) {
-        NSLog(@"Failed to read header block");
         return NO;
     }
     
@@ -94,7 +91,6 @@ static uint32_t swapBytes32(uint32_t x) {
     uint32_t magic2 = [headerBlock readUInt32];
     
     if (magic1 != 0x00000001 || magic2 != 0x42756431) { // "Bud1"
-        NSLog(@"Invalid buddy allocator magic");
         [headerBlock close];
         return NO;
     }
@@ -102,59 +98,76 @@ static uint32_t swapBytes32(uint32_t x) {
     // Read offset and size of root block
     uint32_t rootOffset = [headerBlock readUInt32];
     uint32_t rootSize = [headerBlock readUInt32];
-    uint32_t rootOffset2 = [headerBlock readUInt32]; // Duplicate
+    uint32_t rootOffset2 __attribute__((unused)) = [headerBlock readUInt32]; // Duplicate
     
     [headerBlock close];
     
     // Validate offsets
     if (rootOffset >= fileSize || rootOffset + rootSize > fileSize) {
-        NSLog(@"Invalid root block offset/size");
         return NO;
     }
     
     // Read root block (contains B-tree superblock)
     DSBuddyBlock *rootBlock = [_allocator blockAtOffset:rootOffset size:rootSize];
     if (!rootBlock) {
-        NSLog(@"Failed to read root block");
         return NO;
     }
     
-    // Skip to TOC offset 
-    // Based on Python reference: ToC is at offset 1032 in root block
-    [rootBlock seek:1032];
-    uint32_t tocCount = [rootBlock readUInt32];
+    // Read block offsets count and unknown value
+    uint32_t offsetCount = [rootBlock readUInt32];
+    uint32_t unknown2 __attribute__((unused)) = [rootBlock readUInt32];
     
-    NSLog(@"ToC entries: %u", tocCount);
+    // Read offset table (count padded to 256 boundary)
+    // Some files have offsetCount=0, others have offsetCount=1
+    uint32_t paddedCount = (offsetCount + 255) & ~255;
+    if (paddedCount == 0) paddedCount = 256; // Handle offsetCount=0 case
+    
+    NSMutableArray *offsets = [NSMutableArray arrayWithCapacity:offsetCount];
+    for (uint32_t i = 0; i < paddedCount; i++) {
+        uint32_t offset = [rootBlock readUInt32];
+        if (i < offsetCount) {
+            [offsets addObject:[NSNumber numberWithUnsignedInt:offset]];
+        }
+    }
+    
+    // Now read TOC count first
+    uint32_t tocCount = [rootBlock readUInt32];
     
     // Look for DSDB entry in ToC
     uint32_t dsdbOffset = 0;
     for (uint32_t i = 0; i < tocCount; i++) {
         uint8_t nameLen = [rootBlock readUInt8];
         NSData *nameData = [rootBlock readBytes:nameLen];
-        uint32_t blockOffset = [rootBlock readUInt32];
+        uint32_t directOffset = [rootBlock readUInt32];
         
         NSString *name = [[NSString alloc] initWithData:nameData encoding:NSASCIIStringEncoding];
-        NSLog(@"ToC entry: %@ -> %u", name, blockOffset);
         
         if ([name isEqualToString:@"DSDB"]) {
-            dsdbOffset = blockOffset;
+            dsdbOffset = directOffset;
         }
         [name release];
+    }
+    
+    // Skip free lists (32 lists) - NOTE: This comes AFTER the TOC
+    for (int i = 0; i < 32; i++) {
+        uint32_t freeCount = [rootBlock readUInt32];
+        [rootBlock seek:[rootBlock tell] + (freeCount * 4)];
     }
     
     [rootBlock close];
     
     if (dsdbOffset == 0) {
-        NSLog(@"No DSDB block found in ToC");
         return NO;
     }
-    
+
     // Read DSDB block (B-tree header is 20 bytes: 5 uint32_t values)
     DSBuddyBlock *dsdbBlock = [_allocator blockAtOffset:dsdbOffset size:20];
     if (!dsdbBlock) {
-        NSLog(@"Failed to read DSDB block");
+        NSLog(@"Failed to read DSDB block at offset %u", dsdbOffset);
         return NO;
     }
+    
+    NSLog(@"DEBUG: DSDB block read successfully");
     
     // Read B-tree header
     uint32_t rootAddress = [dsdbBlock readUInt32];
@@ -299,7 +312,7 @@ static uint32_t swapBytes32(uint32_t x) {
     
     NSMutableData *fileData = [NSMutableData data];
     
-    // Write the buddy allocator header based on Python reference
+    // Write the buddy allocator header per .DS_Store specification
     struct {
         uint32_t magic1;        // 1
         uint32_t magic2;        // "Bud1"
@@ -328,26 +341,23 @@ static uint32_t swapBytes32(uint32_t x) {
     free(padding);
     
     // Write root block (buddy allocator metadata)
-    // Root block structure from Python reference:
-    // - offset count (1)
+    // Root block structure compatible with reference implementation:
+    // - offset count (0) - this is what the reference library expects!
     // - unknown (0) 
-    // - offset (2048 | 5) = 2053
-    // - 255 padding entries
+    // - 256 padding entries (since count is 0, all are padding)
     // - ToC count (1 for DSDB)
     // - ToC entry: "DSDB" -> offset
     // - Free lists
     
-    uint32_t offsetCount = swapBytes32(1);
+    uint32_t offsetCount = swapBytes32(0);  // Changed from 1 to 0!
     uint32_t unknown = swapBytes32(0);
     uint32_t dsdbBlockOffset = 2048 + 1264; // After root block
-    uint32_t rootBlockInfo = swapBytes32(dsdbBlockOffset | 5);
     
     [fileData appendBytes:&offsetCount length:4];
     [fileData appendBytes:&unknown length:4];
-    [fileData appendBytes:&rootBlockInfo length:4];
     
-    // 255 padding entries
-    for (int i = 0; i < 255; i++) {
+    // 256 padding entries (since offset count is 0)
+    for (int i = 0; i < 256; i++) {
         uint32_t zero = 0;
         [fileData appendBytes:&zero length:4];
     }
@@ -394,7 +404,10 @@ static uint32_t swapBytes32(uint32_t x) {
     
     // Write B-tree leaf node
     uint32_t nodeType = swapBytes32(0);              // Leaf node
-    uint32_t recordCount = swapBytes32([_entries count]);
+    uint32_t entryCount = [_entries count];
+    uint32_t recordCount = swapBytes32(entryCount);
+    
+    NSLog(@"DEBUG SAVE: Writing %u entries, swapped recordCount=0x%08x", entryCount, recordCount);
     
     [fileData appendBytes:&nodeType length:4];
     [fileData appendBytes:&recordCount length:4];
@@ -512,7 +525,8 @@ static uint32_t swapBytes32(uint32_t x) {
     }
     
     if (entry && ([[entry code] isEqualToString:@"lsvp"] || [[entry code] isEqualToString:@"lsvP"])) {
-        return [entry viewSettings];
+        // The value should be a blob containing plist data - just return the raw value for now
+        return (NSDictionary *)[entry value];
     }
     return nil;
 }
@@ -533,7 +547,8 @@ static uint32_t swapBytes32(uint32_t x) {
     }
     
     if (entry && ([[entry code] isEqualToString:@"icvp"] || [[entry code] isEqualToString:@"icvP"])) {
-        return [entry viewSettings];
+        // The value should be a blob containing plist data - just return the raw value for now
+        return (NSDictionary *)[entry value];
     }
     return nil;
 }

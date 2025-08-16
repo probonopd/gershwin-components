@@ -66,18 +66,23 @@ static uint64_t swap64(uint64_t x) {
 
 - (BOOL)open {
     if (_data) {
+        NSLog(@"DEBUG: Allocator already opened with data");
         return YES; // Already opened with data
     }
     
     if (!_filePath) {
+        NSLog(@"DEBUG: No file path provided");
         return NO;
     }
     
+    NSLog(@"DEBUG: Attempting to open file: %@", _filePath);
     NSData *fileData = [NSData dataWithContentsOfFile:_filePath];
     if (!fileData) {
+        NSLog(@"DEBUG: Failed to read file data from: %@", _filePath);
         return NO;
     }
     
+    NSLog(@"DEBUG: Successfully read %lu bytes from file", (unsigned long)[fileData length]);
     _data = [[NSMutableData dataWithData:fileData] retain];
     return YES;
 }
