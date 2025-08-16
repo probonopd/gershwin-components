@@ -138,27 +138,33 @@ static uint32_t swapBytes32(uint32_t x) {
     uint32_t tocCount = [rootBlock readUInt32];
     NSLog(@"TOC count: %u", tocCount);
     
-    // Look for DSDB entry in ToC
-    uint32_t dsdbBlockNum = UINT32_MAX;
+    // Parse ALL directory entries robustly (not just DSDB)
+    NSMutableDictionary *directoryEntries = [NSMutableDictionary dictionaryWithCapacity:tocCount];
     for (uint32_t i = 0; i < tocCount; i++) {
         uint8_t nameLen = [rootBlock readUInt8];
         NSData *nameData = [rootBlock readBytes:nameLen];
         uint32_t blockNum = [rootBlock readUInt32];
         
         NSString *name = [[NSString alloc] initWithData:nameData encoding:NSASCIIStringEncoding];
-        
         NSLog(@"TOC[%u]: name='%@' -> block %u", i, name, blockNum);
         
-        if ([name isEqualToString:@"DSDB"]) {
-            dsdbBlockNum = blockNum;
-        }
+        // Store ALL directory entries for future extensibility
+        [directoryEntries setObject:[NSNumber numberWithUnsignedInt:blockNum] forKey:name];
         [name release];
     }
     
     [rootBlock close];
     
-    if (dsdbBlockNum == UINT32_MAX || dsdbBlockNum >= [offsets count]) {
-        NSLog(@"DSDB block not found or invalid");
+    // Look for DSDB directory entry (robust approach)
+    NSNumber *dsdbBlockNumObj = [directoryEntries objectForKey:@"DSDB"];
+    if (!dsdbBlockNumObj) {
+        NSLog(@"DSDB directory not found in TOC");
+        return NO;
+    }
+    
+    uint32_t dsdbBlockNum = [dsdbBlockNumObj unsignedIntValue];
+    if (dsdbBlockNum >= [offsets count]) {
+        NSLog(@"DSDB block number %u exceeds offset table size %lu", dsdbBlockNum, (unsigned long)[offsets count]);
         return NO;
     }
     
