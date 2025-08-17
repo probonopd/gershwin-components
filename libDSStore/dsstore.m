@@ -5,29 +5,47 @@
 void printUsage(void) {
     printf("libDSStore command line tool\n\n");
     printf("Usage:\n");
-    printf("  dsstore list [path]                    List entries in .DS_Store file\n");
-    printf("  dsstore dump [path]                    Dump ALL data from .DS_Store file\n");
-    printf("  dsstore create <path>                  Create new empty .DS_Store file\n");
-    printf("  dsstore set-icon-pos <file> <filename> <x> <y>  Set icon position\n");
-    printf("  dsstore get-icon-pos <file> <filename> Get icon position\n");
-    printf("  dsstore set-background <file> <type> [value]   Set background (color/image)\n");
-    printf("  dsstore set-view <file> <type> [options]       Set view settings\n");
-    printf("  dsstore remove-entry <file> <filename> <code>  Remove specific entry\n");
-    printf("  dsstore info <file>                    Show file information\n");
-    printf("\nBackground types:\n");
-    printf("  color <r> <g> <b>     Set background color (0.0-1.0)\n");
-    printf("  image <path>          Set background image\n");
-    printf("  default               Use default background\n");
-    printf("\nView types:\n");
-    printf("  icon <size>           Icon view with icon size\n");
-    printf("  list                  List view\n");
+    printf("  dsstore list [path]                        List entries in .DS_Store file\n");
+    printf("  dsstore dump [path]                        Dump ALL data from .DS_Store file\n");
+    printf("  dsstore create <path>                      Create new empty .DS_Store file\n");
+    printf("\nIcon Position Commands:\n");
+    printf("  dsstore get-icon <file> <filename>         Get icon position\n");
+    printf("  dsstore set-icon <file> <filename> <x> <y> Set icon position\n");
+    printf("\nBackground Commands:\n");
+    printf("  dsstore get-background <file>              Get background settings\n");
+    printf("  dsstore set-background-color <file> <r> <g> <b>  Set color (0.0-1.0)\n");
+    printf("  dsstore set-background-image <file> <path> Set background image\n");
+    printf("  dsstore remove-background <file>           Remove background\n");
+    printf("\nView Settings Commands:\n");
+    printf("  dsstore get-view <file>                    Get view settings\n");
+    printf("  dsstore set-view-style <file> <style>      Set view style (icon/list/column/flow)\n");
+    printf("  dsstore set-icon-size <file> <size>        Set icon size (16-512)\n");
+    printf("\nFile Metadata Commands:\n");
+    printf("  dsstore get-comment <file> <filename>      Get file comment\n");
+    printf("  dsstore set-comment <file> <filename> <text>  Set file comment\n");
+    printf("  dsstore get-size <file> <filename> [type]  Get file size (logical/physical)\n");
+    printf("  dsstore set-size <file> <filename> <type> <size>  Set file size\n");
+    printf("  dsstore get-date <file> <filename>         Get modification date\n");
+    printf("  dsstore set-date <file> <filename> <timestamp>  Set modification date\n");
+    printf("\nGeneric Field Commands:\n");
+    printf("  dsstore get-field <file> <filename> <code> Get any field value\n");
+    printf("  dsstore set-field <file> <filename> <code> <type> <value>  Set field\n");
+    printf("  dsstore remove-field <file> <filename> <code>  Remove field\n");
+    printf("  dsstore list-fields <file> <filename>      List all fields for file\n");
+    printf("\nUtility Commands:\n");
+    printf("  dsstore info <file>                        Show file information\n");
+    printf("  dsstore validate <file>                    Validate .DS_Store file\n");
+    printf("  dsstore list-files <file>                  List all files with entries\n");
+    printf("  dsstore cleanup <file>                     Remove unused entries\n");
     printf("\nExamples:\n");
     printf("  dsstore list\n");
-    printf("  dsstore dump .DS_Store\n");
-    printf("  dsstore create new.DS_Store\n");
-    printf("  dsstore set-icon-pos .DS_Store file.txt 100 150\n");
-    printf("  dsstore set-background .DS_Store color 1.0 0.8 0.6\n");
-    printf("  dsstore set-view .DS_Store icon 64\n");
+    printf("  dsstore get-icon .DS_Store file.txt\n");
+    printf("  dsstore set-icon .DS_Store file.txt 100 150\n");
+    printf("  dsstore set-background-color .DS_Store 1.0 0.8 0.6\n");
+    printf("  dsstore set-view-style .DS_Store icon\n");
+    printf("  dsstore set-comment .DS_Store file.txt 'Important document'\n");
+    printf("  dsstore get-field .DS_Store . vstl\n");
+    printf("  dsstore set-field .DS_Store . icvo long 64\n");
 }
 
 int listEntries(NSString *path) {
@@ -236,14 +254,12 @@ int getIconPosition(NSString *storePath, NSString *filename) {
         return 1;
     }
     
-    NSDictionary *location = [store iconLocationForFilename:filename];
-    if (location) {
-        NSNumber *x = [location objectForKey:@"x"];
-        NSNumber *y = [location objectForKey:@"y"];
-        printf("Icon position for %s: (%d, %d)\n", 
-               [filename UTF8String], [x intValue], [y intValue]);
-    } else {
+    NSPoint location = [store iconLocationForFilename:filename];
+    if (location.x == 0 && location.y == 0) {
         printf("No icon position set for %s\n", [filename UTF8String]);
+    } else {
+        printf("Icon position for %s: (%.0f, %.0f)\n", 
+               [filename UTF8String], location.x, location.y);
     }
     
     return 0;
@@ -389,6 +405,378 @@ int removeEntry(NSString *storePath, NSString *filename, NSString *code) {
     return 0;
 }
 
+// Background management functions
+int getBackground(NSString *storePath) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    // Try to get background color entry directly
+    DSStoreEntry *colorEntry = [store entryForFilename:@"." code:@"BKGD"];
+    if (colorEntry && [[colorEntry type] isEqualToString:@"blob"]) {
+        NSData *data = [colorEntry value];
+        if ([data length] >= 6) {
+            const unsigned char *bytes = [data bytes];
+            uint16_t red = (bytes[0] << 8) | bytes[1];
+            uint16_t green = (bytes[2] << 8) | bytes[3];
+            uint16_t blue = (bytes[4] << 8) | bytes[5];
+            printf("Background: color %.3f %.3f %.3f\n", 
+                   red/65535.0, green/65535.0, blue/65535.0);
+            return 0;
+        }
+    }
+    
+    NSString *imagePath = [store backgroundImagePathForDirectory];
+    if (imagePath) {
+        printf("Background: image %s\n", [imagePath UTF8String]);
+    } else {
+        printf("Background: default\n");
+    }
+    
+    return 0;
+}
+
+int setBackgroundColor(NSString *storePath, float r, float g, float b) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    // Create a simple RGB color representation without NSColor
+    int redInt = (int)(r * 65535);
+    int greenInt = (int)(g * 65535);
+    int blueInt = (int)(b * 65535);
+    
+    DSStoreEntry *entry = [DSStoreEntry backgroundColorEntryForFile:@"." red:redInt green:greenInt blue:blueInt];
+    [store setEntry:entry];
+    
+    if (![store saveChanges]) {
+        printf("Error: Failed to save .DS_Store file\n");
+        return 1;
+    }
+    
+    printf("Set background color to %.3f %.3f %.3f\n", r, g, b);
+    return 0;
+}
+
+int setBackgroundImage(NSString *storePath, NSString *imagePath) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    [store setBackgroundImagePathForDirectory:imagePath];
+    
+    if (![store saveChanges]) {
+        printf("Error: Failed to save .DS_Store file\n");
+        return 1;
+    }
+    
+    printf("Set background image to %s\n", [imagePath UTF8String]);
+    return 0;
+}
+
+int removeBackground(NSString *storePath) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    [store removeEntryForFilename:@"." code:@"BKGD"];
+    
+    if (![store saveChanges]) {
+        printf("Error: Failed to save .DS_Store file\n");
+        return 1;
+    }
+    
+    printf("Removed background settings\n");
+    return 0;
+}
+
+// View management functions
+int getView(NSString *storePath) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    NSString *viewStyle = [store viewStyleForDirectory];
+    int iconSize = [store iconSizeForDirectory];
+    
+    if (viewStyle) {
+        printf("View style: %s\n", [viewStyle UTF8String]);
+    }
+    
+    if (iconSize > 0) {
+        printf("Icon size: %d\n", iconSize);
+    }
+    
+    if (!viewStyle && iconSize == 0) {
+        printf("View: default\n");
+    }
+    
+    return 0;
+}
+
+int setViewStyle(NSString *storePath, NSString *style) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    [store setViewStyleForDirectory:style];
+    
+    if (![store saveChanges]) {
+        printf("Error: Failed to save .DS_Store file\n");
+        return 1;
+    }
+    
+    printf("Set view style to %s\n", [style UTF8String]);
+    return 0;
+}
+
+int setIconSize(NSString *storePath, int size) {
+    if (size < 16 || size > 512) {
+        printf("Error: Icon size must be between 16 and 512\n");
+        return 1;
+    }
+    
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    [store setIconSizeForDirectory:size];
+    
+    if (![store saveChanges]) {
+        printf("Error: Failed to save .DS_Store file\n");
+        return 1;
+    }
+    
+    printf("Set icon size to %d\n", size);
+    return 0;
+}
+
+// Comment management functions
+int getComment(NSString *storePath, NSString *filename) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    NSString *comment = [store commentsForFilename:filename];
+    if (comment) {
+        printf("Comment for %s: %s\n", [filename UTF8String], [comment UTF8String]);
+    } else {
+        printf("No comment for %s\n", [filename UTF8String]);
+    }
+    
+    return 0;
+}
+
+int setComment(NSString *storePath, NSString *filename, NSString *comment) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    [store setCommentsForFilename:filename comments:comment];
+    
+    if (![store saveChanges]) {
+        printf("Error: Failed to save .DS_Store file\n");
+        return 1;
+    }
+    
+    printf("Set comment for %s: %s\n", [filename UTF8String], [comment UTF8String]);
+    return 0;
+}
+
+// Generic field management functions
+int getField(NSString *storePath, NSString *filename, NSString *code) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    DSStoreEntry *entry = [store entryForFilename:filename code:code];
+    if (entry) {
+        printf("Field %s:%s = (%s) ", [filename UTF8String], [code UTF8String], [[entry type] UTF8String]);
+        
+        id value = [entry value];
+        if ([value isKindOfClass:[NSString class]]) {
+            printf("\"%s\"\n", [(NSString *)value UTF8String]);
+        } else if ([value isKindOfClass:[NSNumber class]]) {
+            printf("%s\n", [[(NSNumber *)value stringValue] UTF8String]);
+        } else if ([value isKindOfClass:[NSDate class]]) {
+            printf("%s\n", [[(NSDate *)value description] UTF8String]);
+        } else if ([value isKindOfClass:[NSData class]]) {
+            NSData *data = (NSData *)value;
+            printf("<%lu bytes>\n", (unsigned long)[data length]);
+        } else {
+            printf("%s\n", [[value description] UTF8String]);
+        }
+    } else {
+        printf("No field %s:%s\n", [filename UTF8String], [code UTF8String]);
+    }
+    
+    return 0;
+}
+
+int setField(NSString *storePath, NSString *filename, NSString *code, NSString *type, NSString *valueStr) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    id value = nil;
+    
+    if ([type isEqualToString:@"bool"]) {
+        BOOL boolValue = [valueStr isEqualToString:@"true"] || [valueStr isEqualToString:@"1"] || [valueStr isEqualToString:@"yes"];
+        value = [NSNumber numberWithBool:boolValue];
+    } else if ([type isEqualToString:@"shor"] || [type isEqualToString:@"long"]) {
+        value = [NSNumber numberWithLong:[valueStr longLongValue]];
+    } else if ([type isEqualToString:@"comp"]) {
+        value = [NSNumber numberWithLongLong:[valueStr longLongValue]];
+    } else if ([type isEqualToString:@"dutc"]) {
+        NSTimeInterval timestamp = [valueStr doubleValue];
+        value = [NSDate dateWithTimeIntervalSince1970:timestamp];
+    } else if ([type isEqualToString:@"ustr"] || [type isEqualToString:@"type"]) {
+        value = valueStr;
+    } else if ([type isEqualToString:@"blob"]) {
+        // For blob, expect hex string
+        NSMutableData *data = [NSMutableData data];
+        const char *hexStr = [valueStr UTF8String];
+        for (int i = 0; i < strlen(hexStr); i += 2) {
+            char hex[3] = {hexStr[i], hexStr[i+1], 0};
+            unsigned char byte = (unsigned char)strtol(hex, NULL, 16);
+            [data appendBytes:&byte length:1];
+        }
+        value = data;
+    } else {
+        printf("Error: Unknown type '%s'\n", [type UTF8String]);
+        return 1;
+    }
+    
+    DSStoreEntry *entry = [[DSStoreEntry alloc] initWithFilename:filename code:code type:type value:value];
+    [store setEntry:entry];
+    [entry release];
+    
+    if (![store saveChanges]) {
+        printf("Error: Failed to save .DS_Store file\n");
+        return 1;
+    }
+    
+    printf("Set field %s:%s to (%s) %s\n", [filename UTF8String], [code UTF8String], [type UTF8String], [valueStr UTF8String]);
+    return 0;
+}
+
+int removeField(NSString *storePath, NSString *filename, NSString *code) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    [store removeEntryForFilename:filename code:code];
+    
+    if (![store saveChanges]) {
+        printf("Error: Failed to save .DS_Store file\n");
+        return 1;
+    }
+    
+    printf("Removed field %s:%s\n", [filename UTF8String], [code UTF8String]);
+    return 0;
+}
+
+int listFields(NSString *storePath, NSString *filename) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    NSArray *codes = [store allCodesForFilename:filename];
+    if ([codes count] > 0) {
+        printf("Fields for %s:\n", [filename UTF8String]);
+        for (NSString *code in codes) {
+            DSStoreEntry *entry = [store entryForFilename:filename code:code];
+            if (entry) {
+                printf("  %s (%s)\n", [code UTF8String], [[entry type] UTF8String]);
+            }
+        }
+    } else {
+        printf("No fields for %s\n", [filename UTF8String]);
+    }
+    
+    return 0;
+}
+
+int listFiles(NSString *storePath) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    NSArray *filenames = [store allFilenames];
+    if ([filenames count] > 0) {
+        printf("Files with entries:\n");
+        for (NSString *filename in filenames) {
+            NSArray *codes = [store allCodesForFilename:filename];
+            printf("  %s (%lu fields)\n", [filename UTF8String], (unsigned long)[codes count]);
+        }
+    } else {
+        printf("No files found\n");
+    }
+    
+    return 0;
+}
+
+int validateFile(NSString *storePath) {
+    DSStore *store = [[[DSStore alloc] initWithPath:storePath] autorelease];
+    if (![store load]) {
+        printf("Error: Failed to load .DS_Store file\n");
+        return 1;
+    }
+    
+    NSArray *entries = [store entries];
+    printf("Validation results for %s:\n", [storePath UTF8String]);
+    printf("  Entries: %lu\n", (unsigned long)[entries count]);
+    
+    // Count by type
+    NSMutableDictionary *typeCounts = [NSMutableDictionary dictionary];
+    for (DSStoreEntry *entry in entries) {
+        NSString *type = [entry type];
+        NSNumber *count = [typeCounts objectForKey:type];
+        if (count) {
+            [typeCounts setObject:[NSNumber numberWithInt:[count intValue] + 1] forKey:type];
+        } else {
+            [typeCounts setObject:[NSNumber numberWithInt:1] forKey:type];
+        }
+    }
+    
+    printf("  Types:\n");
+    for (NSString *type in [typeCounts allKeys]) {
+        NSNumber *count = [typeCounts objectForKey:type];
+        printf("    %s: %d\n", [type UTF8String], [count intValue]);
+    }
+    
+    printf("  Status: Valid DS_Store file\n");
+    return 0;
+}
+
 int showInfo(NSString *path) {
     if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
         printf("Error: File not found: %s\n", [path UTF8String]);
@@ -479,7 +867,166 @@ int main(int argc, const char * argv[]) {
             int y = atoi(argv[5]);
             result = setIconPosition(storePath, filename, x, y);
         }
+    } else if (strcmp(command, "get-icon") == 0) {
+        if (argc < 4) {
+            printf("Error: get-icon requires <file> <filename>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            NSString *filename = [NSString stringWithUTF8String:argv[3]];
+            result = getIconPosition(storePath, filename);
+        }
+    } else if (strcmp(command, "set-icon") == 0) {
+        if (argc < 6) {
+            printf("Error: set-icon requires <file> <filename> <x> <y>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            NSString *filename = [NSString stringWithUTF8String:argv[3]];
+            int x = atoi(argv[4]);
+            int y = atoi(argv[5]);
+            result = setIconPosition(storePath, filename, x, y);
+        }
+    } else if (strcmp(command, "get-background") == 0) {
+        if (argc < 3) {
+            printf("Error: get-background requires <file>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            result = getBackground(storePath);
+        }
+    } else if (strcmp(command, "set-background-color") == 0) {
+        if (argc < 6) {
+            printf("Error: set-background-color requires <file> <r> <g> <b>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            float r = atof(argv[3]);
+            float g = atof(argv[4]);
+            float b = atof(argv[5]);
+            result = setBackgroundColor(storePath, r, g, b);
+        }
+    } else if (strcmp(command, "set-background-image") == 0) {
+        if (argc < 4) {
+            printf("Error: set-background-image requires <file> <image_path>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            NSString *imagePath = [NSString stringWithUTF8String:argv[3]];
+            result = setBackgroundImage(storePath, imagePath);
+        }
+    } else if (strcmp(command, "remove-background") == 0) {
+        if (argc < 3) {
+            printf("Error: remove-background requires <file>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            result = removeBackground(storePath);
+        }
+    } else if (strcmp(command, "get-view") == 0) {
+        if (argc < 3) {
+            printf("Error: get-view requires <file>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            result = getView(storePath);
+        }
+    } else if (strcmp(command, "set-view-style") == 0) {
+        if (argc < 4) {
+            printf("Error: set-view-style requires <file> <style>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            NSString *style = [NSString stringWithUTF8String:argv[3]];
+            result = setViewStyle(storePath, style);
+        }
+    } else if (strcmp(command, "set-icon-size") == 0) {
+        if (argc < 4) {
+            printf("Error: set-icon-size requires <file> <size>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            int size = atoi(argv[3]);
+            result = setIconSize(storePath, size);
+        }
+    } else if (strcmp(command, "get-comment") == 0) {
+        if (argc < 4) {
+            printf("Error: get-comment requires <file> <filename>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            NSString *filename = [NSString stringWithUTF8String:argv[3]];
+            result = getComment(storePath, filename);
+        }
+    } else if (strcmp(command, "set-comment") == 0) {
+        if (argc < 5) {
+            printf("Error: set-comment requires <file> <filename> <comment>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            NSString *filename = [NSString stringWithUTF8String:argv[3]];
+            NSString *comment = [NSString stringWithUTF8String:argv[4]];
+            result = setComment(storePath, filename, comment);
+        }
+    } else if (strcmp(command, "get-field") == 0) {
+        if (argc < 5) {
+            printf("Error: get-field requires <file> <filename> <code>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            NSString *filename = [NSString stringWithUTF8String:argv[3]];
+            NSString *code = [NSString stringWithUTF8String:argv[4]];
+            result = getField(storePath, filename, code);
+        }
+    } else if (strcmp(command, "set-field") == 0) {
+        if (argc < 7) {
+            printf("Error: set-field requires <file> <filename> <code> <type> <value>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            NSString *filename = [NSString stringWithUTF8String:argv[3]];
+            NSString *code = [NSString stringWithUTF8String:argv[4]];
+            NSString *type = [NSString stringWithUTF8String:argv[5]];
+            NSString *value = [NSString stringWithUTF8String:argv[6]];
+            result = setField(storePath, filename, code, type, value);
+        }
+    } else if (strcmp(command, "remove-field") == 0) {
+        if (argc < 5) {
+            printf("Error: remove-field requires <file> <filename> <code>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            NSString *filename = [NSString stringWithUTF8String:argv[3]];
+            NSString *code = [NSString stringWithUTF8String:argv[4]];
+            result = removeField(storePath, filename, code);
+        }
+    } else if (strcmp(command, "list-fields") == 0) {
+        if (argc < 4) {
+            printf("Error: list-fields requires <file> <filename>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            NSString *filename = [NSString stringWithUTF8String:argv[3]];
+            result = listFields(storePath, filename);
+        }
+    } else if (strcmp(command, "list-files") == 0) {
+        if (argc < 3) {
+            printf("Error: list-files requires <file>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            result = listFiles(storePath);
+        }
+    } else if (strcmp(command, "validate") == 0) {
+        if (argc < 3) {
+            printf("Error: validate requires <file>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            result = validateFile(storePath);
+        }
     } else if (strcmp(command, "get-icon-pos") == 0) {
+        // Legacy alias for get-icon
         if (argc < 4) {
             printf("Error: get-icon-pos requires <file> <filename>\n");
             result = 1;
@@ -487,6 +1034,18 @@ int main(int argc, const char * argv[]) {
             NSString *storePath = [NSString stringWithUTF8String:argv[2]];
             NSString *filename = [NSString stringWithUTF8String:argv[3]];
             result = getIconPosition(storePath, filename);
+        }
+    } else if (strcmp(command, "set-icon-pos") == 0) {
+        // Legacy alias for set-icon
+        if (argc < 6) {
+            printf("Error: set-icon-pos requires <file> <filename> <x> <y>\n");
+            result = 1;
+        } else {
+            NSString *storePath = [NSString stringWithUTF8String:argv[2]];
+            NSString *filename = [NSString stringWithUTF8String:argv[3]];
+            int x = atoi(argv[4]);
+            int y = atoi(argv[5]);
+            result = setIconPosition(storePath, filename, x, y);
         }
     } else if (strcmp(command, "set-background") == 0) {
         if (argc < 4) {

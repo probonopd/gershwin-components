@@ -604,6 +604,7 @@ static uint32_t swapBytes32(uint32_t x) {
     }
     
     [_entries addObject:entry];
+    _dirty = YES;  // Mark as modified
 }
 
 - (void)removeEntryForFilename:(NSString *)filename code:(NSString *)code {
@@ -614,28 +615,11 @@ static uint32_t swapBytes32(uint32_t x) {
     DSStoreEntry *entry = [self entryForFilename:filename code:code];
     if (entry) {
         [_entries removeObject:entry];
+        _dirty = YES;  // Mark as modified
     }
 }
 
-// Convenience methods for common entries
-- (NSDictionary *)iconLocationForFilename:(NSString *)filename {
-    DSStoreEntry *entry = [self entryForFilename:filename code:@"Iloc"];
-    if (entry && [[entry code] isEqualToString:@"Iloc"]) {
-        NSData *data = (NSData *)[entry value];
-        return [DSILocCodec decodeData:data];
-    }
-    return nil;
-}
-
-- (void)setIconLocation:(NSDictionary *)location forFilename:(NSString *)filename {
-    NSData *encodedData = [DSILocCodec encodeValue:location];
-    DSStoreEntry *entry = [[DSStoreEntry alloc] initWithFilename:filename 
-                                                            code:@"Iloc" 
-                                                            type:@"blob"
-                                                           value:encodedData];
-    [self setEntry:entry];
-    [entry release];
-}
+// CRUD methods for all DS_Store field types
 
 - (NSDictionary *)backgroundPictureForDirectory {
     DSStoreEntry *entry = [self entryForFilename:@"." code:@"bwsp"];
@@ -680,26 +664,293 @@ static uint32_t swapBytes32(uint32_t x) {
     [entry release];
 }
 
-- (NSDictionary *)iconViewSettingsForDirectory {
-    DSStoreEntry *entry = [self entryForFilename:@"." code:@"icvp"];
-    if (!entry) {
-        entry = [self entryForFilename:@"." code:@"icvP"];
+// CRUD methods for all DS_Store field types
+
+- (NSPoint)iconLocationForFilename:(NSString *)filename {
+    DSStoreEntry *entry = [self entryForFilename:filename code:@"Iloc"];
+    if (entry) {
+        return [entry iconLocation];
     }
-    
-    if (entry && ([[entry code] isEqualToString:@"icvp"] || [[entry code] isEqualToString:@"icvP"])) {
-        // The value should be a blob containing plist data - just return the raw value for now
-        return (NSDictionary *)[entry value];
+    return NSMakePoint(0, 0);
+}
+
+- (void)setIconLocationForFilename:(NSString *)filename x:(int)x y:(int)y {
+    DSStoreEntry *entry = [DSStoreEntry iconLocationEntryForFile:filename x:x y:y];
+    [self setEntry:entry];
+}
+
+- (SimpleColor *)backgroundColorForDirectory {
+    DSStoreEntry *entry = [self entryForFilename:@"." code:@"BKGD"];
+    if (entry) {
+        return [entry backgroundColor];
     }
     return nil;
 }
 
-- (void)setIconViewSettings:(NSDictionary *)settings {
-    DSStoreEntry *entry = [[DSStoreEntry alloc] initWithFilename:@"." 
-                                                            code:@"icvp" 
-                                                            type:@"blob"
-                                                           value:settings];
+- (void)setBackgroundColorForDirectory:(SimpleColor *)color {
+    float red, green, blue, alpha;
+    [color getRed:&red green:&green blue:&blue alpha:&alpha];
+    
+    int redInt = (int)(red * 65535);
+    int greenInt = (int)(green * 65535);
+    int blueInt = (int)(blue * 65535);
+    
+    DSStoreEntry *entry = [DSStoreEntry backgroundColorEntryForFile:@"." red:redInt green:greenInt blue:blueInt];
     [self setEntry:entry];
-    [entry release];
+}
+
+- (NSString *)backgroundImagePathForDirectory {
+    DSStoreEntry *entry = [self entryForFilename:@"." code:@"BKGD"];
+    if (entry) {
+        return [entry backgroundImagePath];
+    }
+    return nil;
+}
+
+- (void)setBackgroundImagePathForDirectory:(NSString *)imagePath {
+    DSStoreEntry *entry = [DSStoreEntry backgroundImageEntryForFile:@"." imagePath:imagePath];
+    [self setEntry:entry];
+}
+
+- (NSString *)viewStyleForDirectory {
+    DSStoreEntry *entry = [self entryForFilename:@"." code:@"vstl"];
+    if (entry) {
+        return [entry viewStyle];
+    }
+    return nil;
+}
+
+- (void)setViewStyleForDirectory:(NSString *)style {
+    DSStoreEntry *entry = [DSStoreEntry viewStyleEntryForFile:@"." style:style];
+    [self setEntry:entry];
+}
+
+- (int)iconSizeForDirectory {
+    DSStoreEntry *entry = [self entryForFilename:@"." code:@"icvo"];
+    if (entry) {
+        return [entry iconSize];
+    }
+    return 0;
+}
+
+- (void)setIconSizeForDirectory:(int)size {
+    DSStoreEntry *entry = [DSStoreEntry iconSizeEntryForFile:@"." size:size];
+    [self setEntry:entry];
+}
+
+- (NSString *)commentsForFilename:(NSString *)filename {
+    DSStoreEntry *entry = [self entryForFilename:filename code:@"cmmt"];
+    if (entry) {
+        return [entry comments];
+    }
+    return nil;
+}
+
+- (void)setCommentsForFilename:(NSString *)filename comments:(NSString *)comments {
+    DSStoreEntry *entry = [DSStoreEntry commentsEntryForFile:filename comments:comments];
+    [self setEntry:entry];
+}
+
+- (long long)logicalSizeForFilename:(NSString *)filename {
+    DSStoreEntry *entry = [self entryForFilename:filename code:@"lg1S"];
+    if (!entry) {
+        entry = [self entryForFilename:filename code:@"logS"]; // Fallback to legacy
+    }
+    if (entry) {
+        return [entry logicalSize];
+    }
+    return 0;
+}
+
+- (void)setLogicalSizeForFilename:(NSString *)filename size:(long long)size {
+    DSStoreEntry *entry = [DSStoreEntry logicalSizeEntryForFile:filename size:size];
+    [self setEntry:entry];
+}
+
+- (long long)physicalSizeForFilename:(NSString *)filename {
+    DSStoreEntry *entry = [self entryForFilename:filename code:@"ph1S"];
+    if (!entry) {
+        entry = [self entryForFilename:filename code:@"phyS"]; // Fallback to legacy
+    }
+    if (entry) {
+        return [entry physicalSize];
+    }
+    return 0;
+}
+
+- (void)setPhysicalSizeForFilename:(NSString *)filename size:(long long)size {
+    DSStoreEntry *entry = [DSStoreEntry physicalSizeEntryForFile:filename size:size];
+    [self setEntry:entry];
+}
+
+- (NSDate *)modificationDateForFilename:(NSString *)filename {
+    DSStoreEntry *entry = [self entryForFilename:filename code:@"modD"];
+    if (!entry) {
+        entry = [self entryForFilename:filename code:@"moDD"]; // Alternative
+    }
+    if (entry) {
+        return [entry modificationDate];
+    }
+    return nil;
+}
+
+- (void)setModificationDateForFilename:(NSString *)filename date:(NSDate *)date {
+    DSStoreEntry *entry = [DSStoreEntry modificationDateEntryForFile:filename date:date];
+    [self setEntry:entry];
+}
+
+- (BOOL)booleanValueForFilename:(NSString *)filename code:(NSString *)code {
+    DSStoreEntry *entry = [self entryForFilename:filename code:code];
+    if (entry) {
+        return [entry booleanValue];
+    }
+    return NO;
+}
+
+- (void)setBooleanValueForFilename:(NSString *)filename code:(NSString *)code value:(BOOL)value {
+    DSStoreEntry *entry = [DSStoreEntry booleanEntryForFile:filename code:code value:value];
+    [self setEntry:entry];
+}
+
+- (int32_t)longValueForFilename:(NSString *)filename code:(NSString *)code {
+    DSStoreEntry *entry = [self entryForFilename:filename code:code];
+    if (entry) {
+        return [entry longValue];
+    }
+    return 0;
+}
+
+- (void)setLongValueForFilename:(NSString *)filename code:(NSString *)code value:(int32_t)value {
+    DSStoreEntry *entry = [DSStoreEntry longEntryForFile:filename code:code value:value];
+    [self setEntry:entry];
+}
+
+// Legacy compatibility method - redirect to new API
+- (NSDictionary *)iconLocationDictForFilename:(NSString *)filename {
+    NSPoint location = [self iconLocationForFilename:filename];
+    if (location.x == 0 && location.y == 0) {
+        return nil;
+    }
+    return [NSDictionary dictionaryWithObjectsAndKeys:
+            [NSNumber numberWithFloat:location.x], @"x",
+            [NSNumber numberWithFloat:location.y], @"y",
+            nil];
+}
+
+- (void)setIconLocation:(NSDictionary *)location forFilename:(NSString *)filename {
+    int x = [[location objectForKey:@"x"] intValue];
+    int y = [[location objectForKey:@"y"] intValue];
+    [self setIconLocationForFilename:filename x:x y:y];
+}
+
+- (NSDictionary *)iconViewSettingsForDirectory {
+    NSMutableDictionary *settings = [NSMutableDictionary dictionary];
+    
+    NSString *viewStyle = [self viewStyleForDirectory];
+    if (viewStyle) {
+        [settings setObject:viewStyle forKey:@"viewStyle"];
+    }
+    
+    int iconSize = [self iconSizeForDirectory];
+    if (iconSize > 0) {
+        [settings setObject:[NSNumber numberWithInt:iconSize] forKey:@"iconSize"];
+    }
+    
+    SimpleColor *backgroundColor = [self backgroundColorForDirectory];
+    if (backgroundColor) {
+        [settings setObject:backgroundColor forKey:@"backgroundColor"];
+    }
+    
+    NSString *backgroundImage = [self backgroundImagePathForDirectory];
+    if (backgroundImage) {
+        [settings setObject:backgroundImage forKey:@"backgroundImage"];
+    }
+    
+    return [settings count] > 0 ? settings : nil;
+}
+
+- (void)setIconViewSettings:(NSDictionary *)settings forDirectory:(BOOL)directory {
+    NSString *viewStyle = [settings objectForKey:@"viewStyle"];
+    if (viewStyle) {
+        [self setViewStyleForDirectory:viewStyle];
+    }
+    
+    NSNumber *iconSize = [settings objectForKey:@"iconSize"];
+    if (iconSize) {
+        [self setIconSizeForDirectory:[iconSize intValue]];
+    }
+    
+    SimpleColor *backgroundColor = [settings objectForKey:@"backgroundColor"];
+    if (backgroundColor) {
+        [self setBackgroundColorForDirectory:backgroundColor];
+    }
+    
+    NSString *backgroundImage = [settings objectForKey:@"backgroundImage"];
+    if (backgroundImage) {
+        [self setBackgroundImagePathForDirectory:backgroundImage];
+    }
+}
+
+// Directory entry management methods
+
+- (BOOL)saveChanges {
+    if (!_dirty) {
+        return YES; // No changes to save
+    }
+    
+    @try {
+        // Save changes back to file
+        if (![self save]) {
+            return NO;
+        }
+        _dirty = NO;
+        return YES;
+    } @catch (NSException *exception) {
+        NSLog(@"Error saving DS_Store file: %@", [exception reason]);
+        return NO;
+    }
+}
+
+- (void)removeAllEntriesForFilename:(NSString *)filename {
+    NSMutableArray *toRemove = [NSMutableArray array];
+    
+    for (DSStoreEntry *entry in _entries) {
+        if ([[entry filename] isEqualToString:filename]) {
+            [toRemove addObject:entry];
+        }
+    }
+    
+    for (DSStoreEntry *entry in toRemove) {
+        [_entries removeObject:entry];
+        _dirty = YES;
+    }
+}
+
+- (NSArray *)allFilenames {
+    NSMutableSet *filenames = [NSMutableSet set];
+    
+    for (DSStoreEntry *entry in _entries) {
+        [filenames addObject:[entry filename]];
+    }
+    
+    return [filenames allObjects];
+}
+
+- (NSArray *)allCodesForFilename:(NSString *)filename {
+    NSMutableArray *codes = [NSMutableArray array];
+    
+    for (DSStoreEntry *entry in _entries) {
+        if ([[entry filename] isEqualToString:filename]) {
+            [codes addObject:[entry code]];
+        }
+    }
+    
+    return codes;
+}
+
+- (void)setIconViewSettings:(NSDictionary *)settings {
+    // Modern method delegation
+    [self setIconViewSettings:settings forDirectory:YES];
 }
 
 @end
