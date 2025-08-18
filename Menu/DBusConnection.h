@@ -22,6 +22,11 @@
     objectPath:(NSString *)objectPath
      interface:(NSString *)interfaceName
      arguments:(NSArray *)arguments;
+- (id)callGTKActivateMethod:(NSString *)actionName
+                  parameter:(NSArray *)parameter
+               platformData:(NSDictionary *)platformData
+                  onService:(NSString *)serviceName
+                 objectPath:(NSString *)objectPath;
 - (void)processMessages;
 
 @end

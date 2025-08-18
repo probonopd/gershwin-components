@@ -434,10 +434,13 @@
                                                       action:nil
                                                keyEquivalent:keyEquivalent];
     
+    // Store the DBus item ID in representedObject for later use in activation
+    [menuItem setRepresentedObject:itemId];
+    
     NSLog(@"DBusMenuParser: ===== CREATED MENU ITEM =====");
     NSLog(@"DBusMenuParser: Menu item object: %@", menuItem);
     NSLog(@"DBusMenuParser: Title: '%@'", [menuItem title]);
-    NSLog(@"DBusMenuParser: Tag (item ID): %ld", (long)[menuItem tag]);
+    NSLog(@"DBusMenuParser: DBus item ID: %@", itemId);
     NSLog(@"DBusMenuParser: Key equivalent: '%@'", [menuItem keyEquivalent]);
     NSLog(@"DBusMenuParser: Modifier mask: %lu", (unsigned long)[menuItem keyEquivalentModifierMask]);
     

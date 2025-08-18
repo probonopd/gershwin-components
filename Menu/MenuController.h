@@ -6,7 +6,7 @@
 
 @class MenuBarView;
 @class AppMenuWidget;
-@class DBusMenuImporter;
+@class MenuProtocolManager;
 @class RoundedCornersView;
 
 #define RIGHTPADDING 20
@@ -21,11 +21,12 @@
     NSSize _screenSize;
     MenuBarView *_menuBarView;
     AppMenuWidget *_appMenuWidget;
-    DBusMenuImporter *_dbusMenuImporter;
+    MenuProtocolManager *_protocolManager;
     RoundedCornersView *_roundedCornersView;
     Display *_display;
     Window _rootWindow;
     Atom _netActiveWindowAtom;
+    Atom _netClientListAtom;
     NSThread *_x11Thread;
     BOOL _shouldStopMonitoring;
 }
@@ -38,8 +39,8 @@
 - (void)applicationWillTerminate:(NSNotification *)notification;
 - (void)setupMenuBar;
 - (void)updateActiveWindow;
-- (void)createDBusImporter;
-- (void)initializeDBusConnection;
+- (void)createProtocolManager;
+- (void)initializeProtocols;
 - (void)setupWindowMonitoring;
 - (void)announceGlobalMenuSupport;
 - (void)scanForNewMenus;

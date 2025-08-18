@@ -1,7 +1,9 @@
 #import "MenuController.h"
 #import "MenuBarView.h"
 #import "AppMenuWidget.h"
+#import "MenuProtocolManager.h"
 #import "DBusMenuImporter.h"
+#import "GTKMenuImporter.h"
 #import "RoundedCornersView.h"
 #import "X11ShortcutManager.h"
 #import "GNUstepGUI/GSTheme.h"
@@ -74,8 +76,10 @@
     
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     
-    [_dbusMenuImporter release];
-    _dbusMenuImporter = nil;
+    [[MenuProtocolManager sharedManager] cleanup];
+    
+    [_protocolManager release];
+    _protocolManager = nil;
     
     [_roundedCornersView release];
     _roundedCornersView = nil;
@@ -83,7 +87,10 @@
 
 - (void)createTopBar
 {
+    NSLog(@"MenuController: ===== CREATING TOP BAR =====");
     const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    NSLog(@"MenuController: Menu bar height: %.0f", menuBarHeight);
+    
     NSRect rect;
     NSColor *color;
     NSFont *menuFont = [NSFont menuBarFontOfSize:0];
@@ -94,14 +101,23 @@
     
     _screenFrame = [[NSScreen mainScreen] frame];
     _screenSize = _screenFrame.size;
+    NSLog(@"MenuController: Screen frame: %.0f,%.0f %.0fx%.0f", 
+          _screenFrame.origin.x, _screenFrame.origin.y, _screenSize.width, _screenSize.height);
+    
     color = [self backgroundColor];
+    NSLog(@"MenuController: Background color: %@", color);
         
     // Creation of the topBar
     rect = NSMakeRect(0, _screenSize.height - menuBarHeight, _screenSize.width, menuBarHeight);
+    NSLog(@"MenuController: Top bar rect: %.0f,%.0f %.0fx%.0f", 
+          rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+    
     _topBar = [[NSWindow alloc] initWithContentRect:rect
                                           styleMask:NSBorderlessWindowMask
                                             backing:NSBackingStoreBuffered
                                               defer:NO];
+    NSLog(@"MenuController: Created NSWindow: %@", _topBar);
+    
     [_topBar setTitle:@"TopBar"];
     [_topBar setBackgroundColor:color];
     [_topBar setAlphaValue:1.0];
@@ -111,9 +127,17 @@
     [_topBar setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
                                    NSWindowCollectionBehaviorStationary];
     
-    // Create app menu widget for displaying DBus menus
+    NSLog(@"MenuController: Configured window properties");
+    
+    // Make the window visible immediately
+    [_topBar makeKeyAndOrderFront:self];
+    [_topBar orderFront:self];
+    NSLog(@"MenuController: Ordered window front");
+    
+    // Create app menu widget for displaying menus
     _appMenuWidget = [[AppMenuWidget alloc] initWithFrame:NSMakeRect(20, 0, 400, menuBarHeight)];
-    [_appMenuWidget setDbusMenuImporter:_dbusMenuImporter];
+    [_appMenuWidget setProtocolManager:[MenuProtocolManager sharedManager]];
+    NSLog(@"MenuController: Created AppMenuWidget: %@", _appMenuWidget);
     
     // probono: Create rounded corners view for black top corners like in old/src/mainwindow.cpp
     // Position it at the top of the menu bar, with height enough for the corner radius effect
@@ -146,26 +170,39 @@
     }
 }
 
-- (void)initializeDBusConnection
+- (void)initializeProtocols
 {
-    NSLog(@"MenuController: Attempting to connect to DBus...");
-    if (![_dbusMenuImporter connectToDBus]) {
-        NSLog(@"MenuController: Failed to connect to DBus - continuing anyway");
+    NSLog(@"MenuController: Initializing all menu protocols...");
+    
+    if (![[MenuProtocolManager sharedManager] initializeAllProtocols]) {
+        NSLog(@"MenuController: Failed to initialize menu protocols - continuing anyway");
     } else {
-        NSLog(@"MenuController: DBus menu importer initialized successfully");
+        NSLog(@"MenuController: Menu protocols initialized successfully");
     }
     
-    // Set the reverse connection so DBusMenuImporter can trigger immediate menu display
-    if (_dbusMenuImporter && _appMenuWidget) {
-        [_dbusMenuImporter setAppMenuWidget:_appMenuWidget];
-        NSLog(@"MenuController: Set up bidirectional connection between DBusMenuImporter and AppMenuWidget");
+    // Set the app menu widget reference
+    if (_appMenuWidget) {
+        [[MenuProtocolManager sharedManager] setAppMenuWidget:_appMenuWidget];
+        NSLog(@"MenuController: Set up connection between MenuProtocolManager and AppMenuWidget");
     }
 }
 
-- (void)createDBusImporter
+- (void)createProtocolManager
 {
-    NSLog(@"MenuController: Creating DBusMenuImporter...");
-    _dbusMenuImporter = [[DBusMenuImporter alloc] init];
+    NSLog(@"MenuController: Creating MenuProtocolManager...");
+    _protocolManager = [[MenuProtocolManager sharedManager] retain];
+    
+    // Register both Canonical and GTK protocol handlers
+    DBusMenuImporter *canonicalHandler = [[DBusMenuImporter alloc] init];
+    GTKMenuImporter *gtkHandler = [[GTKMenuImporter alloc] init];
+    
+    [_protocolManager registerProtocolHandler:canonicalHandler forType:MenuProtocolTypeCanonical];
+    [_protocolManager registerProtocolHandler:gtkHandler forType:MenuProtocolTypeGTK];
+    
+    [canonicalHandler release];
+    [gtkHandler release];
+    
+    NSLog(@"MenuController: Registered both Canonical and GTK protocol handlers");
 }
 
 - (void)setupWindowMonitoring
@@ -184,11 +221,15 @@
     
     _rootWindow = DefaultRootWindow(_display);
     _netActiveWindowAtom = XInternAtom(_display, "_NET_ACTIVE_WINDOW", False);
+    Atom netClientListAtom = XInternAtom(_display, "_NET_CLIENT_LIST", False);
     
-    // Select PropertyNotify events on the root window to detect _NET_ACTIVE_WINDOW changes
+    // Select PropertyNotify events on the root window to detect both active window and client list changes
     XSelectInput(_display, _rootWindow, PropertyChangeMask);
     
-    NSLog(@"MenuController: X11 display opened, monitoring _NET_ACTIVE_WINDOW property changes");
+    // Store the client list atom for monitoring
+    _netClientListAtom = netClientListAtom;
+    
+    NSLog(@"MenuController: X11 display opened, monitoring _NET_ACTIVE_WINDOW and _NET_CLIENT_LIST property changes");
     
     // Start X11 event loop in a separate NSThread
     _x11Thread = [[NSThread alloc] initWithTarget:self
@@ -278,13 +319,11 @@
 {
     NSLog(@"MenuController: Scanning for new menu services");
     
-    if (_dbusMenuImporter) {
-        [_dbusMenuImporter scanForExistingMenuServices];
-        
-        // Force an immediate update of the current window to check if it now has a menu
-        if (_appMenuWidget) {
-            [_appMenuWidget updateForActiveWindow];
-        }
+    [[MenuProtocolManager sharedManager] scanForExistingMenuServices];
+    
+    // Force an immediate update of the current window to check if it now has a menu
+    if (_appMenuWidget) {
+        [_appMenuWidget updateForActiveWindow];
     }
 }
 
@@ -300,17 +339,13 @@
     // Create an autorelease pool for this thread
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
     
+    // Do initial scan once when thread starts
+    [[MenuProtocolManager sharedManager] scanForExistingMenuServices];
+    
     while (!_shouldStopMonitoring) {
         XEvent event;
         
-        // Process DBus messages continuously to import menus as soon as they arrive
-        if (_dbusMenuImporter && [[_dbusMenuImporter valueForKey:@"_dbusConnection"] isConnected]) {
-            [[_dbusMenuImporter valueForKey:@"_dbusConnection"] processMessages];
-            
-            // No need for continuous scanning - menus are displayed immediately when registered
-        }
-        
-        // Use XCheckTypedWindowEvent with a timeout to avoid blocking forever
+        // Use XPending to check for events without blocking
         if (XPending(_display) > 0) {
             XNextEvent(_display, &event);
             
@@ -322,14 +357,23 @@
                 NSLog(@"MenuController: _NET_ACTIVE_WINDOW property changed - active window changed");
                 
                 // Update the app menu widget for the new active window
-                // No need to scan - if the window has a menu, it's already registered
                 if (_appMenuWidget) {
                     [_appMenuWidget updateForActiveWindow];
                 }
             }
+            // Check if this is a PropertyNotify event for _NET_CLIENT_LIST (new windows)
+            else if (event.type == PropertyNotify && 
+                     event.xproperty.window == _rootWindow &&
+                     event.xproperty.atom == _netClientListAtom) {
+                
+                NSLog(@"MenuController: _NET_CLIENT_LIST property changed - new window created/destroyed");
+                
+                // Scan for new GTK menu services when windows are created/destroyed
+                [[MenuProtocolManager sharedManager] scanForExistingMenuServices];
+            }
         } else {
-            // No events pending, sleep briefly to avoid busy waiting
-            [NSThread sleepForTimeInterval:0.01];
+            // No events pending, sleep longer to reduce CPU usage
+            [NSThread sleepForTimeInterval:0.1];
         }
     }
     
@@ -346,7 +390,7 @@
     [_topBar release];
     [_menuBarView release];
     [_appMenuWidget release];
-    [_dbusMenuImporter release];
+    [_protocolManager release];
     [super dealloc];
 }
 

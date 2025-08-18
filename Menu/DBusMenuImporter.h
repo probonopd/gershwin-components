@@ -1,10 +1,11 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import "DBusConnection.h"
+#import "MenuProtocolManager.h"
 
 @class AppMenuWidget;
 
-@interface DBusMenuImporter : NSObject
+@interface DBusMenuImporter : NSObject <MenuProtocolHandler>
 {
     GNUDBusConnection *_dbusConnection;
     NSMutableDictionary *_registeredWindows; // windowId -> service name

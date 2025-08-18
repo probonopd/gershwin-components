@@ -5,6 +5,7 @@
 {
 }
 
++ (MenuApplication *)sharedApplication;
 - (void)sendEvent:(NSEvent *)event;
 
 @end

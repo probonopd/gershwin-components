@@ -1,11 +1,11 @@
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
 
-@class DBusMenuImporter;
+@class MenuProtocolManager;
 
 @interface AppMenuWidget : NSView <NSMenuDelegate>
 {
-    DBusMenuImporter *_dbusMenuImporter;
+    MenuProtocolManager *_protocolManager;
     NSMenuView *_menuView;
     NSString *_currentApplicationName;
     unsigned long _currentWindowId;
@@ -13,7 +13,7 @@
     NSTimer *_updateTimer;
 }
 
-@property (nonatomic, assign) DBusMenuImporter *dbusMenuImporter;
+@property (nonatomic, assign) MenuProtocolManager *protocolManager;
 
 - (void)updateForActiveWindow;
 - (void)clearMenu;

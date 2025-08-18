@@ -6,7 +6,7 @@ APP_NAME = Menu
 
 # App info
 Menu_APPLICATION_ICON = Menu.png
-Menu_PRINCIPAL_CLASS = NSApplication
+Menu_PRINCIPAL_CLASS = MenuApplication
 
 # Source files
 Menu_OBJC_FILES = \
@@ -15,10 +15,14 @@ Menu_OBJC_FILES = \
 	MenuController.m \
 	MenuBarView.m \
 	AppMenuWidget.m \
+	MenuProtocolManager.m \
 	DBusMenuImporter.m \
+	GTKMenuImporter.m \
 	DBusMenuParser.m \
+	GTKMenuParser.m \
 	DBusMenuShortcutParser.m \
 	DBusMenuActionHandler.m \
+	GTKActionHandler.m \
 	DBusSubmenuManager.m \
 	DBusConnection.m \
 	MenuUtils.m \
@@ -31,10 +35,14 @@ Menu_HEADER_FILES = \
 	MenuController.h \
 	MenuBarView.h \
 	AppMenuWidget.h \
+	MenuProtocolManager.h \
 	DBusMenuImporter.h \
+	GTKMenuImporter.h \
 	DBusMenuParser.h \
+	GTKMenuParser.h \
 	DBusMenuShortcutParser.h \
 	DBusMenuActionHandler.h \
+	GTKActionHandler.h \
 	DBusSubmenuManager.h \
 	DBusConnection.h \
 	MenuUtils.h \

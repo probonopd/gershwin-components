@@ -460,7 +460,13 @@
 
 - (void)scanForExistingMenuServices
 {
-    NSLog(@"DBusMenuImporter: Scanning for existing menu services...");
+    static int dbusScans = 0;
+    dbusScans++;
+    
+    // Only log occasionally to avoid spam
+    if (dbusScans % 20 == 1 || dbusScans <= 2) {
+        NSLog(@"DBusMenuImporter: Scanning for existing menu services... (scan #%d)", dbusScans);
+    }
     
     // Scan all windows for menu properties
     NSArray *allWindows = [MenuUtils getAllWindows];
@@ -474,15 +480,22 @@
         NSString *objectPath = [self getMenuObjectPathForWindow:windowId];
         
         if (serviceName && objectPath) {
-            NSLog(@"DBusMenuImporter: Found menu service for window %lu: %@ %@", 
-                  windowId, serviceName, objectPath);
+            // Only log when we actually find new menus
+            NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
+            if (![_registeredWindows objectForKey:windowKey]) {
+                NSLog(@"DBusMenuImporter: Found NEW menu service for window %lu: %@ %@", 
+                      windowId, serviceName, objectPath);
+            }
             
             [self registerWindow:windowId serviceName:serviceName objectPath:objectPath];
             foundMenus++;
         }
     }
     
-    NSLog(@"DBusMenuImporter: Menu service scanning completed - found %d windows with menus", foundMenus);
+    // Only log completion on first few scans or when we find menus
+    if (dbusScans <= 3 || foundMenus > 0) {
+        NSLog(@"DBusMenuImporter: Menu service scanning completed - found %d windows with menus", foundMenus);
+    }
 }
 
 - (NSString *)getMenuServiceForWindow:(unsigned long)windowId

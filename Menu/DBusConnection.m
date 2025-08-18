@@ -177,18 +177,80 @@ static GNUDBusConnection *sharedSessionBus = nil;
                     dbus_message_iter_append_basic(&iter, DBUS_TYPE_UINT32, &val);
                 }
             } else if ([argument isKindOfClass:[NSArray class]]) {
-                // Handle array arguments (like propertyNames in GetLayout)
-                DBusMessageIter arrayIter;
-                dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "s", &arrayIter);
-                
-                for (id item in (NSArray *)argument) {
-                    if ([item isKindOfClass:[NSString class]]) {
-                        const char *str = [item UTF8String];
-                        dbus_message_iter_append_basic(&arrayIter, DBUS_TYPE_STRING, &str);
+                // Handle array arguments - detect the type of the first element
+                NSArray *array = (NSArray *)argument;
+                if ([array count] > 0) {
+                    id firstItem = [array objectAtIndex:0];
+                    
+                    if ([firstItem isKindOfClass:[NSString class]]) {
+                        // String array
+                        DBusMessageIter arrayIter;
+                        dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "s", &arrayIter);
+                        
+                        for (id item in array) {
+                            if ([item isKindOfClass:[NSString class]]) {
+                                const char *str = [item UTF8String];
+                                dbus_message_iter_append_basic(&arrayIter, DBUS_TYPE_STRING, &str);
+                            }
+                        }
+                        
+                        dbus_message_iter_close_container(&iter, &arrayIter);
+                    } else if ([firstItem isKindOfClass:[NSNumber class]]) {
+                        // Number array - check if it's unsigned integers
+                        DBusMessageIter arrayIter;
+                        const char *objCType = [firstItem objCType];
+                        
+                        // Debug the objCType to understand what we're getting
+                        NSLog(@"DBusConnection: NSNumber objCType: %s (unsigned int: %s, unsigned long: %s)", 
+                              objCType, @encode(unsigned int), @encode(unsigned long));
+                        
+                        // Special case: For GTK Start method, we always want unsigned integers
+                        // Check if this looks like a GTK method call by looking at the small positive values
+                        BOOL forceUnsigned = NO;
+                        if ([array count] > 0) {
+                            NSNumber *firstNum = [array objectAtIndex:0];
+                            if ([firstNum intValue] >= 0 && [firstNum intValue] < 1024) {
+                                // Small positive integers are likely GTK subscription IDs
+                                forceUnsigned = YES;
+                            }
+                        }
+                        
+                        if (strcmp(objCType, @encode(unsigned int)) == 0 ||
+                            strcmp(objCType, @encode(unsigned long)) == 0 ||
+                            forceUnsigned) {
+                            // Unsigned integer array
+                            NSLog(@"DBusConnection: Creating unsigned integer array (au)");
+                            dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "u", &arrayIter);
+                            
+                            for (id item in array) {
+                                if ([item isKindOfClass:[NSNumber class]]) {
+                                    dbus_uint32_t val = [item unsignedIntValue];
+                                    dbus_message_iter_append_basic(&arrayIter, DBUS_TYPE_UINT32, &val);
+                                }
+                            }
+                            
+                            dbus_message_iter_close_container(&iter, &arrayIter);
+                        } else {
+                            // Signed integer array (fallback)
+                            NSLog(@"DBusConnection: Creating signed integer array (ai) as fallback");
+                            dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "i", &arrayIter);
+                            
+                            for (id item in array) {
+                                if ([item isKindOfClass:[NSNumber class]]) {
+                                    dbus_int32_t val = [item intValue];
+                                    dbus_message_iter_append_basic(&arrayIter, DBUS_TYPE_INT32, &val);
+                                }
+                            }
+                            
+                            dbus_message_iter_close_container(&iter, &arrayIter);
+                        }
                     }
+                } else {
+                    // Empty array - default to string array
+                    DBusMessageIter arrayIter;
+                    dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "s", &arrayIter);
+                    dbus_message_iter_close_container(&iter, &arrayIter);
                 }
-                
-                dbus_message_iter_close_container(&iter, &arrayIter);
             }
         }
     }
@@ -272,6 +334,128 @@ static GNUDBusConnection *sharedSessionBus = nil;
     
     NSLog(@"DBusConnection: Method call %@.%@ completed", interfaceName, method);
     return result;
+}
+
+- (id)callGTKActivateMethod:(NSString *)actionName
+                  parameter:(NSArray *)parameter
+               platformData:(NSDictionary *)platformData
+                  onService:(NSString *)serviceName
+                 objectPath:(NSString *)objectPath
+{
+    if (!_connected || !_connection) {
+        return nil;
+    }
+    
+    NSLog(@"DBusConnection: Creating GTK Activate method call for action: %@", actionName);
+    
+    DBusMessage *message = dbus_message_new_method_call([serviceName UTF8String],
+                                                       [objectPath UTF8String],
+                                                       "org.gtk.Actions",
+                                                       "Activate");
+    if (!message) {
+        NSLog(@"DBusConnection: Failed to create GTK Activate method call");
+        return nil;
+    }
+    
+    // Build the method signature: Activate(s action_name, av parameter, a{sv} platform_data)
+    DBusMessageIter iter, variantIter, dictIter;
+    dbus_message_iter_init_append(message, &iter);
+    
+    // 1. Action name (string)
+    const char *actionNameStr = [actionName UTF8String];
+    dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &actionNameStr);
+    
+    // 2. Parameter array (av - array of variants)
+    dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "v", &variantIter);
+    
+    for (id param in parameter) {
+        DBusMessageIter paramVariantIter;
+        
+        if ([param isKindOfClass:[NSNumber class]]) {
+            // Wrap the parameter in a variant
+            if (strcmp([param objCType], @encode(BOOL)) == 0) {
+                dbus_message_iter_open_container(&variantIter, DBUS_TYPE_VARIANT, "b", &paramVariantIter);
+                dbus_bool_t val = [param boolValue];
+                dbus_message_iter_append_basic(&paramVariantIter, DBUS_TYPE_BOOLEAN, &val);
+                dbus_message_iter_close_container(&variantIter, &paramVariantIter);
+            } else {
+                dbus_message_iter_open_container(&variantIter, DBUS_TYPE_VARIANT, "i", &paramVariantIter);
+                dbus_int32_t val = [param intValue];
+                dbus_message_iter_append_basic(&paramVariantIter, DBUS_TYPE_INT32, &val);
+                dbus_message_iter_close_container(&variantIter, &paramVariantIter);
+            }
+        } else if ([param isKindOfClass:[NSString class]]) {
+            dbus_message_iter_open_container(&variantIter, DBUS_TYPE_VARIANT, "s", &paramVariantIter);
+            const char *str = [param UTF8String];
+            dbus_message_iter_append_basic(&paramVariantIter, DBUS_TYPE_STRING, &str);
+            dbus_message_iter_close_container(&variantIter, &paramVariantIter);
+        }
+    }
+    
+    dbus_message_iter_close_container(&iter, &variantIter);
+    
+    // 3. Platform data (a{sv} - array of dict entries with string keys and variant values)
+    dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "{sv}", &dictIter);
+    
+    for (NSString *key in platformData) {
+        DBusMessageIter dictEntryIter, keyVariantIter;
+        
+        // Open dict entry {sv}
+        dbus_message_iter_open_container(&dictIter, DBUS_TYPE_DICT_ENTRY, NULL, &dictEntryIter);
+        
+        // Add key (string)
+        const char *keyStr = [key UTF8String];
+        dbus_message_iter_append_basic(&dictEntryIter, DBUS_TYPE_STRING, &keyStr);
+        
+        // Add value (variant)
+        id value = [platformData objectForKey:key];
+        if ([value isKindOfClass:[NSString class]]) {
+            dbus_message_iter_open_container(&dictEntryIter, DBUS_TYPE_VARIANT, "s", &keyVariantIter);
+            const char *valueStr = [value UTF8String];
+            dbus_message_iter_append_basic(&keyVariantIter, DBUS_TYPE_STRING, &valueStr);
+            dbus_message_iter_close_container(&dictEntryIter, &keyVariantIter);
+        } else if ([value isKindOfClass:[NSNumber class]]) {
+            if (strcmp([value objCType], @encode(BOOL)) == 0) {
+                dbus_message_iter_open_container(&dictEntryIter, DBUS_TYPE_VARIANT, "b", &keyVariantIter);
+                dbus_bool_t val = [value boolValue];
+                dbus_message_iter_append_basic(&keyVariantIter, DBUS_TYPE_BOOLEAN, &val);
+                dbus_message_iter_close_container(&dictEntryIter, &keyVariantIter);
+            } else {
+                dbus_message_iter_open_container(&dictEntryIter, DBUS_TYPE_VARIANT, "i", &keyVariantIter);
+                dbus_int32_t val = [value intValue];
+                dbus_message_iter_append_basic(&keyVariantIter, DBUS_TYPE_INT32, &val);
+                dbus_message_iter_close_container(&dictEntryIter, &keyVariantIter);
+            }
+        }
+        
+        dbus_message_iter_close_container(&dictIter, &dictEntryIter);
+    }
+    
+    dbus_message_iter_close_container(&iter, &dictIter);
+    
+    // Send message and get reply
+    DBusError error;
+    dbus_error_init(&error);
+    
+    DBusMessage *reply = dbus_connection_send_with_reply_and_block((DBusConnectionStruct *)_connection, 
+                                                                  message, 1000, &error);
+    dbus_message_unref(message);
+    
+    if (dbus_error_is_set(&error)) {
+        NSLog(@"DBusConnection: GTK Activate call failed for %@ on %@%@: %s", 
+              actionName, serviceName, objectPath, error.message);
+        dbus_error_free(&error);
+        return nil;
+    }
+    
+    if (!reply) {
+        NSLog(@"DBusConnection: No reply received for GTK Activate call");
+        return nil;
+    }
+    
+    NSLog(@"DBusConnection: GTK Activate call succeeded for action: %@", actionName);
+    dbus_message_unref(reply);
+    return @YES;
 }
 
 - (id)parseDBusMessageIterator:(DBusMessageIter *)iter

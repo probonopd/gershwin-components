@@ -1,5 +1,5 @@
 #import "AppMenuWidget.h"
-#import "DBusMenuImporter.h"
+#import "MenuProtocolManager.h"
 #import "MenuUtils.h"
 #import <X11/Xlib.h>
 #import <X11/Xutil.h>
@@ -7,7 +7,7 @@
 
 @implementation AppMenuWidget
 
-@synthesize dbusMenuImporter = _dbusMenuImporter;
+@synthesize protocolManager = _protocolManager;
 
 - (id)initWithFrame:(NSRect)frameRect
 {
@@ -27,8 +27,8 @@
 - (void)updateForActiveWindow
 {
     
-    if (!_dbusMenuImporter) {
-        NSLog(@"AppMenuWidget: No DBus importer available");
+    if (!_protocolManager) {
+        NSLog(@"AppMenuWidget: No protocol manager available");
         return;
     }
     
@@ -102,16 +102,16 @@
     NSLog(@"AppMenuWidget: Displaying menu for window %lu", windowId);
     
     // Check if this window has a DBus menu registered
-    if (![_dbusMenuImporter hasMenuForWindow:windowId]) {
-        NSLog(@"AppMenuWidget: No registered DBus menu for window %lu", windowId);
+    if (![_protocolManager hasMenuForWindow:windowId]) {
+        NSLog(@"AppMenuWidget: No registered menu for window %lu", windowId);
         return;
     }
     
-    NSLog(@"AppMenuWidget: ===== LOADING MENU FROM DBUS =====");
+    NSLog(@"AppMenuWidget: ===== LOADING MENU FROM PROTOCOL MANAGER =====");
     NSLog(@"AppMenuWidget: This is where AboutToShow events should be triggered for submenus");
     
-    // Get the menu from DBus for registered windows
-    NSMenu *menu = [_dbusMenuImporter getMenuForWindow:windowId];
+    // Get the menu from protocol manager for registered windows
+    NSMenu *menu = [_protocolManager getMenuForWindow:windowId];
     if (!menu) {
         NSLog(@"AppMenuWidget: Failed to get menu for window %lu", windowId);
         return;
@@ -436,7 +436,7 @@
     }
     
     NSLog(@"AppMenuWidget: Menu view: %@", _menuView);
-    NSLog(@"AppMenuWidget: DBus importer: %@", _dbusMenuImporter);
+    NSLog(@"AppMenuWidget: Protocol manager: %@", _protocolManager);
     NSLog(@"AppMenuWidget: ===== END DEBUG MENU STATE =====");
 }
 

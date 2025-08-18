@@ -233,19 +233,21 @@ static NSMutableSet *refreshedByAboutToShow = nil;
     NSLog(@"DBusSubmenuDelegate: Object path: %@", _objectPath);
     NSLog(@"DBusSubmenuDelegate: DBus connection: %@", _dbusConnection);
     
-    // Call GetLayout specifically for this submenu item
+    // Call GetLayout specifically for this submenu item with optimized property filtering
+    NSArray *essentialProperties = [NSArray arrayWithObjects:@"label", @"enabled", @"visible", @"type", nil];
     NSArray *arguments = [NSArray arrayWithObjects:
                          _itemId,                   // parentId (this submenu's ID)
-                         [NSNumber numberWithInt:-1], // recursionDepth (-1 = full tree)
-                         [NSArray array],           // propertyNames (empty = all properties)
+                         [NSNumber numberWithInt:2], // recursionDepth (2 levels for lazy loading)
+                         essentialProperties,       // propertyNames (filtered for performance)
                          nil];
     
-    NSLog(@"DBusSubmenuDelegate: Calling GetLayout with arguments: %@", arguments);
+    NSLog(@"DBusSubmenuDelegate: Calling GetLayout with optimized arguments: %@", arguments);
     NSLog(@"DBusSubmenuDelegate: GetLayout call details:");
     NSLog(@"DBusSubmenuDelegate:   method: GetLayout");
     NSLog(@"DBusSubmenuDelegate:   service: %@", _serviceName);
     NSLog(@"DBusSubmenuDelegate:   path: %@", _objectPath);
     NSLog(@"DBusSubmenuDelegate:   interface: com.canonical.dbusmenu");
+    NSLog(@"DBusSubmenuDelegate:   using filtered properties for performance");
     
     id result = [_dbusConnection callMethod:@"GetLayout"
                                   onService:_serviceName
