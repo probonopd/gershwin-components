@@ -2,7 +2,7 @@
 # Build all projects and package them into tar.zst archives
 
 # Projects to build
-PROJECTS="BootEnvironments Display GlobalShortcuts StartupDisk LoginWindow globalshortcutsd SudoAskPass initgfx"
+PROJECTS="BootEnvironments Display GlobalShortcuts StartupDisk LoginWindow globalshortcutsd SudoAskPass initgfx Menu"
 
 # Assistant applications to build
 ASSISTANTS="Assistants/BhyveAssistant Assistants/CreateLiveMediaAssistant Assistants/DebianRuntimeInstaller Assistants/BhyveAssistant"
