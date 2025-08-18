@@ -3,7 +3,6 @@
 //  libDSStore
 //
 //  Buddy allocator implementation for .DS_Store files
-//  Based on Python ds_store buddy.py
 //
 
 #import "DSBuddyAllocator.h"

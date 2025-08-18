@@ -3,7 +3,6 @@
 //  libDSStore
 //
 //  Data encoding/decoding for .DS_Store entries
-//  Based on Python ds_store store.py codecs
 //
 
 #import <Foundation/Foundation.h>

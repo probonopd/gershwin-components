@@ -16,7 +16,7 @@ dsstore_LIB_DIRS = -L./obj
 
 # Compiler flags
 ADDITIONAL_OBJCFLAGS = -Wall -Wno-unused-parameter -Wno-unused-variable -O2 -std=gnu99
-ADDITIONAL_LDFLAGS = -lgnustep-base -lgnustep-gui -lm
+ADDITIONAL_LDFLAGS = -lgnustep-base -lgnustep-gui -lm -Wl,-rpath,'$$ORIGIN'
 
 include $(GNUSTEP_MAKEFILES)/library.make
 include $(GNUSTEP_MAKEFILES)/tool.make

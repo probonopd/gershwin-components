@@ -192,9 +192,9 @@ Each entry contains:
 ## Compatibility
 
 This implementation is compatible with .DS_Store files created by:
-- macOS Finder (all versions)
 - Other .DS_Store manipulation tools
-- The original Python `ds_store` library
+- The Python `ds_store` library
+- macOS Finder (not tested yet)
 
 ## Error Handling
 

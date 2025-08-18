@@ -3,7 +3,6 @@
 //  libDSStore
 //
 //  Data encoding/decoding for .DS_Store entries
-//  Based on Python ds_store store.py codecs
 //
 
 #import "DSStoreCodecs.h"
@@ -21,7 +20,7 @@ static uint64_t swap64(uint64_t x) {
            ((x & 0x000000000000FF00ULL) << 40) | ((x & 0x00000000000000FFULL) << 56);
 }
 
-// Icon location codec implementation (from Python ILocCodec)
+// Icon location codec
 @implementation DSILocCodec
 
 + (NSData *)encodeValue:(id)value {
@@ -74,7 +73,7 @@ static uint64_t swap64(uint64_t x) {
 
 @end
 
-// Property list codec implementation (from Python PlistCodec)
+// Property list codec
 @implementation DSPlistCodec
 
 + (NSData *)encodeValue:(id)value {
@@ -255,7 +254,7 @@ static DSStoreCodecRegistry *sharedInstance = nil;
     if ((self = [super init])) {
         _codecs = [[NSMutableDictionary alloc] init];
         
-        // Register default codecs (from Python codecs dict)
+        // Register default codecs
         [self registerCodec:[DSILocCodec class] forType:@"Iloc"];
         [self registerCodec:[DSPlistCodec class] forType:@"bwsp"];
         [self registerCodec:[DSPlistCodec class] forType:@"lsvp"];

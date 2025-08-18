@@ -2,7 +2,7 @@
 //  DSStoreEntry.m
 //  libDSStore
 //
-//  DS_Store entry implementation based on Python ds_store reference
+//  DS_Store entry
 //
 
 #import "DSStoreEntry.h"

@@ -3,7 +3,6 @@
 //  libDSStore
 //
 //  DS_Store entry representation
-//  Based on Python ds_store store.py
 //
 
 #import <Foundation/Foundation.h>
