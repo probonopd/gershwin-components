@@ -1,6 +1,6 @@
 # GNUmakefile for libDSStore
 
-GNUSTEP_MAKEFILES = /usr/share/GNUstep/Makefiles
+#GNUSTEP_MAKEFILES = /usr/share/GNUstep/Makefiles
 include $(GNUSTEP_MAKEFILES)/common.make
 
 # Library

@@ -8,7 +8,6 @@
 
 #import <Foundation/Foundation.h>
 #import "SimpleColor.h"  // Simple color replacement for headless systems
-#import <CoreFoundation/CoreFoundation.h>  // For CFSwap functions
 
 @interface DSStoreEntry : NSObject
 {
