@@ -24,6 +24,7 @@ Menu_OBJC_FILES = \
 	DBusMenuActionHandler.m \
 	GTKActionHandler.m \
 	DBusSubmenuManager.m \
+	GTKSubmenuManager.m \
 	DBusConnection.m \
 	MenuUtils.m \
 	X11ShortcutManager.m \
@@ -44,6 +45,7 @@ Menu_HEADER_FILES = \
 	DBusMenuActionHandler.h \
 	GTKActionHandler.h \
 	DBusSubmenuManager.h \
+	GTKSubmenuManager.h \
 	DBusConnection.h \
 	MenuUtils.h \
 	X11ShortcutManager.h \

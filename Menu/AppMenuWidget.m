@@ -103,8 +103,16 @@
     
     // Check if this window has a DBus menu registered
     if (![_protocolManager hasMenuForWindow:windowId]) {
-        NSLog(@"AppMenuWidget: No registered menu for window %lu", windowId);
-        return;
+        NSLog(@"AppMenuWidget: No registered menu for window %lu, triggering immediate scan", windowId);
+        
+        // Trigger immediate scan for new menu services
+        [_protocolManager scanForExistingMenuServices];
+        
+        // Check again after immediate scan
+        if (![_protocolManager hasMenuForWindow:windowId]) {
+            NSLog(@"AppMenuWidget: Still no registered menu for window %lu after immediate scan", windowId);
+            return;
+        }
     }
     
     NSLog(@"AppMenuWidget: ===== LOADING MENU FROM PROTOCOL MANAGER =====");

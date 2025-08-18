@@ -122,10 +122,10 @@ static void signalHandler(int sig)
     NSLog(@"MenuApplication: Creating protocol manager...");
     [controller createProtocolManager];
     
-    NSLog(@"MenuApplication: Setting up top bar...");
+    NSLog(@"MenuApplication: Setting up menu bar...");
     [controller setupMenuBar];
     
-    // Initialize protocols after top bar is created
+    // Initialize protocols after menu bar is created
     NSLog(@"MenuApplication: Initializing menu protocols...");
     [controller initializeProtocols];
     

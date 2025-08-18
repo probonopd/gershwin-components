@@ -1,6 +1,7 @@
 #import "GTKMenuParser.h"
 #import "DBusConnection.h"
 #import "GTKActionHandler.h"
+#import "GTKSubmenuManager.h"
 
 @implementation GTKMenuParser
 
@@ -68,7 +69,7 @@
 
 + (NSMenu *)exploreGTKMenu:(NSArray *)menuId
                 withLabels:(NSArray *)labelList
-                  menuDict:(NSDictionary *)menuDict
+                  menuDict:(NSMutableDictionary *)menuDict
                serviceName:(NSString *)serviceName
                 actionPath:(NSString *)actionPath
             dbusConnection:(GNUDBusConnection *)dbusConnection
@@ -184,12 +185,30 @@
                     NSArray *submenuMenuId = @[[submenuArray objectAtIndex:0], [submenuArray objectAtIndex:1]];
                     NSArray *newLabelList = [labelList arrayByAddingObject:displayLabel];
                     
-                    // Check if we need to load additional menu groups
-                    if (![menuDict objectForKey:submenuMenuId]) {
-                        NSNumber *groupId = [submenuArray objectAtIndex:0];
-                        NSLog(@"GTKMenuParser: Loading additional menu group %@ for submenu", groupId);
+                    // Check if we already have the submenu data in our menuDict
+                    if ([menuDict objectForKey:submenuMenuId]) {
+                        // Data is already available - create submenu immediately (not lazy)
+                        NSLog(@"GTKMenuParser: Submenu data for '%@' already available, creating immediately", displayLabel);
                         
-                        // Use the actual menu path, not the hardcoded one
+                        NSMenu *submenu = [self exploreGTKMenu:submenuMenuId
+                                                    withLabels:newLabelList
+                                                      menuDict:menuDict
+                                                   serviceName:serviceName
+                                                    actionPath:actionPath
+                                                dbusConnection:dbusConnection];
+                        
+                        if (submenu) {
+                            [item setSubmenu:submenu];
+                            NSLog(@"GTKMenuParser: Added immediate submenu to item '%@'", displayLabel);
+                        } else {
+                            NSLog(@"GTKMenuParser: Failed to create immediate submenu for item '%@'", displayLabel);
+                        }
+                    } else {
+                        // Data not available - try to load it, then decide on lazy loading
+                        NSNumber *groupId = [submenuArray objectAtIndex:0];
+                        NSLog(@"GTKMenuParser: Submenu data for '%@' not available, attempting to load group %@", displayLabel, groupId);
+                        
+                        // Use the actual menu path for loading
                         NSString *menuPath = actionPath;
                         if ([actionPath containsString:@"/org/gtk/Actions"]) {
                             // Convert from action path back to menu path
@@ -200,9 +219,7 @@
                             menuPath = actionPath;
                         }
                         
-                        NSLog(@"GTKMenuParser: Loading submenu from path: %@", menuPath);
-                        
-                        // Load the additional group
+                        // Try to load the additional group immediately
                         id additionalResult = [dbusConnection callMethod:@"Start"
                                                                onService:serviceName
                                                              objectPath:menuPath
@@ -210,28 +227,50 @@
                                                               arguments:@[@[groupId]]];
                         
                         if (additionalResult && [additionalResult isKindOfClass:[NSArray class]]) {
-                            // Parse and add the new menu data to menuDict
-                            NSMutableDictionary *mutableMenuDict = [menuDict mutableCopy];
-                            [self parseMenuData:(NSArray *)additionalResult intoDict:mutableMenuDict];
-                            menuDict = [mutableMenuDict autorelease];
                             NSLog(@"GTKMenuParser: Successfully loaded additional menu group %@", groupId);
+                            // Parse and add the new menu data to menuDict
+                            [self parseMenuData:(NSArray *)additionalResult intoDict:menuDict];
+                            
+                            // Now try to create the submenu immediately
+                            NSMenu *submenu = [self exploreGTKMenu:submenuMenuId
+                                                        withLabels:newLabelList
+                                                          menuDict:menuDict
+                                                       serviceName:serviceName
+                                                        actionPath:actionPath
+                                                    dbusConnection:dbusConnection];
+                            
+                            if (submenu) {
+                                [item setSubmenu:submenu];
+                                NSLog(@"GTKMenuParser: Added loaded submenu to item '%@'", displayLabel);
+                            } else {
+                                NSLog(@"GTKMenuParser: Failed to create loaded submenu for item '%@', falling back to lazy loading", displayLabel);
+                                // Fall back to lazy loading
+                                NSMenu *lazySubmenu = [[NSMenu alloc] initWithTitle:displayLabel];
+                                [GTKSubmenuManager setupSubmenu:lazySubmenu
+                                                     forMenuItem:item
+                                                     serviceName:serviceName
+                                                        menuPath:menuPath
+                                                      actionPath:actionPath
+                                                  dbusConnection:dbusConnection
+                                                         groupId:groupId
+                                                        menuDict:menuDict];
+                                [lazySubmenu release];
+                            }
                         } else {
-                            NSLog(@"GTKMenuParser: Failed to load additional menu group %@", groupId);
+                            NSLog(@"GTKMenuParser: Failed to load additional menu group %@, setting up lazy loading", groupId);
+                            // Set up lazy loading as fallback
+                            NSMenu *lazySubmenu = [[NSMenu alloc] initWithTitle:displayLabel];
+                            [GTKSubmenuManager setupSubmenu:lazySubmenu
+                                                 forMenuItem:item
+                                                 serviceName:serviceName
+                                                    menuPath:menuPath
+                                                  actionPath:actionPath
+                                              dbusConnection:dbusConnection
+                                                     groupId:groupId
+                                                    menuDict:menuDict];
+                            [lazySubmenu release];
+                            NSLog(@"GTKMenuParser: Set up lazy-loaded submenu for item '%@'", displayLabel);
                         }
-                    }
-                    
-                    NSMenu *submenu = [self exploreGTKMenu:submenuMenuId
-                                                withLabels:newLabelList
-                                                  menuDict:menuDict
-                                               serviceName:serviceName
-                                                actionPath:actionPath
-                                            dbusConnection:dbusConnection];
-                    
-                    if (submenu) {
-                        [item setSubmenu:submenu];
-                        NSLog(@"GTKMenuParser: Added submenu to item '%@'", displayLabel);
-                    } else {
-                        NSLog(@"GTKMenuParser: Failed to create submenu for item '%@'", displayLabel);
                     }
                 }
             }

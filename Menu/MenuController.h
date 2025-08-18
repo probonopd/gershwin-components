@@ -16,7 +16,7 @@
 @interface MenuController : NSObject <NSApplicationDelegate>
 {
 @public
-    NSWindow *_topBar;
+    NSWindow *_menuBar;
     NSRect _screenFrame;
     NSSize _screenSize;
     MenuBarView *_menuBarView;

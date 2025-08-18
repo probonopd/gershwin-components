@@ -38,7 +38,7 @@
 {
     NSLog(@"MenuController: Application did finish launching");
     
-    [_topBar orderFront:self];
+    [_menuBar orderFront:self];
     [self setupWindowMonitoring];
     
     NSLog(@"MenuController: Application setup complete");
@@ -87,7 +87,7 @@
 
 - (void)createTopBar
 {
-    NSLog(@"MenuController: ===== CREATING TOP BAR =====");
+    NSLog(@"MenuController: ===== CREATING MENU BAR =====");
     const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
     NSLog(@"MenuController: Menu bar height: %.0f", menuBarHeight);
     
@@ -107,31 +107,31 @@
     color = [self backgroundColor];
     NSLog(@"MenuController: Background color: %@", color);
         
-    // Creation of the topBar
+    // Creation of the menuBar
     rect = NSMakeRect(0, _screenSize.height - menuBarHeight, _screenSize.width, menuBarHeight);
-    NSLog(@"MenuController: Top bar rect: %.0f,%.0f %.0fx%.0f", 
+    NSLog(@"MenuController: Menu bar rect: %.0f,%.0f %.0fx%.0f", 
           rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
     
-    _topBar = [[NSWindow alloc] initWithContentRect:rect
+    _menuBar = [[NSWindow alloc] initWithContentRect:rect
                                           styleMask:NSBorderlessWindowMask
                                             backing:NSBackingStoreBuffered
                                               defer:NO];
-    NSLog(@"MenuController: Created NSWindow: %@", _topBar);
+    NSLog(@"MenuController: Created NSWindow: %@", _menuBar);
     
-    [_topBar setTitle:@"TopBar"];
-    [_topBar setBackgroundColor:color];
-    [_topBar setAlphaValue:1.0];
-    [_topBar setLevel:NSTornOffMenuWindowLevel-1];
-    [_topBar setCanHide:NO];
-    [_topBar setHidesOnDeactivate:NO];
-    [_topBar setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
+    [_menuBar setTitle:@"TopBar"];
+    [_menuBar setBackgroundColor:color];
+    [_menuBar setAlphaValue:1.0];
+    [_menuBar setLevel:NSTornOffMenuWindowLevel-1];
+    [_menuBar setCanHide:NO];
+    [_menuBar setHidesOnDeactivate:NO];
+    [_menuBar setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
                                    NSWindowCollectionBehaviorStationary];
     
     NSLog(@"MenuController: Configured window properties");
     
     // Make the window visible immediately
-    [_topBar makeKeyAndOrderFront:self];
-    [_topBar orderFront:self];
+    [_menuBar makeKeyAndOrderFront:self];
+    [_menuBar orderFront:self];
     NSLog(@"MenuController: Ordered window front");
     
     // Create app menu widget for displaying menus
@@ -145,8 +145,8 @@
     _roundedCornersView = [[RoundedCornersView alloc] initWithFrame:NSMakeRect(0, menuBarHeight - cornerHeight, _screenSize.width, cornerHeight)];
     
     // Add subviews (corners on top so they're drawn last)
-    [[_topBar contentView] addSubview:_appMenuWidget];
-    [[_topBar contentView] addSubview:_roundedCornersView];
+    [[_menuBar contentView] addSubview:_appMenuWidget];
+    [[_menuBar contentView] addSubview:_roundedCornersView];
     
     [attributes release];
 }
@@ -265,15 +265,15 @@
     Atom supportingWmAtom = XInternAtom(display, "_NET_SUPPORTING_WM", False);
     Atom windowAtom = XInternAtom(display, "WINDOW", False);
     
-    // Use our top bar window as the supporting window
-    Window topBarWindow = 0;
-    if (_topBar) {
-        topBarWindow = (Window)[_topBar windowNumber];
+    // Use our menu bar window as the supporting window
+    Window menuBarWindow = 0;
+    if (_menuBar) {
+        menuBarWindow = (Window)[_menuBar windowNumber];
     }
     
-    if (topBarWindow) {
+    if (menuBarWindow) {
         XChangeProperty(display, root, supportingWmAtom, windowAtom, 32,
-                       PropModeReplace, (unsigned char*)&topBarWindow, 1);
+                       PropModeReplace, (unsigned char*)&menuBarWindow, 1);
         
         NSLog(@"MenuController: Set _NET_SUPPORTING_WM property");
     }
@@ -387,7 +387,7 @@
     NSLog(@"MenuController: dealloc - cleaning up global shortcuts...");
     [[X11ShortcutManager sharedManager] cleanup];
     
-    [_topBar release];
+    [_menuBar release];
     [_menuBarView release];
     [_appMenuWidget release];
     [_protocolManager release];

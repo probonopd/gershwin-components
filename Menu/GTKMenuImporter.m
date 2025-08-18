@@ -1,5 +1,6 @@
 #import "GTKMenuImporter.h"
 #import "GTKMenuParser.h"
+#import "GTKSubmenuManager.h"
 #import "DBusConnection.h"
 #import "AppMenuWidget.h"
 #import "MenuUtils.h"
@@ -103,8 +104,19 @@
     NSString *actionPath = [_windowActionPaths objectForKey:windowKey];
     
     if (!serviceName || !menuPath) {
-        NSLog(@"GTKMenuImporter: No service/menu path found for window %lu", windowId);
-        return nil;
+        // Try immediate scan for this specific window before giving up
+        NSLog(@"GTKMenuImporter: No service/menu path found for window %lu, trying immediate scan", windowId);
+        [self scanSpecificWindow:windowId];
+        
+        // Check again after immediate scan
+        serviceName = [_registeredWindows objectForKey:windowKey];
+        menuPath = [_windowMenuPaths objectForKey:windowKey];
+        actionPath = [_windowActionPaths objectForKey:windowKey];
+        
+        if (!serviceName || !menuPath) {
+            NSLog(@"GTKMenuImporter: Still no service/menu path found for window %lu after immediate scan", windowId);
+            return nil;
+        }
     }
     
     NSLog(@"GTKMenuImporter: Loading GTK menu for window %lu from %@%@ (actions: %@)", 
@@ -212,6 +224,61 @@
     [_actionGroupCache removeObjectForKey:windowKey];
     
     NSLog(@"GTKMenuImporter: Unregistered GTK window %lu", windowId);
+}
+
+- (void)scanSpecificWindow:(unsigned long)windowId
+{
+    NSLog(@"GTKMenuImporter: Performing immediate scan for window %lu", windowId);
+    
+    Display *display = XOpenDisplay(NULL);
+    if (!display) {
+        NSLog(@"GTKMenuImporter: Cannot open X11 display for immediate window scan");
+        return;
+    }
+    
+    Window window = (Window)windowId;
+    
+    // Create atoms for GTK menu properties
+    Atom busNameAtom = XInternAtom(display, "_GTK_UNIQUE_BUS_NAME", False);
+    Atom objectPathAtom = XInternAtom(display, "_GTK_MENUBAR_OBJECT_PATH", False);
+    
+    unsigned char *busNameProp = NULL;
+    unsigned char *objectPathProp = NULL;
+    
+    // Get bus name property
+    Atom propType;
+    int propFormat;
+    unsigned long propItems, propBytesAfter;
+    if (XGetWindowProperty(display, window, busNameAtom, 0, 1024, False, AnyPropertyType,
+                          &propType, &propFormat, &propItems, &propBytesAfter, &busNameProp) == Success && busNameProp) {
+        
+        NSLog(@"GTKMenuImporter: Window %lu has _GTK_UNIQUE_BUS_NAME: %s", windowId, busNameProp);
+        
+        // Get object path property
+        if (XGetWindowProperty(display, window, objectPathAtom, 0, 1024, False, AnyPropertyType,
+                              &propType, &propFormat, &propItems, &propBytesAfter, &objectPathProp) == Success && objectPathProp) {
+            
+            NSLog(@"GTKMenuImporter: Window %lu has _GTK_MENUBAR_OBJECT_PATH: %s", windowId, objectPathProp);
+            
+            NSString *busName = [NSString stringWithUTF8String:(char *)busNameProp];
+            NSString *objectPath = [NSString stringWithUTF8String:(char *)objectPathProp];
+            
+            NSLog(@"GTKMenuImporter: Immediate scan found GTK window %lu with bus=%@ path=%@", windowId, busName, objectPath);
+            
+            // Register this window immediately
+            [self registerWindow:windowId serviceName:busName objectPath:objectPath];
+            
+            XFree(objectPathProp);
+        } else {
+            NSLog(@"GTKMenuImporter: Window %lu has bus name but no object path", windowId);
+        }
+        
+        XFree(busNameProp);
+    } else {
+        NSLog(@"GTKMenuImporter: Window %lu has no GTK menu properties", windowId);
+    }
+    
+    XCloseDisplay(display);
 }
 
 - (void)scanForExistingMenuServices
@@ -395,6 +462,9 @@
     [_windowActionPaths removeAllObjects];
     [_menuCache removeAllObjects];
     [_actionGroupCache removeAllObjects];
+    
+    // Clean up GTK submenu manager
+    [GTKSubmenuManager cleanup];
     
     if (_cleanupTimer) {
         [_cleanupTimer invalidate];
