@@ -35,7 +35,7 @@
 - (id)init;
 - (NSColor *)backgroundColor;
 - (NSColor *)transparentColor;
-- (void)createTopBar;
+- (void)createMenuBar;
 - (void)applicationDidFinishLaunching:(NSNotification *)notification;
 - (void)applicationWillTerminate:(NSNotification *)notification;
 - (void)setupMenuBar;

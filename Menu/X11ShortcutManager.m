@@ -35,6 +35,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     NSMutableDictionary *_menuItemToServiceMap;
     NSMutableDictionary *_menuItemToObjectPathMap;
     NSMutableDictionary *_menuItemToConnectionMap;
+    NSMutableDictionary *_menuItemToActionNameMap;  // maps menuItemKey -> action name
     
     NSTimer *_eventMonitorTimer;
     BOOL _swapCtrlAlt;
@@ -65,6 +66,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         _menuItemToServiceMap = [[NSMutableDictionary alloc] init];
         _menuItemToObjectPathMap = [[NSMutableDictionary alloc] init];
         _menuItemToConnectionMap = [[NSMutableDictionary alloc] init];
+        _menuItemToActionNameMap = [[NSMutableDictionary alloc] init];
         
         // Initialize X11 display for shortcuts
         _display = XOpenDisplay(NULL);
@@ -96,6 +98,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     [_menuItemToServiceMap release];
     [_menuItemToObjectPathMap release];
     [_menuItemToConnectionMap release];
+    [_menuItemToActionNameMap release];
     [super dealloc];
 }
 
@@ -137,16 +140,45 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         return;
     }
     
-    // Register the original shortcut
+    // Prepare shortcut strings and modifiers
     NSString *originalShortcut = [self createShortcutStringFromKey:keyEquivalent modifiers:modifierMask];
     unsigned int originalX11Modifier = [self convertToX11Modifier:modifierMask];
-    BOOL registeredOriginal = [self registerSingleShortcut:keycode 
-                                                   modifier:originalX11Modifier 
-                                                menuItemKey:menuItemKey 
-                                             shortcutString:originalShortcut];
     
-    // If Ctrl/Alt swapping is enabled, also register the swapped version
-    if (_swapCtrlAlt && (modifierMask & (NSControlKeyMask | NSAlternateKeyMask))) {
+    // For <Primary> shortcuts (which now map to Control), skip the original
+    // and only register Alt+key for cross-platform menu access
+    BOOL isControlShortcut = (modifierMask & NSControlKeyMask) != 0;
+    BOOL registeredOriginal = NO;
+    BOOL registeredAlt = NO;
+    
+    if (!isControlShortcut) {
+        // Not a Control shortcut - register normally
+        registeredOriginal = [self registerSingleShortcut:keycode 
+                                                  modifier:originalX11Modifier 
+                                               menuItemKey:menuItemKey 
+                                            shortcutString:originalShortcut];
+    } else {
+        NSLog(@"X11ShortcutManager: Skipping %@ (preserving app's internal shortcut)", originalShortcut);
+    }
+    
+    // For Control shortcuts, register Alt+key for our menu system
+    if (isControlShortcut) {
+        // Replace Control with Alt
+        NSUInteger altModifierMask = (modifierMask & ~NSControlKeyMask) | NSAlternateKeyMask;
+        NSString *altShortcut = [self createShortcutStringFromKey:keyEquivalent modifiers:altModifierMask];
+        unsigned int altX11Modifier = [self convertToX11Modifier:altModifierMask];
+        
+        registeredAlt = [self registerSingleShortcut:keycode 
+                                             modifier:altX11Modifier 
+                                          menuItemKey:menuItemKey 
+                                       shortcutString:altShortcut];
+        
+        if (registeredAlt) {
+            NSLog(@"X11ShortcutManager: Registered Alt+%@ for cross-platform menu access", keyEquivalent);
+        }
+    }
+    
+    // Legacy: If Ctrl/Alt swapping is enabled for other shortcuts
+    if (_swapCtrlAlt && !isControlShortcut && (modifierMask & (NSControlKeyMask | NSAlternateKeyMask))) {
         NSUInteger swappedModifierMask = [self getSwappedModifierMask:modifierMask];
         NSString *swappedShortcut = [self createShortcutStringFromKey:keyEquivalent modifiers:swappedModifierMask];
         unsigned int swappedX11Modifier = [self convertToX11Modifier:swappedModifierMask];
@@ -157,18 +189,44 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                                                 shortcutString:swappedShortcut];
         
         if (registeredOriginal || registeredSwapped) {
-            NSLog(@"X11ShortcutManager: Registered shortcuts for menu item '%@': original=%@(%s), swapped=%@(%s)", 
+            NSLog(@"X11ShortcutManager: Registered swapped shortcuts for menu item '%@': original=%@(%s), swapped=%@(%s)", 
                   [menuItem title], originalShortcut, registeredOriginal ? "OK" : "FAILED",
                   swappedShortcut, registeredSwapped ? "OK" : "FAILED");
         }
-    } else if (registeredOriginal) {
+    } else if (registeredOriginal || registeredAlt) {
+        NSString *registeredShortcuts = registeredOriginal ? originalShortcut : 
+                                       registeredAlt ? [self createShortcutStringFromKey:keyEquivalent 
+                                                                               modifiers:(modifierMask & ~NSControlKeyMask) | NSAlternateKeyMask] : @"none";
         NSLog(@"X11ShortcutManager: Registered shortcut for menu item '%@': %@", 
-              [menuItem title], originalShortcut);
+              [menuItem title], registeredShortcuts);
     }
     
     // Start X11 event monitoring if this is the first shortcut
     if ([_grabbedKeys count] > 0 && !_eventMonitorTimer) {
+        NSLog(@"X11ShortcutManager: Starting event monitoring - have %lu grabbed keys", 
+              (unsigned long)[_grabbedKeys count]);
         [self startX11EventMonitoring];
+    }
+}
+
+- (void)registerShortcutForMenuItem:(NSMenuItem *)menuItem
+                        serviceName:(NSString *)serviceName
+                         objectPath:(NSString *)objectPath
+                         actionName:(NSString *)actionName
+                     dbusConnection:(GNUDBusConnection *)dbusConnection
+{
+    // Call the original method to handle key registration
+    [self registerShortcutForMenuItem:menuItem
+                          serviceName:serviceName
+                           objectPath:objectPath
+                       dbusConnection:dbusConnection];
+    
+    // Additionally store the action name for protocol detection
+    NSString *menuItemKey = [NSString stringWithFormat:@"%p", menuItem];
+    if (actionName) {
+        [_menuItemToActionNameMap setObject:actionName forKey:menuItemKey];
+        NSLog(@"X11ShortcutManager: Stored action name '%@' for menu item '%@'", 
+              actionName, [menuItem title]);
     }
 }
 
@@ -200,6 +258,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     [_menuItemToServiceMap removeAllObjects];
     [_menuItemToObjectPathMap removeAllObjects];
     [_menuItemToConnectionMap removeAllObjects];
+    [_menuItemToActionNameMap removeAllObjects];
 }
 
 - (BOOL)shouldSwapCtrlAlt
@@ -645,21 +704,44 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         return;
     }
     
+    // Select KeyPress events on the root window - THIS IS CRITICAL!
+    // Without this, XGrabKey won't deliver events to us
+    Window root = DefaultRootWindow(_display);
+    XSelectInput(_display, root, KeyPressMask);
+    XSync(_display, False);
+    
+    NSLog(@"X11ShortcutManager: Selected KeyPress events on root window");
+    
     // Start a timer to periodically check for X11 events
-    // This is safer than trying to integrate X11 fd into NSRunLoop directly
+    // Ensure this runs on the main thread
+    [self performSelectorOnMainThread:@selector(startEventTimer) 
+                           withObject:nil 
+                        waitUntilDone:NO];
+    
+    NSLog(@"X11ShortcutManager: Started X11 event monitoring");
+}
+
+- (void)startEventTimer
+{
     _eventMonitorTimer = [NSTimer scheduledTimerWithTimeInterval:0.1
                                                           target:self
                                                         selector:@selector(handleX11Events)
                                                         userInfo:nil
                                                          repeats:YES];
-    
-    NSLog(@"X11ShortcutManager: Started X11 event monitoring");
+    NSLog(@"X11ShortcutManager: Started X11 event monitoring timer on main thread");
 }
 
 - (void)handleX11Events
 {
     if (!_display) {
         return;
+    }
+    
+    // Debug: Log that the timer is running
+    static int debugCounter = 0;
+    if (++debugCounter % 10 == 0) { // Log every 1 second (10 * 0.1s)
+        NSLog(@"X11ShortcutManager: Event timer running (%d iterations, %lu grabbed keys)", 
+              debugCounter, (unsigned long)[_grabbedKeys count]);
     }
     
     // Process all pending X11 events
@@ -707,6 +789,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     NSString *objectPath = [_menuItemToObjectPathMap objectForKey:menuItemKey];
     GNUDBusConnection *dbusConnection = [_menuItemToConnectionMap objectForKey:menuItemKey];
     NSNumber *tagNumber = [_menuItemKeyToTag objectForKey:menuItemKey];
+    NSString *actionName = [_menuItemToActionNameMap objectForKey:menuItemKey];
     
     if (!serviceName || !objectPath || !dbusConnection || !tagNumber) {
         NSLog(@"X11ShortcutManager: ERROR: Missing DBus info for shortcut trigger (service=%@, path=%@, tag=%@)", 
@@ -718,7 +801,101 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     NSLog(@"X11ShortcutManager: Shortcut triggered for menu item ID=%d (service=%@, path=%@)", 
           menuItemId, serviceName, objectPath);
     
-    // Send Event method call to activate the menu item
+    // Try GTK Actions protocol first (modern apps like gedit)
+    if (actionName && [self tryGTKAction:actionName 
+                             serviceName:serviceName 
+                              objectPath:objectPath 
+                          dbusConnection:dbusConnection]) {
+        NSLog(@"X11ShortcutManager: GTK Actions activation succeeded for action: %@", actionName);
+        return;
+    }
+    
+    // Fallback to Unity DBus menu protocol (older apps)
+    if ([self tryUnityDBusMenu:menuItemId 
+                   serviceName:serviceName 
+                    objectPath:objectPath 
+                dbusConnection:dbusConnection]) {
+        NSLog(@"X11ShortcutManager: Unity DBus menu activation succeeded for menu item ID: %d", menuItemId);
+        return;
+    }
+    
+    NSLog(@"X11ShortcutManager: ERROR: Both GTK Actions and Unity DBus menu protocols failed");
+}
+
+- (BOOL)tryGTKAction:(NSString *)actionName
+         serviceName:(NSString *)serviceName
+          objectPath:(NSString *)objectPath
+      dbusConnection:(GNUDBusConnection *)dbusConnection
+{
+    if (!actionName) {
+        return NO;
+    }
+    
+    NSString *actualActionName = actionName;
+    NSString *actualObjectPath = objectPath;
+    
+    // Determine the correct action path and name based on the action scope
+    if ([actionName hasPrefix:@"app."]) {
+        // App-scoped actions (like app.quit, app.about) go to the application path
+        if ([objectPath containsString:@"/org/gnome/gedit/menus/"]) {
+            actualObjectPath = @"/org/gnome/gedit";
+        } else if ([objectPath containsString:@"/com/canonical/menu/"]) {
+            // For other GTK apps, try to find the app path
+            // For now, use the original path
+        }
+        // Strip the "app." prefix since apps register actions without prefixes
+        actualActionName = [actionName substringFromIndex:4];
+        NSLog(@"X11ShortcutManager: Using app action: %@ -> %@ on path: %@", 
+              actionName, actualActionName, actualObjectPath);
+    } else if ([actionName hasPrefix:@"win."]) {
+        // Window-scoped actions go to the window path
+        if ([objectPath containsString:@"/org/gnome/gedit/menus/"]) {
+            actualObjectPath = @"/org/gnome/gedit/window/1";
+        } else if ([objectPath containsString:@"/com/canonical/menu/"]) {
+            // For other GTK apps, try to find the window path
+            // For leafpad and similar, the path might be different
+            actualObjectPath = @"/org/appmenu/gtk/window/0";
+        }
+        // Strip the "win." prefix since apps register actions without prefixes
+        actualActionName = [actionName substringFromIndex:4];
+        NSLog(@"X11ShortcutManager: Using window action: %@ -> %@ on path: %@", 
+              actionName, actualActionName, actualObjectPath);
+    } else if ([actionName hasPrefix:@"unity."]) {
+        // Legacy unity actions - strip the prefix and try window path first
+        actualActionName = [actionName substringFromIndex:6];
+        if ([objectPath containsString:@"/com/canonical/menu/"]) {
+            actualObjectPath = @"/org/appmenu/gtk/window/0";
+        }
+        NSLog(@"X11ShortcutManager: Using unity action: %@ -> %@ on path: %@", 
+              actionName, actualActionName, actualObjectPath);
+    }
+    
+    // Prepare platform data for focus/activation context
+    NSMutableDictionary *platformData = [NSMutableDictionary dictionary];
+    [platformData setObject:@"" forKey:@"desktop-startup-id"];
+    
+    // Use empty parameter list for most actions
+    NSArray *parameter = [NSArray array];
+    
+    // Call Activate method on org.gtk.Actions interface
+    NSLog(@"X11ShortcutManager: Attempting GTK Activate: action='%@' on service=%@ path=%@", 
+          actualActionName, serviceName, actualObjectPath);
+    
+    id result = [dbusConnection callGTKActivateMethod:actualActionName
+                                            parameter:parameter
+                                         platformData:platformData
+                                            onService:serviceName
+                                           objectPath:actualObjectPath];
+    
+    return result != nil;
+}
+
+- (BOOL)tryUnityDBusMenu:(int)menuItemId
+             serviceName:(NSString *)serviceName
+              objectPath:(NSString *)objectPath
+          dbusConnection:(GNUDBusConnection *)dbusConnection
+{
+    // Send Event method call to activate the menu item using Unity protocol
     NSArray *arguments = [NSArray arrayWithObjects:
                          [NSNumber numberWithInt:menuItemId],   // menu item ID
                          @"clicked",                            // event type
@@ -726,17 +903,16 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                          [NSNumber numberWithUnsignedInt:0],    // timestamp
                          nil];
     
+    NSLog(@"X11ShortcutManager: Attempting Unity DBus menu Event: ID=%d on service=%@ path=%@", 
+          menuItemId, serviceName, objectPath);
+    
     id result = [dbusConnection callMethod:@"Event"
                                  onService:serviceName
                                 objectPath:objectPath
                                  interface:@"com.canonical.dbusmenu"
                                  arguments:arguments];
     
-    if (result) {
-        NSLog(@"X11ShortcutManager: Shortcut event succeeded: %@", result);
-    } else {
-        NSLog(@"X11ShortcutManager: Shortcut event failed");
-    }
+    return result != nil;
 }
 
 - (void)detectLockMasks

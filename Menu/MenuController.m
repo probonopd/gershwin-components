@@ -87,7 +87,7 @@
     _roundedCornersView = nil;
 }
 
-- (void)createTopBar
+- (void)createMenuBar
 {
     NSLog(@"MenuController: ===== CREATING MENU BAR =====");
     const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
@@ -120,7 +120,7 @@
                                               defer:NO];
     NSLog(@"MenuController: Created NSWindow: %@", _menuBar);
     
-    [_menuBar setTitle:@"TopBar"];
+    [_menuBar setTitle:@"MenuBar"];
     [_menuBar setBackgroundColor:color];
     [_menuBar setAlphaValue:1.0];
     [_menuBar setLevel:NSFloatingWindowLevel]; // Keep higher level
@@ -160,8 +160,8 @@
 
 - (void)setupMenuBar
 {
-    NSLog(@"MenuController: Setting up menu bar using createTopBar method");
-    [self createTopBar];
+    NSLog(@"MenuController: Setting up menu bar using createMenuBar method");
+    [self createMenuBar];
     
     NSLog(@"MenuController: Menu bar setup complete at %.0f,%.0f %.0fx%.0f", 
           _screenFrame.origin.x, _screenFrame.origin.y, _screenSize.width, [[GSTheme theme] menuBarHeight]);

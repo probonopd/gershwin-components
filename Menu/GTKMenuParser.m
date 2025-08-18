@@ -563,7 +563,7 @@
     NSUInteger modifiers = 0;
     
     if ([accel containsString:@"<Control>"] || [accel containsString:@"<Primary>"]) {
-        modifiers |= NSEventModifierFlagCommand;  // Primary/Control maps to Cmd on macOS
+        modifiers |= NSControlKeyMask;  // Primary/Control maps to Control for cross-platform shortcuts
     }
     if ([accel containsString:@"<Shift>"]) {
         modifiers |= NSEventModifierFlagShift;
@@ -572,7 +572,7 @@
         modifiers |= NSEventModifierFlagOption;
     }
     if ([accel containsString:@"<Meta>"] || [accel containsString:@"<Super>"]) {
-        modifiers |= NSEventModifierFlagControl;  // Meta/Super maps to Ctrl on macOS
+        modifiers |= NSEventModifierFlagCommand;  // Meta/Super maps to Cmd key
     }
     
     return modifiers;

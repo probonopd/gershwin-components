@@ -1,5 +1,6 @@
 #import "GTKActionHandler.h"
 #import "DBusConnection.h"
+#import "X11ShortcutManager.h"
 
 // Static storage for GTK action information
 static NSMutableDictionary *gtkMenuItemToActionMap = nil;
@@ -45,6 +46,19 @@ static NSMutableDictionary *gtkMenuItemToConnectionMap = nil;
     
     NSLog(@"GTKActionHandler: Set up GTK action for menu item '%@' (action=%@, service=%@, path=%@)", 
           [menuItem title], actionName, serviceName, actionPath);
+    
+    // Register shortcut with X11ShortcutManager if this menu item has a key equivalent
+    NSString *keyEquivalent = [menuItem keyEquivalent];
+    if (keyEquivalent && [keyEquivalent length] > 0) {
+        NSUInteger modifierMask = [menuItem keyEquivalentModifierMask];
+        NSLog(@"GTKActionHandler: Registering shortcut for menu item '%@': key='%@' modifiers=%lu", 
+              [menuItem title], keyEquivalent, (unsigned long)modifierMask);
+        [[X11ShortcutManager sharedManager] registerShortcutForMenuItem:menuItem
+                                                            serviceName:serviceName
+                                                             objectPath:actionPath
+                                                             actionName:actionName
+                                                         dbusConnection:dbusConnection];
+    }
     
     // Query initial action state for stateful actions
     NSDictionary *actionState = [self getActionState:actionName 

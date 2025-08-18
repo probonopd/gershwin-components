@@ -41,12 +41,21 @@ static NSMutableDictionary *menuItemToConnectionMap = nil;
           [menuItem title], (long)[menuItem tag], serviceName, objectPath);
     
     // Register global shortcut if we have a key equivalent and swapping is enabled
-    if ([[menuItem keyEquivalent] length] > 0 && [menuItem keyEquivalentModifierMask] > 0 && 
-        [[X11ShortcutManager sharedManager] shouldSwapCtrlAlt]) {
-        [[X11ShortcutManager sharedManager] registerShortcutForMenuItem:menuItem 
-                                                            serviceName:serviceName 
-                                                             objectPath:objectPath 
-                                                         dbusConnection:dbusConnection];
+    if ([[menuItem keyEquivalent] length] > 0 && [menuItem keyEquivalentModifierMask] > 0) {
+        NSLog(@"DBusMenuActionHandler: Menu item '%@' has shortcut: %@+%lu", 
+              [menuItem title], [menuItem keyEquivalent], (unsigned long)[menuItem keyEquivalentModifierMask]);
+        
+        if ([[X11ShortcutManager sharedManager] shouldSwapCtrlAlt]) {
+            NSLog(@"DBusMenuActionHandler: Registering shortcut for menu item '%@'", [menuItem title]);
+            [[X11ShortcutManager sharedManager] registerShortcutForMenuItem:menuItem 
+                                                                serviceName:serviceName 
+                                                                 objectPath:objectPath 
+                                                             dbusConnection:dbusConnection];
+        } else {
+            NSLog(@"DBusMenuActionHandler: Shortcut swapping disabled, not registering");
+        }
+    } else {
+        NSLog(@"DBusMenuActionHandler: Menu item '%@' has no shortcut", [menuItem title]);
     }
 }
 

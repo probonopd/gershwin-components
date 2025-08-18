@@ -29,6 +29,20 @@
                      dbusConnection:(GNUDBusConnection *)dbusConnection;
 
 /**
+ * Register a global shortcut for a menu item with action name for protocol detection
+ * @param menuItem The menu item to associate with the shortcut
+ * @param serviceName The DBus service name for action callbacks
+ * @param objectPath The DBus object path for action callbacks  
+ * @param actionName The action name (e.g., "win.print", "app.quit")
+ * @param dbusConnection The DBus connection for action callbacks
+ */
+- (void)registerShortcutForMenuItem:(NSMenuItem *)menuItem
+                        serviceName:(NSString *)serviceName
+                         objectPath:(NSString *)objectPath
+                         actionName:(NSString *)actionName
+                     dbusConnection:(GNUDBusConnection *)dbusConnection;
+
+/**
  * Unregister all global shortcuts
  */
 - (void)unregisterAllShortcuts;
