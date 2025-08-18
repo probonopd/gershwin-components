@@ -28,5 +28,7 @@
                   onService:(NSString *)serviceName
                  objectPath:(NSString *)objectPath;
 - (void)processMessages;
+- (void *)rawConnection;
+- (int)getFileDescriptor;
 
 @end

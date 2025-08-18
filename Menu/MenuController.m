@@ -9,6 +9,8 @@
 #import "GNUstepGUI/GSTheme.h"
 #import <X11/Xlib.h>
 #import <X11/Xatom.h>
+#import <sys/select.h>
+#import <errno.h>
 
 @implementation MenuController
 
@@ -176,8 +178,17 @@
     
     if (![[MenuProtocolManager sharedManager] initializeAllProtocols]) {
         NSLog(@"MenuController: Failed to initialize menu protocols - continuing anyway");
+        _dbusFileDescriptor = -1;
     } else {
         NSLog(@"MenuController: Menu protocols initialized successfully");
+        
+        // Get the DBus file descriptor for X11 event loop integration
+        _dbusFileDescriptor = [[MenuProtocolManager sharedManager] getDBusFileDescriptor];
+        if (_dbusFileDescriptor >= 0) {
+            NSLog(@"MenuController: Got DBus file descriptor %d for event loop integration", _dbusFileDescriptor);
+        } else {
+            NSLog(@"MenuController: Failed to get DBus file descriptor");
+        }
     }
     
     // Set the app menu widget reference
@@ -342,38 +353,84 @@
     // Do initial scan once when thread starts
     [[MenuProtocolManager sharedManager] scanForExistingMenuServices];
     
+    // Get X11 connection file descriptor
+    int x11_fd = ConnectionNumber(_display);
+    NSLog(@"MenuController: X11 file descriptor: %d, DBus file descriptor: %d", x11_fd, _dbusFileDescriptor);
+    
     while (!_shouldStopMonitoring) {
-        XEvent event;
+        fd_set readfds;
+        int maxfd = 0;
+        struct timeval timeout;
         
-        // Use XPending to check for events without blocking
-        if (XPending(_display) > 0) {
-            XNextEvent(_display, &event);
-            
-            // Check if this is a PropertyNotify event for _NET_ACTIVE_WINDOW
-            if (event.type == PropertyNotify && 
-                event.xproperty.window == _rootWindow &&
-                event.xproperty.atom == _netActiveWindowAtom) {
+        // Set up file descriptor set
+        FD_ZERO(&readfds);
+        
+        // Add X11 file descriptor
+        FD_SET(x11_fd, &readfds);
+        maxfd = x11_fd;
+        
+        // Add DBus file descriptor if available
+        if (_dbusFileDescriptor >= 0) {
+            FD_SET(_dbusFileDescriptor, &readfds);
+            if (_dbusFileDescriptor > maxfd) {
+                maxfd = _dbusFileDescriptor;
+            }
+        }
+        
+        // Set timeout for select (100ms)
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 100000;
+        
+        int select_result = select(maxfd + 1, &readfds, NULL, NULL, &timeout);
+        
+        if (select_result < 0) {
+            if (errno != EINTR) {
+                NSLog(@"MenuController: select() error: %s", strerror(errno));
+                break;
+            }
+            continue;
+        }
+        
+        // Check X11 events
+        if (FD_ISSET(x11_fd, &readfds)) {
+            while (XPending(_display) > 0) {
+                XEvent event;
+                XNextEvent(_display, &event);
                 
-                NSLog(@"MenuController: _NET_ACTIVE_WINDOW property changed - active window changed");
-                
-                // Update the app menu widget for the new active window
-                if (_appMenuWidget) {
-                    [_appMenuWidget updateForActiveWindow];
+                // Check if this is a PropertyNotify event for _NET_ACTIVE_WINDOW
+                if (event.type == PropertyNotify && 
+                    event.xproperty.window == _rootWindow &&
+                    event.xproperty.atom == _netActiveWindowAtom) {
+                    
+                    NSLog(@"MenuController: _NET_ACTIVE_WINDOW property changed - active window changed");
+                    
+                    // Update the app menu widget for the new active window
+                    if (_appMenuWidget) {
+                        [_appMenuWidget updateForActiveWindow];
+                    }
+                }
+                // Check if this is a PropertyNotify event for _NET_CLIENT_LIST (new windows)
+                else if (event.type == PropertyNotify && 
+                         event.xproperty.window == _rootWindow &&
+                         event.xproperty.atom == _netClientListAtom) {
+                    
+                    NSLog(@"MenuController: _NET_CLIENT_LIST property changed - new window created/destroyed");
+                    
+                    // Scan for new GTK menu services when windows are created/destroyed
+                    [[MenuProtocolManager sharedManager] scanForExistingMenuServices];
                 }
             }
-            // Check if this is a PropertyNotify event for _NET_CLIENT_LIST (new windows)
-            else if (event.type == PropertyNotify && 
-                     event.xproperty.window == _rootWindow &&
-                     event.xproperty.atom == _netClientListAtom) {
-                
-                NSLog(@"MenuController: _NET_CLIENT_LIST property changed - new window created/destroyed");
-                
-                // Scan for new GTK menu services when windows are created/destroyed
-                [[MenuProtocolManager sharedManager] scanForExistingMenuServices];
+        }
+        
+        // Check DBus events
+        if (_dbusFileDescriptor >= 0 && FD_ISSET(_dbusFileDescriptor, &readfds)) {
+            NSLog(@"MenuController: DBus file descriptor has data, processing messages...");
+            
+            // Process DBus messages through the protocol manager
+            id<MenuProtocolHandler> canonicalHandler = [[MenuProtocolManager sharedManager] handlerForType:MenuProtocolTypeCanonical];
+            if (canonicalHandler && [canonicalHandler respondsToSelector:@selector(processDBusMessages)]) {
+                [(id)canonicalHandler processDBusMessages];
             }
-        } else {
-            // No events pending, sleep longer to reduce CPU usage
-            [NSThread sleepForTimeInterval:0.1];
         }
     }
     

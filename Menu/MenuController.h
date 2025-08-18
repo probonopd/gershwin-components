@@ -29,6 +29,7 @@
     Atom _netClientListAtom;
     NSThread *_x11Thread;
     BOOL _shouldStopMonitoring;
+    int _dbusFileDescriptor;
 }
 
 - (id)init;

@@ -295,6 +295,21 @@ static MenuProtocolManager *sharedInstance = nil;
     return _appMenuWidget;
 }
 
+#pragma mark - DBus Integration
+
+- (int)getDBusFileDescriptor
+{
+    // Get the DBus file descriptor from the canonical handler (DBusMenuImporter)
+    // since that's the one that manages the AppMenu.Registrar service
+    id<MenuProtocolHandler> canonicalHandler = [self handlerForType:MenuProtocolTypeCanonical];
+    
+    if (canonicalHandler && [canonicalHandler respondsToSelector:@selector(getDBusFileDescriptor)]) {
+        return [(id)canonicalHandler getDBusFileDescriptor];
+    }
+    
+    return -1;
+}
+
 #pragma mark - Cleanup
 
 - (void)cleanup

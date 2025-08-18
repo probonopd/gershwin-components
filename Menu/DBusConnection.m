@@ -1,5 +1,7 @@
 #import "DBusConnection.h"
 #import <dbus/dbus.h>
+#import <sys/select.h>
+#import <unistd.h>
 
 // Use typedef to avoid naming conflicts
 typedef struct DBusConnection DBusConnectionStruct;
@@ -630,9 +632,26 @@ static GNUDBusConnection *sharedSessionBus = nil;
     }
 }
 
-- (DBusConnectionStruct *)rawConnection
+- (void *)rawConnection
 {
-    return (DBusConnectionStruct *)_connection;
+    return (void *)_connection;
+}
+
+- (int)getFileDescriptor
+{
+    if (!_connected || !_connection) {
+        return -1;
+    }
+    
+    // Get the Unix file descriptor from the DBus connection
+    int fd = -1;
+    if (dbus_connection_get_unix_fd((DBusConnectionStruct *)_connection, &fd)) {
+        NSLog(@"DBusConnection: Got file descriptor: %d", fd);
+        return fd;
+    } else {
+        NSLog(@"DBusConnection: Failed to get file descriptor");
+        return -1;
+    }
 }
 
 - (BOOL)sendReply:(void *)reply

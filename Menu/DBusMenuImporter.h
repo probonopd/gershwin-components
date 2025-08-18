@@ -30,6 +30,8 @@
 - (NSString *)getMenuServiceForWindow:(unsigned long)windowId;
 - (NSString *)getMenuObjectPathForWindow:(unsigned long)windowId;
 - (NSMenu *)createTestMenu;
+- (int)getDBusFileDescriptor;
+- (void)processDBusMessages;
 
 // DBus method handlers
 - (void)handleDBusMethodCall:(NSDictionary *)callInfo;

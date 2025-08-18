@@ -66,6 +66,9 @@ typedef NS_ENUM(NSInteger, MenuProtocolType) {
 // Protocol detection
 - (MenuProtocolType)detectProtocolTypeForService:(NSString *)serviceName objectPath:(NSString *)objectPath;
 
+// DBus integration
+- (int)getDBusFileDescriptor;
+
 // Cleanup
 - (void)cleanup;
 

@@ -359,11 +359,15 @@
             
             [self registerWindow:windowId serviceName:serviceName objectPath:objectPath];
             
-            // Send empty reply for NOREPLY method
+            // Send empty reply
             DBusMessage *reply = dbus_message_new_method_return(message);
             if (reply) {
-                [_dbusConnection sendReply:reply];
+                dbus_connection_send([_dbusConnection rawConnection], reply, NULL);
+                dbus_connection_flush([_dbusConnection rawConnection]);
                 dbus_message_unref(reply);
+                NSLog(@"DBusMenuImporter: Sent reply for RegisterWindow");
+            } else {
+                NSLog(@"DBusMenuImporter: Failed to create reply for RegisterWindow");
             }
         }
     } else if ([method isEqualToString:@"UnregisterWindow"]) {
@@ -375,11 +379,15 @@
             
             [self unregisterWindow:windowId];
             
-            // Send empty reply for NOREPLY method
+            // Send empty reply
             DBusMessage *reply = dbus_message_new_method_return(message);
             if (reply) {
-                [_dbusConnection sendReply:reply];
+                dbus_connection_send([_dbusConnection rawConnection], reply, NULL);
+                dbus_connection_flush([_dbusConnection rawConnection]);
                 dbus_message_unref(reply);
+                NSLog(@"DBusMenuImporter: Sent reply for UnregisterWindow");
+            } else {
+                NSLog(@"DBusMenuImporter: Failed to create reply for UnregisterWindow");
             }
         }
     } else if ([method isEqualToString:@"GetMenuForWindow"]) {
@@ -404,8 +412,12 @@
                                        DBUS_TYPE_OBJECT_PATH, &pathStr,
                                        DBUS_TYPE_INVALID);
                 
-                [_dbusConnection sendReply:reply];
+                dbus_connection_send([_dbusConnection rawConnection], reply, NULL);
+                dbus_connection_flush([_dbusConnection rawConnection]);
                 dbus_message_unref(reply);
+                NSLog(@"DBusMenuImporter: Sent reply for GetMenuForWindow");
+            } else {
+                NSLog(@"DBusMenuImporter: Failed to create reply for GetMenuForWindow");
             }
         }
     } else {
@@ -548,6 +560,21 @@
     [helpItem release];
     
     return [menu autorelease];
+}
+
+- (int)getDBusFileDescriptor
+{
+    if (_dbusConnection) {
+        return [_dbusConnection getFileDescriptor];
+    }
+    return -1;
+}
+
+- (void)processDBusMessages
+{
+    if (_dbusConnection) {
+        [_dbusConnection processMessages];
+    }
 }
 
 - (void)showDBusErrorAndExit
