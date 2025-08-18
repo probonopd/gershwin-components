@@ -1,7 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
 
-@interface MenuApplication : NSApplication
+@interface MenuApplication : NSApplication <NSApplicationDelegate>
 {
 }
 

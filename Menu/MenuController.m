@@ -109,7 +109,7 @@
     color = [self backgroundColor];
     NSLog(@"MenuController: Background color: %@", color);
         
-    // Creation of the menuBar
+    // Creation of the menuBar at the TOP of the screen (GNUstep coordinates: bottom-left origin)
     rect = NSMakeRect(0, _screenSize.height - menuBarHeight, _screenSize.width, menuBarHeight);
     NSLog(@"MenuController: Menu bar rect: %.0f,%.0f %.0fx%.0f", 
           rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
@@ -123,7 +123,7 @@
     [_menuBar setTitle:@"TopBar"];
     [_menuBar setBackgroundColor:color];
     [_menuBar setAlphaValue:1.0];
-    [_menuBar setLevel:NSTornOffMenuWindowLevel-1];
+    [_menuBar setLevel:NSFloatingWindowLevel]; // Keep higher level
     [_menuBar setCanHide:NO];
     [_menuBar setHidesOnDeactivate:NO];
     [_menuBar setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
@@ -136,6 +136,10 @@
     [_menuBar orderFront:self];
     NSLog(@"MenuController: Ordered window front");
     
+    // Create the main menu bar view that draws the background
+    _menuBarView = [[MenuBarView alloc] initWithFrame:NSMakeRect(0, 0, _screenSize.width, menuBarHeight)];
+    NSLog(@"MenuController: Created MenuBarView: %@", _menuBarView);
+    
     // Create app menu widget for displaying menus
     _appMenuWidget = [[AppMenuWidget alloc] initWithFrame:NSMakeRect(20, 0, 400, menuBarHeight)];
     [_appMenuWidget setProtocolManager:[MenuProtocolManager sharedManager]];
@@ -146,7 +150,8 @@
     CGFloat cornerHeight = 10.0; // 2 * corner radius (5px)
     _roundedCornersView = [[RoundedCornersView alloc] initWithFrame:NSMakeRect(0, menuBarHeight - cornerHeight, _screenSize.width, cornerHeight)];
     
-    // Add subviews (corners on top so they're drawn last)
+    // Add subviews in the correct order (background first, then content, then corners on top)
+    [[_menuBar contentView] addSubview:_menuBarView];
     [[_menuBar contentView] addSubview:_appMenuWidget];
     [[_menuBar contentView] addSubview:_roundedCornersView];
     
@@ -160,6 +165,14 @@
     
     NSLog(@"MenuController: Menu bar setup complete at %.0f,%.0f %.0fx%.0f", 
           _screenFrame.origin.x, _screenFrame.origin.y, _screenSize.width, [[GSTheme theme] menuBarHeight]);
+    
+    // Set up X11 window monitoring
+    NSLog(@"MenuController: Setting up X11 window monitoring");
+    [self setupWindowMonitoring];
+    
+    // Initialize protocol scanning
+    NSLog(@"MenuController: Initializing protocol scanning");
+    [self initializeProtocols];
 }
 
 - (void)updateActiveWindow

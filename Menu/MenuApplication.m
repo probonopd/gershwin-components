@@ -62,9 +62,9 @@ static void signalHandler(int sig)
 {
     NSLog(@"MenuApplication: ===== FINISH LAUNCHING CALLED =====");
     
-    // Call super first
-    [super finishLaunching];
-    NSLog(@"MenuApplication: Super finishLaunching completed");
+    // DON'T call super finishLaunching as it may be causing immediate termination
+    // [super finishLaunching];
+    NSLog(@"MenuApplication: Skipped super finishLaunching to prevent termination");
     
     NSLog(@"MenuApplication: Initializing application...");
     
@@ -75,18 +75,11 @@ static void signalHandler(int sig)
         NSLog(@"MenuApplication: Running detached from terminal");
     }
     
-    // Get the existing controller that should have been set as delegate
-    MenuController *controller = (MenuController *)[self delegate];
-    if (!controller || ![controller isKindOfClass:[MenuController class]]) {
-        NSLog(@"MenuApplication: No MenuController delegate found, creating one...");
-        controller = [[MenuController alloc] init];
-        g_controller = controller; // Store global reference for signal handlers
-        [self setDelegate:controller];
-        NSLog(@"MenuApplication: Created and set new MenuController delegate");
-    } else {
-        NSLog(@"MenuApplication: Using existing MenuController delegate: %@", controller);
-        g_controller = controller; // Store global reference for signal handlers
-    }
+    // Create MenuController
+    NSLog(@"MenuApplication: Creating MenuController...");
+    MenuController *controller = [[MenuController alloc] init];
+    g_controller = controller; // Store global reference for signal handlers
+    NSLog(@"MenuApplication: Created MenuController");
     
     // Set up signal handlers for graceful shutdown
     NSLog(@"MenuApplication: Setting up signal handlers...");
@@ -117,25 +110,21 @@ static void signalHandler(int sig)
     
     NSLog(@"MenuApplication: Starting DBus global menu bar");
     
-    // For menu bar apps, we need to trigger the initial setup manually
-    // since applicationDidFinishLaunching might not be called without windows
+    // Create protocol manager first
     NSLog(@"MenuApplication: Creating protocol manager...");
     [controller createProtocolManager];
     
+    // Setup menu bar (this calls initializeProtocols and setupWindowMonitoring internally)
     NSLog(@"MenuApplication: Setting up menu bar...");
     [controller setupMenuBar];
-    
-    // Initialize protocols after menu bar is created
-    NSLog(@"MenuApplication: Initializing menu protocols...");
-    [controller initializeProtocols];
-    
-    // Set up timers and notifications since applicationDidFinishLaunching won't be called
-    NSLog(@"MenuApplication: Setting up window monitoring...");
-    [controller setupWindowMonitoring];
     
     // Announce global menu support via X11 properties
     NSLog(@"MenuApplication: Announcing global menu support...");
     [controller announceGlobalMenuSupport];
+    
+    // Set ourselves as delegate to handle termination decisions
+    [self setDelegate:self];
+    NSLog(@"MenuApplication: Set self as application delegate");
     
     // Ensure the application is activated
     [self activateIgnoringOtherApps:YES];
@@ -166,6 +155,12 @@ static void signalHandler(int sig)
     [DBusMenuParser cleanup];
     
     [super terminate:sender];
+}
+
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
+{
+    NSLog(@"MenuApplication: applicationShouldTerminateAfterLastWindowClosed called - returning NO");
+    return NO; // Menu app runs without visible windows
 }
 
 @end

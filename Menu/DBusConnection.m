@@ -273,8 +273,9 @@ static GNUDBusConnection *sharedSessionBus = nil;
     dbus_message_unref(message);
     
     if (dbus_error_is_set(&error)) {
-        NSLog(@"DBusConnection: Method call failed for %@.%@ on %@%@: %s", 
-              interfaceName, method, serviceName, objectPath, error.message);
+        NSString *errorMsg = [NSString stringWithUTF8String:error.message ? error.message : "Unknown error"];
+        NSLog(@"DBusConnection: Method call failed for %@.%@ on %@%@: %@", 
+              interfaceName, method, serviceName, objectPath, errorMsg);
         dbus_error_free(&error);
         return nil;
     }
