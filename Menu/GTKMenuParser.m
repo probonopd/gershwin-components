@@ -151,10 +151,11 @@
         
         // Handle regular menu items
         if (label) {
-            // Remove mnemonic underscore from label  
+            // Remove mnemonic underscores from label (all occurrences, not just leading)
             NSString *displayLabel = label;
-            if ([displayLabel hasPrefix:@"_"]) {
-                displayLabel = [displayLabel substringFromIndex:1];
+            if ([displayLabel containsString:@"_"]) {
+                displayLabel = [displayLabel stringByReplacingOccurrencesOfString:@"_" withString:@""];
+                NSLog(@"GTKMenuParser: Transformed label '%@' -> '%@' (removed mnemonics)", label, displayLabel);
             }
             
             NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:displayLabel action:nil keyEquivalent:@""];
@@ -398,6 +399,13 @@
         label = @"GTK Menu Item";
     }
     
+    // Remove mnemonic underscores from label (all occurrences)
+    NSString *displayLabel = label;
+    if ([label containsString:@"_"]) {
+        displayLabel = [label stringByReplacingOccurrencesOfString:@"_" withString:@""];
+        NSLog(@"GTKMenuParser: Transformed GModel label '%@' -> '%@' (removed mnemonics)", label, displayLabel);
+    }
+    
     // Extract action
     NSString *action = [properties objectForKey:@"action"];
     
@@ -408,10 +416,10 @@
     NSString *keyEquiv = [properties objectForKey:@"accel"];
     
     NSLog(@"GTKMenuParser: Creating GTK menu item - label='%@', action='%@', enabled=%@, visible=%@", 
-          label, action ?: @"none", enabled ?: @"default", visible ?: @"default");
+          displayLabel, action ?: @"none", enabled ?: @"default", visible ?: @"default");
     
     // Create the menu item
-    NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:label 
+    NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:displayLabel 
                                                       action:nil 
                                                keyEquivalent:@""];
     

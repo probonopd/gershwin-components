@@ -223,10 +223,11 @@ static NSMutableSet *loadedGroups = nil;
         NSString *action = [menuItem objectForKey:@"action"];
         
         if (label) {
-            // Remove mnemonic underscore
+            // Remove mnemonic underscores from label (all occurrences, not just leading)
             NSString *displayLabel = label;
-            if ([displayLabel hasPrefix:@"_"]) {
-                displayLabel = [displayLabel substringFromIndex:1];
+            if ([displayLabel containsString:@"_"]) {
+                displayLabel = [displayLabel stringByReplacingOccurrencesOfString:@"_" withString:@""];
+                NSLog(@"GTKSubmenuManager: Transformed label '%@' -> '%@' (removed mnemonics)", label, displayLabel);
             }
             
             NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:displayLabel action:nil keyEquivalent:@""];
