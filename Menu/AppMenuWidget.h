@@ -1,5 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
+#import <X11/Xlib.h>
+#import <X11/keysym.h>
 
 @class MenuProtocolManager;
 
@@ -20,6 +22,10 @@
 - (void)displayMenuForWindow:(unsigned long)windowId;
 - (void)setupMenuViewWithMenu:(NSMenu *)menu;
 - (void)checkAndDisplayMenuForNewlyRegisteredWindow:(unsigned long)windowId;
+- (BOOL)isPlaceholderMenu:(NSMenu *)menu;
+- (NSMenu *)createFileMenuWithClose:(unsigned long)windowId;
+- (void)closeWindow:(NSMenuItem *)sender;
+- (void)sendAltF4ToWindow:(unsigned long)windowId;
 
 // Debug methods
 - (void)debugLogCurrentMenuState;

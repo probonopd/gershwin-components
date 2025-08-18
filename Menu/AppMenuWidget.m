@@ -125,6 +125,22 @@
         return;
     }
     
+    // Debug: Log menu details for placeholder detection
+    NSLog(@"AppMenuWidget: Menu has %lu items", (unsigned long)[[menu itemArray] count]);
+    if ([[menu itemArray] count] > 0) {
+        NSMenuItem *firstItem = [[menu itemArray] objectAtIndex:0];
+        NSLog(@"AppMenuWidget: First menu item: '%@' (enabled: %@)", [firstItem title], [firstItem isEnabled] ? @"YES" : @"NO");
+    }
+    
+    BOOL isPlaceholder = [self isPlaceholderMenu:menu];
+    NSLog(@"AppMenuWidget: isPlaceholderMenu: %@", isPlaceholder ? @"YES" : @"NO");
+    
+    // If this is a placeholder menu, replace it with a functional File menu
+    if (isPlaceholder) {
+        NSLog(@"AppMenuWidget: Replacing placeholder menu with File menu containing Close for window %lu", windowId);
+        menu = [self createFileMenuWithClose:windowId];
+    }
+    
     _currentMenu = [menu retain];
     
     NSLog(@"AppMenuWidget: ===== MENU LOADED, SETTING UP VIEW =====");
@@ -241,13 +257,7 @@
     }
 }
 
-- (void)dealloc
-{
-    [_menuView release];
-    [_currentApplicationName release];
-    [_currentMenu release];
-    [super dealloc];
-}
+// Debug method implementation
 
 // MARK: - NSMenuDelegate Methods for Main Menu
 
@@ -446,6 +456,117 @@
     NSLog(@"AppMenuWidget: Menu view: %@", _menuView);
     NSLog(@"AppMenuWidget: Protocol manager: %@", _protocolManager);
     NSLog(@"AppMenuWidget: ===== END DEBUG MENU STATE =====");
+}
+
+- (BOOL)isPlaceholderMenu:(NSMenu *)menu
+{
+    if (!menu || [[menu itemArray] count] == 0) {
+        return YES;
+    }
+    
+    // Check if this is the "GTK Application" placeholder menu
+    NSArray *items = [menu itemArray];
+    if ([items count] == 1) {
+        NSMenuItem *firstItem = [items objectAtIndex:0];
+        if ([[firstItem title] isEqualToString:@"GTK Application"]) {
+            return YES;
+        }
+    }
+    
+    return NO;
+}
+
+- (NSMenu *)createFileMenuWithClose:(unsigned long)windowId
+{
+    NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
+    NSMenuItem *closeItem = [[NSMenuItem alloc] initWithTitle:@"Close" action:@selector(closeWindow:) keyEquivalent:@"w"];
+    [closeItem setKeyEquivalentModifierMask:NSCommandKeyMask];
+    [closeItem setTarget:self];
+    [closeItem setRepresentedObject:[NSNumber numberWithUnsignedLong:windowId]];
+    [fileMenu addItem:closeItem];
+    [closeItem release];
+    
+    NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@"Main Menu"];
+    NSMenuItem *fileMenuItem = [[NSMenuItem alloc] initWithTitle:@"File" action:nil keyEquivalent:@""];
+    [fileMenuItem setSubmenu:fileMenu];
+    [mainMenu addItem:fileMenuItem];
+    [fileMenuItem release];
+    [fileMenu release];
+    
+    return [mainMenu autorelease];
+}
+
+- (void)closeWindow:(NSMenuItem *)sender
+{
+    NSNumber *windowIdNumber = [sender representedObject];
+    if (!windowIdNumber) {
+        NSLog(@"AppMenuWidget: closeWindow called but no window ID in representedObject");
+        return;
+    }
+    
+    unsigned long windowId = [windowIdNumber unsignedLongValue];
+    NSLog(@"AppMenuWidget: Closing window %lu", windowId);
+    
+    // Send Alt+F4 to close the window
+    [self sendAltF4ToWindow:windowId];
+}
+
+- (void)sendAltF4ToWindow:(unsigned long)windowId
+{
+    Display *display = XOpenDisplay(NULL);
+    if (!display) {
+        NSLog(@"AppMenuWidget: Failed to open X11 display for window close");
+        return;
+    }
+    
+    Window window = (Window)windowId;
+    
+    // First try to send WM_DELETE_WINDOW message (the polite way)
+    Atom wmDeleteWindow = XInternAtom(display, "WM_DELETE_WINDOW", False);
+    Atom wmProtocols = XInternAtom(display, "WM_PROTOCOLS", False);
+    
+    XEvent event;
+    memset(&event, 0, sizeof(event));
+    event.type = ClientMessage;
+    event.xclient.window = window;
+    event.xclient.message_type = wmProtocols;
+    event.xclient.format = 32;
+    event.xclient.data.l[0] = wmDeleteWindow;
+    event.xclient.data.l[1] = CurrentTime;
+    
+    if (XSendEvent(display, window, False, NoEventMask, &event)) {
+        NSLog(@"AppMenuWidget: Sent WM_DELETE_WINDOW to window %lu", windowId);
+    } else {
+        NSLog(@"AppMenuWidget: Failed to send WM_DELETE_WINDOW to window %lu", windowId);
+        
+        // Fallback: send Alt+F4 key event
+        XEvent keyEvent;
+        memset(&keyEvent, 0, sizeof(keyEvent));
+        
+        // Press Alt
+        keyEvent.xkey.type = KeyPress;
+        keyEvent.xkey.window = window;
+        keyEvent.xkey.state = Mod1Mask; // Alt modifier
+        keyEvent.xkey.keycode = XKeysymToKeycode(display, XK_F4);
+        XSendEvent(display, window, True, KeyPressMask, &keyEvent);
+        
+        // Release Alt+F4
+        keyEvent.xkey.type = KeyRelease;
+        XSendEvent(display, window, True, KeyReleaseMask, &keyEvent);
+        
+        NSLog(@"AppMenuWidget: Sent Alt+F4 key event to window %lu", windowId);
+    }
+    
+    XFlush(display);
+    XCloseDisplay(display);
+}
+
+- (void)dealloc
+{
+    [_currentApplicationName release];
+    [_currentMenu release];
+    [_menuView release];
+    [super dealloc];
 }
 
 @end

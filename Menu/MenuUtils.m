@@ -12,15 +12,46 @@
         return nil;
     }
     
+    // Try to get the application name from WM_CLASS first
+    XClassHint classHint;
+    if (XGetClassHint(display, (Window)windowId, &classHint) == Success) {
+        NSString *className = nil;
+        if (classHint.res_class) {
+            className = [NSString stringWithUTF8String:classHint.res_class];
+            XFree(classHint.res_class);
+        }
+        if (classHint.res_name) {
+            XFree(classHint.res_name);
+        }
+        XCloseDisplay(display);
+        if (className && [className length] > 0) {
+            return className;
+        }
+    }
+    
+    // Fallback to window title, try to extract application name
     XTextProperty windowName;
     if (XGetWMName(display, (Window)windowId, &windowName) == Success) {
-        NSString *name = nil;
+        NSString *title = nil;
         if (windowName.value) {
-            name = [NSString stringWithUTF8String:(char *)windowName.value];
+            title = [NSString stringWithUTF8String:(char *)windowName.value];
             XFree(windowName.value);
         }
         XCloseDisplay(display);
-        return name;
+        
+        // Extract application name from window title
+        if (title && [title length] > 0) {
+            // Look for patterns like "Document - AppName" or "Title - AppName"
+            NSRange dashRange = [title rangeOfString:@" - " options:NSBackwardsSearch];
+            if (dashRange.location != NSNotFound) {
+                NSString *appName = [title substringFromIndex:dashRange.location + 3];
+                if ([appName length] > 0) {
+                    return appName;
+                }
+            }
+            // If no dash pattern, return the whole title as fallback
+            return title;
+        }
     }
     
     XCloseDisplay(display);
