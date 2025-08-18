@@ -76,7 +76,7 @@ static NSMutableDictionary *menuItemToConnectionMap = nil;
     NSArray *arguments = [NSArray arrayWithObjects:
                          [NSNumber numberWithInt:menuItemId],  // menu item ID (int32)
                          @"clicked",                           // event type (string)
-                         @"",                                  // event data (variant - using string for now)
+                         [NSNull null],                        // event data (variant - empty/null)
                          [NSNumber numberWithUnsignedInt:0],   // timestamp (uint32 - 0 for current time)
                          nil];
     

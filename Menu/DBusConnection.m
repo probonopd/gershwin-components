@@ -165,6 +165,13 @@ static GNUDBusConnection *sharedSessionBus = nil;
             if ([argument isKindOfClass:[NSString class]]) {
                 const char *str = [argument UTF8String];
                 dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &str);
+            } else if ([argument isKindOfClass:[NSNull class]]) {
+                // Handle NSNull as an empty variant for DBus Event calls
+                DBusMessageIter variantIter;
+                dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT, "s", &variantIter);
+                const char *emptyStr = "";
+                dbus_message_iter_append_basic(&variantIter, DBUS_TYPE_STRING, &emptyStr);
+                dbus_message_iter_close_container(&iter, &variantIter);
             } else if ([argument isKindOfClass:[NSNumber class]]) {
                 if (strcmp([argument objCType], @encode(BOOL)) == 0) {
                     dbus_bool_t val = [argument boolValue];
@@ -282,6 +289,9 @@ static GNUDBusConnection *sharedSessionBus = nil;
     int messageType = dbus_message_get_type(reply);
     
     if (messageType == DBUS_MESSAGE_TYPE_METHOD_RETURN) {
+        // For successful method returns, we default to success indicator
+        result = @YES;  // Default success indicator for void methods
+        
         DBusMessageIter iter;
         if (dbus_message_iter_init(reply, &iter)) {
             // Check if there are multiple return values
@@ -299,12 +309,13 @@ static GNUDBusConnection *sharedSessionBus = nil;
                 }
             } while (dbus_message_iter_next(&iter));
             
-            // If there's only one result, return it directly; otherwise return the array
+            // If there are actual return values, use them instead of the default success indicator
             if ([multipleResults count] == 1) {
                 result = [multipleResults objectAtIndex:0];
             } else if ([multipleResults count] > 1) {
                 result = multipleResults;
             }
+            // If count is 0, keep the default @YES success indicator
         }
     } else if (messageType == DBUS_MESSAGE_TYPE_ERROR) {
         // Handle error replies
