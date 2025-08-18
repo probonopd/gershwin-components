@@ -43,6 +43,16 @@
                      dbusConnection:(GNUDBusConnection *)dbusConnection;
 
 /**
+ * Register a global shortcut for a menu item with direct target/action (no DBus)
+ * @param menuItem The menu item to associate with the shortcut
+ * @param target The target object for the action
+ * @param action The selector to call on the target
+ */
+- (void)registerDirectShortcutForMenuItem:(NSMenuItem *)menuItem
+                                   target:(id)target
+                                   action:(SEL)action;
+
+/**
  * Unregister all global shortcuts
  */
 - (void)unregisterAllShortcuts;

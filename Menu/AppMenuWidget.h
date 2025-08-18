@@ -21,10 +21,12 @@
 - (void)clearMenu;
 - (void)displayMenuForWindow:(unsigned long)windowId;
 - (void)setupMenuViewWithMenu:(NSMenu *)menu;
+- (void)loadMenu:(NSMenu *)menu forWindow:(unsigned long)windowId;
 - (void)checkAndDisplayMenuForNewlyRegisteredWindow:(unsigned long)windowId;
 - (BOOL)isPlaceholderMenu:(NSMenu *)menu;
 - (NSMenu *)createFileMenuWithClose:(unsigned long)windowId;
 - (void)closeWindow:(NSMenuItem *)sender;
+- (void)closeActiveWindow:(NSMenuItem *)sender;
 - (void)sendAltF4ToWindow:(unsigned long)windowId;
 
 // Debug methods

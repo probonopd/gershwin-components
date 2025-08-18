@@ -1,6 +1,7 @@
 #import "AppMenuWidget.h"
 #import "MenuProtocolManager.h"
 #import "MenuUtils.h"
+#import "X11ShortcutManager.h"
 #import <X11/Xlib.h>
 #import <X11/Xutil.h>
 #import <X11/Xatom.h>
@@ -110,7 +111,11 @@
         
         // Check again after immediate scan
         if (![_protocolManager hasMenuForWindow:windowId]) {
-            NSLog(@"AppMenuWidget: Still no registered menu for window %lu after immediate scan", windowId);
+            NSLog(@"AppMenuWidget: Still no registered menu for window %lu after immediate scan, providing fallback menu", windowId);
+            
+            // Create fallback File->Close menu for windows without exported menus
+            NSMenu *fallbackMenu = [self createFileMenuWithClose:windowId];
+            [self loadMenu:fallbackMenu forWindow:windowId];
             return;
         }
     }
@@ -121,7 +126,11 @@
     // Get the menu from protocol manager for registered windows
     NSMenu *menu = [_protocolManager getMenuForWindow:windowId];
     if (!menu) {
-        NSLog(@"AppMenuWidget: Failed to get menu for window %lu", windowId);
+        NSLog(@"AppMenuWidget: Failed to get menu for window %lu, providing fallback menu", windowId);
+        
+        // Create fallback File->Close menu if protocol manager fails to provide menu
+        NSMenu *fallbackMenu = [self createFileMenuWithClose:windowId];
+        [self loadMenu:fallbackMenu forWindow:windowId];
         return;
     }
     
@@ -141,23 +150,7 @@
         menu = [self createFileMenuWithClose:windowId];
     }
     
-    _currentMenu = [menu retain];
-    
-    NSLog(@"AppMenuWidget: ===== MENU LOADED, SETTING UP VIEW =====");
-    NSLog(@"AppMenuWidget: Menu has %lu top-level items", (unsigned long)[[menu itemArray] count]);
-    
-    // Log each top-level menu item and whether it has submenus
-    NSArray *items = [menu itemArray];
-    for (NSUInteger i = 0; i < [items count]; i++) {
-        NSMenuItem *item = [items objectAtIndex:i];
-        NSLog(@"AppMenuWidget: Top-level item %lu: '%@' (has submenu: %@, submenu items: %lu)", 
-              i, [item title], [item hasSubmenu] ? @"YES" : @"NO",
-              [item hasSubmenu] ? (unsigned long)[[[item submenu] itemArray] count] : 0);
-    }
-    
-    [self setupMenuViewWithMenu:menu];
-    
-    NSLog(@"AppMenuWidget: Successfully loaded menu with %lu items", (unsigned long)[[menu itemArray] count]);
+    [self loadMenu:menu forWindow:windowId];
 }
 
 - (void)setupMenuViewWithMenu:(NSMenu *)menu
@@ -479,6 +472,8 @@
 - (NSMenu *)createFileMenuWithClose:(unsigned long)windowId
 {
     NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
+    
+    // Create Close menu item with Cmd+W
     NSMenuItem *closeItem = [[NSMenuItem alloc] initWithTitle:@"Close" action:@selector(closeWindow:) keyEquivalent:@"w"];
     [closeItem setKeyEquivalentModifierMask:NSCommandKeyMask];
     [closeItem setTarget:self];
@@ -490,6 +485,7 @@
     NSMenuItem *fileMenuItem = [[NSMenuItem alloc] initWithTitle:@"File" action:nil keyEquivalent:@""];
     [fileMenuItem setSubmenu:fileMenu];
     [mainMenu addItem:fileMenuItem];
+    [fileMenuItem release];
     [fileMenuItem release];
     [fileMenu release];
     
@@ -520,45 +516,131 @@
     }
     
     Window window = (Window)windowId;
+    Window root = DefaultRootWindow(display);
     
-    // First try to send WM_DELETE_WINDOW message (the polite way)
-    Atom wmDeleteWindow = XInternAtom(display, "WM_DELETE_WINDOW", False);
-    Atom wmProtocols = XInternAtom(display, "WM_PROTOCOLS", False);
+    // Send Alt+F4 key event to the window
+    // We use the root window to ensure the window manager can intercept it
+    XEvent keyEvent;
+    memset(&keyEvent, 0, sizeof(keyEvent));
     
-    XEvent event;
-    memset(&event, 0, sizeof(event));
-    event.type = ClientMessage;
-    event.xclient.window = window;
-    event.xclient.message_type = wmProtocols;
-    event.xclient.format = 32;
-    event.xclient.data.l[0] = wmDeleteWindow;
-    event.xclient.data.l[1] = CurrentTime;
+    // Make sure the target window has focus first
+    XSetInputFocus(display, window, RevertToParent, CurrentTime);
+    XFlush(display);
     
-    if (XSendEvent(display, window, False, NoEventMask, &event)) {
-        NSLog(@"AppMenuWidget: Sent WM_DELETE_WINDOW to window %lu", windowId);
-    } else {
-        NSLog(@"AppMenuWidget: Failed to send WM_DELETE_WINDOW to window %lu", windowId);
-        
-        // Fallback: send Alt+F4 key event
-        XEvent keyEvent;
-        memset(&keyEvent, 0, sizeof(keyEvent));
-        
-        // Press Alt
-        keyEvent.xkey.type = KeyPress;
-        keyEvent.xkey.window = window;
-        keyEvent.xkey.state = Mod1Mask; // Alt modifier
-        keyEvent.xkey.keycode = XKeysymToKeycode(display, XK_F4);
-        XSendEvent(display, window, True, KeyPressMask, &keyEvent);
-        
-        // Release Alt+F4
-        keyEvent.xkey.type = KeyRelease;
-        XSendEvent(display, window, True, KeyReleaseMask, &keyEvent);
-        
-        NSLog(@"AppMenuWidget: Sent Alt+F4 key event to window %lu", windowId);
-    }
+    // Press Alt+F4
+    keyEvent.xkey.type = KeyPress;
+    keyEvent.xkey.display = display;
+    keyEvent.xkey.window = window;
+    keyEvent.xkey.root = root;
+    keyEvent.xkey.subwindow = None;
+    keyEvent.xkey.time = CurrentTime;
+    keyEvent.xkey.x = 1;
+    keyEvent.xkey.y = 1;
+    keyEvent.xkey.x_root = 1;
+    keyEvent.xkey.y_root = 1;
+    keyEvent.xkey.state = Mod1Mask; // Alt modifier
+    keyEvent.xkey.keycode = XKeysymToKeycode(display, XK_F4);
+    keyEvent.xkey.same_screen = True;
+    
+    // Send to both the window and root (for window manager)
+    XSendEvent(display, window, True, KeyPressMask, &keyEvent);
+    XSendEvent(display, root, False, KeyPressMask, &keyEvent);
+    
+    // Release Alt+F4
+    keyEvent.xkey.type = KeyRelease;
+    XSendEvent(display, window, True, KeyReleaseMask, &keyEvent);
+    XSendEvent(display, root, False, KeyReleaseMask, &keyEvent);
+    
+    NSLog(@"AppMenuWidget: Sent Alt+F4 key event to window %lu", windowId);
     
     XFlush(display);
     XCloseDisplay(display);
+}
+
+- (void)loadMenu:(NSMenu *)menu forWindow:(unsigned long)windowId
+{
+    if (!menu) {
+        NSLog(@"AppMenuWidget: Cannot load nil menu for window %lu", windowId);
+        return;
+    }
+    
+    NSLog(@"AppMenuWidget: Loading menu for window %lu", windowId);
+    
+    _currentMenu = [menu retain];
+    
+    NSLog(@"AppMenuWidget: ===== MENU LOADED, SETTING UP VIEW =====");
+    NSLog(@"AppMenuWidget: Menu has %lu top-level items", (unsigned long)[[menu itemArray] count]);
+    
+    // Log each top-level menu item and whether it has submenus
+    NSArray *items = [menu itemArray];
+    for (NSUInteger i = 0; i < [items count]; i++) {
+        NSMenuItem *item = [items objectAtIndex:i];
+        NSLog(@"AppMenuWidget: Top-level item %lu: '%@' (has submenu: %@, submenu items: %lu)", 
+              i, [item title], [item hasSubmenu] ? @"YES" : @"NO",
+              [item hasSubmenu] ? (unsigned long)[[[item submenu] itemArray] count] : 0);
+    }
+    
+    [self setupMenuViewWithMenu:menu];
+    
+    NSLog(@"AppMenuWidget: Successfully loaded fallback menu with %lu items", (unsigned long)[[menu itemArray] count]);
+    
+    // For fallback menus, also register Alt+W shortcut through X11ShortcutManager
+    [self registerAltWShortcutForWindow:windowId];
+}
+
+- (void)registerAltWShortcutForWindow:(unsigned long)windowId
+{
+    // Create a temporary menu item for Alt+W registration
+    NSMenuItem *altWMenuItem = [[NSMenuItem alloc] initWithTitle:@"Close" action:@selector(closeActiveWindow:) keyEquivalent:@"w"];
+    [altWMenuItem setKeyEquivalentModifierMask:NSAlternateKeyMask];
+    [altWMenuItem setTarget:self];
+    // Don't set representedObject - we'll determine the active window dynamically
+    
+    // Register this shortcut with the X11ShortcutManager
+    [[X11ShortcutManager sharedManager] registerDirectShortcutForMenuItem:altWMenuItem
+                                                                    target:self
+                                                                    action:@selector(closeActiveWindow:)];
+    
+    [altWMenuItem release];
+}
+
+- (void)closeActiveWindow:(NSMenuItem *)sender
+{
+    // Get the currently active window using X11
+    Display *display = XOpenDisplay(NULL);
+    if (!display) {
+        NSLog(@"AppMenuWidget: Cannot open X11 display for active window detection");
+        return;
+    }
+    
+    Window root = DefaultRootWindow(display);
+    Window activeWindow = 0;
+    Atom actualType;
+    int actualFormat;
+    unsigned long nitems, bytesAfter;
+    unsigned char *prop = NULL;
+    
+    // Get _NET_ACTIVE_WINDOW property
+    Atom activeWindowAtom = XInternAtom(display, "_NET_ACTIVE_WINDOW", False);
+    if (XGetWindowProperty(display, root, activeWindowAtom,
+                          0, 1, False, AnyPropertyType,
+                          &actualType, &actualFormat, &nitems, &bytesAfter,
+                          &prop) == Success && prop) {
+        activeWindow = *(Window*)prop;
+        XFree(prop);
+    }
+    
+    XCloseDisplay(display);
+    
+    if (activeWindow == 0) {
+        NSLog(@"AppMenuWidget: Could not determine active window for Alt+W close");
+        return;
+    }
+    
+    NSLog(@"AppMenuWidget: Alt+W triggered - closing currently active window %lu", activeWindow);
+    
+    // Send Alt+F4 to close the currently active window
+    [self sendAltF4ToWindow:activeWindow];
 }
 
 - (void)dealloc

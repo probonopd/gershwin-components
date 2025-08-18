@@ -6,12 +6,8 @@
 {
     self = [super initWithFrame:frameRect];
     if (self) {
-        _backgroundColor = [[NSColor colorWithCalibratedWhite:0.95 alpha:0.95] retain];
-        
-        NSColor *topColor = [NSColor colorWithCalibratedWhite:0.98 alpha:0.95];
-        NSColor *bottomColor = [NSColor colorWithCalibratedWhite:0.92 alpha:0.95];
-        _backgroundGradient = [[NSGradient alloc] initWithStartingColor:topColor 
-                                                            endingColor:bottomColor];
+        // Use the theme's menubar background color instead of hardcoded values
+        _backgroundColor = [[[GSTheme theme] menuItemBackgroundColor] retain];
     }
     return self;
 }
@@ -21,16 +17,16 @@
     NSLog(@"MenuBarView: drawRect called with rect: %.0f,%.0f %.0fx%.0f", 
           dirtyRect.origin.x, dirtyRect.origin.y, dirtyRect.size.width, dirtyRect.size.height);
     
-    // Fill with solid color first for debugging
-    [[NSColor colorWithCalibratedRed:0.9 green:0.9 blue:0.9 alpha:1.0] set];
-    NSRectFill([self bounds]);
-    
-    // Draw background gradient
-    if (_backgroundGradient) {
-        [_backgroundGradient drawInRect:[self bounds] angle:90.0];
-        NSLog(@"MenuBarView: Drew background gradient");
+    // Fill with theme background color (no gradient)
+    if (_backgroundColor) {
+        [_backgroundColor set];
+        NSRectFill([self bounds]);
+        NSLog(@"MenuBarView: Drew theme background color: %@", _backgroundColor);
     } else {
-        NSLog(@"MenuBarView: Warning - no background gradient");
+        // Fallback to light gray if theme color is unavailable
+        [[NSColor colorWithCalibratedWhite:0.95 alpha:1.0] set];
+        NSRectFill([self bounds]);
+        NSLog(@"MenuBarView: Warning - used fallback background color");
     }
     
     // Draw bottom border
@@ -48,7 +44,6 @@
 - (void)dealloc
 {
     [_backgroundColor release];
-    [_backgroundGradient release];
     [super dealloc];
 }
 

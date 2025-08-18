@@ -201,11 +201,18 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
               [menuItem title], registeredShortcuts);
     }
     
+    // Debug: Check the state after registration
+    NSLog(@"X11ShortcutManager: After registration - _grabbedKeys count: %lu, _eventMonitorTimer: %@", 
+          (unsigned long)[_grabbedKeys count], _eventMonitorTimer ? @"EXISTS" : @"nil");
+    
     // Start X11 event monitoring if this is the first shortcut
     if ([_grabbedKeys count] > 0 && !_eventMonitorTimer) {
         NSLog(@"X11ShortcutManager: Starting event monitoring - have %lu grabbed keys", 
               (unsigned long)[_grabbedKeys count]);
         [self startX11EventMonitoring];
+    } else {
+        NSLog(@"X11ShortcutManager: Not starting event monitoring - count: %lu, timer: %@", 
+              (unsigned long)[_grabbedKeys count], _eventMonitorTimer ? @"EXISTS" : @"nil");
     }
 }
 
@@ -694,6 +701,18 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     NSLog(@"X11ShortcutManager: Key grab result for keycode=%d modifier=0x%x: %s", 
           keycode, modifier, (success && !x11_grab_error_occurred) ? "SUCCESS" : "FAILED");
     
+    // Additional debug: Check if the key grab worked by testing it
+    if (success && !x11_grab_error_occurred) {
+        NSLog(@"X11ShortcutManager: Verifying key grab by checking connection and display");
+        int fd = ConnectionNumber(_display);
+        NSLog(@"X11ShortcutManager: X11 connection file descriptor: %d", fd);
+        
+        // Try to get the current keyboard mapping as a health check
+        int min_keycode, max_keycode;
+        XDisplayKeycodes(_display, &min_keycode, &max_keycode);
+        NSLog(@"X11ShortcutManager: X11 keyboard range: %d-%d", min_keycode, max_keycode);
+    }
+    
     return success && !x11_grab_error_occurred;
 }
 
@@ -707,12 +726,17 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     // Select KeyPress events on the root window - THIS IS CRITICAL!
     // Without this, XGrabKey won't deliver events to us
     Window root = DefaultRootWindow(_display);
-    XSelectInput(_display, root, KeyPressMask);
+    
+    // Use KeyPressMask and also StructureNotifyMask for better event handling
+    XSelectInput(_display, root, KeyPressMask | StructureNotifyMask);
     XSync(_display, False);
     
-    NSLog(@"X11ShortcutManager: Selected KeyPress events on root window");
+    // Make sure the X11 connection is flushed
+    XFlush(_display);
     
-    // Start a timer to periodically check for X11 events
+    NSLog(@"X11ShortcutManager: Selected KeyPress events on root window (window ID: %lu)", root);
+    
+    // Start a more frequent timer to periodically check for X11 events
     // Ensure this runs on the main thread
     [self performSelectorOnMainThread:@selector(startEventTimer) 
                            withObject:nil 
@@ -723,12 +747,12 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
 
 - (void)startEventTimer
 {
-    _eventMonitorTimer = [NSTimer scheduledTimerWithTimeInterval:0.1
+    _eventMonitorTimer = [NSTimer scheduledTimerWithTimeInterval:0.05  // More frequent polling
                                                           target:self
                                                         selector:@selector(handleX11Events)
                                                         userInfo:nil
                                                          repeats:YES];
-    NSLog(@"X11ShortcutManager: Started X11 event monitoring timer on main thread");
+    NSLog(@"X11ShortcutManager: Started X11 event monitoring timer on main thread (50ms intervals)");
 }
 
 - (void)handleX11Events
@@ -737,17 +761,12 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         return;
     }
     
-    // Debug: Log that the timer is running
-    static int debugCounter = 0;
-    if (++debugCounter % 10 == 0) { // Log every 1 second (10 * 0.1s)
-        NSLog(@"X11ShortcutManager: Event timer running (%d iterations, %lu grabbed keys)", 
-              debugCounter, (unsigned long)[_grabbedKeys count]);
-    }
-    
     // Process all pending X11 events
+    int eventCount = 0;
     while (XPending(_display)) {
         XEvent event;
         XNextEvent(_display, &event);
+        eventCount++;
         
         if (event.type == KeyPress) {
             XKeyEvent *keyEvent = &event.xkey;
@@ -756,8 +775,8 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
             unsigned int filteredState = keyEvent->state;
             filteredState &= ~(_numlock_mask | _capslock_mask | _scrolllock_mask);
             
-            NSLog(@"X11ShortcutManager: Key event - keycode=%d, state=%u (filtered from %u)", 
-                  keyEvent->keycode, filteredState, keyEvent->state);
+            NSLog(@"X11ShortcutManager: KeyPress event - keycode=%d, state=%u (filtered from %u), window=%lu", 
+                  keyEvent->keycode, filteredState, keyEvent->state, keyEvent->window);
             
             // Create key for lookup using the filtered state (no swapping needed)
             NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", 
@@ -773,11 +792,28 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                 NSLog(@"X11ShortcutManager: No matching shortcut found for key: %@", keycodeModifierKey);
                 
                 // Debug: Log all registered shortcuts
-                NSLog(@"X11ShortcutManager: Registered shortcuts:");
+                NSLog(@"X11ShortcutManager: Currently have %lu registered shortcuts:", (unsigned long)[_grabbedKeys count]);
                 for (NSString *key in [_grabbedKeys allKeys]) {
-                    NSLog(@"X11ShortcutManager:   %@", key);
+                    NSLog(@"X11ShortcutManager:   %@ -> %@", key, [_grabbedKeys objectForKey:key]);
                 }
             }
+        } else {
+            // Log other event types occasionally for debugging
+            static int otherEventCounter = 0;
+            if (++otherEventCounter % 100 == 0) {
+                NSLog(@"X11ShortcutManager: Received non-KeyPress event type: %d (count: %d)", event.type, otherEventCounter);
+            }
+        }
+    }
+    
+    // Only log timer activity when there are events or occasionally for debug
+    static int debugCounter = 0;
+    if (eventCount > 0 || ++debugCounter % 200 == 0) { // Log every 10 seconds (200 * 0.05s) or when events occur
+        if (eventCount > 0) {
+            NSLog(@"X11ShortcutManager: Processed %d events this cycle", eventCount);
+        } else {
+            NSLog(@"X11ShortcutManager: Event timer running (%d iterations, %lu grabbed keys, no events)", 
+                  debugCounter, (unsigned long)[_grabbedKeys count]);
         }
     }
 }
@@ -787,9 +823,36 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     // Find the menu item using the stored mappings
     NSString *serviceName = [_menuItemToServiceMap objectForKey:menuItemKey];
     NSString *objectPath = [_menuItemToObjectPathMap objectForKey:menuItemKey];
-    GNUDBusConnection *dbusConnection = [_menuItemToConnectionMap objectForKey:menuItemKey];
+    id connectionOrTarget = [_menuItemToConnectionMap objectForKey:menuItemKey];
     NSNumber *tagNumber = [_menuItemKeyToTag objectForKey:menuItemKey];
     NSString *actionName = [_menuItemToActionNameMap objectForKey:menuItemKey];
+    
+    // Check if this is a direct action (target/action pattern)
+    if (connectionOrTarget && ![connectionOrTarget isKindOfClass:[GNUDBusConnection class]]) {
+        // This is a direct target/action call
+        id target = connectionOrTarget;
+        SEL action = NSSelectorFromString(objectPath); // objectPath stores the selector string
+        
+        NSLog(@"X11ShortcutManager: Triggering direct action %@ on target %@", objectPath, [target class]);
+        
+        if ([target respondsToSelector:action]) {
+            // We need to create a temporary menu item to pass the window ID
+            NSMenuItem *tempMenuItem = [[NSMenuItem alloc] initWithTitle:@"Close" action:action keyEquivalent:@""];
+            // The window ID should be stored in the service name field for direct actions
+            NSNumber *windowId = [NSNumber numberWithUnsignedLong:(unsigned long)[serviceName longLongValue]];
+            [tempMenuItem setRepresentedObject:windowId];
+            
+            [target performSelector:action withObject:tempMenuItem];
+            [tempMenuItem release];
+            NSLog(@"X11ShortcutManager: Direct action succeeded");
+        } else {
+            NSLog(@"X11ShortcutManager: ERROR: Target %@ does not respond to selector %@", [target class], objectPath);
+        }
+        return;
+    }
+    
+    // Continue with DBus handling for regular menu items
+    GNUDBusConnection *dbusConnection = (GNUDBusConnection *)connectionOrTarget;
     
     if (!serviceName || !objectPath || !dbusConnection || !tagNumber) {
         NSLog(@"X11ShortcutManager: ERROR: Missing DBus info for shortcut trigger (service=%@, path=%@, tag=%@)", 
@@ -952,6 +1015,80 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     
     NSLog(@"X11ShortcutManager: Detected lock masks - NumLock: 0x%x, CapsLock: 0x%x, ScrollLock: 0x%x",
           _numlock_mask, _capslock_mask, _scrolllock_mask);
+}
+
+- (void)registerDirectShortcutForMenuItem:(NSMenuItem *)menuItem
+                                   target:(id)target
+                                   action:(SEL)action
+{
+    if (!_display) {
+        NSLog(@"X11ShortcutManager: Cannot register direct shortcut - no X11 display");
+        return;
+    }
+    
+    NSString *keyEquivalent = [menuItem keyEquivalent];
+    NSUInteger modifierMask = [menuItem keyEquivalentModifierMask];
+    
+    if ([keyEquivalent length] == 0 || modifierMask == 0) {
+        NSLog(@"X11ShortcutManager: Cannot register direct shortcut - no key equivalent or modifier");
+        return;
+    }
+    
+    NSString *menuItemKey = [NSString stringWithFormat:@"%p", menuItem];
+    
+    // Store the target, action, and window ID for direct invocation
+    // We extract the window ID from the menu item's representedObject
+    NSNumber *windowId = [menuItem representedObject];
+    NSString *windowIdString = windowId ? [windowId stringValue] : @"0";
+    
+    [_menuItemToServiceMap setObject:windowIdString forKey:menuItemKey]; // Store window ID
+    [_menuItemToObjectPathMap setObject:NSStringFromSelector(action) forKey:menuItemKey]; // Store action selector
+    [_menuItemToConnectionMap setObject:target forKey:menuItemKey]; // Store target
+    
+    // Convert key to X11 KeySym and KeyCode
+    KeySym keysym = [self parseKeyString:keyEquivalent];
+    if (keysym == NoSymbol) {
+        NSLog(@"X11ShortcutManager: Failed to convert key '%@' to X11 KeySym", keyEquivalent);
+        return;
+    }
+    
+    KeyCode keycode = XKeysymToKeycode(_display, keysym);
+    if (keycode == 0) {
+        NSLog(@"X11ShortcutManager: Failed to convert KeySym to KeyCode for '%@'", keyEquivalent);
+        return;
+    }
+    
+    unsigned int x11_modifier = [self convertToX11Modifier:modifierMask];
+    
+    NSLog(@"X11ShortcutManager: Registering direct shortcut %@ with modifier 0x%x (keycode %d) for window %@",
+          keyEquivalent, x11_modifier, keycode, windowIdString);
+    
+    // Register the shortcut with X11 using the same method as existing shortcuts
+    if (![self grabX11Key:keycode modifier:x11_modifier]) {
+        NSLog(@"X11ShortcutManager: Failed to grab X11 key for direct shortcut %@", keyEquivalent);
+        return;
+    }
+    
+    // Store the mapping for later lookup using the same format as existing shortcuts
+    NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", keycode, x11_modifier];
+    [_shortcutToMenuItemMap setObject:menuItemKey forKey:keycodeModifierKey];
+    [_grabbedKeys setObject:menuItemKey forKey:keycodeModifierKey];
+    
+    NSLog(@"X11ShortcutManager: Successfully registered direct shortcut for %@", keyEquivalent);
+    
+    // Debug: Check the state after registration
+    NSLog(@"X11ShortcutManager: After registration - _grabbedKeys count: %lu, _eventMonitorTimer: %@", 
+          (unsigned long)[_grabbedKeys count], _eventMonitorTimer ? @"EXISTS" : @"nil");
+    
+    // Start X11 event monitoring if this is the first shortcut
+    if ([_grabbedKeys count] > 0 && !_eventMonitorTimer) {
+        NSLog(@"X11ShortcutManager: Starting event monitoring for direct shortcuts - have %lu grabbed keys", 
+              (unsigned long)[_grabbedKeys count]);
+        [self startX11EventMonitoring];
+    } else {
+        NSLog(@"X11ShortcutManager: Not starting event monitoring - count: %lu, timer: %@", 
+              (unsigned long)[_grabbedKeys count], _eventMonitorTimer ? @"EXISTS" : @"nil");
+    }
 }
 
 @end
