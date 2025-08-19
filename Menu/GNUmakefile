@@ -16,19 +16,25 @@ Menu_OBJC_FILES = \
 	MenuBarView.m \
 	AppMenuWidget.m \
 	MenuProtocolManager.m \
-	DBusMenuImporter.m \
-	GTKMenuImporter.m \
-	DBusMenuParser.m \
-	GTKMenuParser.m \
-	DBusMenuShortcutParser.m \
-	DBusMenuActionHandler.m \
-	GTKActionHandler.m \
-	DBusSubmenuManager.m \
-	GTKSubmenuManager.m \
 	DBusConnection.m \
+	DBusMenuImporter.m \
+	DBusMenuParser.m \
+	DBusMenuActionHandler.m \
+	DBusMenuShortcutParser.m \
+	DBusSubmenuManager.m \
+	GTKMenuImporter.m \
+	GTKMenuParser.m \
+	GTKActionHandler.m \
+	GTKSubmenuManager.m \
 	MenuUtils.m \
+	RoundedCornersView.m \
 	X11ShortcutManager.m \
-	RoundedCornersView.m
+	StatusNotifierItem.m \
+	StatusNotifierManager.m \
+	DBusMenuServer.m \
+	TrayView.m \
+	GTKStatusIconManager.m \
+	ClickableIconView.m
 
 # Header files
 Menu_HEADER_FILES = \
@@ -49,7 +55,12 @@ Menu_HEADER_FILES = \
 	DBusConnection.h \
 	MenuUtils.h \
 	X11ShortcutManager.h \
-	RoundedCornersView.h
+	RoundedCornersView.h \
+	StatusNotifierItem.h \
+	StatusNotifierManager.h \
+	DBusMenuServer.h \
+	TrayView.h \
+	ClickableIconView.h
 
 # Resources
 Menu_RESOURCE_FILES = \

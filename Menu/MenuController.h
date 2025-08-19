@@ -8,6 +8,7 @@
 @class AppMenuWidget;
 @class MenuProtocolManager;
 @class RoundedCornersView;
+@class TrayView;
 
 #define RIGHTPADDING 20
 #define LEFTPADDING 20
@@ -23,6 +24,7 @@
     AppMenuWidget *_appMenuWidget;
     MenuProtocolManager *_protocolManager;
     RoundedCornersView *_roundedCornersView;
+    TrayView *_trayView;
     Display *_display;
     Window _rootWindow;
     Atom _netActiveWindowAtom;
@@ -47,5 +49,7 @@
 - (void)scanForNewMenus;
 - (AppMenuWidget *)appMenuWidget;
 - (void)x11ActiveWindowMonitor;
+- (void)setupTraySupport;
+- (TrayView *)trayView;
 
 @end

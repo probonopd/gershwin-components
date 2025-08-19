@@ -21,6 +21,7 @@
 - (void)showDBusErrorAndExit;
 - (BOOL)hasMenuForWindow:(unsigned long)windowId;
 - (NSMenu *)getMenuForWindow:(unsigned long)windowId;
+- (NSMenu *)loadMenuFromDBus:(NSString *)serviceName objectPath:(NSString *)objectPath;
 - (void)activateMenuItem:(NSMenuItem *)menuItem forWindow:(unsigned long)windowId;
 - (void)registerWindow:(unsigned long)windowId 
            serviceName:(NSString *)serviceName 

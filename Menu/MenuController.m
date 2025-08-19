@@ -5,6 +5,9 @@
 #import "DBusMenuImporter.h"
 #import "GTKMenuImporter.h"
 #import "RoundedCornersView.h"
+#import "TrayView.h"
+#import "StatusNotifierManager.h"
+#import "GTKStatusIconManager.h"
 #import "X11ShortcutManager.h"
 #import "GNUstepGUI/GSTheme.h"
 #import <X11/Xlib.h>
@@ -145,6 +148,11 @@
     [_appMenuWidget setProtocolManager:[MenuProtocolManager sharedManager]];
     NSLog(@"MenuController: Created AppMenuWidget: %@", _appMenuWidget);
     
+    // Create tray view for system tray icons (on the right side)
+    _trayView = [[TrayView alloc] initWithFrame:NSMakeRect(_screenSize.width - 200, 0, 200, menuBarHeight)];
+    [_trayView setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin | NSViewMinYMargin];
+    NSLog(@"MenuController: Created TrayView: %@", _trayView);
+    
     // probono: Create rounded corners view for black top corners like in old/src/mainwindow.cpp
     // Position it at the top of the menu bar, with height enough for the corner radius effect
     CGFloat cornerHeight = 10.0; // 2 * corner radius (5px)
@@ -153,6 +161,7 @@
     // Add subviews in the correct order (background first, then content, then corners on top)
     [[_menuBar contentView] addSubview:_menuBarView];
     [[_menuBar contentView] addSubview:_appMenuWidget];
+    [[_menuBar contentView] addSubview:_trayView];
     [[_menuBar contentView] addSubview:_roundedCornersView];
     
     [attributes release];
@@ -166,6 +175,10 @@
     NSLog(@"MenuController: Menu bar setup complete at %.0f,%.0f %.0fx%.0f", 
           _screenFrame.origin.x, _screenFrame.origin.y, _screenSize.width, [[GSTheme theme] menuBarHeight]);
     
+    // Create protocol manager first (needs tray view)
+    NSLog(@"MenuController: Creating protocol manager");
+    [self createProtocolManager];
+    
     // Set up X11 window monitoring
     NSLog(@"MenuController: Setting up X11 window monitoring");
     [self setupWindowMonitoring];
@@ -173,6 +186,10 @@
     // Initialize protocol scanning
     NSLog(@"MenuController: Initializing protocol scanning");
     [self initializeProtocols];
+    
+    // Set up tray support
+    NSLog(@"MenuController: Setting up tray support");
+    [self setupTraySupport];
 }
 
 - (void)updateActiveWindow
@@ -216,17 +233,29 @@
     NSLog(@"MenuController: Creating MenuProtocolManager...");
     _protocolManager = [[MenuProtocolManager sharedManager] retain];
     
-    // Register both Canonical and GTK protocol handlers
+    // Register Canonical and GTK protocol handlers for global menus
     DBusMenuImporter *canonicalHandler = [[DBusMenuImporter alloc] init];
     GTKMenuImporter *gtkHandler = [[GTKMenuImporter alloc] init];
     
     [_protocolManager registerProtocolHandler:canonicalHandler forType:MenuProtocolTypeCanonical];
     [_protocolManager registerProtocolHandler:gtkHandler forType:MenuProtocolTypeGTK];
     
+    // Register StatusNotifier handler for modern tray icons
+    if (_trayView) {
+        StatusNotifierManager *statusNotifierHandler = [[StatusNotifierManager alloc] initWithTrayView:_trayView];
+        [_protocolManager registerProtocolHandler:statusNotifierHandler forType:MenuProtocolTypeStatusNotifier];
+        [statusNotifierHandler release];
+        
+        // Register GTK StatusIcon handler for legacy tray icons
+        GTKStatusIconManager *gtkStatusIconHandler = [[GTKStatusIconManager alloc] initWithTrayView:_trayView];
+        [_protocolManager registerProtocolHandler:gtkStatusIconHandler forType:MenuProtocolTypeGTKStatusIcon];
+        [gtkStatusIconHandler release];
+    }
+    
     [canonicalHandler release];
     [gtkHandler release];
     
-    NSLog(@"MenuController: Registered both Canonical and GTK protocol handlers");
+    NSLog(@"MenuController: Registered all protocol handlers (Canonical, GTK, StatusNotifier, GTK StatusIcon)");
 }
 
 - (void)setupWindowMonitoring
@@ -422,15 +451,41 @@
     [pool release];
 }
 
+- (void)setupTraySupport
+{
+    NSLog(@"MenuController: Setting up tray support");
+    
+    if (!_trayView) {
+        NSLog(@"MenuController: TrayView not created, cannot setup tray support");
+        return;
+    }
+    
+    // Initialize StatusNotifier support
+    [_trayView setupStatusNotifierSupport];
+    
+    NSLog(@"MenuController: Tray support setup complete");
+}
+
+- (TrayView *)trayView
+{
+    return _trayView;
+}
+
 - (void)dealloc
 {
     // Ensure shortcuts are cleaned up if dealloc is called
     NSLog(@"MenuController: dealloc - cleaning up global shortcuts...");
     [[X11ShortcutManager sharedManager] cleanup];
     
+    // Clean up tray support
+    if (_trayView) {
+        [_trayView tearDown];
+    }
+    
     [_menuBar release];
     [_menuBarView release];
     [_appMenuWidget release];
+    [_trayView release];
     [_protocolManager release];
     [super dealloc];
 }

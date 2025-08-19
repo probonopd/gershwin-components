@@ -25,7 +25,9 @@
 
 typedef NS_ENUM(NSInteger, MenuProtocolType) {
     MenuProtocolTypeCanonical = 0,  // com.canonical.dbusmenu
-    MenuProtocolTypeGTK = 1         // org.gtk.Menus + org.gtk.Actions
+    MenuProtocolTypeGTK = 1,        // org.gtk.Menus + org.gtk.Actions
+    MenuProtocolTypeStatusNotifier = 2, // org.kde.StatusNotifierItem + DBusMenu
+    MenuProtocolTypeGTKStatusIcon = 3   // GTK StatusIcon (X11 system tray)
 };
 
 /**
