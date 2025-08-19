@@ -6,6 +6,19 @@
 // Use typedef to avoid naming conflicts
 typedef struct DBusConnection DBusConnectionStruct;
 
+// C function for D-Bus object path message handling
+static DBusHandlerResult dbus_object_path_message_handler(DBusConnection *connection,
+                                                          DBusMessage *message,
+                                                          void *user_data) {
+    (void)connection; // Suppress unused parameter warning
+    GNUDBusConnection *dbusConnection = (__bridge GNUDBusConnection *)user_data;
+    if (dbusConnection) {
+        [dbusConnection handleIncomingMessage:message];
+        return DBUS_HANDLER_RESULT_HANDLED;
+    }
+    return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+}
+
 // Forward declaration for internal method
 @interface GNUDBusConnection (Private)
 - (id)parseDBusMessageIterator:(DBusMessageIter *)iter;
@@ -133,8 +146,26 @@ static GNUDBusConnection *sharedSessionBus = nil;
     NSString *key = [NSString stringWithFormat:@"%@:%@", objectPath, interfaceName];
     [_messageHandlers setObject:handler forKey:key];
     
-    NSLog(@"DBusConnection: Registered handler for %@ on %@", interfaceName, objectPath);
-    return YES;
+    // Register object path with D-Bus connection using virtual table
+    const char *pathCStr = [objectPath UTF8String];
+    
+    // Define virtual table for object path handling
+    static DBusObjectPathVTable vtable = {
+        .message_function = dbus_object_path_message_handler,
+        .unregister_function = NULL
+    };
+    
+    dbus_bool_t result = dbus_connection_register_object_path((DBusConnectionStruct *)_connection, 
+                                                             pathCStr, &vtable, (__bridge void *)self);
+    
+    if (result == TRUE) {
+        NSLog(@"DBusConnection: Successfully registered object path %@ with D-Bus", objectPath);
+        NSLog(@"DBusConnection: Registered handler for %@ on %@", interfaceName, objectPath);
+        return YES;
+    } else {
+        NSLog(@"DBusConnection: Failed to register object path %@ with D-Bus", objectPath);
+        return NO;
+    }
 }
 
 - (id)callMethod:(NSString *)method

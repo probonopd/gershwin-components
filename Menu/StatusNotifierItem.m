@@ -2,6 +2,7 @@
 #import "DBusConnection.h"
 #import "DBusMenuServer.h"
 #import <X11/Xlib.h>
+#import <dbus/dbus.h>
 
 // D-Bus constants
 static NSString * const SNI_DBUS_INTERFACE = @"org.kde.StatusNotifierItem";
@@ -403,8 +404,36 @@ static NSString * const SNI_WATCHER_INTERFACE = @"org.kde.StatusNotifierWatcher"
         _registeredItems = [[NSMutableArray alloc] init];
         _registeredHosts = [[NSMutableArray alloc] init];
         _isStatusNotifierHostRegistered = NO;
+        
+        // Register ourselves as the StatusNotifierWatcher D-Bus service
+        [self _registerAsDBusService];
     }
     return self;
+}
+
+- (void)_registerAsDBusService
+{
+    GNUDBusConnection *connection = [GNUDBusConnection sessionBus];
+    if (![connection isConnected] && ![connection connect]) {
+        NSLog(@"StatusNotifierWatcher: Failed to connect to D-Bus");
+        return;
+    }
+    
+    // Register our service name
+    if ([connection registerService:SNI_WATCHER_SERVICE]) {
+        NSLog(@"StatusNotifierWatcher: Successfully registered D-Bus service %@", SNI_WATCHER_SERVICE);
+        
+        // Register our object path with the StatusNotifierWatcher interface
+        if ([connection registerObjectPath:SNI_WATCHER_OBJECT_PATH 
+                                 interface:SNI_WATCHER_INTERFACE 
+                                   handler:self]) {
+            NSLog(@"StatusNotifierWatcher: Successfully registered object path %@", SNI_WATCHER_OBJECT_PATH);
+        } else {
+            NSLog(@"StatusNotifierWatcher: Failed to register object path %@", SNI_WATCHER_OBJECT_PATH);
+        }
+    } else {
+        NSLog(@"StatusNotifierWatcher: Failed to register D-Bus service %@", SNI_WATCHER_SERVICE);
+    }
 }
 
 - (void)dealloc
@@ -412,6 +441,120 @@ static NSString * const SNI_WATCHER_INTERFACE = @"org.kde.StatusNotifierWatcher"
     [_registeredItems release];
     [_registeredHosts release];
     [super dealloc];
+}
+
+#pragma mark - D-Bus Method Handling
+
+- (void)handleDBusMethodCall:(NSDictionary *)callInfo
+{
+    NSString *method = [callInfo objectForKey:@"method"];
+    NSString *interface = [callInfo objectForKey:@"interface"];
+    void *message = [[callInfo objectForKey:@"message"] pointerValue];
+    
+    if (![interface isEqualToString:SNI_WATCHER_INTERFACE]) {
+        return;
+    }
+    
+    NSLog(@"StatusNotifierWatcher: Handling D-Bus method call: %@", method);
+    
+    if ([method isEqualToString:@"RegisterStatusNotifierItem"]) {
+        [self _handleRegisterStatusNotifierItem:message];
+    } else if ([method isEqualToString:@"RegisterStatusNotifierHost"]) {
+        [self _handleRegisterStatusNotifierHost:message];
+    } else if ([method isEqualToString:@"RegisteredStatusNotifierItems"]) {
+        [self _handleRegisteredStatusNotifierItems:message];
+    } else {
+        NSLog(@"StatusNotifierWatcher: Unknown method: %@", method);
+    }
+}
+
+- (void)_handleRegisterStatusNotifierItem:(void *)message
+{
+    // Extract service name from D-Bus message
+    DBusMessageIter iter;
+    if (!dbus_message_iter_init((DBusMessage *)message, &iter)) {
+        NSLog(@"StatusNotifierWatcher: Failed to init message iterator for RegisterStatusNotifierItem");
+        return;
+    }
+    
+    if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_STRING) {
+        NSLog(@"StatusNotifierWatcher: Expected string argument for RegisterStatusNotifierItem");
+        return;
+    }
+    
+    char *serviceName;
+    dbus_message_iter_get_basic(&iter, &serviceName);
+    
+    NSString *serviceNameStr = [NSString stringWithUTF8String:serviceName];
+    [self registerStatusNotifierItem:serviceNameStr];
+    
+    // Send reply
+    DBusMessage *reply = dbus_message_new_method_return((DBusMessage *)message);
+    if (reply) {
+        GNUDBusConnection *connection = [GNUDBusConnection sessionBus];
+        [connection sendReply:reply];
+        dbus_message_unref(reply);
+    }
+    
+    NSLog(@"StatusNotifierWatcher: Registered StatusNotifierItem: %@", serviceNameStr);
+}
+
+- (void)_handleRegisterStatusNotifierHost:(void *)message
+{
+    // Extract service name from D-Bus message
+    DBusMessageIter iter;
+    if (!dbus_message_iter_init((DBusMessage *)message, &iter)) {
+        NSLog(@"StatusNotifierWatcher: Failed to init message iterator for RegisterStatusNotifierHost");
+        return;
+    }
+    
+    if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_STRING) {
+        NSLog(@"StatusNotifierWatcher: Expected string argument for RegisterStatusNotifierHost");
+        return;
+    }
+    
+    char *serviceName;
+    dbus_message_iter_get_basic(&iter, &serviceName);
+    
+    NSString *serviceNameStr = [NSString stringWithUTF8String:serviceName];
+    [self registerStatusNotifierHost:serviceNameStr];
+    
+    // Send reply
+    DBusMessage *reply = dbus_message_new_method_return((DBusMessage *)message);
+    if (reply) {
+        GNUDBusConnection *connection = [GNUDBusConnection sessionBus];
+        [connection sendReply:reply];
+        dbus_message_unref(reply);
+    }
+    
+    NSLog(@"StatusNotifierWatcher: Registered StatusNotifierHost: %@", serviceNameStr);
+}
+
+- (void)_handleRegisteredStatusNotifierItems:(void *)message
+{
+    // Return array of registered items
+    DBusMessage *reply = dbus_message_new_method_return((DBusMessage *)message);
+    if (!reply) {
+        NSLog(@"StatusNotifierWatcher: Failed to create reply message");
+        return;
+    }
+    
+    DBusMessageIter iter, arrayIter;
+    dbus_message_iter_init_append(reply, &iter);
+    dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "s", &arrayIter);
+    
+    for (NSString *serviceName in _registeredItems) {
+        const char *str = [serviceName UTF8String];
+        dbus_message_iter_append_basic(&arrayIter, DBUS_TYPE_STRING, &str);
+    }
+    
+    dbus_message_iter_close_container(&iter, &arrayIter);
+    
+    GNUDBusConnection *connection = [GNUDBusConnection sessionBus];
+    [connection sendReply:reply];
+    dbus_message_unref(reply);
+    
+    NSLog(@"StatusNotifierWatcher: Returned %lu registered items", (unsigned long)[_registeredItems count]);
 }
 
 - (void)registerStatusNotifierItem:(NSString *)service

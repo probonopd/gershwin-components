@@ -58,6 +58,11 @@ static NSString * const SNI_ITEM_INTERFACE = @"org.kde.StatusNotifierItem";
     _isConnected = YES;
     NSLog(@"StatusNotifierManager: Connected to D-Bus");
     
+    // Initialize the shared StatusNotifierWatcher to register the D-Bus service
+    StatusNotifierWatcher *watcher = [StatusNotifierWatcher sharedWatcher];
+    (void)watcher; // Suppress unused variable warning
+    NSLog(@"StatusNotifierManager: Initialized StatusNotifierWatcher");
+    
     // Start hosting tray icons
     [self startHostingTrayIcons];
     
@@ -132,13 +137,9 @@ static NSString * const SNI_ITEM_INTERFACE = @"org.kde.StatusNotifierItem";
     if ([connection isConnected]) {
         NSString *hostService = @"org.kde.StatusNotifierHost-Menu";
         if ([connection registerService:hostService]) {
-            // Register with watcher
-            NSArray *args = @[hostService];
-            [connection callMethod:@"RegisterStatusNotifierHost"
-                         onService:SNI_WATCHER_SERVICE
-                        objectPath:SNI_WATCHER_OBJECT_PATH
-                         interface:SNI_WATCHER_INTERFACE
-                         arguments:args];
+            // Since we ARE the StatusNotifierWatcher, register directly without D-Bus call
+            StatusNotifierWatcher *watcher = [StatusNotifierWatcher sharedWatcher];
+            [watcher registerStatusNotifierHost:hostService];
             
             NSLog(@"StatusNotifierManager: Registered as StatusNotifierHost: %@", hostService);
         }
@@ -218,22 +219,14 @@ static NSString * const SNI_ITEM_INTERFACE = @"org.kde.StatusNotifierItem";
         return;
     }
     
-    // Get list of registered items from watcher
-    id result = [connection callMethod:@"RegisteredStatusNotifierItems"
-                             onService:SNI_WATCHER_SERVICE
-                            objectPath:SNI_WATCHER_OBJECT_PATH
-                             interface:SNI_WATCHER_INTERFACE
-                             arguments:@[]];
+    // Since we ARE the StatusNotifierWatcher, we can skip the D-Bus call and check directly
+    StatusNotifierWatcher *watcher = [StatusNotifierWatcher sharedWatcher];
+    NSArray *itemServices = [watcher registeredStatusNotifierItems];
     
-    if ([result isKindOfClass:[NSArray class]]) {
-        NSArray *itemServices = (NSArray *)result;
-        NSLog(@"StatusNotifierManager: Found %lu existing items", (unsigned long)[itemServices count]);
-        
-        for (NSString *serviceName in itemServices) {
-            [self handleNewStatusNotifierItem:serviceName];
-        }
-    } else {
-        NSLog(@"StatusNotifierManager: No existing StatusNotifierItems found or watcher not available");
+    NSLog(@"StatusNotifierManager: Found %lu existing items", (unsigned long)[itemServices count]);
+    
+    for (NSString *serviceName in itemServices) {
+        [self handleNewStatusNotifierItem:serviceName];
     }
 }
 
@@ -250,9 +243,15 @@ static NSString * const SNI_ITEM_INTERFACE = @"org.kde.StatusNotifierItem";
     // Determine object path - try standard paths
     NSArray *possiblePaths = @[
         @"/StatusNotifierItem",
-        @"/org/kde/StatusNotifierItem",
-        [NSString stringWithFormat:@"/StatusNotifierItem/%@", serviceName]
+        @"/org/kde/StatusNotifierItem"
     ];
+    
+    // Only add service-specific path if serviceName doesn't contain invalid characters
+    if (![serviceName containsString:@":"]) {
+        NSMutableArray *paths = [NSMutableArray arrayWithArray:possiblePaths];
+        [paths addObject:[NSString stringWithFormat:@"/StatusNotifierItem/%@", serviceName]];
+        possiblePaths = paths;
+    }
     
     GNUDBusConnection *connection = [GNUDBusConnection sessionBus];
     NSString *objectPath = nil;

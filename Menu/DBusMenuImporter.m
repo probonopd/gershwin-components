@@ -321,6 +321,8 @@
     DBusMessage *message = (DBusMessage *)[[callInfo objectForKey:@"message"] pointerValue];
     
     NSLog(@"DBusMenuImporter: Handling method call: %@.%@", interface, method);
+    NSLog(@"DBusMenuImporter: Message type: %d", dbus_message_get_type(message));
+    NSLog(@"DBusMenuImporter: Message signature: %s", dbus_message_get_signature(message));
     
     if (![interface isEqualToString:@"com.canonical.AppMenu.Registrar"]) {
         NSLog(@"DBusMenuImporter: Unknown interface: %@", interface);
@@ -333,26 +335,46 @@
     if (dbus_message_iter_init(message, &iter)) {
         do {
             int argType = dbus_message_iter_get_arg_type(&iter);
+            NSLog(@"DBusMenuImporter: Processing argument type: %c (%d)", (char)argType, argType);
+            
             if (argType == DBUS_TYPE_UINT32) {
                 dbus_uint32_t value;
                 dbus_message_iter_get_basic(&iter, &value);
                 [arguments addObject:[NSNumber numberWithUnsignedInt:value]];
+                NSLog(@"DBusMenuImporter: Added uint32 argument: %u", value);
             } else if (argType == DBUS_TYPE_OBJECT_PATH || argType == DBUS_TYPE_STRING) {
                 char *value;
                 dbus_message_iter_get_basic(&iter, &value);
                 [arguments addObject:[NSString stringWithUTF8String:value]];
+                NSLog(@"DBusMenuImporter: Added string/object_path argument: %s", value);
+            } else if (argType == DBUS_TYPE_INVALID) {
+                NSLog(@"DBusMenuImporter: Reached end of arguments");
+                break;
+            } else {
+                NSLog(@"DBusMenuImporter: Unknown argument type: %c (%d)", (char)argType, argType);
             }
         } while (dbus_message_iter_next(&iter));
+    } else {
+        NSLog(@"DBusMenuImporter: No arguments in message");
     }
+    
+    NSLog(@"DBusMenuImporter: Parsed %lu arguments", (unsigned long)[arguments count]);
     
     // Get calling service name
     const char *sender = dbus_message_get_sender(message);
     NSString *serviceName = sender ? [NSString stringWithUTF8String:sender] : @"unknown";
     
     if ([method isEqualToString:@"RegisterWindow"]) {
+        NSLog(@"DBusMenuImporter: RegisterWindow method called with %lu arguments", (unsigned long)[arguments count]);
         if ([arguments count] >= 2) {
-            unsigned long windowId = [[arguments objectAtIndex:0] unsignedLongValue];
-            NSString *objectPath = [arguments objectAtIndex:1];
+            id windowIdObj = [arguments objectAtIndex:0];
+            id objectPathObj = [arguments objectAtIndex:1];
+            
+            NSLog(@"DBusMenuImporter: windowId object: %@ (class: %@)", windowIdObj, [windowIdObj class]);
+            NSLog(@"DBusMenuImporter: objectPath object: %@ (class: %@)", objectPathObj, [objectPathObj class]);
+            
+            unsigned long windowId = [windowIdObj unsignedLongValue];
+            NSString *objectPath = objectPathObj;
             
             NSLog(@"DBusMenuImporter: RegisterWindow called by %@ for window %lu with path %@", 
                   serviceName, windowId, objectPath);
@@ -368,6 +390,19 @@
                 NSLog(@"DBusMenuImporter: Sent reply for RegisterWindow");
             } else {
                 NSLog(@"DBusMenuImporter: Failed to create reply for RegisterWindow");
+            }
+        } else {
+            NSLog(@"DBusMenuImporter: RegisterWindow called with insufficient arguments (%lu)", (unsigned long)[arguments count]);
+            
+            // Send error reply
+            DBusMessage *reply = dbus_message_new_error(message, 
+                                                       "org.freedesktop.DBus.Error.InvalidArgs",
+                                                       "RegisterWindow requires 2 arguments");
+            if (reply) {
+                dbus_connection_send([_dbusConnection rawConnection], reply, NULL);
+                dbus_connection_flush([_dbusConnection rawConnection]);
+                dbus_message_unref(reply);
+                NSLog(@"DBusMenuImporter: Sent error reply for RegisterWindow");
             }
         }
     } else if ([method isEqualToString:@"UnregisterWindow"]) {

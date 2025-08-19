@@ -1,6 +1,9 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 
+// Forward declaration
+struct DBusMessage;
+
 // DBus connection wrapper for GNUstep
 @interface GNUDBusConnection : NSObject
 {
@@ -30,5 +33,7 @@
 - (void)processMessages;
 - (void *)rawConnection;
 - (int)getFileDescriptor;
+- (BOOL)sendReply:(void *)reply;
+- (void)handleIncomingMessage:(struct DBusMessage *)message;
 
 @end
