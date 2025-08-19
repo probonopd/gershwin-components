@@ -153,6 +153,18 @@
     [_trayView setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin | NSViewMinYMargin];
     NSLog(@"MenuController: Created TrayView: %@", _trayView);
     
+    // Create time menu and formatters
+    [self createTimeMenu];
+    
+    // Create time menu view positioned to the right of tray view
+    CGFloat timeMenuWidth = 80;
+    CGFloat timeMenuX = _screenSize.width - timeMenuWidth - 10; // 10px from right edge
+    _timeMenuView = [[NSMenuView alloc] initWithFrame:NSMakeRect(timeMenuX, 0, timeMenuWidth, menuBarHeight)];
+    [_timeMenuView setMenu:_timeMenu];
+    [_timeMenuView setHorizontal:YES];
+    [_timeMenuView setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin | NSViewMinYMargin];
+    NSLog(@"MenuController: Created time menu view at position %.0f", timeMenuX);
+    
     // probono: Create rounded corners view for black top corners like in old/src/mainwindow.cpp
     // Position it at the top of the menu bar, with height enough for the corner radius effect
     CGFloat cornerHeight = 10.0; // 2 * corner radius (5px)
@@ -162,6 +174,7 @@
     [[_menuBar contentView] addSubview:_menuBarView];
     [[_menuBar contentView] addSubview:_appMenuWidget];
     [[_menuBar contentView] addSubview:_trayView];
+    [[_menuBar contentView] addSubview:_timeMenuView];
     [[_menuBar contentView] addSubview:_roundedCornersView];
     
     [attributes release];
@@ -471,6 +484,60 @@
     return _trayView;
 }
 
+- (void)createTimeMenu
+{
+    NSLog(@"MenuController: Creating time menu");
+    
+    // Create formatters
+    _timeFormatter = [[NSDateFormatter alloc] init];
+    [_timeFormatter setDateFormat:@"HH:mm"];
+    
+    _dateFormatter = [[NSDateFormatter alloc] init];
+    [_dateFormatter setDateFormat:@"EEEE, MMMM d, yyyy"];
+    
+    _timeMenu = [[NSMenu alloc] initWithTitle:@""];
+    [_timeMenu setAutoenablesItems:NO];
+    
+    // Create the main time menu item (this will show the current time)
+    _timeMenuItem = [[NSMenuItem alloc] initWithTitle:@"00:00" action:nil keyEquivalent:@""];
+    
+    // Create submenu for the date
+    NSMenu *timeSubMenu = [[NSMenu alloc] initWithTitle:@"TimeSubMenu"];
+    _dateMenuItem = [[NSMenuItem alloc] initWithTitle:@"Loading..." action:nil keyEquivalent:@""];
+    [_dateMenuItem setEnabled:NO]; // Make it non-clickable, just for display
+    [timeSubMenu addItem:_dateMenuItem];
+    
+    [_timeMenuItem setSubmenu:timeSubMenu];
+    [timeSubMenu release];
+    
+    [_timeMenu addItem:_timeMenuItem];
+    
+    // Start timer to update time
+    _timeUpdateTimer = [[NSTimer scheduledTimerWithTimeInterval:1.0
+                                                        target:self
+                                                      selector:@selector(updateTimeMenu)
+                                                      userInfo:nil
+                                                       repeats:YES] retain];
+    
+    // Update immediately
+    [self updateTimeMenu];
+    
+    NSLog(@"MenuController: Time menu created with submenu");
+}
+
+- (void)updateTimeMenu
+{
+    NSDate *now = [NSDate date];
+    
+    // Update time menu item title
+    NSString *timeString = [_timeFormatter stringFromDate:now];
+    [_timeMenuItem setTitle:timeString];
+    
+    // Update date in submenu
+    NSString *dateString = [_dateFormatter stringFromDate:now];
+    [_dateMenuItem setTitle:dateString];
+}
+
 - (void)dealloc
 {
     // Ensure shortcuts are cleaned up if dealloc is called
@@ -485,7 +552,15 @@
     [_menuBar release];
     [_menuBarView release];
     [_appMenuWidget release];
+    [_timeMenuView release];
     [_trayView release];
+    [_timeMenu release];
+    [_timeMenuItem release];
+    [_dateMenuItem release];
+    [_timeUpdateTimer invalidate];
+    [_timeUpdateTimer release];
+    [_timeFormatter release];
+    [_dateFormatter release];
     [_protocolManager release];
     [super dealloc];
 }

@@ -25,6 +25,13 @@
     MenuProtocolManager *_protocolManager;
     RoundedCornersView *_roundedCornersView;
     TrayView *_trayView;
+    NSMenuView *_timeMenuView;
+    NSMenu *_timeMenu;
+    NSMenuItem *_timeMenuItem;
+    NSMenuItem *_dateMenuItem;
+    NSTimer *_timeUpdateTimer;
+    NSDateFormatter *_timeFormatter;
+    NSDateFormatter *_dateFormatter;
     Display *_display;
     Window _rootWindow;
     Atom _netActiveWindowAtom;
@@ -51,5 +58,7 @@
 - (void)x11ActiveWindowMonitor;
 - (void)setupTraySupport;
 - (TrayView *)trayView;
+- (void)createTimeMenu;
+- (void)updateTimeMenu;
 
 @end
