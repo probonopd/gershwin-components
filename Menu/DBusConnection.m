@@ -44,6 +44,7 @@ static GNUDBusConnection *sharedSessionBus = nil;
         _connection = NULL;
         _connected = NO;
         _messageHandlers = [[NSMutableDictionary alloc] init];
+        _nameOwnerListeners = [[NSMutableDictionary alloc] init];
     }
     return self;
 }
@@ -67,6 +68,10 @@ static GNUDBusConnection *sharedSessionBus = nil;
     
     _connected = YES;
     NSLog(@"DBusConnection: Successfully connected to session bus");
+    
+    // Set up name owner change monitoring
+    [self _setupNameOwnerChangeMonitoring];
+    
     return YES;
 }
 
@@ -711,23 +716,36 @@ static GNUDBusConnection *sharedSessionBus = nil;
 {
     if (!message) return;
     
+    int messageType = dbus_message_get_type(message);
     const char *path = dbus_message_get_path(message);
     const char *interface = dbus_message_get_interface(message);
-    const char *method = dbus_message_get_member(message);
+    const char *member = dbus_message_get_member(message);
     
-    if (!path || !interface || !method) {
+    if (!path || !interface || !member) {
         return;
     }
     
     NSString *pathStr = [NSString stringWithUTF8String:path];
     NSString *interfaceStr = [NSString stringWithUTF8String:interface];
-    NSString *methodStr = [NSString stringWithUTF8String:method];
+    NSString *memberStr = [NSString stringWithUTF8String:member];
     
-    NSLog(@"DBusConnection: Received method call: %@.%@ on %@", interfaceStr, methodStr, pathStr);
+    // Handle D-Bus signals
+    if (messageType == DBUS_MESSAGE_TYPE_SIGNAL) {
+        if ([interfaceStr isEqualToString:@"org.freedesktop.DBus"] && 
+            [memberStr isEqualToString:@"NameOwnerChanged"]) {
+            [self _handleNameOwnerChangedSignal:message];
+            return;
+        }
+        NSLog(@"DBusConnection: Received signal: %@.%@ on %@", interfaceStr, memberStr, pathStr);
+        return;
+    }
+    
+    // Handle method calls
+    NSLog(@"DBusConnection: Received method call: %@.%@ on %@", interfaceStr, memberStr, pathStr);
     
     // Handle introspection requests
     if ([interfaceStr isEqualToString:@"org.freedesktop.DBus.Introspectable"] && 
-        [methodStr isEqualToString:@"Introspect"]) {
+        [memberStr isEqualToString:@"Introspect"]) {
         [self handleIntrospectRequest:message];
         return;
     }
@@ -741,11 +759,11 @@ static GNUDBusConnection *sharedSessionBus = nil;
             @"message": [NSValue valueWithPointer:message],
             @"path": pathStr,
             @"interface": interfaceStr,
-            @"method": methodStr
+            @"method": memberStr
         };
         [handler performSelector:@selector(handleDBusMethodCall:) withObject:callInfo];
     } else {
-        NSLog(@"DBusConnection: No handler found for %@.%@ on %@", interfaceStr, methodStr, pathStr);
+        NSLog(@"DBusConnection: No handler found for %@.%@ on %@", interfaceStr, memberStr, pathStr);
     }
 }
 
@@ -813,10 +831,138 @@ static GNUDBusConnection *sharedSessionBus = nil;
     return (DBusConnectionStruct *)_connection;
 }
 
+#pragma mark - Name Owner Change Monitoring
+
+- (void)_setupNameOwnerChangeMonitoring
+{
+    if (!_connected || !_connection) {
+        return;
+    }
+    
+    DBusError error;
+    dbus_error_init(&error);
+    
+    // Add match rule for NameOwnerChanged signals
+    const char *rule = "type='signal',"
+                      "sender='org.freedesktop.DBus',"
+                      "interface='org.freedesktop.DBus',"
+                      "member='NameOwnerChanged'";
+    
+    dbus_bus_add_match((DBusConnectionStruct *)_connection, rule, &error);
+    if (dbus_error_is_set(&error)) {
+        NSLog(@"DBusConnection: Failed to add NameOwnerChanged match rule: %s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+    
+    NSLog(@"DBusConnection: Successfully set up NameOwnerChanged monitoring");
+}
+
+- (void)addNameOwnerListener:(id)listener forName:(NSString *)serviceName
+{
+    if (!serviceName || !listener) {
+        return;
+    }
+    
+    NSMutableArray *listeners = [_nameOwnerListeners objectForKey:serviceName];
+    if (!listeners) {
+        listeners = [NSMutableArray array];
+        [_nameOwnerListeners setObject:listeners forKey:serviceName];
+    }
+    
+    if (![listeners containsObject:listener]) {
+        [listeners addObject:listener];
+        NSLog(@"DBusConnection: Added name owner listener for service %@", serviceName);
+    }
+}
+
+- (void)removeNameOwnerListener:(id)listener forName:(NSString *)serviceName
+{
+    if (!serviceName || !listener) {
+        return;
+    }
+    
+    NSMutableArray *listeners = [_nameOwnerListeners objectForKey:serviceName];
+    if (listeners) {
+        [listeners removeObject:listener];
+        if ([listeners count] == 0) {
+            [_nameOwnerListeners removeObjectForKey:serviceName];
+        }
+        NSLog(@"DBusConnection: Removed name owner listener for service %@", serviceName);
+    }
+}
+
+- (void)_handleNameOwnerChanged:(NSString *)serviceName oldOwner:(NSString *)oldOwner newOwner:(NSString *)newOwner
+{
+    NSMutableArray *listeners = [_nameOwnerListeners objectForKey:serviceName];
+    if (!listeners) {
+        return;
+    }
+    
+    BOOL wasOwned = oldOwner && [oldOwner length] > 0;
+    BOOL isOwned = newOwner && [newOwner length] > 0;
+    
+    if (wasOwned && !isOwned) {
+        // Service disconnected
+        NSLog(@"DBusConnection: Service %@ disconnected (was owned by %@)", serviceName, oldOwner);
+        
+        for (id listener in listeners) {
+            if ([listener respondsToSelector:@selector(serviceDisconnected:)]) {
+                [listener serviceDisconnected:serviceName];
+            }
+        }
+    } else if (!wasOwned && isOwned) {
+        // Service connected
+        NSLog(@"DBusConnection: Service %@ connected (now owned by %@)", serviceName, newOwner);
+        
+        for (id listener in listeners) {
+            if ([listener respondsToSelector:@selector(serviceConnected:)]) {
+                [listener serviceConnected:serviceName];
+            }
+        }
+    }
+}
+
+- (void)_handleNameOwnerChangedSignal:(DBusMessage*)message
+{
+    DBusMessageIter iter;
+    if (!dbus_message_iter_init(message, &iter)) {
+        return;
+    }
+    
+    // Extract service name
+    if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_STRING) {
+        return;
+    }
+    char *serviceName;
+    dbus_message_iter_get_basic(&iter, &serviceName);
+    
+    // Extract old owner
+    if (!dbus_message_iter_next(&iter) || dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_STRING) {
+        return;
+    }
+    char *oldOwner;
+    dbus_message_iter_get_basic(&iter, &oldOwner);
+    
+    // Extract new owner  
+    if (!dbus_message_iter_next(&iter) || dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_STRING) {
+        return;
+    }
+    char *newOwner;
+    dbus_message_iter_get_basic(&iter, &newOwner);
+    
+    NSString *serviceNameStr = [NSString stringWithUTF8String:serviceName];
+    NSString *oldOwnerStr = oldOwner ? [NSString stringWithUTF8String:oldOwner] : @"";
+    NSString *newOwnerStr = newOwner ? [NSString stringWithUTF8String:newOwner] : @"";
+    
+    [self _handleNameOwnerChanged:serviceNameStr oldOwner:oldOwnerStr newOwner:newOwnerStr];
+}
+
 - (void)dealloc
 {
     [self disconnect];
     [_messageHandlers release];
+    [_nameOwnerListeners release];
     [super dealloc];
 }
 

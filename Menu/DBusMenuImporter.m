@@ -147,10 +147,20 @@
                                             interface:@"org.freedesktop.DBus.Introspectable"
                                             arguments:nil];
     
-    if (introspectResult) {
+    if (introspectResult && [introspectResult isKindOfClass:[NSString class]]) {
+        NSString *introspectionXML = (NSString *)introspectResult;
         NSLog(@"DBusMenuImporter: Service introspection successful");
+        
+        // Check if the com.canonical.dbusmenu interface is actually available
+        if (![introspectionXML containsString:@"com.canonical.dbusmenu"]) {
+            NSLog(@"DBusMenuImporter: Service %@%@ does not export com.canonical.dbusmenu interface", serviceName, objectPath);
+            NSLog(@"DBusMenuImporter: This is common for applications that register but implement incomplete D-Bus menu support");
+            // Try to call GetLayout anyway - some applications might work despite incomplete introspection
+        } else {
+            NSLog(@"DBusMenuImporter: Confirmed com.canonical.dbusmenu interface is available");
+        }
     } else {
-        NSLog(@"DBusMenuImporter: Service introspection failed - service may not be available");
+        NSLog(@"DBusMenuImporter: Service introspection failed - service may not be available, but trying anyway");
     }
     
     // Call GetLayout method on the dbusmenu interface
@@ -171,8 +181,7 @@
     
     if (!result) {
         NSLog(@"DBusMenuImporter: Failed to get menu layout from %@%@ - DBus call failed", serviceName, objectPath);
-        NSLog(@"DBusMenuImporter: Application registered for menus but GetLayout call failed");
-        NSLog(@"DBusMenuImporter: This may indicate a problem with the application's menu export");
+        NSLog(@"DBusMenuImporter: Application registered for menus but GetLayout call failed - this may be a timing issue");
         return nil;
     }
     

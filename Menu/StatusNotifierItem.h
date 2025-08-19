@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
+#import "DBusConnection.h"
 #import "MenuProtocolManager.h"
 
 @class DBusMenuServer;
@@ -112,7 +113,7 @@ typedef NS_ENUM(NSInteger, SNIStatus) {
  * Monitors StatusNotifierItems on the system
  * Usually implemented by the desktop environment, but we may need a fallback
  */
-@interface StatusNotifierWatcher : NSObject
+@interface StatusNotifierWatcher : NSObject <GNUDBusNameOwnerListener>
 {
     NSMutableArray *_registeredItems;
     NSMutableArray *_registeredHosts;

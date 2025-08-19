@@ -4,12 +4,20 @@
 // Forward declaration
 struct DBusMessage;
 
+// Protocol for name owner change notifications
+@protocol GNUDBusNameOwnerListener <NSObject>
+@optional
+- (void)serviceConnected:(NSString *)serviceName;
+- (void)serviceDisconnected:(NSString *)serviceName;
+@end
+
 // DBus connection wrapper for GNUstep
 @interface GNUDBusConnection : NSObject
 {
     void *_connection; // DBusConnection pointer (opaque)
     BOOL _connected;
     NSMutableDictionary *_messageHandlers;
+    NSMutableDictionary *_nameOwnerListeners;
 }
 
 + (GNUDBusConnection *)sessionBus;
@@ -35,5 +43,7 @@ struct DBusMessage;
 - (int)getFileDescriptor;
 - (BOOL)sendReply:(void *)reply;
 - (void)handleIncomingMessage:(struct DBusMessage *)message;
+- (void)addNameOwnerListener:(id<GNUDBusNameOwnerListener>)listener forName:(NSString *)serviceName;
+- (void)removeNameOwnerListener:(id<GNUDBusNameOwnerListener>)listener forName:(NSString *)serviceName;
 
 @end

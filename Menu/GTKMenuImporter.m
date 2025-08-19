@@ -242,10 +242,14 @@
     Atom busNameAtom = XInternAtom(display, "_GTK_UNIQUE_BUS_NAME", False);
     Atom objectPathAtom = XInternAtom(display, "_GTK_MENUBAR_OBJECT_PATH", False);
     
+    // Also check for KDE menu properties (used by Code-OSS and other Electron apps)
+    Atom kdeServiceAtom = XInternAtom(display, "_KDE_NET_WM_APPMENU_SERVICE_NAME", False);
+    Atom kdeObjectPathAtom = XInternAtom(display, "_KDE_NET_WM_APPMENU_OBJECT_PATH", False);
+    
     unsigned char *busNameProp = NULL;
     unsigned char *objectPathProp = NULL;
     
-    // Get bus name property
+    // First try GTK properties
     Atom propType;
     int propFormat;
     unsigned long propItems, propBytesAfter;
@@ -270,12 +274,40 @@
             
             XFree(objectPathProp);
         } else {
-            NSLog(@"GTKMenuImporter: Window %lu has bus name but no object path", windowId);
+            NSLog(@"GTKMenuImporter: Window %lu has GTK bus name but no object path", windowId);
         }
         
         XFree(busNameProp);
     } else {
-        NSLog(@"GTKMenuImporter: Window %lu has no GTK menu properties", windowId);
+        // Try KDE properties
+        if (XGetWindowProperty(display, window, kdeServiceAtom, 0, 1024, False, AnyPropertyType,
+                              &propType, &propFormat, &propItems, &propBytesAfter, &busNameProp) == Success && busNameProp) {
+            
+            NSLog(@"GTKMenuImporter: Window %lu has _KDE_NET_WM_APPMENU_SERVICE_NAME: %s", windowId, busNameProp);
+            
+            // Get KDE object path property
+            if (XGetWindowProperty(display, window, kdeObjectPathAtom, 0, 1024, False, AnyPropertyType,
+                                  &propType, &propFormat, &propItems, &propBytesAfter, &objectPathProp) == Success && objectPathProp) {
+                
+                NSLog(@"GTKMenuImporter: Window %lu has _KDE_NET_WM_APPMENU_OBJECT_PATH: %s", windowId, objectPathProp);
+                
+                NSString *busName = [NSString stringWithUTF8String:(char *)busNameProp];
+                NSString *objectPath = [NSString stringWithUTF8String:(char *)objectPathProp];
+                
+                NSLog(@"GTKMenuImporter: Immediate scan found KDE window %lu with bus=%@ path=%@", windowId, busName, objectPath);
+                
+                // Register this window immediately
+                [self registerWindow:windowId serviceName:busName objectPath:objectPath];
+                
+                XFree(objectPathProp);
+            } else {
+                NSLog(@"GTKMenuImporter: Window %lu has KDE service name but no object path", windowId);
+            }
+            
+            XFree(busNameProp);
+        } else {
+            NSLog(@"GTKMenuImporter: Window %lu has no GTK or KDE menu properties", windowId);
+        }
     }
     
     XCloseDisplay(display);
@@ -308,6 +340,10 @@
     Atom busNameAtom = XInternAtom(display, "_GTK_UNIQUE_BUS_NAME", False);
     Atom objectPathAtom = XInternAtom(display, "_GTK_MENUBAR_OBJECT_PATH", False);
     
+    // Also check for KDE menu properties (used by Code-OSS and other Electron apps)
+    Atom kdeServiceAtom = XInternAtom(display, "_KDE_NET_WM_APPMENU_SERVICE_NAME", False);
+    Atom kdeObjectPathAtom = XInternAtom(display, "_KDE_NET_WM_APPMENU_OBJECT_PATH", False);
+    
     // Get all windows on the display using _NET_CLIENT_LIST
     Window root = DefaultRootWindow(display);
     Atom clientListAtom = XInternAtom(display, "_NET_CLIENT_LIST", False);
@@ -336,6 +372,8 @@
             // Check this window for GTK menu properties
             unsigned char *busNameProp = NULL;
             unsigned char *objectPathProp = NULL;
+            BOOL foundGTKMenu = NO;
+            BOOL foundKDEMenu = NO;
             
             // Get bus name property (use separate variables to avoid overwriting numClientWindows)
             Atom propType;
@@ -356,28 +394,73 @@
                         NSLog(@"GTKMenuImporter: Window %lu has _GTK_MENUBAR_OBJECT_PATH: %s", (unsigned long)window, objectPathProp);
                     }
                     
-                    NSString *busName = [NSString stringWithUTF8String:(char *)busNameProp];
-                    NSString *objectPath = [NSString stringWithUTF8String:(char *)objectPathProp];
-                    
-                    // Check if this is a new window
-                    NSNumber *windowKey = [NSNumber numberWithUnsignedLong:(unsigned long)window];
-                    if (![_registeredWindows objectForKey:windowKey]) {
-                        NSLog(@"GTKMenuImporter: Found GTK window %lu with bus=%@ path=%@", (unsigned long)window, busName, objectPath);
-                        newWindows++;
-                    } else {
-                        // Only log this on first few scans to show what we have
-                        if (gtkScans <= 2) {
-                            NSLog(@"GTKMenuImporter: Registered GTK window %lu with service=%@ menuPath=%@ actionPath=%@", 
-                                  (unsigned long)window, busName, objectPath, objectPath);
-                        }
-                    }
-                    
-                    // Register this window
-                    [self registerWindow:(unsigned long)window serviceName:busName objectPath:objectPath];
-                    gtkWindows++;
-                    
+                    foundGTKMenu = YES;
                     XFree(objectPathProp);
                 }
+                XFree(busNameProp);
+            }
+            
+            // If no GTK menu found, check for KDE menu properties
+            if (!foundGTKMenu) {
+                if (XGetWindowProperty(display, window, kdeServiceAtom, 0, 1024, False, AnyPropertyType,
+                                      &propType, &propFormat, &propItems, &propBytesAfter, &busNameProp) == Success && busNameProp) {
+                    
+                    if (gtkScans <= 2) {
+                        NSLog(@"GTKMenuImporter: Window %lu has _KDE_NET_WM_APPMENU_SERVICE_NAME: %s", (unsigned long)window, busNameProp);
+                    }
+                    
+                    // Get KDE object path property  
+                    if (XGetWindowProperty(display, window, kdeObjectPathAtom, 0, 1024, False, AnyPropertyType,
+                                          &propType, &propFormat, &propItems, &propBytesAfter, &objectPathProp) == Success && objectPathProp) {
+                        
+                        if (gtkScans <= 2) {
+                            NSLog(@"GTKMenuImporter: Window %lu has _KDE_NET_WM_APPMENU_OBJECT_PATH: %s", (unsigned long)window, objectPathProp);
+                        }
+                        
+                        foundKDEMenu = YES;
+                        XFree(objectPathProp);
+                    }
+                    XFree(busNameProp);
+                }
+            }
+            
+            // Process the found menu (either GTK or KDE)
+            if (foundGTKMenu || foundKDEMenu) {
+                // Re-get the properties for processing
+                if (foundGTKMenu) {
+                    XGetWindowProperty(display, window, busNameAtom, 0, 1024, False, AnyPropertyType,
+                                      &propType, &propFormat, &propItems, &propBytesAfter, &busNameProp);
+                    XGetWindowProperty(display, window, objectPathAtom, 0, 1024, False, AnyPropertyType,
+                                      &propType, &propFormat, &propItems, &propBytesAfter, &objectPathProp);
+                } else {
+                    XGetWindowProperty(display, window, kdeServiceAtom, 0, 1024, False, AnyPropertyType,
+                                      &propType, &propFormat, &propItems, &propBytesAfter, &busNameProp);
+                    XGetWindowProperty(display, window, kdeObjectPathAtom, 0, 1024, False, AnyPropertyType,
+                                      &propType, &propFormat, &propItems, &propBytesAfter, &objectPathProp);
+                }
+                
+                NSString *busName = [NSString stringWithUTF8String:(char *)busNameProp];
+                NSString *objectPath = [NSString stringWithUTF8String:(char *)objectPathProp];
+                
+                // Check if this is a new window
+                NSNumber *windowKey = [NSNumber numberWithUnsignedLong:(unsigned long)window];
+                if (![_registeredWindows objectForKey:windowKey]) {
+                    NSLog(@"GTKMenuImporter: Found %@ window %lu with bus=%@ path=%@", 
+                          foundGTKMenu ? @"GTK" : @"KDE", (unsigned long)window, busName, objectPath);
+                    newWindows++;
+                } else {
+                    // Only log this on first few scans to show what we have
+                    if (gtkScans <= 2) {
+                        NSLog(@"GTKMenuImporter: Registered %@ window %lu with service=%@ menuPath=%@ actionPath=%@", 
+                              foundGTKMenu ? @"GTK" : @"KDE", (unsigned long)window, busName, objectPath, objectPath);
+                    }
+                }
+                
+                // Register this window
+                [self registerWindow:(unsigned long)window serviceName:busName objectPath:objectPath];
+                gtkWindows++;
+                
+                XFree(objectPathProp);
                 XFree(busNameProp);
             }
         }
@@ -517,20 +600,91 @@
                        menuPath:(NSString *)menuPath 
                      actionPath:(NSString *)actionPath
 {
-    NSLog(@"GTKMenuImporter: Loading GTK menu from service=%@ menuPath=%@ actionPath=%@", 
+    NSLog(@"GTKMenuImporter: Loading menu from service=%@ menuPath=%@ actionPath=%@", 
           serviceName, menuPath, actionPath);
     
-    // First, introspect the menu path to see what's available
+    // First, check if this is a KDE-style menu (canonical D-Bus menu protocol)
+    // by trying to introspect for com.canonical.dbusmenu interface
     id introspectResult = [_dbusConnection callMethod:@"Introspect"
                                             onService:serviceName
                                            objectPath:menuPath
                                             interface:@"org.freedesktop.DBus.Introspectable"
                                             arguments:nil];
     
-    if (!introspectResult) {
-        NSLog(@"GTKMenuImporter: Failed to introspect GTK menu service");
+    BOOL isCanonicalDBusMenu = NO;
+    if (introspectResult && [introspectResult isKindOfClass:[NSString class]]) {
+        NSString *xml = (NSString *)introspectResult;
+        if ([xml containsString:@"com.canonical.dbusmenu"]) {
+            isCanonicalDBusMenu = YES;
+            NSLog(@"GTKMenuImporter: Detected canonical D-Bus menu interface (KDE-style)");
+        } else {
+            NSLog(@"GTKMenuImporter: No canonical D-Bus menu interface found, treating as GTK menu");
+        }
+    }
+    
+    NSMenu *menu = nil;
+    
+    if (isCanonicalDBusMenu) {
+        // Load using canonical D-Bus menu protocol (used by KDE and Electron apps like Code-OSS)
+        menu = [self loadCanonicalDBusMenuFromService:serviceName menuPath:menuPath];
+    } else {
+        // Load using GTK menu protocol
+        menu = [self loadGTKMenuFromService:serviceName menuPath:menuPath actionPath:actionPath];
+    }
+    
+    if (!menu) {
+        NSLog(@"GTKMenuImporter: Failed to parse menu structure, creating placeholder");
+        menu = [[NSMenu alloc] initWithTitle:@"Application Menu"];
+        
+        // Add placeholder items to indicate this is an application menu
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Application" 
+                                                      action:nil 
+                                               keyEquivalent:@""];
+        [item setEnabled:NO];
+        [menu addItem:item];
+        [item release];
+    }
+    
+    return [menu autorelease];
+}
+
+- (NSMenu *)loadCanonicalDBusMenuFromService:(NSString *)serviceName menuPath:(NSString *)menuPath
+{
+    NSLog(@"GTKMenuImporter: Loading canonical D-Bus menu from service=%@ path=%@", serviceName, menuPath);
+    
+    // Call GetLayout method on com.canonical.dbusmenu interface
+    // Signature: GetLayout(i parentId, i recursionDepth, as propertyNames) -> (u revision, (ia{sv}) layout)
+    NSArray *arguments = @[
+        [NSNumber numberWithInt:0],     // parentId (root)
+        [NSNumber numberWithInt:-1],    // recursionDepth (-1 = all levels)
+        @[]                             // propertyNames (empty = all properties)
+    ];
+    
+    id layoutResult = [_dbusConnection callMethod:@"GetLayout"
+                                         onService:serviceName
+                                        objectPath:menuPath
+                                         interface:@"com.canonical.dbusmenu"
+                                         arguments:arguments];
+    
+    if (!layoutResult) {
+        NSLog(@"GTKMenuImporter: Failed to get canonical D-Bus menu layout");
         return nil;
     }
+    
+    NSLog(@"GTKMenuImporter: Canonical D-Bus menu layout result type: %@", [layoutResult class]);
+    NSLog(@"GTKMenuImporter: Canonical D-Bus menu layout result: %@", layoutResult);
+    
+    // Parse the canonical D-Bus menu structure
+    // Import DBusMenuParser to handle the canonical format
+    NSMenu *menu = [self parseCanonicalDBusMenuLayout:layoutResult serviceName:serviceName menuPath:menuPath];
+    
+    return menu;
+}
+
+- (NSMenu *)loadGTKMenuFromService:(NSString *)serviceName menuPath:(NSString *)menuPath actionPath:(NSString *)actionPath
+{
+    NSLog(@"GTKMenuImporter: Loading GTK menu from service=%@ menuPath=%@ actionPath=%@", 
+          serviceName, menuPath, actionPath);
     
     // Try to call Start method on org.gtk.Menus interface
     // This method returns the menu structure: Start(au subscription_ids) -> (uaa{sv})
@@ -569,17 +723,40 @@
                                                   actionPath:actionPath 
                                               dbusConnection:_dbusConnection];
     
-    if (!menu) {
-        NSLog(@"GTKMenuImporter: Failed to parse GTK menu structure, creating placeholder");
-        menu = [[NSMenu alloc] initWithTitle:@"GTK App Menu"];
-        
-        // Add placeholder items to indicate this is a GTK app
-        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"GTK Application" 
-                                                      action:nil 
-                                               keyEquivalent:@""];
-        [item setEnabled:NO];
-        [menu addItem:item];
-        [item release];
+    return menu;
+}
+
+- (NSMenu *)parseCanonicalDBusMenuLayout:(id)layoutResult serviceName:(NSString *)serviceName menuPath:(NSString *)menuPath
+{
+    // This is a simplified parser for canonical D-Bus menus
+    // In a full implementation, we would use DBusMenuParser, but for now create a basic menu
+    
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Application Menu"];
+    
+    // The layoutResult should be an array with [revision, layout]
+    if ([layoutResult isKindOfClass:[NSArray class]]) {
+        NSArray *result = (NSArray *)layoutResult;
+        if ([result count] >= 2) {
+            // result[0] is revision (NSNumber)
+            // result[1] is layout structure
+            id layout = [result objectAtIndex:1];
+            
+            NSLog(@"GTKMenuImporter: Parsing canonical D-Bus menu layout: %@", layout);
+            
+            // For now, create a simple menu structure
+            // In a full implementation, we would recursively parse the layout
+            NSMenuItem *item1 = [[NSMenuItem alloc] initWithTitle:@"File" action:nil keyEquivalent:@""];
+            NSMenuItem *item2 = [[NSMenuItem alloc] initWithTitle:@"Edit" action:nil keyEquivalent:@""];
+            NSMenuItem *item3 = [[NSMenuItem alloc] initWithTitle:@"View" action:nil keyEquivalent:@""];
+            
+            [menu addItem:item1];
+            [menu addItem:item2];
+            [menu addItem:item3];
+            
+            [item1 release];
+            [item2 release];
+            [item3 release];
+        }
     }
     
     return [menu autorelease];

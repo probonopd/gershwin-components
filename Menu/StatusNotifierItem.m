@@ -561,8 +561,13 @@ static NSString * const SNI_WATCHER_INTERFACE = @"org.kde.StatusNotifierWatcher"
 {
     if (![_registeredItems containsObject:service]) {
         [_registeredItems addObject:service];
+        
+        // Start monitoring this service for disconnection
+        GNUDBusConnection *connection = [GNUDBusConnection sessionBus];
+        [connection addNameOwnerListener:self forName:service];
+        
         [self statusNotifierItemRegistered:service];
-        NSLog(@"StatusNotifierWatcher: Registered item %@", service);
+        NSLog(@"StatusNotifierWatcher: Registered item %@ and started monitoring", service);
     }
 }
 
@@ -616,6 +621,28 @@ static NSString * const SNI_WATCHER_INTERFACE = @"org.kde.StatusNotifierWatcher"
 - (NSArray *)statusNotifierHosts
 {
     return [NSArray arrayWithArray:_registeredHosts];
+}
+
+#pragma mark - Name Owner Change Callbacks
+
+- (void)serviceDisconnected:(NSString *)serviceName
+{
+    NSLog(@"StatusNotifierWatcher: Service %@ disconnected, unregistering item", serviceName);
+    
+    if ([_registeredItems containsObject:serviceName]) {
+        [self statusNotifierItemUnregistered:serviceName];
+    }
+    
+    // Stop monitoring this service
+    GNUDBusConnection *connection = [GNUDBusConnection sessionBus];
+    [connection removeNameOwnerListener:self forName:serviceName];
+}
+
+- (void)serviceConnected:(NSString *)serviceName
+{
+    // We don't need to do anything special when a service connects
+    // Items register themselves via D-Bus method calls
+    NSLog(@"StatusNotifierWatcher: Service %@ connected", serviceName);
 }
 
 @end
