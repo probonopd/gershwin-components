@@ -2,6 +2,7 @@
 #import "MenuController.h"
 #import "X11ShortcutManager.h"
 #import "DBusMenuParser.h"
+#import "DBusConnection.h"
 #import <signal.h>
 #import <unistd.h>
 
@@ -42,6 +43,59 @@ static void signalHandler(int sig)
 
 @implementation MenuApplication
 
+- (BOOL)checkForExistingMenuApplication
+{
+    NSLog(@"MenuApplication: Checking for existing menu applications...");
+    
+    // Create a temporary DBus connection to check if services are already registered
+    GNUDBusConnection *tempConnection = [GNUDBusConnection sessionBus];
+    if (![tempConnection isConnected]) {
+        NSLog(@"MenuApplication: Cannot connect to DBus to check for existing services");
+        return NO; // If we can't connect to DBus, let the app try to start normally
+    }
+    
+    // Check if com.canonical.AppMenu.Registrar service is already running
+    BOOL serviceExists = NO;
+    
+    @try {
+        // Use DBus introspection to check if the service exists
+        id result = [tempConnection callMethod:@"NameHasOwner"
+                                     onService:@"org.freedesktop.DBus"
+                                    objectPath:@"/org/freedesktop/DBus"
+                                     interface:@"org.freedesktop.DBus"
+                                     arguments:@[@"com.canonical.AppMenu.Registrar"]];
+        
+        if (result && [result respondsToSelector:@selector(boolValue)]) {
+            serviceExists = [result boolValue];
+        }
+    }
+    @catch (NSException *exception) {
+        NSLog(@"MenuApplication: Exception while checking for existing service: %@", exception);
+        serviceExists = NO;
+    }
+    
+    if (serviceExists) {
+        NSLog(@"MenuApplication: Found existing AppMenu.Registrar service - another menu application is running");
+        
+        // Show NSAlert to inform user
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:NSLocalizedString(@"Menu Application Already Running", @"Menu app conflict dialog title")];
+        [alert setInformativeText:NSLocalizedString(@"Another menu application is already running. Only one menu application can run at a time.", @"Menu app conflict dialog message")];
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
+        [alert setAlertStyle:NSWarningAlertStyle];
+        
+        NSLog(@"MenuApplication: Showing conflict alert...");
+        [alert runModal];
+        [alert release];
+        
+        NSLog(@"MenuApplication: Exiting due to service conflict");
+        exit(1);
+    }
+    
+    NSLog(@"MenuApplication: No conflicting menu applications found");
+    return YES;
+}
+
 + (MenuApplication *)sharedApplication
 {
     if (NSApp == nil) {
@@ -61,6 +115,9 @@ static void signalHandler(int sig)
 - (void)finishLaunching
 {
     NSLog(@"MenuApplication: ===== FINISH LAUNCHING CALLED =====");
+    
+    // Check for existing menu applications before proceeding
+    [self checkForExistingMenuApplication];
     
     // DON'T call super finishLaunching as it may be causing immediate termination
     // [super finishLaunching];

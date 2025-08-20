@@ -7,5 +7,6 @@
 
 + (MenuApplication *)sharedApplication;
 - (void)sendEvent:(NSEvent *)event;
+- (BOOL)checkForExistingMenuApplication;
 
 @end
