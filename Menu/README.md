@@ -5,7 +5,7 @@ A GNUstep port of the Menu global menu bar application with DBus app menu suppor
 ## Overview
 
 This application provides a global menu bar that displays application menus at the top of the screen. It uses DBus to communicate with applications that export their menus using either:
-* The Canonical protocol (`com.canonical.AppMenu.Registrar` and `com.canonical.dbusmenu`)(applications export their menus to Menu.app), or
+* The Canonical protocol (`com.canonical.AppMenu.Registrar` and `com.canonical.dbusmenu`) (applications export their menus to Menu.app), or
 * The GTK protocol (`org.gtk.Menus` and `org.gtk.Actions`) (Menu.app queries applications for their menus), or
 * The native GNUstep protocol (still to be implemented)
 
