@@ -2,6 +2,8 @@
 #import <AppKit/AppKit.h>
 #import <X11/Xlib.h>
 
+#include <unistd.h>
+
 @class GNUDBusConnection;
 
 /**
