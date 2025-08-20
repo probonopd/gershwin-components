@@ -4,19 +4,21 @@ A GNUstep port of the Menu global menu bar application with DBus app menu suppor
 
 ## Overview
 
-This application provides a global menu bar that displays application menus at the top of the screen. It uses DBus to communicate with applications that export their menus using the `com.canonical.AppMenu.Registrar` and `com.canonical.dbusmenu` specifications.
+This application provides a global menu bar that displays application menus at the top of the screen. It uses DBus to communicate with applications that export their menus using either:
+* The Canonical protocol (`com.canonical.AppMenu.Registrar` and `com.canonical.dbusmenu`)(applications export their menus to Menu.app), or
+* The GTK protocol (`org.gtk.Menus` and `org.gtk.Actions`) (Menu.app queries applications for their menus), or
+* The native GNUstep protocol (still to be implemented)
 
 ## Features
 
 - Global menu bar displayed at the top of the screen
-- DBus-based application menu import
-- Real-time active window tracking
+- DBus-based application menu import supporting the Canonical and the GTK protocols
 - GNUstep/Objective-C implementation
 - No glib/gio dependencies (uses libdbus directly)
 
 ## Dependencies
 
-### Required Libraries
+### Required Libraries for Building
 - GNUstep Base (`gnustep-base-dev`)
 - GNUstep GUI (`gnustep-gui-dev`) 
 - libdbus-1 (`libdbus-1-dev`)
@@ -89,23 +91,7 @@ Uses X11 directly to:
 - Track the active window
 - Get window properties
 - Monitor window focus changes
-
-## Configuration
-
-### Positioning
-
-The menu bar is positioned at the top of the primary screen with:
-- Height: 24 pixels
-- Width: Full screen width
-- Level: Above main menu (NSMainMenuWindowLevel + 1)
-
-### Appearance
-
-- Semi-transparent background with gradient
-- System font at 13pt for menu items
-- 4px spacing between menu buttons
-- 16px padding inside buttons
-
+- 
 ## Troubleshooting
 
 ### DBus Connection Issues
@@ -120,17 +106,7 @@ echo $DBUS_SESSION_BUS_ADDRESS
 eval `dbus-launch --auto-syntax`
 ```
 
-### X11 Display Issues
-
-If the application cannot access X11:
-
-```bash
-# Make sure DISPLAY is set
-echo $DISPLAY
-
-# Check X11 access
-xauth list
-```
+## Development
 
 ### GNUstep Environment
 
@@ -145,32 +121,11 @@ echo $GNUSTEP_SYSTEM_ROOT
 echo $GNUSTEP_LOCAL_ROOT
 ```
 
-## Development
-
-### Debugging
-
-Enable debug logging by setting:
-
-```bash
-export NSDebugEnabled=YES
-export GSDebugAllocation=YES
-```
-
-### Code Style
-
-The code follows these conventions:
-- Objective-C 2.0 syntax where possible
-- Manual memory management (retain/release)
-- Extensive NSLog debugging
-- 24px spacing for UI elements (20px from top/bottom)
-- KVO for property observation where appropriate
-
 ### Testing
 
-Test with applications that support app menu export:
-- GTK applications with `ubuntu-menuproxy`
-- Qt applications with `-platformtheme gtk3`
-- Applications using `libdbusmenu`
+- Qt application (qvlc) with `QT_QPA_PLATFORMTHEME=kde`
+- GTK 2 application (leafpad) with appmenu-gtk-module
+- GTK 2 application (gedit) with appmenu-gtk-module
 
 ## Contributing
 
