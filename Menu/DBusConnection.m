@@ -147,6 +147,15 @@ static GNUDBusConnection *sharedSessionBus = nil;
         return nil;
     }
     
+    // Debug arguments array at entry point
+    NSLog(@"DBusConnection: callMethod entry - arguments array: %@", arguments);
+    NSLog(@"DBusConnection: callMethod entry - arguments count: %lu", (unsigned long)[arguments count]);
+    for (NSUInteger i = 0; i < [arguments count]; i++) {
+        id arg = [arguments objectAtIndex:i];
+        NSLog(@"DBusConnection: callMethod entry - arg[%lu]: %@ (class: %@, isNSNull: %@)", 
+              (unsigned long)i, arg, [arg class], [arg isKindOfClass:[NSNull class]] ? @"YES" : @"NO");
+    }
+    
     DBusMessage *message = dbus_message_new_method_call([serviceName UTF8String],
                                                        [objectPath UTF8String],
                                                        [interfaceName UTF8String],
@@ -163,10 +172,25 @@ static GNUDBusConnection *sharedSessionBus = nil;
         
         for (NSUInteger argumentIndex = 0; argumentIndex < [arguments count]; argumentIndex++) {
             id argument = [arguments objectAtIndex:argumentIndex];
+            NSLog(@"DBusConnection: Processing argument[%lu]: %@ (class: %@)", (unsigned long)argumentIndex, argument, [argument class]);
+            
             if ([argument isKindOfClass:[NSString class]]) {
-                const char *str = [argument UTF8String];
-                dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &str);
+                // Check if this is the third argument of an Event method call - should be variant
+                if (argumentIndex == 2 && [method isEqualToString:@"Event"]) {
+                    NSLog(@"DBusConnection: Encoding 3rd argument of Event call as VARIANT containing string");
+                    // Force third argument to be variant for DBus Event calls
+                    DBusMessageIter variantIter;
+                    dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT, "s", &variantIter);
+                    const char *str = [argument UTF8String];
+                    dbus_message_iter_append_basic(&variantIter, DBUS_TYPE_STRING, &str);
+                    dbus_message_iter_close_container(&iter, &variantIter);
+                } else {
+                    NSLog(@"DBusConnection: Encoding as STRING");
+                    const char *str = [argument UTF8String];
+                    dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &str);
+                }
             } else if ([argument isKindOfClass:[NSNull class]]) {
+                NSLog(@"DBusConnection: Encoding NSNull as VARIANT containing empty string");
                 // Handle NSNull as an empty variant for DBus Event calls
                 DBusMessageIter variantIter;
                 dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT, "s", &variantIter);

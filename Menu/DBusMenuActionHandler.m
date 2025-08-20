@@ -92,11 +92,16 @@ static NSMutableDictionary *menuItemToConnectionMap = nil;
     NSArray *arguments = [NSArray arrayWithObjects:
                          [NSNumber numberWithInt:menuItemId],  // menu item ID (int32)
                          @"clicked",                           // event type (string)
-                         [NSNull null],                        // event data (variant - empty/null)
+                         @"",                                  // event data (variant - empty string as placeholder)
                          timestampNumber,                      // timestamp (uint32 - 0 for current time)
                          nil];
     
     NSLog(@"DBusMenuActionHandler: Calling Event method with signature (isvu) and arguments: %@", arguments);
+    NSLog(@"DBusMenuActionHandler: Argument details:");
+    for (NSUInteger i = 0; i < [arguments count]; i++) {
+        id arg = [arguments objectAtIndex:i];
+        NSLog(@"DBusMenuActionHandler:   [%lu]: %@ (class: %@)", (unsigned long)i, arg, [arg class]);
+    }
     
     id result = [dbusConnection callMethod:@"Event"
                                  onService:serviceName
