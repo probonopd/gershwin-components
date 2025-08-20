@@ -82,11 +82,18 @@ static NSMutableDictionary *menuItemToConnectionMap = nil;
     // Send Event method call to activate the menu item
     // According to DBusMenu spec, Event method signature is: (isvu)
     // Based on reference implementation: id, eventType, data (variant), timestamp
+    
+    // Create unsigned int NSNumber explicitly using NSValue approach
+    unsigned int timestampValue = 0;
+    NSNumber *timestampNumber = [[NSNumber alloc] initWithUnsignedInt:timestampValue];
+    NSLog(@"DBusMenuActionHandler: Timestamp NSNumber objCType: %s (unsigned int: %s)", 
+          [timestampNumber objCType], @encode(unsigned int));
+    
     NSArray *arguments = [NSArray arrayWithObjects:
                          [NSNumber numberWithInt:menuItemId],  // menu item ID (int32)
                          @"clicked",                           // event type (string)
                          [NSNull null],                        // event data (variant - empty/null)
-                         [NSNumber numberWithUnsignedInt:0],   // timestamp (uint32 - 0 for current time)
+                         timestampNumber,                      // timestamp (uint32 - 0 for current time)
                          nil];
     
     NSLog(@"DBusMenuActionHandler: Calling Event method with signature (isvu) and arguments: %@", arguments);

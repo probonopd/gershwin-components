@@ -161,7 +161,8 @@ static GNUDBusConnection *sharedSessionBus = nil;
         DBusMessageIter iter;
         dbus_message_iter_init_append(message, &iter);
         
-        for (id argument in arguments) {
+        for (NSUInteger argumentIndex = 0; argumentIndex < [arguments count]; argumentIndex++) {
+            id argument = [arguments objectAtIndex:argumentIndex];
             if ([argument isKindOfClass:[NSString class]]) {
                 const char *str = [argument UTF8String];
                 dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &str);
@@ -173,17 +174,33 @@ static GNUDBusConnection *sharedSessionBus = nil;
                 dbus_message_iter_append_basic(&variantIter, DBUS_TYPE_STRING, &emptyStr);
                 dbus_message_iter_close_container(&iter, &variantIter);
             } else if ([argument isKindOfClass:[NSNumber class]]) {
-                if (strcmp([argument objCType], @encode(BOOL)) == 0) {
+                const char *objCType = [argument objCType];
+                NSLog(@"DBusConnection: Processing NSNumber with objCType: %s", objCType);
+                NSLog(@"DBusConnection: Comparisons - BOOL: %s, int: %s, long: %s, unsigned int: %s, unsigned long: %s", 
+                      @encode(BOOL), @encode(int), @encode(long), @encode(unsigned int), @encode(unsigned long));
+                
+                if (strcmp(objCType, @encode(BOOL)) == 0) {
+                    NSLog(@"DBusConnection: Encoding as BOOL");
                     dbus_bool_t val = [argument boolValue];
                     dbus_message_iter_append_basic(&iter, DBUS_TYPE_BOOLEAN, &val);
-                } else if (strcmp([argument objCType], @encode(int)) == 0 ||
-                          strcmp([argument objCType], @encode(long)) == 0) {
-                    dbus_int32_t val = [argument intValue];
-                    dbus_message_iter_append_basic(&iter, DBUS_TYPE_INT32, &val);
-                } else if (strcmp([argument objCType], @encode(unsigned int)) == 0 ||
-                          strcmp([argument objCType], @encode(unsigned long)) == 0) {
+                } else if (strcmp(objCType, @encode(unsigned int)) == 0 ||
+                          strcmp(objCType, @encode(unsigned long)) == 0) {
+                    NSLog(@"DBusConnection: Encoding as UINT32 (objCType matched unsigned)");
                     dbus_uint32_t val = [argument unsignedIntValue];
                     dbus_message_iter_append_basic(&iter, DBUS_TYPE_UINT32, &val);
+                } else {
+                    // Check if this is a timestamp parameter (4th argument in Event call)
+                    // DBusMenu Event signature is (isvu) where the last parameter should be uint32
+                    if (argumentIndex == 3 && [method isEqualToString:@"Event"]) {  // 4th argument (0-indexed) - timestamp should be uint32
+                        NSLog(@"DBusConnection: Encoding timestamp parameter as UINT32 (4th argument in Event call)");
+                        dbus_uint32_t val = [argument unsignedIntValue];
+                        dbus_message_iter_append_basic(&iter, DBUS_TYPE_UINT32, &val);
+                    } else {
+                        // Default to signed integer for other cases
+                        NSLog(@"DBusConnection: Encoding as INT32 (default for objCType: %s, argIndex: %lu)", objCType, (unsigned long)argumentIndex);
+                        dbus_int32_t val = [argument intValue];
+                        dbus_message_iter_append_basic(&iter, DBUS_TYPE_INT32, &val);
+                    }
                 }
             } else if ([argument isKindOfClass:[NSArray class]]) {
                 // Handle array arguments - detect the type of the first element
