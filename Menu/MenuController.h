@@ -9,10 +9,6 @@
 @class MenuProtocolManager;
 @class RoundedCornersView;
 
-#define RIGHTPADDING 20
-#define LEFTPADDING 20
-#define PADDING 10
-
 @interface MenuController : NSObject <NSApplicationDelegate>
 {
 @public
@@ -23,6 +19,13 @@
     AppMenuWidget *_appMenuWidget;
     MenuProtocolManager *_protocolManager;
     RoundedCornersView *_roundedCornersView;
+    NSMenuView *_timeMenuView;
+    NSMenu *_timeMenu;
+    NSMenuItem *_timeMenuItem;
+    NSMenuItem *_dateMenuItem;
+    NSTimer *_timeUpdateTimer;
+    NSDateFormatter *_timeFormatter;
+    NSDateFormatter *_dateFormatter;
     Display *_display;
     Window _rootWindow;
     Atom _netActiveWindowAtom;
@@ -47,5 +50,8 @@
 - (void)scanForNewMenus;
 - (AppMenuWidget *)appMenuWidget;
 - (void)x11ActiveWindowMonitor;
+
+- (void)createTimeMenu;
+- (void)updateTimeMenu;
 
 @end

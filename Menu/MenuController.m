@@ -145,6 +145,9 @@
     [_appMenuWidget setProtocolManager:[MenuProtocolManager sharedManager]];
     NSLog(@"MenuController: Created AppMenuWidget: %@", _appMenuWidget);
     
+    // Create time/date menu bar
+    [self createTimeMenu];
+    
     // probono: Create rounded corners view for black top corners like in old/src/mainwindow.cpp
     // Position it at the top of the menu bar, with height enough for the corner radius effect
     CGFloat cornerHeight = 10.0; // 2 * corner radius (5px)
@@ -153,6 +156,7 @@
     // Add subviews in the correct order (background first, then content, then corners on top)
     [[_menuBar contentView] addSubview:_menuBarView];
     [[_menuBar contentView] addSubview:_appMenuWidget];
+    [[_menuBar contentView] addSubview:_timeMenuView];
     [[_menuBar contentView] addSubview:_roundedCornersView];
     
     [attributes release];
@@ -422,11 +426,75 @@
     [pool release];
 }
 
+- (void)createTimeMenu
+{
+    NSLog(@"MenuController: Creating time menu");
+    
+    // Create formatters
+    _timeFormatter = [[NSDateFormatter alloc] init];
+    [_timeFormatter setDateFormat:@"HH:mm"];
+    _dateFormatter = [[NSDateFormatter alloc] init];
+    [_dateFormatter setDateFormat:@"EEEE, MMMM d, yyyy"];
+
+    // Create the menu and items
+    _timeMenu = [[NSMenu alloc] initWithTitle:@""];
+    [_timeMenu setAutoenablesItems:NO];
+    _timeMenuItem = [[NSMenuItem alloc] initWithTitle:@"00:00" action:nil keyEquivalent:@""];
+    /*
+    NSMenu *timeSubMenu = [[NSMenu alloc] initWithTitle:@"TimeSubMenu"];
+    _dateMenuItem = [[NSMenuItem alloc] initWithTitle:@"Loading..." action:nil keyEquivalent:@""];
+    [_dateMenuItem setEnabled:NO];
+    [timeSubMenu addItem:_dateMenuItem];
+    [_timeMenuItem setSubmenu:timeSubMenu];
+    [timeSubMenu release];
+    */
+    [_timeMenu addItem:_timeMenuItem];
+    
+    // Create the menu view at the right edge
+    CGFloat timeMenuWidth = 60;
+    CGFloat timeMenuX = _screenSize.width - timeMenuWidth;
+    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    _timeMenuView = [[NSMenuView alloc] initWithFrame:NSMakeRect(timeMenuX, 0, timeMenuWidth, menuBarHeight)];
+    [_timeMenuView setMenu:_timeMenu];
+    [_timeMenuView setHorizontal:YES];
+    [_timeMenuView setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin | NSViewMinYMargin];
+
+    // Start timer to update time
+    _timeUpdateTimer = [[NSTimer scheduledTimerWithTimeInterval:1.0
+                                                        target:self
+                                                      selector:@selector(updateTimeMenu)
+                                                      userInfo:nil
+                                                       repeats:YES] retain];
+    [self updateTimeMenu];
+}
+
+- (void)updateTimeMenu
+{
+    NSDate *now = [NSDate date];
+    NSString *timeString = [_timeFormatter stringFromDate:now];
+    [_timeMenuItem setTitle:timeString];
+    NSString *dateString = [_dateFormatter stringFromDate:now];
+    [_dateMenuItem setTitle:dateString];
+}
+
 - (void)dealloc
 {
     // Ensure shortcuts are cleaned up if dealloc is called
     NSLog(@"MenuController: dealloc - cleaning up global shortcuts...");
     [[X11ShortcutManager sharedManager] cleanup];
+    
+    // Clean up time display resources
+    if (_timeUpdateTimer) {
+        [_timeUpdateTimer invalidate];
+        [_timeUpdateTimer release];
+        _timeUpdateTimer = nil;
+    }
+    [_timeFormatter release];
+    [_dateFormatter release];
+    [_timeMenuView release];
+    [_timeMenu release];
+    [_timeMenuItem release];
+    [_dateMenuItem release];
     
     [_menuBar release];
     [_menuBarView release];
