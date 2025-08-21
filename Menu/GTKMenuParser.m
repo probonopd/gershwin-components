@@ -138,6 +138,13 @@
                 if (sectionMenu) {
                     NSLog(@"GTKMenuParser: Section menu %@ has %lu items, adding to parent", 
                           sectionMenuId, (unsigned long)[[sectionMenu itemArray] count]);
+                    
+                    // Add a separator before this section if there are already items in the menu
+                    if ([menu numberOfItems] > 0) {
+                        [menu addItem:[NSMenuItem separatorItem]];
+                        NSLog(@"GTKMenuParser: Added separator before section %@", sectionMenuId);
+                    }
+                    
                     // Add all items from the section to our menu
                     for (NSMenuItem *item in [sectionMenu itemArray]) {
                         [menu addItem:[[item copy] autorelease]];

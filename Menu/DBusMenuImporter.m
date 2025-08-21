@@ -1,7 +1,9 @@
 #import "DBusMenuImporter.h"
 #import "DBusMenuParser.h"
+#import "DBusMenuActionHandler.h"
 #import "MenuUtils.h"
 #import "AppMenuWidget.h"
+#import "MenuCacheManager.h"
 #import <dbus/dbus.h>
 
 // Forward declare the sendReply method to avoid header issues
@@ -89,11 +91,46 @@
     NSLog(@"DBusMenuImporter: Currently registered windows: %@", _registeredWindows);
     NSLog(@"DBusMenuImporter: Window menu paths: %@", _windowMenuPaths);
     
-    // Check cache first
-    NSMenu *cachedMenu = [_menuCache objectForKey:windowKey];
+    // Check enhanced cache first
+    MenuCacheManager *cacheManager = [MenuCacheManager sharedManager];
+    NSMenu *cachedMenu = [cacheManager getCachedMenuForWindow:windowId];
     if (cachedMenu) {
-        NSLog(@"DBusMenuImporter: Returning cached menu for window %lu", windowId);
+        NSLog(@"DBusMenuImporter: Returning enhanced cached menu for window %lu - re-registering shortcuts", windowId);
+        
+        // Re-register shortcuts for cached menu since they may have been unregistered
+        // when the window lost focus
+        [self reregisterShortcutsForMenu:cachedMenu windowId:windowId];
+        
+        // Notify cache manager that window became active
+        [cacheManager windowBecameActive:windowId];
+        
         return cachedMenu;
+    }
+    
+    // Fall back to legacy cache check for backward compatibility
+    NSMenu *legacyCachedMenu = [_menuCache objectForKey:windowKey];
+    if (legacyCachedMenu) {
+        NSLog(@"DBusMenuImporter: Found menu in legacy cache, migrating to enhanced cache");
+        
+        // Get application name for this window
+        NSString *appName = [MenuUtils getApplicationNameForWindow:windowId];
+        NSString *serviceName = [_registeredWindows objectForKey:windowKey];
+        NSString *objectPath = [_windowMenuPaths objectForKey:windowKey];
+        
+        // Migrate to enhanced cache
+        [cacheManager cacheMenu:legacyCachedMenu
+                      forWindow:windowId
+                    serviceName:serviceName
+                     objectPath:objectPath
+                applicationName:appName];
+        
+        // Remove from legacy cache
+        [_menuCache removeObjectForKey:windowKey];
+        
+        // Re-register shortcuts
+        [self reregisterShortcutsForMenu:legacyCachedMenu windowId:windowId];
+        
+        return legacyCachedMenu;
     }
     
     NSString *serviceName = [_registeredWindows objectForKey:windowKey];
@@ -124,8 +161,18 @@
     // Get the menu layout from DBus
     NSMenu *menu = [self loadMenuFromDBus:serviceName objectPath:objectPath];
     if (menu) {
-        [_menuCache setObject:menu forKey:windowKey];
-        NSLog(@"DBusMenuImporter: Successfully loaded menu with %lu items", (unsigned long)[[menu itemArray] count]);
+        // Get application name for enhanced caching
+        NSString *appName = [MenuUtils getApplicationNameForWindow:windowId];
+        
+        // Cache in enhanced cache manager
+        [cacheManager cacheMenu:menu
+                      forWindow:windowId
+                    serviceName:serviceName
+                     objectPath:objectPath
+                applicationName:appName];
+        
+        NSLog(@"DBusMenuImporter: Successfully loaded and cached menu with %lu items", 
+              (unsigned long)[[menu itemArray] count]);
     } else {
         NSLog(@"DBusMenuImporter: Failed to load menu for registered window %lu from %@%@", windowId, serviceName, objectPath);
         // For registered windows that fail to load, return nil instead of fallback
@@ -265,8 +312,9 @@
     [_registeredWindows setObject:serviceName forKey:windowKey];
     [_windowMenuPaths setObject:objectPath forKey:windowKey];
     
-    // Clear cached menu for this window
+    // Clear cached menu for this window in both legacy and enhanced cache
     [_menuCache removeObjectForKey:windowKey];
+    [[MenuCacheManager sharedManager] invalidateCacheForWindow:windowId];
     
     // Set X11 properties for Chrome/Firefox compatibility
     // This is the key fix that was missing - these properties tell applications
@@ -301,6 +349,7 @@
     [_registeredWindows removeObjectForKey:windowKey];
     [_windowMenuPaths removeObjectForKey:windowKey];
     [_menuCache removeObjectForKey:windowKey];
+    [[MenuCacheManager sharedManager] invalidateCacheForWindow:windowId];
     
     NSLog(@"DBusMenuImporter: Unregistered window %lu", windowId);
 }
@@ -593,6 +642,57 @@
     
     NSLog(@"DBusMenuImporter: Alert dismissed, exiting application...");
     exit(1);
+}
+
+- (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId
+{
+    if (!menu) {
+        return;
+    }
+    
+    NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
+    NSString *serviceName = [_registeredWindows objectForKey:windowKey];
+    NSString *objectPath = [_windowMenuPaths objectForKey:windowKey];
+    
+    if (!serviceName || !objectPath) {
+        NSLog(@"DBusMenuImporter: Cannot re-register shortcuts - missing service/object path");
+        return;
+    }
+    
+    NSLog(@"DBusMenuImporter: Re-registering shortcuts for DBus menu (window %lu)", windowId);
+    [self reregisterShortcutsForMenuItems:[menu itemArray] serviceName:serviceName objectPath:objectPath];
+}
+
+- (void)reregisterShortcutsForMenuItems:(NSArray *)items serviceName:(NSString *)serviceName objectPath:(NSString *)objectPath
+{
+    for (NSMenuItem *item in items) {
+        // Check if this item has a shortcut
+        NSString *keyEquivalent = [item keyEquivalent];
+        if (keyEquivalent && [keyEquivalent length] > 0) {
+            NSUInteger modifierMask = [item keyEquivalentModifierMask];
+            
+            // Apply the same filtering as DBusMenuActionHandler
+            BOOL hasShiftOnly = (modifierMask == NSShiftKeyMask);
+            BOOL hasNoModifiers = (modifierMask == 0);
+            
+            if (!hasNoModifiers && !hasShiftOnly) {
+                NSLog(@"DBusMenuImporter: Re-registering DBus shortcut: %@", [item title]);
+                
+                // Re-register through DBusMenuActionHandler
+                [DBusMenuActionHandler setupActionForMenuItem:item
+                                                   serviceName:serviceName
+                                                    objectPath:objectPath
+                                                dbusConnection:_dbusConnection];
+            }
+        }
+        
+        // Process submenus recursively
+        if ([item hasSubmenu]) {
+            [self reregisterShortcutsForMenuItems:[[item submenu] itemArray] 
+                                      serviceName:serviceName 
+                                       objectPath:objectPath];
+        }
+    }
 }
 
 - (void)dealloc

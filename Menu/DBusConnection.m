@@ -310,7 +310,7 @@ static GNUDBusConnection *sharedSessionBus = nil;
     dbus_error_init(&error);
     
     DBusMessage *reply = dbus_connection_send_with_reply_and_block((DBusConnectionStruct *)_connection, 
-                                                                  message, 1000, &error);
+                                                                  message, 250, &error);
     dbus_message_unref(message);
     
     if (dbus_error_is_set(&error)) {
@@ -493,7 +493,7 @@ static GNUDBusConnection *sharedSessionBus = nil;
     dbus_error_init(&error);
     
     DBusMessage *reply = dbus_connection_send_with_reply_and_block((DBusConnectionStruct *)_connection, 
-                                                                  message, 1000, &error);
+                                                                  message, 250, &error);
     dbus_message_unref(message);
     
     if (dbus_error_is_set(&error)) {
@@ -526,7 +526,6 @@ static GNUDBusConnection *sharedSessionBus = nil;
             char *str;
             dbus_message_iter_get_basic(iter, &str);
             NSString *result = [NSString stringWithUTF8String:str ? str : ""];
-            NSLog(@"DBusConnection: Parsed string: '%@'", result);
             return result;
         }
         

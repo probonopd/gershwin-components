@@ -1,9 +1,11 @@
 #import "GTKMenuImporter.h"
 #import "GTKMenuParser.h"
 #import "GTKSubmenuManager.h"
+#import "GTKActionHandler.h"
 #import "DBusConnection.h"
 #import "AppMenuWidget.h"
 #import "MenuUtils.h"
+#import "MenuCacheManager.h"
 
 @implementation GTKMenuImporter
 
@@ -92,11 +94,46 @@
     
     NSLog(@"GTKMenuImporter: Getting GTK menu for window %lu", windowId);
     
-    // Check cache first
-    NSMenu *cachedMenu = [_menuCache objectForKey:windowKey];
+    // Check enhanced cache first
+    MenuCacheManager *cacheManager = [MenuCacheManager sharedManager];
+    NSMenu *cachedMenu = [cacheManager getCachedMenuForWindow:windowId];
     if (cachedMenu) {
-        NSLog(@"GTKMenuImporter: Returning cached GTK menu for window %lu", windowId);
+        NSLog(@"GTKMenuImporter: Returning enhanced cached GTK menu for window %lu - re-registering shortcuts", windowId);
+        
+        // Re-register shortcuts for cached menu since they may have been unregistered
+        // when the window lost focus
+        [self reregisterShortcutsForMenu:cachedMenu windowId:windowId];
+        
+        // Notify cache manager that window became active
+        [cacheManager windowBecameActive:windowId];
+        
         return cachedMenu;
+    }
+    
+    // Fall back to legacy cache check for backward compatibility
+    NSMenu *legacyCachedMenu = [_menuCache objectForKey:windowKey];
+    if (legacyCachedMenu) {
+        NSLog(@"GTKMenuImporter: Found menu in legacy cache, migrating to enhanced cache");
+        
+        // Get application name for this window
+        NSString *appName = [MenuUtils getApplicationNameForWindow:windowId];
+        NSString *serviceName = [_registeredWindows objectForKey:windowKey];
+        NSString *menuPath = [_windowMenuPaths objectForKey:windowKey];
+        
+        // Migrate to enhanced cache
+        [cacheManager cacheMenu:legacyCachedMenu
+                      forWindow:windowId
+                    serviceName:serviceName
+                     objectPath:menuPath
+                applicationName:appName];
+        
+        // Remove from legacy cache
+        [_menuCache removeObjectForKey:windowKey];
+        
+        // Re-register shortcuts
+        [self reregisterShortcutsForMenu:legacyCachedMenu windowId:windowId];
+        
+        return legacyCachedMenu;
     }
     
     NSString *serviceName = [_registeredWindows objectForKey:windowKey];
@@ -125,8 +162,17 @@
     // Load the menu using GTK protocol
     NSMenu *menu = [self loadGTKMenuFromDBus:serviceName menuPath:menuPath actionPath:actionPath];
     if (menu) {
-        [_menuCache setObject:menu forKey:windowKey];
-        NSLog(@"GTKMenuImporter: Successfully loaded GTK menu with %lu items", 
+        // Get application name for enhanced caching
+        NSString *appName = [MenuUtils getApplicationNameForWindow:windowId];
+        
+        // Cache in enhanced cache manager
+        [cacheManager cacheMenu:menu
+                      forWindow:windowId
+                    serviceName:serviceName
+                     objectPath:menuPath
+                applicationName:appName];
+        
+        NSLog(@"GTKMenuImporter: Successfully loaded and cached GTK menu with %lu items", 
               (unsigned long)[[menu itemArray] count]);
     } else {
         NSLog(@"GTKMenuImporter: Failed to load GTK menu for window %lu", windowId);
@@ -205,9 +251,10 @@
     }
     [_windowActionPaths setObject:actionPath forKey:windowKey];
     
-    // Clear cached menu for this window
+    // Clear cached menu for this window in both legacy and enhanced cache
     [_menuCache removeObjectForKey:windowKey];
     [_actionGroupCache removeObjectForKey:windowKey];
+    [[MenuCacheManager sharedManager] invalidateCacheForWindow:windowId];
     
     NSLog(@"GTKMenuImporter: Registered GTK window %lu with service=%@ menuPath=%@ actionPath=%@", 
           windowId, serviceName, objectPath, actionPath);
@@ -222,6 +269,7 @@
     [_windowActionPaths removeObjectForKey:windowKey];
     [_menuCache removeObjectForKey:windowKey];
     [_actionGroupCache removeObjectForKey:windowKey];
+    [[MenuCacheManager sharedManager] invalidateCacheForWindow:windowId];
     
     NSLog(@"GTKMenuImporter: Unregistered GTK window %lu", windowId);
 }
@@ -583,6 +631,75 @@
     }
     
     return [menu autorelease];
+}
+
+- (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId
+{
+    if (!menu) {
+        return;
+    }
+    
+    NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
+    NSString *serviceName = [_registeredWindows objectForKey:windowKey];
+    NSString *actionPath = [_windowActionPaths objectForKey:windowKey];
+    
+    if (!serviceName || !actionPath) {
+        NSLog(@"GTKMenuImporter: Cannot re-register shortcuts - missing service/action path");
+        return;
+    }
+    
+    // Get fresh DBus connection for cached menu shortcut re-registration
+    if (!_dbusConnection || ![_dbusConnection isConnected]) {
+        NSLog(@"GTKMenuImporter: Refreshing DBus connection for cached menu shortcuts");
+        if (![self connectToDBus]) {
+            NSLog(@"GTKMenuImporter: Failed to refresh DBus connection for shortcuts");
+            return;
+        }
+    }
+    
+    NSLog(@"GTKMenuImporter: Re-registering shortcuts for GTK menu (window %lu) with fresh DBus connection", windowId);
+    [self reregisterShortcutsForMenuItems:[menu itemArray] serviceName:serviceName actionPath:actionPath];
+}
+
+- (void)reregisterShortcutsForMenuItems:(NSArray *)items serviceName:(NSString *)serviceName actionPath:(NSString *)actionPath
+{
+    for (NSMenuItem *item in items) {
+        // Check if this item has GTK action data and a shortcut
+        NSString *keyEquivalent = [item keyEquivalent];
+        if (keyEquivalent && [keyEquivalent length] > 0) {
+            NSUInteger modifierMask = [item keyEquivalentModifierMask];
+            
+            // Apply the same filtering as GTKActionHandler
+            BOOL hasShiftOnly = (modifierMask == NSShiftKeyMask);
+            BOOL hasNoModifiers = (modifierMask == 0);
+            
+            if (!hasNoModifiers && !hasShiftOnly) {
+                // Get the action name from the menu item's representedObject or title
+                NSString *actionName = [item representedObject];
+                if (!actionName) {
+                    // Fallback to generating action name from title
+                    actionName = [[item title] lowercaseString];
+                    actionName = [actionName stringByReplacingOccurrencesOfString:@" " withString:@"-"];
+                }
+                
+                NSLog(@"GTKMenuImporter: Re-registering GTK shortcut: %@ (action: %@)", [item title], actionName);
+                
+                // Re-register through GTKActionHandler
+                [GTKActionHandler setupActionForMenuItem:item
+                                              actionName:actionName
+                                             serviceName:serviceName
+                                              actionPath:actionPath
+                                          dbusConnection:_dbusConnection];
+            }
+        }
+        
+        // Process submenus recursively
+        if ([item hasSubmenu]) {
+            [self reregisterShortcutsForMenuItems:[[item submenu] itemArray] 
+                                      serviceName:serviceName 
+                                       actionPath:actionPath];
+        }
+    }
 }
 
 #pragma mark - Private Methods

@@ -2,6 +2,9 @@
 #import "MenuProtocolManager.h"
 #import "MenuUtils.h"
 #import "X11ShortcutManager.h"
+#import "GTKActionHandler.h"
+#import "DBusMenuActionHandler.h"
+#import "MenuCacheManager.h"
 #import <X11/Xlib.h>
 #import <X11/Xutil.h>
 #import <X11/Xatom.h>
@@ -61,13 +64,53 @@
     
     if (activeWindow != _currentWindowId) {
         NSLog(@"AppMenuWidget: Active window changed from %lu to %lu", _currentWindowId, activeWindow);
+        
+        // Notify cache manager about window changes
+        MenuCacheManager *cacheManager = [MenuCacheManager sharedManager];
+        if (_currentWindowId != 0) {
+            [cacheManager windowBecameInactive:_currentWindowId];
+        }
+        if (activeWindow != 0) {
+            [cacheManager windowBecameActive:activeWindow];
+        }
+        
+        // Check if this is a different application by comparing application names
+        NSString *newAppName = [MenuUtils getApplicationNameForWindow:activeWindow];
+        BOOL isDifferentApp = !_currentApplicationName || 
+                             ![_currentApplicationName isEqualToString:newAppName];
+        
+        // Notify cache manager about application switch
+        if (isDifferentApp && newAppName && _currentApplicationName) {
+            [cacheManager applicationSwitched:_currentApplicationName toApp:newAppName];
+        }
+        
         _currentWindowId = activeWindow;
-        [self displayMenuForWindow:activeWindow];
+        [self displayMenuForWindow:activeWindow isDifferentApp:isDifferentApp];
+        
+        // For complex applications, try to pre-warm cache for other windows of same app
+        if (newAppName && [cacheManager isComplexApplication:newAppName]) {
+            [self performSelector:@selector(preWarmCacheForApplication:) 
+                       withObject:newAppName 
+                       afterDelay:0.5]; // Delay to avoid blocking current menu load
+        }
     }
 }
 
 - (void)clearMenu
 {
+    [self clearMenu:YES];  // Default to clearing shortcuts
+}
+
+- (void)clearMenu:(BOOL)shouldUnregisterShortcuts
+{
+    // Only unregister shortcuts when switching to a different application
+    if (shouldUnregisterShortcuts) {
+        NSLog(@"AppMenuWidget: Unregistering all shortcuts for application change");
+        [[X11ShortcutManager sharedManager] unregisterAllShortcuts];
+    } else {
+        NSLog(@"AppMenuWidget: Keeping shortcuts registered (same application)");
+    }
+    
     // Remove the current menu view if it exists
     if (_menuView) {
         [_menuView removeFromSuperview];
@@ -86,7 +129,12 @@
 
 - (void)displayMenuForWindow:(unsigned long)windowId
 {
-    [self clearMenu];
+    [self displayMenuForWindow:windowId isDifferentApp:YES];
+}
+
+- (void)displayMenuForWindow:(unsigned long)windowId isDifferentApp:(BOOL)isDifferentApp
+{
+    [self clearMenu:isDifferentApp];
     
     if (windowId == 0) {
         return;
@@ -244,7 +292,7 @@
     if (activeWindow == windowId) {
         NSLog(@"AppMenuWidget: Newly registered window %lu is currently active, displaying menu immediately", windowId);
         _currentWindowId = activeWindow;
-        [self displayMenuForWindow:activeWindow];
+        [self displayMenuForWindow:activeWindow isDifferentApp:YES];
     } else {
         NSLog(@"AppMenuWidget: Newly registered window %lu is not currently active (active: %lu)", windowId, activeWindow);
     }
@@ -557,6 +605,77 @@
     XCloseDisplay(display);
 }
 
+- (void)preWarmCacheForApplication:(NSString *)applicationName
+{
+    NSLog(@"AppMenuWidget: Pre-warming cache for complex application: %@", applicationName);
+    
+    // Find all windows belonging to this application that aren't cached yet
+    Display *display = XOpenDisplay(NULL);
+    if (!display) {
+        NSLog(@"AppMenuWidget: Cannot open X11 display for cache pre-warming");
+        return;
+    }
+    
+    Window root = DefaultRootWindow(display);
+    Atom clientListAtom = XInternAtom(display, "_NET_CLIENT_LIST", False);
+    
+    Atom actualType;
+    int actualFormat;
+    unsigned long numWindows, bytesAfter;
+    Window *windows = NULL;
+    
+    if (XGetWindowProperty(display, root, clientListAtom, 0, 1024, False, XA_WINDOW,
+                          &actualType, &actualFormat, &numWindows, &bytesAfter,
+                          (unsigned char**)&windows) == Success && windows) {
+        
+        NSUInteger warmedCount = 0;
+        MenuCacheManager *cacheManager = [MenuCacheManager sharedManager];
+        
+        for (unsigned long i = 0; i < numWindows && warmedCount < 3; i++) {
+            Window window = windows[i];
+            
+            // Skip current window (already loaded)
+            if (window == _currentWindowId) {
+                continue;
+            }
+            
+            // Check if this window belongs to the same application
+            NSString *windowAppName = [MenuUtils getApplicationNameForWindow:(unsigned long)window];
+            if (!windowAppName || ![windowAppName isEqualToString:applicationName]) {
+                continue;
+            }
+            
+            // Check if we already have this window cached
+            if ([cacheManager getCachedMenuForWindow:(unsigned long)window]) {
+                continue;
+            }
+            
+            // Check if protocol manager has a menu for this window
+            if ([_protocolManager hasMenuForWindow:(unsigned long)window]) {
+                NSLog(@"AppMenuWidget: Pre-warming cache for window %lu (%@)", 
+                      (unsigned long)window, applicationName);
+                
+                // Load menu in background (this will cache it)
+                NSMenu *menu = [_protocolManager getMenuForWindow:(unsigned long)window];
+                if (menu) {
+                    warmedCount++;
+                    NSLog(@"AppMenuWidget: Successfully pre-warmed cache for window %lu", 
+                          (unsigned long)window);
+                } else {
+                    NSLog(@"AppMenuWidget: Failed to pre-warm cache for window %lu", 
+                          (unsigned long)window);
+                }
+            }
+        }
+        
+        XFree(windows);
+        NSLog(@"AppMenuWidget: Pre-warmed cache for %lu windows of application %@", 
+              (unsigned long)warmedCount, applicationName);
+    }
+    
+    XCloseDisplay(display);
+}
+
 - (void)loadMenu:(NSMenu *)menu forWindow:(unsigned long)windowId
 {
     if (!menu) {
@@ -581,6 +700,9 @@
     }
     
     [self setupMenuViewWithMenu:menu];
+    
+    // Re-register shortcuts for this menu since we cleared them in clearMenu
+    [self reregisterShortcutsForMenu:menu];
     
     NSLog(@"AppMenuWidget: Successfully loaded fallback menu with %lu items", (unsigned long)[[menu itemArray] count]);
     
@@ -641,6 +763,37 @@
     
     // Send Alt+F4 to close the currently active window
     [self sendAltF4ToWindow:activeWindow];
+}
+
+- (void)reregisterShortcutsForMenu:(NSMenu *)menu
+{
+    // This method is now handled by the protocol managers when they return cached menus
+    // GTKMenuImporter and DBusMenuImporter will re-register shortcuts automatically
+    NSLog(@"AppMenuWidget: Shortcut re-registration handled by protocol managers");
+}
+
+- (void)reregisterGTKShortcut:(NSMenuItem *)item
+{
+    // For GTK shortcuts, we need to get the stored action data and re-register
+    // We would need access to GTKActionHandler's static data, but for now
+    // let's register it as a basic shortcut that will trigger the existing action
+    NSLog(@"AppMenuWidget: Re-registering GTK shortcut for item: %@", [item title]);
+    
+    [[X11ShortcutManager sharedManager] registerShortcutForMenuItem:item
+                                                        serviceName:nil
+                                                         objectPath:nil 
+                                                     dbusConnection:nil];
+}
+
+- (void)reregisterDBusShortcut:(NSMenuItem *)item
+{
+    // For DBus shortcuts, similar approach
+    NSLog(@"AppMenuWidget: Re-registering DBus shortcut for item: %@", [item title]);
+    
+    [[X11ShortcutManager sharedManager] registerShortcutForMenuItem:item
+                                                        serviceName:nil
+                                                         objectPath:nil
+                                                     dbusConnection:nil];
 }
 
 - (void)dealloc

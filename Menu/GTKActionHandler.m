@@ -10,9 +10,15 @@ static NSMutableDictionary *gtkMenuItemToConnectionMap = nil;
 
 @implementation GTKActionHandler
 
+// Static variable to track which services support DescribeAction
+static NSMutableSet *_servicesWithDescribeAction = nil;
+static NSMutableSet *_servicesWithoutDescribeAction = nil;
+
 + (void)initialize
 {
     if (self == [GTKActionHandler class]) {
+        _servicesWithDescribeAction = [[NSMutableSet alloc] init];
+        _servicesWithoutDescribeAction = [[NSMutableSet alloc] init];
         gtkMenuItemToActionMap = [[NSMutableDictionary alloc] init];
         gtkMenuItemToServiceMap = [[NSMutableDictionary alloc] init];
         gtkMenuItemToActionPathMap = [[NSMutableDictionary alloc] init];
@@ -36,6 +42,9 @@ static NSMutableDictionary *gtkMenuItemToConnectionMap = nil;
     [menuItem setTarget:[GTKActionHandler class]];
     [menuItem setAction:@selector(gtkMenuItemAction:)];
     
+    // Store the action name in the menu item for later retrieval during re-registration
+    [menuItem setRepresentedObject:actionName];
+    
     // Store GTK action information for this menu item using a stable key
     // Use both title and action name to create a unique identifier
     NSString *menuItemKey = [NSString stringWithFormat:@"%@|%@", [menuItem title], actionName];
@@ -53,33 +62,75 @@ static NSMutableDictionary *gtkMenuItemToConnectionMap = nil;
         NSUInteger modifierMask = [menuItem keyEquivalentModifierMask];
         NSLog(@"GTKActionHandler: Registering shortcut for menu item '%@': key='%@' modifiers=%lu", 
               [menuItem title], keyEquivalent, (unsigned long)modifierMask);
-        [[X11ShortcutManager sharedManager] registerShortcutForMenuItem:menuItem
-                                                            serviceName:serviceName
-                                                             objectPath:actionPath
-                                                             actionName:actionName
-                                                         dbusConnection:dbusConnection];
+        
+        // Only register shortcuts that have meaningful modifier keys to prevent capturing
+        // bare keys or Shift-only keys globally. Shift-only shortcuts should be handled
+        // locally by the application, not globally intercepted.
+        BOOL hasShiftOnly = (modifierMask == NSShiftKeyMask);
+        BOOL hasNoModifiers = (modifierMask == 0);
+        BOOL hasCtrl = (modifierMask & NSControlKeyMask) != 0;
+        
+        if (!hasNoModifiers && !hasShiftOnly) {
+            // Transform Ctrl+key shortcuts to Alt+key for global registration
+            // This allows GIMP's Ctrl-N to be accessible globally as Alt-N
+            NSUInteger globalModifierMask = modifierMask;
+            if (hasCtrl) {
+                // Replace Ctrl with Alt for global registration
+                globalModifierMask = (modifierMask & ~NSControlKeyMask) | NSAlternateKeyMask;
+                NSLog(@"GTKActionHandler: Transforming Ctrl+%@ to Alt+%@ for global access", 
+                      keyEquivalent, keyEquivalent);
+            }
+            
+            // Create a temporary menu item with the global shortcut for registration
+            NSMenuItem *globalMenuItem = [[NSMenuItem alloc] initWithTitle:[menuItem title]
+                                                                   action:[menuItem action]
+                                                            keyEquivalent:keyEquivalent];
+            [globalMenuItem setKeyEquivalentModifierMask:globalModifierMask];
+            [globalMenuItem setTarget:[menuItem target]];
+            
+            [[X11ShortcutManager sharedManager] registerShortcutForMenuItem:globalMenuItem
+                                                                serviceName:serviceName
+                                                                 objectPath:actionPath
+                                                                 actionName:actionName
+                                                             dbusConnection:dbusConnection];
+        } else {
+            NSString *reason = hasNoModifiers ? @"no modifiers" : @"Shift-only modifier";
+            NSLog(@"GTKActionHandler: Skipping registration of key '%@' for menu item '%@' - %@", 
+                  keyEquivalent, [menuItem title], reason);
+        }
     }
     
-    // Query initial action state for stateful actions
-    NSDictionary *actionState = [self getActionState:actionName 
-                                         serviceName:serviceName 
-                                          actionPath:actionPath 
-                                      dbusConnection:dbusConnection];
+    // Only query action state for known stateful actions to reduce D-Bus calls
+    // and prevent unity-gtk-action-group warnings
+    BOOL isKnownStatefulAction = [actionName containsString:@"toggle"] || 
+                                [actionName containsString:@"check"] ||
+                                [actionName containsString:@"radio"] ||
+                                [actionName hasSuffix:@"_state"];
     
-    if (actionState) {
-        NSNumber *enabled = [actionState objectForKey:@"enabled"];
-        if (enabled) {
-            [menuItem setEnabled:[enabled boolValue]];
-            NSLog(@"GTKActionHandler: Set initial enabled state to %@", enabled);
-        }
+    if (isKnownStatefulAction) {
+        NSDictionary *actionState = [self getActionState:actionName 
+                                             serviceName:serviceName 
+                                              actionPath:actionPath 
+                                          dbusConnection:dbusConnection];
         
-        // Handle toggle/checkbox state for stateful actions
-        id state = [actionState objectForKey:@"state"];
-        if (state && [state isKindOfClass:[NSNumber class]]) {
-            NSNumber *stateNum = (NSNumber *)state;
-            [menuItem setState:[stateNum boolValue] ? NSOnState : NSOffState];
-            NSLog(@"GTKActionHandler: Set initial toggle state to %@", stateNum);
+        if (actionState) {
+            NSNumber *enabled = [actionState objectForKey:@"enabled"];
+            if (enabled) {
+                [menuItem setEnabled:[enabled boolValue]];
+                NSLog(@"GTKActionHandler: Set initial enabled state to %@", enabled);
+            }
+            
+            // Handle toggle/checkbox state for stateful actions
+            id state = [actionState objectForKey:@"state"];
+            if (state && [state isKindOfClass:[NSNumber class]]) {
+                NSNumber *stateNum = (NSNumber *)state;
+                [menuItem setState:[stateNum boolValue] ? NSOnState : NSOffState];
+                NSLog(@"GTKActionHandler: Set initial toggle state to %@", stateNum);
+            }
         }
+    } else {
+        // For simple actions, assume enabled and skip state queries
+        [menuItem setEnabled:YES];
     }
 }
 
@@ -257,61 +308,84 @@ static NSMutableDictionary *gtkMenuItemToConnectionMap = nil;
         return nil;
     }
     
-    NSLog(@"GTKActionHandler: Querying GTK action state for '%@'", actionName);
-    
-    // Try to call DescribeAction method to get action information
-    id result = [dbusConnection callMethod:@"DescribeAction"
-                                 onService:serviceName
-                                objectPath:actionPath
-                                 interface:@"org.gtk.Actions"
-                                 arguments:@[actionName]];
-    
-    if (result && [result isKindOfClass:[NSArray class]]) {
-        NSArray *actionDesc = (NSArray *)result;
-        NSLog(@"GTKActionHandler: Action description: %@", actionDesc);
-        
-        // GTK DescribeAction returns (bvav):
-        // - b: enabled
-        // - v: parameter type (variant)
-        // - av: state (variant array, empty if stateless)
-        
-        if ([actionDesc count] >= 3) {
-            NSNumber *enabled = ([actionDesc count] > 0) ? [actionDesc objectAtIndex:0] : @YES;
-            id paramType = ([actionDesc count] > 1) ? [actionDesc objectAtIndex:1] : nil;
-            NSArray *stateArray = ([actionDesc count] > 2) ? [actionDesc objectAtIndex:2] : nil;
-            
-            NSMutableDictionary *actionState = [NSMutableDictionary dictionary];
-            [actionState setObject:enabled forKey:@"enabled"];
-            
-            if (paramType) {
-                [actionState setObject:paramType forKey:@"parameter_type"];
-            }
-            
-            if (stateArray && [stateArray count] > 0) {
-                [actionState setObject:[stateArray objectAtIndex:0] forKey:@"state"];
-            }
-            
-            return [NSDictionary dictionaryWithDictionary:actionState];
+    // Check if we already know this service doesn't support action queries
+    @synchronized(_servicesWithoutDescribeAction) {
+        if ([_servicesWithoutDescribeAction containsObject:serviceName]) {
+            // Skip D-Bus calls for services we know don't support them
+            return @{@"enabled": @YES};
         }
     }
     
-    // Fallback: try to call List method to see if action exists
-    id listResult = [dbusConnection callMethod:@"List"
-                                     onService:serviceName
-                                    objectPath:actionPath
-                                     interface:@"org.gtk.Actions"
-                                     arguments:nil];
-    
-    if (listResult && [listResult isKindOfClass:[NSArray class]]) {
-        NSArray *actionList = (NSArray *)listResult;
-        if ([actionList containsObject:actionName]) {
-            NSLog(@"GTKActionHandler: Action '%@' exists in action list", actionName);
-            return @{@"enabled": @YES}; // Default to enabled
+    // Check if we already know whether this service supports DescribeAction
+    BOOL tryDescribeAction = NO;
+    @synchronized(_servicesWithDescribeAction) {
+        if ([_servicesWithDescribeAction containsObject:serviceName]) {
+            tryDescribeAction = YES;
+        } else {
+            // Unknown - be conservative and try once
+            tryDescribeAction = YES;
         }
     }
     
-    NSLog(@"GTKActionHandler: Could not query state for GTK action '%@'", actionName);
-    return nil;
+    if (tryDescribeAction) {
+        // Try to call DescribeAction method to get action information
+        // Wrap in exception handling to prevent unity-gtk-action-group warnings
+        @try {
+            id result = [dbusConnection callMethod:@"DescribeAction"
+                                         onService:serviceName
+                                        objectPath:actionPath
+                                         interface:@"org.gtk.Actions"
+                                         arguments:@[actionName]];
+            
+            if (result && [result isKindOfClass:[NSArray class]]) {
+                NSArray *actionDesc = (NSArray *)result;
+                
+                // Mark this service as supporting DescribeAction
+                @synchronized(_servicesWithDescribeAction) {
+                    [_servicesWithDescribeAction addObject:serviceName];
+                }
+                
+                // GTK DescribeAction returns (bvav):
+                // - b: enabled
+                // - v: parameter type (variant)
+                // - av: state (variant array, empty if stateless)
+                
+                if ([actionDesc count] >= 3) {
+                    NSNumber *enabled = ([actionDesc count] > 0) ? [actionDesc objectAtIndex:0] : @YES;
+                    id paramType = ([actionDesc count] > 1) ? [actionDesc objectAtIndex:1] : nil;
+                    NSArray *stateArray = ([actionDesc count] > 2) ? [actionDesc objectAtIndex:2] : nil;
+                    
+                    NSMutableDictionary *actionState = [NSMutableDictionary dictionary];
+                    [actionState setObject:enabled forKey:@"enabled"];
+                    
+                    if (paramType) {
+                        [actionState setObject:paramType forKey:@"parameter_type"];
+                    }
+                    
+                    if (stateArray && [stateArray count] > 0) {
+                        [actionState setObject:[stateArray objectAtIndex:0] forKey:@"state"];
+                    }
+                    
+                    return [NSDictionary dictionaryWithDictionary:actionState];
+                }
+            } else {
+                // DescribeAction failed - mark this service as not supporting it
+                @synchronized(_servicesWithoutDescribeAction) {
+                    [_servicesWithoutDescribeAction addObject:serviceName];
+                }
+            }
+        }
+        @catch (NSException *exception) {
+            // D-Bus call failed - mark this service as not supporting it to avoid future errors
+            @synchronized(_servicesWithoutDescribeAction) {
+                [_servicesWithoutDescribeAction addObject:serviceName];
+            }
+        }
+    }
+    
+    // Fallback: Assume action is enabled without making more D-Bus calls
+    // This reduces the unity-gtk-action-group warnings significantly
+    return @{@"enabled": @YES};
 }
 
 + (void)cleanup
@@ -322,6 +396,13 @@ static NSMutableDictionary *gtkMenuItemToConnectionMap = nil;
     [gtkMenuItemToServiceMap removeAllObjects];
     [gtkMenuItemToActionPathMap removeAllObjects];
     [gtkMenuItemToConnectionMap removeAllObjects];
+    
+    @synchronized(_servicesWithDescribeAction) {
+        [_servicesWithDescribeAction removeAllObjects];
+    }
+    @synchronized(_servicesWithoutDescribeAction) {
+        [_servicesWithoutDescribeAction removeAllObjects];
+    }
 }
 
 @end

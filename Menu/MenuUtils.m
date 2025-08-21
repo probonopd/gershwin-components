@@ -25,6 +25,16 @@
         }
         XCloseDisplay(display);
         if (className && [className length] > 0) {
+            // Normalize application names for better cache consistency
+            NSString *normalizedName = [className lowercaseString];
+            if ([normalizedName isEqualToString:@"gimp"] || 
+                [normalizedName hasPrefix:@"gimp-"]) {
+                return @"GIMP";
+            } else if ([normalizedName isEqualToString:@"inkscape"]) {
+                return @"Inkscape";
+            } else if ([normalizedName isEqualToString:@"libreoffice"]) {
+                return @"LibreOffice";
+            }
             return className;
         }
     }
@@ -41,6 +51,11 @@
         
         // Extract application name from window title
         if (title && [title length] > 0) {
+            // Special handling for GIMP windows
+            if ([title containsString:@"GIMP"] || [title containsString:@"GNU Image Manipulation Program"]) {
+                return @"GIMP";
+            }
+            
             // Look for patterns like "Document - AppName" or "Title - AppName"
             NSRange dashRange = [title rangeOfString:@" - " options:NSBackwardsSearch];
             if (dashRange.location != NSNotFound) {

@@ -3,6 +3,7 @@
 #import "X11ShortcutManager.h"
 #import "DBusMenuParser.h"
 #import "DBusConnection.h"
+#import "MenuCacheManager.h"
 #import <signal.h>
 #import <unistd.h>
 
@@ -15,6 +16,9 @@ static void cleanup_on_exit(void)
     NSLog(@"Menu.app: atexit cleanup...");
     [[X11ShortcutManager sharedManager] cleanup];
     [DBusMenuParser cleanup];
+    
+    // Log final cache statistics
+    [[MenuCacheManager sharedManager] logCacheStatistics];
 }
 
 // Signal handler for graceful shutdown
@@ -32,6 +36,9 @@ static void signalHandler(int sig)
     // Clean up global shortcuts
     [[X11ShortcutManager sharedManager] cleanup];
     [DBusMenuParser cleanup];
+    
+    // Log final cache statistics
+    [[MenuCacheManager sharedManager] logCacheStatistics];
     
     // Reset signal handlers to default to avoid infinite loops
     signal(sig, SIG_DFL);
@@ -118,6 +125,9 @@ static void signalHandler(int sig)
     
     // Check for existing menu applications before proceeding
     [self checkForExistingMenuApplication];
+    
+    // Configure menu cache settings from command line arguments
+    [self configureCacheSettings];
     
     // DON'T call super finishLaunching as it may be causing immediate termination
     // [super finishLaunching];
@@ -218,6 +228,60 @@ static void signalHandler(int sig)
 {
     NSLog(@"MenuApplication: applicationShouldTerminateAfterLastWindowClosed called - returning NO");
     return NO; // Menu app runs without visible windows
+}
+
+- (void)configureCacheSettings
+{
+    NSLog(@"MenuApplication: Configuring menu cache settings...");
+    
+    MenuCacheManager *cacheManager = [MenuCacheManager sharedManager];
+    NSArray *arguments = [[NSProcessInfo processInfo] arguments];
+    
+    // Parse command line arguments for cache configuration
+    for (NSUInteger i = 1; i < [arguments count]; i++) {
+        NSString *arg = [arguments objectAtIndex:i];
+        
+        if ([arg isEqualToString:@"--cache-size"]) {
+            if (i + 1 < [arguments count]) {
+                NSString *sizeStr = [arguments objectAtIndex:i + 1];
+                NSUInteger cacheSize = [sizeStr integerValue];
+                if (cacheSize > 0 && cacheSize <= 100) {
+                    [cacheManager setMaxCacheSize:cacheSize];
+                    NSLog(@"MenuApplication: Set cache size to %lu", (unsigned long)cacheSize);
+                } else {
+                    NSLog(@"MenuApplication: Invalid cache size %@, must be 1-100", sizeStr);
+                }
+                i++; // Skip next argument
+            }
+        } else if ([arg isEqualToString:@"--cache-age"]) {
+            if (i + 1 < [arguments count]) {
+                NSString *ageStr = [arguments objectAtIndex:i + 1];
+                NSTimeInterval maxAge = [ageStr doubleValue];
+                if (maxAge > 0 && maxAge <= 3600) {
+                    [cacheManager setMaxCacheAge:maxAge];
+                    NSLog(@"MenuApplication: Set cache max age to %.1fs", maxAge);
+                } else {
+                    NSLog(@"MenuApplication: Invalid cache age %@, must be 1-3600 seconds", ageStr);
+                }
+                i++; // Skip next argument
+            }
+        } else if ([arg isEqualToString:@"--cache-stats"]) {
+            // Enable periodic cache statistics logging
+            NSLog(@"MenuApplication: Enabled cache statistics logging");
+            // This will be logged automatically by the cache manager
+        } else if ([arg isEqualToString:@"--help"]) {
+            NSLog(@"MenuApplication: Usage: Menu.app [options]");
+            NSLog(@"MenuApplication:   --cache-size N    Set max cache size (1-100 windows, default: 20)");
+            NSLog(@"MenuApplication:   --cache-age N     Set max cache age (1-3600 seconds, default: 300)");
+            NSLog(@"MenuApplication:   --cache-stats     Enable periodic cache statistics logging");
+            NSLog(@"MenuApplication:   --help            Show this help");
+        }
+    }
+    
+    // Log current cache configuration
+    NSDictionary *stats = [cacheManager getCacheStatistics];
+    NSLog(@"MenuApplication: Cache configured - size: %@, max age: %.1fs", 
+          stats[@"maxCacheSize"], [stats[@"maxCacheAge"] doubleValue]);
 }
 
 @end

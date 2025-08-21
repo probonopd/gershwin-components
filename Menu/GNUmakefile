@@ -28,7 +28,8 @@ Menu_OBJC_FILES = \
 	DBusConnection.m \
 	MenuUtils.m \
 	X11ShortcutManager.m \
-	RoundedCornersView.m
+	RoundedCornersView.m \
+	MenuCacheManager.m
 
 # Header files
 Menu_HEADER_FILES = \
@@ -49,7 +50,8 @@ Menu_HEADER_FILES = \
 	DBusConnection.h \
 	MenuUtils.h \
 	X11ShortcutManager.h \
-	RoundedCornersView.h
+	RoundedCornersView.h \
+	MenuCacheManager.h
 
 # Resources
 Menu_RESOURCE_FILES = \

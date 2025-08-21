@@ -120,7 +120,14 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         return;
     }
     
-    NSString *menuItemKey = [NSString stringWithFormat:@"%p", menuItem];
+    // Create a stable key based on menu item properties instead of memory address
+    // This ensures cached menus work correctly when shortcuts are re-registered
+    // Include tag to ensure uniqueness since many items may have same service/title
+    NSString *menuItemKey = [NSString stringWithFormat:@"%@_%@_%@_%ld", 
+                            serviceName ?: @"unknown", 
+                            [menuItem title] ?: @"untitled",
+                            [menuItem keyEquivalent] ?: @"none",
+                            [menuItem tag]];
     
     // Store the menu item tag and DBus connection info
     [_menuItemKeyToTag setObject:[NSNumber numberWithLong:[menuItem tag]] forKey:menuItemKey];
@@ -230,11 +237,17 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                        dbusConnection:dbusConnection];
     
     // Additionally store the action name for protocol detection
-    NSString *menuItemKey = [NSString stringWithFormat:@"%p", menuItem];
+    // Create a stable key based on menu item properties - must be truly unique per menu item
+    // Include tag to match the format used in registerShortcut methods
+    NSString *menuItemKey = [NSString stringWithFormat:@"%@_%@_%@_%ld", 
+                            serviceName ?: @"unknown",
+                            [menuItem title] ?: @"untitled",
+                            [menuItem keyEquivalent] ?: @"none",
+                            (long)[menuItem tag]];
     if (actionName) {
         [_menuItemToActionNameMap setObject:actionName forKey:menuItemKey];
-        NSLog(@"X11ShortcutManager: Stored action name '%@' for menu item '%@'", 
-              actionName, [menuItem title]);
+        NSLog(@"X11ShortcutManager: Stored action name '%@' for menu item '%@' with key '%@'", 
+              actionName, [menuItem title], menuItemKey);
     }
 }
 
@@ -1045,12 +1058,13 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         return;
     }
     
-    NSString *menuItemKey = [NSString stringWithFormat:@"%p", menuItem];
-    
-    // Store the target, action, and window ID for direct invocation
-    // We extract the window ID from the menu item's representedObject
+    // Create a stable key for direct shortcuts using window ID, title, and key
     NSNumber *windowId = [menuItem representedObject];
     NSString *windowIdString = windowId ? [windowId stringValue] : @"0";
+    NSString *menuItemKey = [NSString stringWithFormat:@"direct_%@_%@_%@", 
+                            windowIdString,
+                            [menuItem title] ?: @"untitled",
+                            [menuItem keyEquivalent] ?: @"none"];
     
     [_menuItemToServiceMap setObject:windowIdString forKey:menuItemKey]; // Store window ID
     [_menuItemToObjectPathMap setObject:NSStringFromSelector(action) forKey:menuItemKey]; // Store action selector

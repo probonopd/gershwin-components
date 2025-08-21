@@ -140,10 +140,11 @@
     _menuBarView = [[MenuBarView alloc] initWithFrame:NSMakeRect(0, 0, _screenSize.width, menuBarHeight)];
     NSLog(@"MenuController: Created MenuBarView: %@", _menuBarView);
     
-    // Create app menu widget for displaying menus
-    _appMenuWidget = [[AppMenuWidget alloc] initWithFrame:NSMakeRect(20, 0, 400, menuBarHeight)];
+    // Create app menu widget for displaying menus - use larger width to accommodate more menu items
+    CGFloat menuWidgetWidth = _screenSize.width - 140; // Leave space for time menu and margins
+    _appMenuWidget = [[AppMenuWidget alloc] initWithFrame:NSMakeRect(20, 0, menuWidgetWidth, menuBarHeight)];
     [_appMenuWidget setProtocolManager:[MenuProtocolManager sharedManager]];
-    NSLog(@"MenuController: Created AppMenuWidget: %@", _appMenuWidget);
+    NSLog(@"MenuController: Created AppMenuWidget with width %.0f: %@", menuWidgetWidth, _appMenuWidget);
     
     // Create time/date menu bar
     [self createTimeMenu];
