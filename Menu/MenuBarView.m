@@ -31,7 +31,7 @@
     
     // Draw bottom border
     NSRect borderRect = NSMakeRect(0, 0, [self bounds].size.width, 1);
-    [[NSColor colorWithCalibratedWhite:0.8 alpha:1.0] set];
+    [[NSColor colorWithCalibratedWhite:0.5 alpha:1.0] set];
     NSRectFill(borderRect);
     NSLog(@"MenuBarView: Drew bottom border");
 }

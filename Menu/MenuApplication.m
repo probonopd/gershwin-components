@@ -104,7 +104,7 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
     if ([self respondsToSelector:@selector(original_drawRect:)]) {
         [self performSelector:@selector(original_drawRect:) withObject:[NSValue valueWithRect:dirtyRect]];
     }
-    
+    /*
     // Now override any bottom line drawing by drawing over it with background color
     NSRect bounds = [self bounds];
     NSRect bottomLineRect = NSMakeRect(0, 0, bounds.size.width, 1);
@@ -128,7 +128,7 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
     NSRectFill(bottomSeparatorRect);
     
     NSLog(@"MenuApplication: Removed bottom line from menu view bounds: %@", NSStringFromRect(bounds));
-    
+    */
     return nil; // drawRect: returns void, but IMP expects id return type
 }
 
