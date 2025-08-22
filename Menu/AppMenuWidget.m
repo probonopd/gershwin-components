@@ -258,6 +258,13 @@
         
         [_currentApplicationName drawAtPoint:textPoint withAttributes:attributes];
     }
+    
+    // Draw drop shadow below the menu bar (GNUstep compatible)
+    NSRect shadowRect = NSMakeRect(0, [self bounds].size.height - 2, [self bounds].size.width, 6);
+    NSColor *shadowColor = [NSColor colorWithCalibratedWhite:0.0 alpha:0.18];
+    [shadowColor set];
+    NSRectFillUsingOperation(shadowRect, NSCompositeSourceOver);
+
 }
 
 - (void)checkAndDisplayMenuForNewlyRegisteredWindow:(unsigned long)windowId
@@ -310,6 +317,13 @@
     NSLog(@"AppMenuWidget: Main menu has %lu items", (unsigned long)[[menu itemArray] count]);
     NSLog(@"AppMenuWidget: Current window ID: %lu", _currentWindowId);
     NSLog(@"AppMenuWidget: Current application: %@", _currentApplicationName ?: @"(none)");
+    // Log coordinates of the submenu itself
+    if (_menuView) {
+        NSRect menuViewFrame = [_menuView frame];
+        NSRect menuViewFrameInWindow = [_menuView convertRect:menuViewFrame toView:nil];
+        NSPoint menuViewOriginScreen = [self.window convertBaseToScreen:menuViewFrameInWindow.origin];
+        NSLog(@"AppMenuWidget: Submenu view frame: %@, screen origin: %@", NSStringFromRect(menuViewFrame), NSStringFromPoint(menuViewOriginScreen));
+    }
     NSLog(@"AppMenuWidget: ===== MAIN MENU WILL OPEN COMPLETE =====");
 }
 
@@ -427,7 +441,10 @@
                     NSMenu *submenu = [item submenu];
                     id<NSMenuDelegate> delegate = [submenu delegate];
                     NSLog(@"AppMenuWidget: Submenu delegate: %@", delegate);
-                    
+                    // Log coordinates of the menu item that opens the submenu
+                    NSRect itemFrameInView = [self convertRect:itemFrame toView:nil];
+                    NSPoint itemOriginScreen = [self.window convertBaseToScreen:itemFrameInView.origin];
+                    NSLog(@"AppMenuWidget: Menu item frame: %@, screen origin: %@", NSStringFromRect(itemFrame), NSStringFromPoint(itemOriginScreen));
                     // Manually trigger menuWillOpen to test AboutToShow
                     if (delegate && [delegate respondsToSelector:@selector(menuWillOpen:)]) {
                         NSLog(@"AppMenuWidget: MANUALLY TRIGGERING menuWillOpen for testing...");

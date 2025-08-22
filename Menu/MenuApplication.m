@@ -6,6 +6,8 @@
 #import "MenuCacheManager.h"
 #import <signal.h>
 #import <unistd.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
 
 // Global reference for cleanup in signal handlers
 static MenuController *g_controller = nil;
@@ -48,7 +50,87 @@ static void signalHandler(int sig)
     exit(0);
 }
 
+// Forward declare our custom drawRect function
+id menu_drawRectWithoutBottomLine(id self, SEL _cmd, NSRect dirtyRect);
+
 @implementation MenuApplication
+
+// Method swizzling to remove bottom line from menus
++ (void)load
+{
+    static BOOL hasSwizzled = NO;
+    if (!hasSwizzled) {
+        NSLog(@"MenuApplication: Setting up method swizzling to remove menu bottom line");
+        [self swizzleMenuViewDrawing];
+        hasSwizzled = YES;
+    }
+}
+
++ (void)swizzleMenuViewDrawing
+{
+    // Swizzle NSMenuView's drawRect: method to remove bottom line
+    Class menuViewClass = NSClassFromString(@"NSMenuView");
+    if (!menuViewClass) {
+        NSLog(@"MenuApplication: Warning: NSMenuView class not found for swizzling");
+        return;
+    }
+    
+    // Get the original drawRect: method
+    Method originalMethod = class_getInstanceMethod(menuViewClass, @selector(drawRect:));
+    
+    if (!originalMethod) {
+        NSLog(@"MenuApplication: Warning: NSMenuView drawRect: method not found for swizzling");
+        return;
+    }
+    
+    // Store the original implementation in a new selector
+    SEL originalSelector = @selector(original_drawRect:);
+    IMP originalIMP = method_getImplementation(originalMethod);
+    const char *typeEncoding = method_getTypeEncoding(originalMethod);
+    
+    // Add the original implementation under a new name
+    class_addMethod(menuViewClass, originalSelector, originalIMP, typeEncoding);
+    
+    // Replace the original drawRect: with our custom implementation
+    method_setImplementation(originalMethod, (IMP)menu_drawRectWithoutBottomLine);
+    
+    NSLog(@"MenuApplication: Successfully swizzled NSMenuView drawRect: method");
+}
+
+// Custom drawRect implementation that removes bottom line
+id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRect dirtyRect)
+{
+    // Call the original drawRect implementation
+    if ([self respondsToSelector:@selector(original_drawRect:)]) {
+        [self performSelector:@selector(original_drawRect:) withObject:[NSValue valueWithRect:dirtyRect]];
+    }
+    
+    // Now override any bottom line drawing by drawing over it with background color
+    NSRect bounds = [self bounds];
+    NSRect bottomLineRect = NSMakeRect(0, 0, bounds.size.width, 1);
+    
+    // Use the window's background color or a default light color
+    NSColor *backgroundColor = nil;
+    NSWindow *window = [self window];
+    if (window && [window backgroundColor]) {
+        backgroundColor = [window backgroundColor];
+    } else {
+        // Default to a light gray background typical of menus
+        backgroundColor = [NSColor colorWithCalibratedWhite:0.95 alpha:1.0];
+    }
+    
+    [backgroundColor set];
+    NSRectFill(bottomLineRect);
+    
+    // Also check for any separator lines at the bottom and remove them
+    NSRect bottomSeparatorRect = NSMakeRect(0, 1, bounds.size.width, 1);
+    [backgroundColor set];
+    NSRectFill(bottomSeparatorRect);
+    
+    NSLog(@"MenuApplication: Removed bottom line from menu view bounds: %@", NSStringFromRect(bounds));
+    
+    return nil; // drawRect: returns void, but IMP expects id return type
+}
 
 - (BOOL)checkForExistingMenuApplication
 {
