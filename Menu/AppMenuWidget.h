@@ -13,6 +13,10 @@
     unsigned long _currentWindowId;
     NSMenu *_currentMenu;
     NSTimer *_updateTimer;
+    
+    // Anti-flicker support - keep old menu visible until new one is ready
+    NSMenuView *_oldMenuView;
+    NSTimer *_antiFlickerTimer;
 }
 
 @property (nonatomic, assign) MenuProtocolManager *protocolManager;
@@ -32,5 +36,10 @@
 // Debug methods
 - (void)debugLogCurrentMenuState;
 - (void)menuItemClicked:(NSMenuItem *)sender;
+
+// Anti-flicker support
+- (void)startAntiFlickerProtection;
+- (void)finishAntiFlickerTransition;
+- (void)antiFlickerTimeoutExpired:(NSTimer *)timer;
 
 @end

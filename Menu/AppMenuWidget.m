@@ -111,20 +111,17 @@
         NSLog(@"AppMenuWidget: Keeping shortcuts registered (same application)");
     }
     
-    // Remove the current menu view if it exists
-    if (_menuView) {
-        [_menuView removeFromSuperview];
-        [_menuView release];
-        _menuView = nil;
-    }
+    // Start anti-flicker protection by preserving the current menu view
+    [self startAntiFlickerProtection];
     
+    // Clear the current menu reference (but keep the view visible for now)
     [_currentMenu release];
     _currentMenu = nil;
     
     [_currentApplicationName release];
     _currentApplicationName = nil;
     
-    [self setNeedsDisplay:YES];
+    // Don't call setNeedsDisplay here - we want to preserve the old menu visually
 }
 
 - (void)displayMenuForWindow:(unsigned long)windowId
@@ -235,8 +232,11 @@
         }
     }
     
-    // Add the menu view to our widget
+    // Add the menu view to our widget (this makes it visible)
     [self addSubview:_menuView];
+    
+    // Finish the anti-flicker transition now that the new menu is ready
+    [self finishAntiFlickerTransition];
     
     [self setNeedsDisplay:YES];
     
@@ -813,8 +813,97 @@
                                                      dbusConnection:nil];
 }
 
+#pragma mark - Anti-flicker support
+
+- (void)startAntiFlickerProtection
+{
+    NSLog(@"AppMenuWidget: Starting anti-flicker protection");
+    
+    // Cancel any existing anti-flicker timer
+    if (_antiFlickerTimer) {
+        [_antiFlickerTimer invalidate];
+        [_antiFlickerTimer release];
+        _antiFlickerTimer = nil;
+    }
+    
+    // Clean up any previous old menu view
+    if (_oldMenuView) {
+        [_oldMenuView removeFromSuperview];
+        [_oldMenuView release];
+        _oldMenuView = nil;
+    }
+    
+    // Move current menu view to old menu view (keep it visible)
+    if (_menuView) {
+        _oldMenuView = _menuView;  // Transfer ownership
+        _menuView = nil;
+        NSLog(@"AppMenuWidget: Preserved old menu view to prevent flicker");
+    }
+    
+    // Start 2-second timeout timer
+    _antiFlickerTimer = [[NSTimer scheduledTimerWithTimeInterval:2.0
+                                                          target:self
+                                                        selector:@selector(antiFlickerTimeoutExpired:)
+                                                        userInfo:nil
+                                                         repeats:NO] retain];
+    NSLog(@"AppMenuWidget: Started 2-second anti-flicker timeout");
+}
+
+- (void)finishAntiFlickerTransition
+{
+    NSLog(@"AppMenuWidget: Finishing anti-flicker transition");
+    
+    // Cancel the timeout timer
+    if (_antiFlickerTimer) {
+        [_antiFlickerTimer invalidate];
+        [_antiFlickerTimer release];
+        _antiFlickerTimer = nil;
+    }
+    
+    // Remove the old menu view now that new one is ready
+    if (_oldMenuView) {
+        [_oldMenuView removeFromSuperview];
+        [_oldMenuView release];
+        _oldMenuView = nil;
+        NSLog(@"AppMenuWidget: Removed old menu view, new menu is now visible");
+    }
+}
+
+- (void)antiFlickerTimeoutExpired:(NSTimer *)timer
+{
+    NSLog(@"AppMenuWidget: Anti-flicker timeout expired, removing old menu view");
+    
+    // Clean up the timer
+    if (_antiFlickerTimer) {
+        [_antiFlickerTimer release];
+        _antiFlickerTimer = nil;
+    }
+    
+    // Remove the old menu view even if no new menu was loaded
+    if (_oldMenuView) {
+        [_oldMenuView removeFromSuperview];
+        [_oldMenuView release];
+        _oldMenuView = nil;
+        [self setNeedsDisplay:YES];
+        NSLog(@"AppMenuWidget: Forced removal of old menu view due to timeout");
+    }
+}
+
 - (void)dealloc
 {
+    // Clean up anti-flicker resources
+    if (_antiFlickerTimer) {
+        [_antiFlickerTimer invalidate];
+        [_antiFlickerTimer release];
+        _antiFlickerTimer = nil;
+    }
+    
+    if (_oldMenuView) {
+        [_oldMenuView removeFromSuperview];
+        [_oldMenuView release];
+        _oldMenuView = nil;
+    }
+    
     [_currentApplicationName release];
     [_currentMenu release];
     [_menuView release];
