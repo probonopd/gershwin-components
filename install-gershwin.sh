@@ -49,7 +49,7 @@ pkg update
 # Install Gershwin desktop environment
 log "Installing Gershwin desktop environment..."
 pkg install -y pkg
-pkg install -y -f gnustep-make gershwin-developer gershwin-desktop
+pkg install -y -f gnustep-gui gnustep-make gershwin-developer gershwin-desktop
 
 # Source GNUstep environment
 log "Setting up GNUstep environment..."
