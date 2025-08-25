@@ -105,19 +105,7 @@ create_pkg_file() {
 
 print_step "Building all preference panes and tools..."
 
-# Install build dependencies
-# echo "Installing build dependencies..."
-# sudo pkg install -y gnustep-make gnustep-base gnustep-gui gnustep-back gmake systempreferences || {
-#     echo "Error: Failed to install build dependencies"
-#     exit 1
-# }
-# echo "Build dependencies installed successfully"
-# echo ""
-
-# If GNUSTEP_MAKEFILES is not set, source GNUstep.sh to set it up
-if [ -z "$GNUSTEP_MAKEFILES" ]; then
-    . /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
-fi
+. /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
 
 # Debug: Show GNUstep environment
 echo "GNUstep environment:"
