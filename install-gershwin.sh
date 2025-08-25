@@ -28,10 +28,18 @@ pkg install -y git-lite gmake
 # Configure Gershwin repository
 log "Configuring Gershwin repository..."
 mkdir -p /usr/local/etc/pkg/repos/
-cat > /usr/local/etc/pkg/repos/Gershwin.conf <<'EOF'
-Gershwin: {
-  url: "https://api.cirrus-ci.com/v1/artifact/github/gershwin-desktop/gershwin-unstable-ports/data/packages/FreeBSD:14:amd64",
-  mirror_type: "http",
+#cat > /usr/local/etc/pkg/repos/Gershwin.conf <<'EOF'
+#Gershwin: {
+#  url: "https://api.cirrus-ci.com/v1/artifact/github/gershwin-desktop/gershwin-unstable-ports/data/packages/FreeBSD:14:amd64",
+#  mirror_type: "http",
+#  enabled: yes
+#}
+#EOF
+cat > /usr/local/etc/pkg/repos/GhostBSD.conf <<'EOF'
+GhostBSD: {
+  url: "https://pkg.ghostbsd.org/stable/${ABI}/latest",
+  signature_type: "pubkey",
+  pubkey: "/usr/share/keys/ssl/certs/ghostbsd.cert",
   enabled: yes
 }
 EOF
