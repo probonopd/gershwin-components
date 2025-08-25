@@ -38,8 +38,6 @@ mkdir -p /usr/local/etc/pkg/repos/
 cat > /usr/local/etc/pkg/repos/GhostBSD.conf <<'EOF'
 GhostBSD: {
   url: "https://pkg.ghostbsd.org/stable/${ABI}/latest",
-  signature_type: "pubkey",
-  pubkey: "/usr/share/keys/ssl/certs/ghostbsd.cert",
   enabled: yes
 }
 EOF
