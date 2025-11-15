@@ -858,7 +858,10 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
             NSNumber *windowId = [NSNumber numberWithUnsignedLong:(unsigned long)[serviceName longLongValue]];
             [tempMenuItem setRepresentedObject:windowId];
             
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
             [target performSelector:action withObject:tempMenuItem];
+#pragma clang diagnostic pop
             NSLog(@"X11ShortcutManager: Direct action succeeded");
         } else {
             NSLog(@"X11ShortcutManager: ERROR: Target %@ does not respond to selector %@", [target class], objectPath);
