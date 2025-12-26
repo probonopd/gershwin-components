@@ -104,10 +104,10 @@ static NSMutableSet *refreshedByAboutToShow = nil;
     return self;
 }
 
-- (void)menuWillOpen:(NSMenu *)menu
+- (void)menuNeedsUpdate:(NSMenu *)menu
 {
-    NSLog(@"DBusSubmenuDelegate: ===== MENU WILL OPEN =====");
-    NSLog(@"DBusSubmenuDelegate: menuWillOpen called for menu: '%@'", [menu title] ?: @"(no title)");
+    NSLog(@"DBusSubmenuDelegate: ===== MENU NEEDS UPDATE =====");
+    NSLog(@"DBusSubmenuDelegate: menuNeedsUpdate called for menu: '%@'", [menu title] ?: @"(no title)");
     NSLog(@"DBusSubmenuDelegate: Menu object: %@", menu);
     NSLog(@"DBusSubmenuDelegate: Menu has %lu items currently", (unsigned long)[[menu itemArray] count]);
     NSLog(@"DBusSubmenuDelegate: Delegate item ID: %@", self.itemId);
@@ -191,7 +191,15 @@ static NSMutableSet *refreshedByAboutToShow = nil;
         }
     }
     
-    NSLog(@"DBusSubmenuDelegate: ===== MENU WILL OPEN COMPLETE =====");
+    NSLog(@"DBusSubmenuDelegate: ===== MENU NEEDS UPDATE COMPLETE =====");
+}
+
+- (void)menuWillOpen:(NSMenu *)menu
+{
+    NSLog(@"DBusSubmenuDelegate: ===== MENU WILL OPEN =====");
+    NSLog(@"DBusSubmenuDelegate: menuWillOpen called for menu: '%@'", [menu title] ?: @"(no title)");
+    // Note: GNUstep doesn't call menuWillOpen, it calls menuNeedsUpdate instead
+    // All logic is now in menuNeedsUpdate above
 }
 
 - (void)menuDidClose:(NSMenu *)menu
@@ -223,21 +231,22 @@ static NSMutableSet *refreshedByAboutToShow = nil;
     NSLog(@"DBusSubmenuDelegate: Object path: %@", self.objectPath);
     NSLog(@"DBusSubmenuDelegate: DBus connection: %@", self.dbusConnection);
     
-    // Call GetLayout specifically for this submenu item with optimized property filtering
-    NSArray *essentialProperties = [NSArray arrayWithObjects:@"label", @"enabled", @"visible", @"type", nil];
+    // Call GetLayout specifically for this submenu item
+    // IMPORTANT: We need all properties to properly detect submenus and shortcuts
+    // Using empty array means "get all properties" - this is required for proper lazy loading
     NSArray *arguments = [NSArray arrayWithObjects:
                          self.itemId,                   // parentId (this submenu's ID)
                          [NSNumber numberWithInt:2], // recursionDepth (2 levels for lazy loading)
-                         essentialProperties,       // propertyNames (filtered for performance)
+                         [NSArray array],           // propertyNames (empty = all properties)
                          nil];
     
-    NSLog(@"DBusSubmenuDelegate: Calling GetLayout with optimized arguments: %@", arguments);
+    NSLog(@"DBusSubmenuDelegate: Calling GetLayout with arguments: %@", arguments);
     NSLog(@"DBusSubmenuDelegate: GetLayout call details:");
     NSLog(@"DBusSubmenuDelegate:   method: GetLayout");
     NSLog(@"DBusSubmenuDelegate:   service: %@", self.serviceName);
     NSLog(@"DBusSubmenuDelegate:   path: %@", self.objectPath);
     NSLog(@"DBusSubmenuDelegate:   interface: com.canonical.dbusmenu");
-    NSLog(@"DBusSubmenuDelegate:   using filtered properties for performance");
+    NSLog(@"DBusSubmenuDelegate:   using all properties for proper submenu detection");
     
     id result = [self.dbusConnection callMethod:@"GetLayout"
                                   onService:self.serviceName

@@ -3,6 +3,60 @@
 #import <X11/Xutil.h>
 #import <X11/Xatom.h>
 
+// Thread-local storage for X11 error tracking
+static __thread BOOL x11_error_occurred = NO;
+static __thread int x11_error_code = 0;
+
+// Custom X11 error handler that prevents crashes on BadWindow and other errors
+static int handleX11Error(Display *display, XErrorEvent *event)
+{
+    (void)display;  // Suppress unused parameter warning
+    x11_error_occurred = YES;
+    x11_error_code = event->error_code;
+    
+    // Log the error but don't crash
+    const char *errorName = "Unknown";
+    switch (event->error_code) {
+        case BadWindow: errorName = "BadWindow"; break;
+        case BadDrawable: errorName = "BadDrawable"; break;
+        case BadAccess: errorName = "BadAccess"; break;
+        case BadAlloc: errorName = "BadAlloc"; break;
+        case BadAtom: errorName = "BadAtom"; break;
+        case BadColor: errorName = "BadColor"; break;
+        case BadCursor: errorName = "BadCursor"; break;
+        case BadFont: errorName = "BadFont"; break;
+        case BadGC: errorName = "BadGC"; break;
+        case BadMatch: errorName = "BadMatch"; break;
+        case BadName: errorName = "BadName"; break;
+        case BadPixmap: errorName = "BadPixmap"; break;
+        case BadRequest: errorName = "BadRequest"; break;
+        case BadValue: errorName = "BadValue"; break;
+        default: break;
+    }
+    
+    NSLog(@"MenuUtils: X11 error caught and handled: %s (code %d, request %d, serial %lu)",
+          errorName, event->error_code, event->request_code, event->serial);
+    
+    return 0;  // Return 0 to prevent the default error handler from being called
+}
+
+// Helper function to install our error handler and clear error state
+static void beginSafeX11Operation(void)
+{
+    x11_error_occurred = NO;
+    x11_error_code = 0;
+    XSetErrorHandler(handleX11Error);
+}
+
+// Helper function to check if an error occurred during X11 operations
+static BOOL checkX11Error(Display *display)
+{
+    if (display) {
+        XSync(display, False);  // Flush pending requests and wait for errors
+    }
+    return x11_error_occurred;
+}
+
 @implementation MenuUtils
 
 + (NSString *)getApplicationNameForWindow:(unsigned long)windowId
@@ -18,10 +72,16 @@
         return nil;
     }
 
+    // Install error handler to catch BadWindow errors
+    beginSafeX11Operation();
+
     // First validate that the window still exists before accessing properties
     XWindowAttributes attrs;
-    if (XGetWindowAttributes(display, (Window)windowId, &attrs) != Success) {
-        NSLog(@"MenuUtils: Window %lu no longer exists, skipping property access", windowId);
+    Status result = XGetWindowAttributes(display, (Window)windowId, &attrs);
+    
+    // Check for errors
+    if (checkX11Error(display) || result == 0) {
+        NSLog(@"MenuUtils: Window %lu no longer exists or is invalid, skipping property access", windowId);
         XCloseDisplay(display);
         return nil;
     }
@@ -30,7 +90,7 @@
     XClassHint classHint;
     NSString *className = nil;
 
-    if (XGetClassHint(display, (Window)windowId, &classHint) == Success) {
+    if (XGetClassHint(display, (Window)windowId, &classHint) == Success && !checkX11Error(display)) {
         if (classHint.res_class) {
             className = [NSString stringWithUTF8String:classHint.res_class];
             XFree(classHint.res_class);
@@ -94,13 +154,23 @@
 
 + (BOOL)isWindowValid:(unsigned long)windowId
 {
+    if (windowId == 0) {
+        return NO;
+    }
+    
     Display *display = XOpenDisplay(NULL);
     if (!display) {
         return NO;
     }
     
+    // Install error handler to catch BadWindow errors
+    beginSafeX11Operation();
+    
     XWindowAttributes attrs;
-    BOOL valid = (XGetWindowAttributes(display, (Window)windowId, &attrs) == Success);
+    Status result = XGetWindowAttributes(display, (Window)windowId, &attrs);
+    
+    // Check for errors - both explicit failure and X11 error
+    BOOL valid = (result != 0) && !checkX11Error(display);
     
     XCloseDisplay(display);
     return valid;
@@ -113,22 +183,51 @@
         return [NSArray array];
     }
     
-    Window root = DefaultRootWindow(display);
-    Window parent, *children;
-    unsigned int nchildren;
+    // Install error handler to catch BadWindow errors
+    beginSafeX11Operation();
     
+    Window root = DefaultRootWindow(display);
     NSMutableArray *windows = [NSMutableArray array];
     
-    if (XQueryTree(display, root, &root, &parent, &children, &nchildren) == Success) {
-        for (unsigned int i = 0; i < nchildren; i++) {
-            XWindowAttributes attrs;
-            if (XGetWindowAttributes(display, children[i], &attrs) == Success) {
-                if (attrs.map_state == IsViewable && attrs.class == InputOutput) {
-                    [windows addObject:[NSNumber numberWithUnsignedLong:children[i]]];
+    // Use _NET_CLIENT_LIST to get all managed windows (proper way for window managers)
+    Atom clientListAtom = XInternAtom(display, "_NET_CLIENT_LIST", False);
+    Atom actualType;
+    int actualFormat;
+    unsigned long numClientWindows, bytesAfter;
+    Window *clientWindows = NULL;
+    
+    if (XGetWindowProperty(display, root, clientListAtom, 0, 1024, False, XA_WINDOW,
+                          &actualType, &actualFormat, &numClientWindows, &bytesAfter,
+                          (unsigned char**)&clientWindows) == Success && clientWindows && !checkX11Error(display)) {
+        
+        NSLog(@"MenuUtils: Found %lu client windows via _NET_CLIENT_LIST", numClientWindows);
+        
+        for (unsigned long i = 0; i < numClientWindows; i++) {
+            [windows addObject:[NSNumber numberWithUnsignedLong:clientWindows[i]]];
+        }
+        XFree(clientWindows);
+    } else {
+        if (clientWindows) XFree(clientWindows);
+        
+        // Fallback to XQueryTree if _NET_CLIENT_LIST is not available
+        NSLog(@"MenuUtils: _NET_CLIENT_LIST not available, falling back to XQueryTree");
+        Window parent, *children;
+        unsigned int nchildren;
+        
+        if (XQueryTree(display, root, &root, &parent, &children, &nchildren) == Success && children && !checkX11Error(display)) {
+            for (unsigned int i = 0; i < nchildren; i++) {
+                // Reset error state for each window check
+                x11_error_occurred = NO;
+                
+                XWindowAttributes attrs;
+                if (XGetWindowAttributes(display, children[i], &attrs) == Success && !checkX11Error(display)) {
+                    if (attrs.map_state == IsViewable && attrs.class == InputOutput) {
+                        [windows addObject:[NSNumber numberWithUnsignedLong:children[i]]];
+                    }
                 }
             }
+            XFree(children);
         }
-        XFree(children);
     }
     
     XCloseDisplay(display);
@@ -142,6 +241,9 @@
         return 0;
     }
     
+    // Install error handler to catch errors
+    beginSafeX11Operation();
+    
     Window root = DefaultRootWindow(display);
     Window activeWindow = 0;
     Atom actualType;
@@ -153,8 +255,10 @@
     if (XGetWindowProperty(display, root, activeWindowAtom,
                           0, 1, False, AnyPropertyType,
                           &actualType, &actualFormat, &nitems, &bytesAfter,
-                          &prop) == Success && prop) {
+                          &prop) == Success && prop && !checkX11Error(display)) {
         activeWindow = *(Window*)prop;
+        XFree(prop);
+    } else if (prop) {
         XFree(prop);
     }
     
@@ -164,13 +268,20 @@
 
 + (NSString *)getWindowProperty:(unsigned long)windowId atomName:(NSString *)atomName
 {
+    if (windowId == 0) {
+        return nil;
+    }
+    
     Display *display = XOpenDisplay(NULL);
     if (!display) {
         return nil;
     }
     
+    // Install error handler to catch BadWindow errors
+    beginSafeX11Operation();
+    
     Atom atom = XInternAtom(display, [atomName UTF8String], False);
-    if (atom == None) {
+    if (atom == None || checkX11Error(display)) {
         XCloseDisplay(display);
         return nil;
     }
@@ -180,23 +291,26 @@
     unsigned long nitems, bytesAfter;
     unsigned char *prop = NULL;
     
-    if (XGetWindowProperty(display, (Window)windowId, atom,
+    int result = XGetWindowProperty(display, (Window)windowId, atom,
                           0, 1024, False, AnyPropertyType,
                           &actualType, &actualFormat, &nitems, &bytesAfter,
-                          &prop) == Success && prop) {
-        
-        NSString *result = nil;
-        if (actualType == XA_STRING || actualFormat == 8) {
-            result = [NSString stringWithUTF8String:(char *)prop];
-        }
-        
-        XFree(prop);
+                          &prop);
+    
+    // Check for X11 errors
+    if (checkX11Error(display) || result != Success || !prop) {
+        if (prop) XFree(prop);
         XCloseDisplay(display);
-        return result;
+        return nil;
     }
     
+    NSString *resultStr = nil;
+    if (actualType == XA_STRING || actualFormat == 8) {
+        resultStr = [NSString stringWithUTF8String:(char *)prop];
+    }
+    
+    XFree(prop);
     XCloseDisplay(display);
-    return nil;
+    return resultStr;
 }
 
 + (NSString*)getWindowMenuService:(unsigned long)windowId
@@ -211,9 +325,25 @@
 
 + (BOOL)setWindowMenuService:(NSString*)service path:(NSString*)path forWindow:(unsigned long)windowId
 {
+    if (windowId == 0) {
+        NSLog(@"MenuUtils: Cannot set menu service for window 0");
+        return NO;
+    }
+    
     Display *display = XOpenDisplay(NULL);
     if (!display) {
         NSLog(@"MenuUtils: Failed to open X11 display");
+        return NO;
+    }
+    
+    // Install error handler to catch BadWindow errors
+    beginSafeX11Operation();
+    
+    // First check if window is still valid
+    XWindowAttributes attrs;
+    if (XGetWindowAttributes(display, (Window)windowId, &attrs) == 0 || checkX11Error(display)) {
+        NSLog(@"MenuUtils: Window %lu no longer exists, cannot set menu service", windowId);
+        XCloseDisplay(display);
         return NO;
     }
     
@@ -223,10 +353,10 @@
     if (service) {
         Atom serviceAtom = XInternAtom(display, "_KDE_NET_WM_APPMENU_SERVICE_NAME", False);
         const char *serviceStr = [service UTF8String];
-        int result = XChangeProperty(display, (Window)windowId, serviceAtom, XA_STRING, 8,
-                                   PropModeReplace, (unsigned char*)serviceStr, strlen(serviceStr));
-        if (result != Success) {
-            NSLog(@"MenuUtils: Failed to set service property for window %lu", windowId);
+        XChangeProperty(display, (Window)windowId, serviceAtom, XA_STRING, 8,
+                       PropModeReplace, (unsigned char*)serviceStr, strlen(serviceStr));
+        if (checkX11Error(display)) {
+            NSLog(@"MenuUtils: Failed to set service property for window %lu (window may have been destroyed)", windowId);
             success = NO;
         } else {
             NSLog(@"MenuUtils: Set _KDE_NET_WM_APPMENU_SERVICE_NAME=%@ for window %lu", service, windowId);
@@ -234,13 +364,13 @@
     }
     
     // Set the object path property
-    if (path) {
+    if (path && success) {
         Atom pathAtom = XInternAtom(display, "_KDE_NET_WM_APPMENU_OBJECT_PATH", False);
         const char *pathStr = [path UTF8String];
-        int result = XChangeProperty(display, (Window)windowId, pathAtom, XA_STRING, 8,
-                                   PropModeReplace, (unsigned char*)pathStr, strlen(pathStr));
-        if (result != Success) {
-            NSLog(@"MenuUtils: Failed to set path property for window %lu", windowId);
+        XChangeProperty(display, (Window)windowId, pathAtom, XA_STRING, 8,
+                       PropModeReplace, (unsigned char*)pathStr, strlen(pathStr));
+        if (checkX11Error(display)) {
+            NSLog(@"MenuUtils: Failed to set path property for window %lu (window may have been destroyed)", windowId);
             success = NO;
         } else {
             NSLog(@"MenuUtils: Set _KDE_NET_WM_APPMENU_OBJECT_PATH=%@ for window %lu", path, windowId);

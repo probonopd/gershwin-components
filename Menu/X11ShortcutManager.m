@@ -45,13 +45,18 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     unsigned int _numlock_mask;
     unsigned int _capslock_mask;
     unsigned int _scrolllock_mask;
+    
+    // Thread safety lock for dictionary access
+    NSLock *_shortcutLock;
 }
 
 + (instancetype)sharedManager
 {
     static X11ShortcutManager *sharedInstance = nil;
-    if (!sharedInstance) {
-        sharedInstance = [[X11ShortcutManager alloc] init];
+    @synchronized(self) {
+        if (!sharedInstance) {
+            sharedInstance = [[X11ShortcutManager alloc] init];
+        }
     }
     return sharedInstance;
 }
@@ -60,6 +65,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
 {
     self = [super init];
     if (self) {
+        _shortcutLock = [[NSLock alloc] init];
         _grabbedKeys = [[NSMutableDictionary alloc] init];
         _menuItemKeyToTag = [[NSMutableDictionary alloc] init];
         _registeredShortcuts = [[NSMutableArray alloc] init];
@@ -115,11 +121,19 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                             [menuItem keyEquivalent] ?: @"none",
                             [menuItem tag]];
     
-    // Store the menu item tag and DBus connection info
+    // Thread-safe storage of the menu item tag and DBus connection info
+    [_shortcutLock lock];
     [_menuItemKeyToTag setObject:[NSNumber numberWithLong:[menuItem tag]] forKey:menuItemKey];
-    [_menuItemToServiceMap setObject:serviceName forKey:menuItemKey];
-    [_menuItemToObjectPathMap setObject:objectPath forKey:menuItemKey];
-    [_menuItemToConnectionMap setObject:dbusConnection forKey:menuItemKey];
+    if (serviceName) {
+        [_menuItemToServiceMap setObject:serviceName forKey:menuItemKey];
+    }
+    if (objectPath) {
+        [_menuItemToObjectPathMap setObject:objectPath forKey:menuItemKey];
+    }
+    if (dbusConnection) {
+        [_menuItemToConnectionMap setObject:dbusConnection forKey:menuItemKey];
+    }
+    [_shortcutLock unlock];
     
     // Convert key to X11 KeySym and KeyCode
     KeySym keysym = [self parseKeyString:keyEquivalent];
@@ -205,8 +219,11 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
               (unsigned long)[_grabbedKeys count]);
         [self startX11EventMonitoring];
     } else {
+        [_shortcutLock lock];
+        NSUInteger currentCount = [_grabbedKeys count];
+        [_shortcutLock unlock];
         NSLog(@"X11ShortcutManager: Not starting event monitoring - count: %lu, thread: %@", 
-              (unsigned long)[_grabbedKeys count], _eventMonitorThread ? @"EXISTS" : @"nil");
+              (unsigned long)currentCount, _eventMonitorThread ? @"EXISTS" : @"nil");
     }
 }
 
@@ -231,7 +248,10 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                             [menuItem keyEquivalent] ?: @"none",
                             (long)[menuItem tag]];
     if (actionName) {
+        // Thread-safe storage of action name
+        [_shortcutLock lock];
         [_menuItemToActionNameMap setObject:actionName forKey:menuItemKey];
+        [_shortcutLock unlock];
         NSLog(@"X11ShortcutManager: Stored action name '%@' for menu item '%@' with key '%@'", 
               actionName, [menuItem title], menuItemKey);
     }
@@ -239,21 +259,22 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
 
 - (void)unregisterAllShortcuts
 {
+    [_shortcutLock lock];
     if ([_registeredShortcuts count] == 0) {
+        [_shortcutLock unlock];
         return;
     }
     
     NSLog(@"X11ShortcutManager: Unregistering %lu X11 hotkeys", 
           (unsigned long)[_registeredShortcuts count]);
+    [_shortcutLock unlock];
     
-    // Stop event monitoring
+    // Signal event monitoring to stop - don't wait for it
+    // The thread will clean itself up
     if (_eventMonitorThread && !_shouldStopEventMonitoring) {
         _shouldStopEventMonitoring = YES;
-        // Wait for thread to finish
-        while (_eventMonitorThread && ![_eventMonitorThread isFinished]) {
-            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
-        }
-        _eventMonitorThread = nil;
+        // Don't run the run loop here - it causes re-entrancy issues
+        // Just let the thread stop on its own
     }
     
     // Unregister all X11 hotkeys
@@ -262,6 +283,8 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         XSync(_display, False);
     }
     
+    // Thread-safe clearing of all dictionaries
+    [_shortcutLock lock];
     [_registeredShortcuts removeAllObjects];
     [_shortcutToMenuItemMap removeAllObjects];
     [_grabbedKeys removeAllObjects];
@@ -270,6 +293,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     [_menuItemToObjectPathMap removeAllObjects];
     [_menuItemToConnectionMap removeAllObjects];
     [_menuItemToActionNameMap removeAllObjects];
+    [_shortcutLock unlock];
 }
 
 - (BOOL)shouldSwapCtrlAlt
@@ -516,11 +540,13 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         return NO;
     }
     
-    // Store the mapping from keycode+modifier to menu item
+    // Thread-safe storage of the mapping from keycode+modifier to menu item
     NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", keycode, x11_modifier];
+    [_shortcutLock lock];
     [_shortcutToMenuItemMap setObject:menuItemKey forKey:keycodeModifierKey];
     [_grabbedKeys setObject:menuItemKey forKey:keycodeModifierKey];
     [_registeredShortcuts addObject:shortcutString];
+    [_shortcutLock unlock];
     
     NSLog(@"X11ShortcutManager: Successfully registered shortcut: %@ (keycode=%d, modifier=%u)", 
           shortcutString, keycode, x11_modifier);
@@ -789,8 +815,13 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                     NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", 
                                                   keyEvent->keycode, filteredState];
                     
-                    // Find the menu item for this shortcut
-                    NSString *menuItemKey = [_grabbedKeys objectForKey:keycodeModifierKey];
+                    // Thread-safe access to _grabbedKeys
+                    [_shortcutLock lock];
+                    NSString *menuItemKey = [[_grabbedKeys objectForKey:keycodeModifierKey] copy];
+                    NSUInteger grabbedCount = [_grabbedKeys count];
+                    NSDictionary *grabbedKeysCopy = grabbedCount > 0 ? [_grabbedKeys copy] : nil;
+                    [_shortcutLock unlock];
+                    
                     if (menuItemKey) {
                         NSLog(@"X11ShortcutManager: Found matching shortcut for key: %@", keycodeModifierKey);
                         // Trigger the menu action on the main thread
@@ -801,9 +832,11 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                         NSLog(@"X11ShortcutManager: No matching shortcut found for key: %@", keycodeModifierKey);
                         
                         // Debug: Log all registered shortcuts
-                        NSLog(@"X11ShortcutManager: Currently have %lu registered shortcuts:", (unsigned long)[_grabbedKeys count]);
-                        for (NSString *key in [_grabbedKeys allKeys]) {
-                            NSLog(@"X11ShortcutManager:   %@ -> %@", key, [_grabbedKeys objectForKey:key]);
+                        NSLog(@"X11ShortcutManager: Currently have %lu registered shortcuts:", (unsigned long)grabbedCount);
+                        if (grabbedKeysCopy) {
+                            for (NSString *key in grabbedKeysCopy) {
+                                NSLog(@"X11ShortcutManager:   %@ -> %@", key, [grabbedKeysCopy objectForKey:key]);
+                            }
                         }
                     }
                 } else {
@@ -836,12 +869,14 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
 
 - (void)triggerMenuActionForKey:(NSString *)menuItemKey
 {
-    // Find the menu item using the stored mappings
-    NSString *serviceName = [_menuItemToServiceMap objectForKey:menuItemKey];
-    NSString *objectPath = [_menuItemToObjectPathMap objectForKey:menuItemKey];
+    // Thread-safe access to stored mappings
+    [_shortcutLock lock];
+    NSString *serviceName = [[_menuItemToServiceMap objectForKey:menuItemKey] copy];
+    NSString *objectPath = [[_menuItemToObjectPathMap objectForKey:menuItemKey] copy];
     id connectionOrTarget = [_menuItemToConnectionMap objectForKey:menuItemKey];
-    NSNumber *tagNumber = [_menuItemKeyToTag objectForKey:menuItemKey];
-    NSString *actionName = [_menuItemToActionNameMap objectForKey:menuItemKey];
+    NSNumber *tagNumber = [[_menuItemKeyToTag objectForKey:menuItemKey] copy];
+    NSString *actionName = [[_menuItemToActionNameMap objectForKey:menuItemKey] copy];
+    [_shortcutLock unlock];
     
     // Check if this is a direct action (target/action pattern)
     if (connectionOrTarget && ![connectionOrTarget isKindOfClass:[GNUDBusConnection class]]) {

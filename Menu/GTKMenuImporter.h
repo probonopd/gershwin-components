@@ -23,6 +23,7 @@
 @property (nonatomic, strong) NSMutableDictionary *actionGroupCache;     // windowId -> action group info
 @property (nonatomic, strong) NSTimer *cleanupTimer;
 @property (nonatomic, weak) AppMenuWidget *appMenuWidget;
+@property (nonatomic, strong) NSLock *registryLock;  // Lock for thread-safe dictionary access
 
 // MenuProtocolHandler conformance
 - (BOOL)connectToDBus;

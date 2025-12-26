@@ -7,6 +7,7 @@
 @property (nonatomic, assign) void *connection; // DBusConnection pointer (opaque)
 @property (nonatomic, assign) BOOL connected;
 @property (nonatomic, strong) NSMutableDictionary *messageHandlers;
+@property (nonatomic, strong) NSLock *handlersLock; // Lock for thread-safe messageHandlers access
 
 + (GNUDBusConnection *)sessionBus;
 - (BOOL)connect;

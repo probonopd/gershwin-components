@@ -3,9 +3,18 @@
 #import "MenuApplication.h"
 #import "MenuController.h"
 #import <signal.h>
+#import <X11/Xlib.h>
 
 int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) argv[])
 {
+    // CRITICAL: Initialize X11 thread support BEFORE any other Xlib calls
+    // This must be the first Xlib function called in the program
+    if (!XInitThreads()) {
+        NSLog(@"Menu.app: WARNING: XInitThreads() failed - X11 threading may be unstable");
+    } else {
+        NSLog(@"Menu.app: X11 thread support initialized successfully");
+    }
+    
     NSLog(@"Menu.app: Starting application initialization...");
     
     @autoreleasepool {
