@@ -30,7 +30,7 @@
 @property (nonatomic, assign) Atom netActiveWindowAtom;
 @property (nonatomic, assign) Atom netClientListAtom;
 @property (nonatomic, strong) NSThread *x11Thread;
-@property (nonatomic, assign) BOOL shouldStopMonitoring;
+@property (atomic, assign) BOOL shouldStopMonitoring; // atomic for thread-safe access from X11 monitor thread
 @property (nonatomic, assign) int dbusFileDescriptor;
 @property (nonatomic, assign) Display *strutDisplay;
 @property (nonatomic, assign) Window strutWindow;

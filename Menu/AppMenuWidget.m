@@ -9,6 +9,35 @@
 #import <X11/Xutil.h>
 #import <X11/Xatom.h>
 
+// Thread-local X11 error flag for AppMenuWidget
+static __thread BOOL appwidget_x11_error_occurred = NO;
+
+// Custom X11 error handler for AppMenuWidget operations
+static int handleAppWidgetX11Error(Display *display, XErrorEvent *error) {
+    appwidget_x11_error_occurred = YES;
+    // Don't crash - just log and continue
+    char errorText[256];
+    XGetErrorText(display, error->error_code, errorText, sizeof(errorText));
+    NSLog(@"AppMenuWidget: X11 error caught (non-fatal): %s (error code: %d, request: %d)", 
+          errorText, error->error_code, error->request_code);
+    return 0;
+}
+
+// Begin a safe X11 operation
+static void beginSafeAppWidgetX11Operation(Display *display) {
+    appwidget_x11_error_occurred = NO;
+    XSetErrorHandler(handleAppWidgetX11Error);
+    XSync(display, False);
+}
+
+// Check if an X11 error occurred and reset state
+static BOOL checkAppWidgetX11Error(Display *display) {
+    XSync(display, False);
+    BOOL hadError = appwidget_x11_error_occurred;
+    appwidget_x11_error_occurred = NO;
+    return hadError;
+}
+
 @implementation AppMenuWidget
 
 - (id)initWithFrame:(NSRect)frameRect
@@ -41,6 +70,8 @@
         return;
     }
     
+    beginSafeAppWidgetX11Operation(display);
+    
     Window root = DefaultRootWindow(display);
     Window activeWindow = 0;
     Atom actualType;
@@ -53,8 +84,10 @@
     if (XGetWindowProperty(display, root, activeWindowAtom,
                           0, 1, False, AnyPropertyType,
                           &actualType, &actualFormat, &nitems, &bytesAfter,
-                          &prop) == Success && prop) {
+                          &prop) == Success && prop && !checkAppWidgetX11Error(display)) {
         activeWindow = *(Window*)prop;
+        XFree(prop);
+    } else if (prop) {
         XFree(prop);
     }
     
@@ -145,6 +178,14 @@
 
 - (void)displayMenuForWindow:(unsigned long)windowId
 {
+    [self displayMenuForWindow:windowId isDifferentApp:YES];
+}
+
+- (void)displayMenuForWindowFromNumber:(NSNumber *)windowIdNumber
+{
+    // Helper method for performSelectorOnMainThread
+    unsigned long windowId = [windowIdNumber unsignedLongValue];
+    NSLog(@"AppMenuWidget: displayMenuForWindowFromNumber called for window %lu", windowId);
     [self displayMenuForWindow:windowId isDifferentApp:YES];
 }
 
@@ -336,6 +377,8 @@
         return;
     }
     
+    beginSafeAppWidgetX11Operation(display);
+    
     Window root = DefaultRootWindow(display);
     Window activeWindow = 0;
     Atom actualType;
@@ -348,18 +391,31 @@
     if (XGetWindowProperty(display, root, activeWindowAtom,
                           0, 1, False, AnyPropertyType,
                           &actualType, &actualFormat, &nitems, &bytesAfter,
-                          &prop) == Success && prop) {
+                          &prop) == Success && prop && !checkAppWidgetX11Error(display)) {
         activeWindow = *(Window*)prop;
+        XFree(prop);
+    } else if (prop) {
         XFree(prop);
     }
     
     XCloseDisplay(display);
     
     // If the newly registered window is the currently active window, display its menu immediately
+    // IMPORTANT: Must dispatch to main thread since UI operations must happen on main thread
     if (activeWindow == windowId) {
-        NSLog(@"AppMenuWidget: Newly registered window %lu is currently active, displaying menu immediately", windowId);
-        self.currentWindowId = activeWindow;
-        [self displayMenuForWindow:activeWindow isDifferentApp:YES];
+        NSLog(@"AppMenuWidget: Newly registered window %lu is currently active, will display menu on main thread", windowId);
+        
+        if ([NSThread isMainThread]) {
+            self.currentWindowId = activeWindow;
+            [self displayMenuForWindow:activeWindow isDifferentApp:YES];
+        } else {
+            // Dispatch to main thread using performSelectorOnMainThread
+            NSLog(@"AppMenuWidget: Scheduling display for window %lu on main thread", windowId);
+            self.currentWindowId = activeWindow;
+            [self performSelectorOnMainThread:@selector(displayMenuForWindowFromNumber:) 
+                                   withObject:[NSNumber numberWithUnsignedLong:activeWindow] 
+                                waitUntilDone:NO];
+        }
     } else {
         NSLog(@"AppMenuWidget: Newly registered window %lu is not currently active (active: %lu)", windowId, activeWindow);
     }
@@ -689,6 +745,8 @@
         return;
     }
     
+    beginSafeAppWidgetX11Operation(display);
+    
     Window root = DefaultRootWindow(display);
     Atom clientListAtom = XInternAtom(display, "_NET_CLIENT_LIST", False);
     
@@ -699,7 +757,7 @@
     
     if (XGetWindowProperty(display, root, clientListAtom, 0, 1024, False, XA_WINDOW,
                           &actualType, &actualFormat, &numWindows, &bytesAfter,
-                          (unsigned char**)&windows) == Success && windows) {
+                          (unsigned char**)&windows) == Success && windows && !checkAppWidgetX11Error(display)) {
         
         NSUInteger warmedCount = 0;
         MenuCacheManager *cacheManager = [MenuCacheManager sharedManager];
@@ -807,6 +865,8 @@
         return;
     }
     
+    beginSafeAppWidgetX11Operation(display);
+    
     Window root = DefaultRootWindow(display);
     Window activeWindow = 0;
     Atom actualType;
@@ -819,8 +879,10 @@
     if (XGetWindowProperty(display, root, activeWindowAtom,
                           0, 1, False, AnyPropertyType,
                           &actualType, &actualFormat, &nitems, &bytesAfter,
-                          &prop) == Success && prop) {
+                          &prop) == Success && prop && !checkAppWidgetX11Error(display)) {
         activeWindow = *(Window*)prop;
+        XFree(prop);
+    } else if (prop) {
         XFree(prop);
     }
     

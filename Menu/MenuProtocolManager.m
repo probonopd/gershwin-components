@@ -306,7 +306,8 @@
 
 - (AppMenuWidget *)appMenuWidget
 {
-    return self.appMenuWidget;
+    // Return the weak reference - may be nil if widget was deallocated
+    return _appMenuWidget;
 }
 
 #pragma mark - DBus Integration

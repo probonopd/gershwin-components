@@ -12,12 +12,18 @@
 // Global reference for cleanup in signal handlers
 static MenuController *g_controller = nil;
 static volatile sig_atomic_t cleanup_in_progress = 0;
+static volatile sig_atomic_t received_signal = 0;
+static int signal_pipe[2] = {-1, -1};
 
 // Cleanup function for atexit
 static void cleanup_on_exit(void)
 {
     if (cleanup_in_progress) return;
     cleanup_in_progress = 1;
+    
+    // Write to stderr to indicate cleanup is starting
+    const char *msg = "\n[CLEANUP_ON_EXIT] Cleanup initiated\n";
+    (void)write(STDERR_FILENO, msg, 35);
     
     NSLog(@"Menu.app: atexit cleanup...");
     
@@ -32,38 +38,25 @@ static void cleanup_on_exit(void)
     }
 }
 
-// Signal handler for graceful shutdown
+// Signal handler for graceful shutdown - only set flag and write to pipe
+// NOTE: Signal handlers must only call async-signal-safe functions
 static void signalHandler(int sig)
 {
-    if (cleanup_in_progress) return;
-    cleanup_in_progress = 1;
+    // This function is called from signal context - must be async-signal-safe
+    // Only safe operations: write to volatile sig_atomic_t, write() syscall
+    if (received_signal != 0) return; // Already handling a signal
+    received_signal = sig;
     
-    const char *signame = "UNKNOWN";
-    switch(sig) {
-        case SIGTERM: signame = "SIGTERM"; break;
-        case SIGINT:  signame = "SIGINT"; break;
-        case SIGHUP:  signame = "SIGHUP"; break;
+    // Also write to stderr in a safe way to indicate signal was received
+    const char *msg = "\n[SIGNAL HANDLER] Signal received!\n";
+    (void)write(STDERR_FILENO, msg, 29);
+    
+    // Write to self-pipe to wake up the main run loop
+    // write() is async-signal-safe
+    if (signal_pipe[1] >= 0) {
+        char c = 1;
+        (void)write(signal_pipe[1], &c, 1);
     }
-    
-    NSLog(@"Menu.app: Received signal %d (%s), performing cleanup...", sig, signame);
-    
-    @try {
-        // Clean up global shortcuts
-        [[X11ShortcutManager sharedManager] cleanup];
-        [DBusMenuParser cleanup];
-        
-        // Log final cache statistics
-        [[MenuCacheManager sharedManager] logCacheStatistics];
-    } @catch (NSException *exception) {
-        NSLog(@"Menu.app: Exception during signal cleanup: %@", exception);
-    }
-    
-    // Reset signal handlers to default to avoid infinite loops
-    signal(sig, SIG_DFL);
-    
-    // Exit gracefully
-    NSLog(@"Menu.app: Cleanup complete, exiting...");
-    exit(0);
 }
 
 // Forward declare our custom drawRect function
@@ -249,6 +242,21 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
     g_controller = controller; // Store global reference for signal handlers
     NSLog(@"MenuApplication: Created MenuController");
     
+    // Set up self-pipe for async-signal-safe signal handling
+    if (pipe(signal_pipe) == 0) {
+        NSLog(@"MenuApplication: Signal pipe created successfully");
+        
+        // Set up file handle to monitor the read end of the pipe
+        NSFileHandle *signalFileHandle = [[NSFileHandle alloc] initWithFileDescriptor:signal_pipe[0] closeOnDealloc:YES];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(handleSignalPipeRead:)
+                                                     name:NSFileHandleDataAvailableNotification
+                                                   object:signalFileHandle];
+        [signalFileHandle waitForDataInBackgroundAndNotify];
+    } else {
+        NSLog(@"MenuApplication: Warning: Failed to create signal pipe - signal handling may be unsafe");
+    }
+    
     // Set up signal handlers for graceful shutdown
     NSLog(@"MenuApplication: Setting up signal handlers...");
     if (signal(SIGTERM, signalHandler) == SIG_ERR) {
@@ -268,6 +276,17 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
     } else {
         NSLog(@"MenuApplication: SIGHUP handler registered");
     }
+    
+    // Set up a timer to check for received signals
+    // Run loop modes must include NSDefaultRunLoopMode and NSEventTrackingRunLoopMode
+    NSTimer *signalCheckTimer = [NSTimer timerWithTimeInterval:0.1 
+                                                       target:self 
+                                                     selector:@selector(checkForSignal) 
+                                                     userInfo:nil 
+                                                      repeats:YES];
+    [[NSRunLoop mainRunLoop] addTimer:signalCheckTimer forMode:NSDefaultRunLoopMode];
+    [[NSRunLoop mainRunLoop] addTimer:signalCheckTimer forMode:NSEventTrackingRunLoopMode];
+    NSLog(@"MenuApplication: Signal check timer installed in multiple run loop modes");
     
     // Set up atexit handler as additional safety
     if (atexit(cleanup_on_exit) != 0) {
@@ -302,6 +321,79 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
     // Add a brief delay to let everything settle before entering main run loop
     NSLog(@"MenuApplication: Allowing brief settling period...");
     [NSThread sleepForTimeInterval:0.1];
+}
+
+// Called from main run loop when signal is received via self-pipe
+- (void)handleSignalPipeRead:(NSNotification *)notification
+{
+    if (cleanup_in_progress) return;
+    cleanup_in_progress = 1;
+    
+    int sig = received_signal;
+    const char *signame = "UNKNOWN";
+    switch(sig) {
+        case SIGTERM: signame = "SIGTERM"; break;
+        case SIGINT:  signame = "SIGINT"; break;
+        case SIGHUP:  signame = "SIGHUP"; break;
+    }
+    
+    NSLog(@"Menu.app: Received signal %d (%s) via safe pipe, performing cleanup...", sig, signame);
+    
+    @try {
+        // Clean up global shortcuts - safe to call Objective-C methods now
+        [[X11ShortcutManager sharedManager] cleanup];
+        [DBusMenuParser cleanup];
+        
+        // Log final cache statistics
+        [[MenuCacheManager sharedManager] logCacheStatistics];
+    } @catch (NSException *exception) {
+        NSLog(@"Menu.app: Exception during signal cleanup: %@", exception);
+    }
+    
+    NSLog(@"Menu.app: Cleanup complete, terminating...");
+    
+    // Use proper AppKit termination
+    [self terminate:nil];
+}
+
+// Check for received signals and handle them
+- (void)checkForSignal
+{
+    static int checkCount = 0;
+    if (++checkCount % 10 == 0) {
+        // Log every 10th check (every 1 second) to avoid log spam
+        NSLog(@"MenuApplication: Signal check (received_signal=%d, cleanup_in_progress=%d)", received_signal, cleanup_in_progress);
+    }
+    
+    if (received_signal != 0 && !cleanup_in_progress) {
+        cleanup_in_progress = 1;
+        
+        int sig = received_signal;
+        const char *signame = "UNKNOWN";
+        switch(sig) {
+            case SIGTERM: signame = "SIGTERM"; break;
+            case SIGINT:  signame = "SIGINT"; break;
+            case SIGHUP:  signame = "SIGHUP"; break;
+        }
+        
+        NSLog(@"Menu.app: Detected signal %d (%s), performing cleanup...", sig, signame);
+        
+        @try {
+            // Clean up global shortcuts - safe to call Objective-C methods now
+            [[X11ShortcutManager sharedManager] cleanup];
+            [DBusMenuParser cleanup];
+            
+            // Log final cache statistics
+            [[MenuCacheManager sharedManager] logCacheStatistics];
+        } @catch (NSException *exception) {
+            NSLog(@"Menu.app: Exception during signal cleanup: %@", exception);
+        }
+        
+        NSLog(@"Menu.app: Cleanup complete, terminating...");
+        
+        // Use proper AppKit termination
+        [self terminate:nil];
+    }
 }
 
 - (void)sendEvent:(NSEvent *)event

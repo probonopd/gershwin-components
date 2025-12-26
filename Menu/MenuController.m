@@ -512,9 +512,13 @@
                     
                     NSLog(@"MenuController: _NET_ACTIVE_WINDOW property changed - active window changed");
                     
-                    // Update the app menu widget for the new active window
-                    if (self.appMenuWidget) {
-                        [self.appMenuWidget updateForActiveWindow];
+                    // Update the app menu widget for the new active window - MUST be on main thread
+                    // Copy the widget reference for thread-safe access
+                    AppMenuWidget *widget = self.appMenuWidget;
+                    if (widget) {
+                        [widget performSelectorOnMainThread:@selector(updateForActiveWindow)
+                                                 withObject:nil
+                                              waitUntilDone:NO];
                     }
                 }
                 // Check if this is a PropertyNotify event for _NET_CLIENT_LIST (new windows)
@@ -524,19 +528,23 @@
                     
                     NSLog(@"MenuController: _NET_CLIENT_LIST property changed - new window created/destroyed");
                     
-                    // Scan for new GTK menu services when windows are created/destroyed
-                    [[MenuProtocolManager sharedManager] scanForExistingMenuServices];
+                    // Scan for new menu services - dispatch to main thread to avoid threading issues
+                    [[MenuProtocolManager sharedManager] performSelectorOnMainThread:@selector(scanForExistingMenuServices)
+                                                                          withObject:nil
+                                                                       waitUntilDone:NO];
                 }
             } else {
                 // No events pending, sleep briefly to avoid busy waiting
                 [NSThread sleepForTimeInterval:0.01];
             }
             
-            // Process DBus messages (non-blocking check)
+            // Process DBus messages (non-blocking check) - must be on main thread for safety
             if (self.dbusFileDescriptor >= 0) {
                 id<MenuProtocolHandler> canonicalHandler = [[MenuProtocolManager sharedManager] handlerForType:MenuProtocolTypeCanonical];
                 if (canonicalHandler && [canonicalHandler respondsToSelector:@selector(processDBusMessages)]) {
-                    [(id)canonicalHandler processDBusMessages];
+                    [(id)canonicalHandler performSelectorOnMainThread:@selector(processDBusMessages)
+                                                           withObject:nil
+                                                        waitUntilDone:NO];
                 }
             }
         }
