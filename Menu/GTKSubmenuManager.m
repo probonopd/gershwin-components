@@ -50,9 +50,11 @@ static NSMutableSet *loadedGroups = nil;
     [submenu setDelegate:delegate];
     NSLog(@"GTKSubmenuManager: Successfully set GTK delegate for submenu");
     
-    // Store the delegate to prevent it from being deallocated
+    // Store the delegate to prevent it from being deallocated (thread-safe)
     NSString *submenuKey = [NSString stringWithFormat:@"gtk_submenu_%p", submenu];
-    [gtkSubmenuDelegates setObject:delegate forKey:submenuKey];
+    @synchronized([GTKSubmenuManager class]) {
+        [gtkSubmenuDelegates setObject:delegate forKey:submenuKey];
+    }
     
     NSLog(@"GTKSubmenuManager: Stored GTK delegate with key '%@' for lazy loading (groupId=%@)", submenuKey, groupId);
     
@@ -65,8 +67,10 @@ static NSMutableSet *loadedGroups = nil;
 + (void)cleanup
 {
     NSLog(@"GTKSubmenuManager: Performing GTK submenu cleanup...");
-    [gtkSubmenuDelegates removeAllObjects];
-    [loadedGroups removeAllObjects];
+    @synchronized([GTKSubmenuManager class]) {
+        [gtkSubmenuDelegates removeAllObjects];
+        [loadedGroups removeAllObjects];
+    }
 }
 
 @end
@@ -116,9 +120,14 @@ static NSMutableSet *loadedGroups = nil;
         return;
     }
     
-    // Check if this group was already loaded
+    // Check if this group was already loaded (thread-safe)
     NSString *groupKey = [NSString stringWithFormat:@"group_%@_%@", self.serviceName, self.groupId];
-    if ([loadedGroups containsObject:groupKey]) {
+    BOOL alreadyLoaded = NO;
+    @synchronized([GTKSubmenuManager class]) {
+        alreadyLoaded = [loadedGroups containsObject:groupKey];
+    }
+    
+    if (alreadyLoaded) {
         NSLog(@"GTKSubmenuDelegate: Group already loaded, skipping duplicate load");
         return;
     }
@@ -147,8 +156,10 @@ static NSMutableSet *loadedGroups = nil;
         // Parse and add the new menu data to our menu dictionary
         [GTKMenuParser parseMenuData:(NSArray *)result intoDict:self.menuDict];
         
-        // Mark this group as loaded
-        [loadedGroups addObject:groupKey];
+        // Mark this group as loaded (thread-safe)
+        @synchronized([GTKSubmenuManager class]) {
+            [loadedGroups addObject:groupKey];
+        }
         
         // Now rebuild this submenu with the newly loaded data
         [self refreshSubmenu:menu];

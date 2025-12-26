@@ -45,13 +45,15 @@ static NSMutableSet *_servicesWithoutDescribeAction = nil;
     // Store the action name in the menu item for later retrieval during re-registration
     [menuItem setRepresentedObject:actionName];
     
-    // Store GTK action information for this menu item using a stable key
+    // Store GTK action information for this menu item using a stable key (thread-safe)
     // Use both title and action name to create a unique identifier
     NSString *menuItemKey = [NSString stringWithFormat:@"%@|%@", [menuItem title], actionName];
-    [gtkMenuItemToActionMap setObject:actionName forKey:menuItemKey];
-    [gtkMenuItemToServiceMap setObject:serviceName forKey:menuItemKey];
-    [gtkMenuItemToActionPathMap setObject:actionPath forKey:menuItemKey];
-    [gtkMenuItemToConnectionMap setObject:dbusConnection forKey:menuItemKey];
+    @synchronized([GTKActionHandler class]) {
+        [gtkMenuItemToActionMap setObject:actionName forKey:menuItemKey];
+        [gtkMenuItemToServiceMap setObject:serviceName forKey:menuItemKey];
+        [gtkMenuItemToActionPathMap setObject:actionPath forKey:menuItemKey];
+        [gtkMenuItemToConnectionMap setObject:dbusConnection forKey:menuItemKey];
+    }
     
     NSLog(@"GTKActionHandler: Set up GTK action for menu item '%@' (action=%@, service=%@, path=%@)", 
           [menuItem title], actionName, serviceName, actionPath);
@@ -153,29 +155,31 @@ static NSMutableSet *_servicesWithoutDescribeAction = nil;
     
     NSLog(@"GTKActionHandler: Menu item action triggered for '%@'", [menuItem title]);
     
-    // Try to find the action by searching through stored actions
+    // Try to find the action by searching through stored actions (thread-safe)
     NSString *actionName = nil;
     NSString *serviceName = nil;
     NSString *actionPath = nil;
     GNUDBusConnection *dbusConnection = nil;
     
-    // Search through all stored actions to find one that matches this menu item
-    for (NSString *key in [gtkMenuItemToActionMap allKeys]) {
-        NSArray *keyParts = [key componentsSeparatedByString:@"|"];
-        if ([keyParts count] == 2) {
-            NSString *storedTitle = [keyParts objectAtIndex:0];
-            
-            // Match by title (remove underscore accelerators for comparison)
-            NSString *cleanMenuTitle = [[menuItem title] stringByReplacingOccurrencesOfString:@"_" withString:@""];
-            NSString *cleanStoredTitle = [storedTitle stringByReplacingOccurrencesOfString:@"_" withString:@""];
-            
-            if ([cleanMenuTitle isEqualToString:cleanStoredTitle]) {
-                actionName = [gtkMenuItemToActionMap objectForKey:key];
-                serviceName = [gtkMenuItemToServiceMap objectForKey:key];
-                actionPath = [gtkMenuItemToActionPathMap objectForKey:key];
-                dbusConnection = [gtkMenuItemToConnectionMap objectForKey:key];
-                NSLog(@"GTKActionHandler: Found matching action '%@' for menu item '%@'", actionName, [menuItem title]);
-                break;
+    @synchronized([GTKActionHandler class]) {
+        // Search through all stored actions to find one that matches this menu item
+        for (NSString *key in [gtkMenuItemToActionMap allKeys]) {
+            NSArray *keyParts = [key componentsSeparatedByString:@"|"];
+            if ([keyParts count] == 2) {
+                NSString *storedTitle = [keyParts objectAtIndex:0];
+                
+                // Match by title (remove underscore accelerators for comparison)
+                NSString *cleanMenuTitle = [[menuItem title] stringByReplacingOccurrencesOfString:@"_" withString:@""];
+                NSString *cleanStoredTitle = [storedTitle stringByReplacingOccurrencesOfString:@"_" withString:@""];
+                
+                if ([cleanMenuTitle isEqualToString:cleanStoredTitle]) {
+                    actionName = [[gtkMenuItemToActionMap objectForKey:key] copy];
+                    serviceName = [[gtkMenuItemToServiceMap objectForKey:key] copy];
+                    actionPath = [[gtkMenuItemToActionPathMap objectForKey:key] copy];
+                    dbusConnection = [gtkMenuItemToConnectionMap objectForKey:key];
+                    NSLog(@"GTKActionHandler: Found matching action '%@' for menu item '%@'", actionName, [menuItem title]);
+                    break;
+                }
             }
         }
     }
@@ -186,7 +190,9 @@ static NSMutableSet *_servicesWithoutDescribeAction = nil;
               actionName, serviceName, actionPath, dbusConnection);
         
         // Debug: show all stored keys
-        NSLog(@"GTKActionHandler: Available stored keys: %@", [gtkMenuItemToActionMap allKeys]);
+        @synchronized([GTKActionHandler class]) {
+            NSLog(@"GTKActionHandler: Available stored keys: %@", [gtkMenuItemToActionMap allKeys]);
+        }
         return;
     }
     
@@ -392,10 +398,12 @@ static NSMutableSet *_servicesWithoutDescribeAction = nil;
 {
     NSLog(@"GTKActionHandler: Cleaning up GTK action handler...");
     
-    [gtkMenuItemToActionMap removeAllObjects];
-    [gtkMenuItemToServiceMap removeAllObjects];
-    [gtkMenuItemToActionPathMap removeAllObjects];
-    [gtkMenuItemToConnectionMap removeAllObjects];
+    @synchronized([GTKActionHandler class]) {
+        [gtkMenuItemToActionMap removeAllObjects];
+        [gtkMenuItemToServiceMap removeAllObjects];
+        [gtkMenuItemToActionPathMap removeAllObjects];
+        [gtkMenuItemToConnectionMap removeAllObjects];
+    }
     
     @synchronized(_servicesWithDescribeAction) {
         [_servicesWithDescribeAction removeAllObjects];

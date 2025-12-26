@@ -31,11 +31,13 @@ static NSMutableDictionary *menuItemToConnectionMap = nil;
     [menuItem setTarget:[DBusMenuActionHandler class]];
     [menuItem setAction:@selector(menuItemAction:)];
     
-    // Store DBus connection info for this menu item
+    // Store DBus connection info for this menu item (thread-safe)
     NSString *menuItemKey = [NSString stringWithFormat:@"%p", menuItem];
-    [menuItemToServiceMap setObject:serviceName forKey:menuItemKey];
-    [menuItemToObjectPathMap setObject:objectPath forKey:menuItemKey];
-    [menuItemToConnectionMap setObject:dbusConnection forKey:menuItemKey];
+    @synchronized([DBusMenuActionHandler class]) {
+        [menuItemToServiceMap setObject:serviceName forKey:menuItemKey];
+        [menuItemToObjectPathMap setObject:objectPath forKey:menuItemKey];
+        [menuItemToConnectionMap setObject:dbusConnection forKey:menuItemKey];
+    }
     
     NSLog(@"DBusMenuActionHandler: Set up action for menu item '%@' (ID=%ld, service=%@, path=%@)", 
           [menuItem title], (long)[menuItem tag], serviceName, objectPath);
@@ -64,10 +66,15 @@ static NSMutableDictionary *menuItemToConnectionMap = nil;
     NSMenuItem *menuItem = (NSMenuItem *)sender;
     NSString *menuItemKey = [NSString stringWithFormat:@"%p", menuItem];
     
-    // Retrieve DBus connection info for this menu item
-    NSString *serviceName = [menuItemToServiceMap objectForKey:menuItemKey];
-    NSString *objectPath = [menuItemToObjectPathMap objectForKey:menuItemKey];
-    GNUDBusConnection *dbusConnection = [menuItemToConnectionMap objectForKey:menuItemKey];
+    // Retrieve DBus connection info for this menu item (thread-safe)
+    NSString *serviceName = nil;
+    NSString *objectPath = nil;
+    GNUDBusConnection *dbusConnection = nil;
+    @synchronized([DBusMenuActionHandler class]) {
+        serviceName = [[menuItemToServiceMap objectForKey:menuItemKey] copy];
+        objectPath = [[menuItemToObjectPathMap objectForKey:menuItemKey] copy];
+        dbusConnection = [menuItemToConnectionMap objectForKey:menuItemKey];
+    }
     
     if (!serviceName || !objectPath || !dbusConnection) {
         NSLog(@"DBusMenuActionHandler: ERROR: Missing DBus info for menu item '%@'", [menuItem title]);
@@ -132,10 +139,12 @@ static NSMutableDictionary *menuItemToConnectionMap = nil;
     NSLog(@"DBusMenuActionHandler: Performing cleanup...");
     [[X11ShortcutManager sharedManager] cleanup];
     
-    // Clean up static dictionaries
-    [menuItemToServiceMap removeAllObjects];
-    [menuItemToObjectPathMap removeAllObjects];
-    [menuItemToConnectionMap removeAllObjects];
+    // Clean up static dictionaries (thread-safe)
+    @synchronized([DBusMenuActionHandler class]) {
+        [menuItemToServiceMap removeAllObjects];
+        [menuItemToObjectPathMap removeAllObjects];
+        [menuItemToConnectionMap removeAllObjects];
+    }
 }
 
 @end

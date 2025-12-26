@@ -96,32 +96,35 @@
 - (NSMenu *)getCachedMenuForWindow:(unsigned long)windowId
 {
     NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
-    MenuCacheEntry *entry = [self.cache objectForKey:windowKey];
     
-    if (!entry) {
-        self.cacheMisses++;
-        NSLog(@"MenuCacheManager: Cache MISS for window %lu", windowId);
-        return nil;
+    @synchronized(self) {
+        MenuCacheEntry *entry = [self.cache objectForKey:windowKey];
+        
+        if (!entry) {
+            self.cacheMisses++;
+            NSLog(@"MenuCacheManager: Cache MISS for window %lu", windowId);
+            return nil;
+        }
+        
+        // Check if entry is stale
+        if ([entry isStale:self.maxCacheAge]) {
+            NSLog(@"MenuCacheManager: Cache entry for window %lu is stale (age: %.1fs), removing", 
+                  windowId, [entry age]);
+            [self invalidateCacheForWindowLocked:windowId];
+            self.cacheMisses++;
+            return nil;
+        }
+        
+        // Update access tracking
+        [entry touch];
+        [self moveToFrontLocked:windowKey];
+        
+        self.cacheHits++;
+        NSLog(@"MenuCacheManager: Cache HIT for window %lu (accessed %lu times, age: %.1fs)", 
+              windowId, (unsigned long)[entry accessCount], [entry age]);
+        
+        return [entry menu];
     }
-    
-    // Check if entry is stale
-    if ([entry isStale:self.maxCacheAge]) {
-        NSLog(@"MenuCacheManager: Cache entry for window %lu is stale (age: %.1fs), removing", 
-              windowId, [entry age]);
-        [self invalidateCacheForWindow:windowId];
-        self.cacheMisses++;
-        return nil;
-    }
-    
-    // Update access tracking
-    [entry touch];
-    [self moveToFront:windowKey];
-    
-    self.cacheHits++;
-    NSLog(@"MenuCacheManager: Cache HIT for window %lu (accessed %lu times, age: %.1fs)", 
-          windowId, (unsigned long)[entry accessCount], [entry age]);
-    
-    return [entry menu];
 }
 
 - (void)cacheMenu:(NSMenu *)menu 
@@ -137,29 +140,39 @@
     
     NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
     
-    // Remove existing entry if present
-    [self invalidateCacheForWindow:windowId];
-    
-    // Ensure we don't exceed cache size limit
-    while ([self.cache count] >= self.maxCacheSize && [self.lruOrder count] > 0) {
-        [self evictLRUEntry];
+    @synchronized(self) {
+        // Remove existing entry if present
+        [self invalidateCacheForWindowLocked:windowId];
+        
+        // Ensure we don't exceed cache size limit
+        while ([self.cache count] >= self.maxCacheSize && [self.lruOrder count] > 0) {
+            [self evictLRUEntryLocked];
+        }
+        
+        // Create new cache entry
+        MenuCacheEntry *entry = [[MenuCacheEntry alloc] initWithMenu:menu
+                                                         serviceName:serviceName
+                                                          objectPath:objectPath
+                                                     applicationName:applicationName];
+        
+        [self.cache setObject:entry forKey:windowKey];
+        [self.lruOrder insertObject:windowKey atIndex:0];  // Add to front (most recent)
+        
+        NSLog(@"MenuCacheManager: Cached menu for window %lu (%@ - %@) with %lu items", 
+              windowId, applicationName ?: @"Unknown App", serviceName, 
+              (unsigned long)[[menu itemArray] count]);
     }
-    
-    // Create new cache entry
-    MenuCacheEntry *entry = [[MenuCacheEntry alloc] initWithMenu:menu
-                                                     serviceName:serviceName
-                                                      objectPath:objectPath
-                                                 applicationName:applicationName];
-    
-    [self.cache setObject:entry forKey:windowKey];
-    [self.lruOrder insertObject:windowKey atIndex:0];  // Add to front (most recent)
-    
-    NSLog(@"MenuCacheManager: Cached menu for window %lu (%@ - %@) with %lu items", 
-          windowId, applicationName ?: @"Unknown App", serviceName, 
-          (unsigned long)[[menu itemArray] count]);
 }
 
 - (void)invalidateCacheForWindow:(unsigned long)windowId
+{
+    @synchronized(self) {
+        [self invalidateCacheForWindowLocked:windowId];
+    }
+}
+
+// Internal method - must be called with @synchronized(self)
+- (void)invalidateCacheForWindowLocked:(unsigned long)windowId
 {
     NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
     MenuCacheEntry *entry = [self.cache objectForKey:windowKey];
@@ -181,31 +194,35 @@
     
     NSLog(@"MenuCacheManager: Invalidating cache for application: %@", applicationName);
     
-    NSMutableArray *windowsToRemove = [NSMutableArray array];
-    
-    for (NSNumber *windowKey in [self.cache allKeys]) {
-        MenuCacheEntry *entry = [self.cache objectForKey:windowKey];
-        if ([[entry applicationName] isEqualToString:applicationName]) {
-            [windowsToRemove addObject:windowKey];
+    @synchronized(self) {
+        NSMutableArray *windowsToRemove = [NSMutableArray array];
+        
+        for (NSNumber *windowKey in [self.cache allKeys]) {
+            MenuCacheEntry *entry = [self.cache objectForKey:windowKey];
+            if ([[entry applicationName] isEqualToString:applicationName]) {
+                [windowsToRemove addObject:windowKey];
+            }
         }
+        
+        for (NSNumber *windowKey in windowsToRemove) {
+            unsigned long windowId = [windowKey unsignedLongValue];
+            [self invalidateCacheForWindowLocked:windowId];
+        }
+        
+        NSLog(@"MenuCacheManager: Invalidated %lu cached menus for application %@", 
+              (unsigned long)[windowsToRemove count], applicationName);
     }
-    
-    for (NSNumber *windowKey in windowsToRemove) {
-        unsigned long windowId = [windowKey unsignedLongValue];
-        [self invalidateCacheForWindow:windowId];
-    }
-    
-    NSLog(@"MenuCacheManager: Invalidated %lu cached menus for application %@", 
-          (unsigned long)[windowsToRemove count], applicationName);
 }
 
 - (void)clearCache
 {
-    NSUInteger count = [self.cache count];
-    [self.cache removeAllObjects];
-    [self.lruOrder removeAllObjects];
-    
-    NSLog(@"MenuCacheManager: Cleared entire cache (%lu entries)", (unsigned long)count);
+    @synchronized(self) {
+        NSUInteger count = [self.cache count];
+        [self.cache removeAllObjects];
+        [self.lruOrder removeAllObjects];
+        
+        NSLog(@"MenuCacheManager: Cleared entire cache (%lu entries)", (unsigned long)count);
+    }
 }
 
 #pragma mark - Cache Management
@@ -216,8 +233,10 @@
     NSLog(@"MenuCacheManager: Set max cache size to %lu", (unsigned long)maxSize);
     
     // Evict entries if we're now over the limit
-    while ([self.cache count] > _maxCacheSize && [self.lruOrder count] > 0) {
-        [self evictLRUEntry];
+    @synchronized(self) {
+        while ([self.cache count] > _maxCacheSize && [self.lruOrder count] > 0) {
+            [self evictLRUEntryLocked];
+        }
     }
 }
 
@@ -229,37 +248,40 @@
 
 - (void)performMaintenance
 {
-    NSMutableArray *staleWindows = [NSMutableArray array];
-    
-    // Find stale entries
-    for (NSNumber *windowKey in [self.cache allKeys]) {
-        MenuCacheEntry *entry = [self.cache objectForKey:windowKey];
-        if ([entry isStale:self.maxCacheAge]) {
-            [staleWindows addObject:windowKey];
+    @synchronized(self) {
+        NSMutableArray *staleWindows = [NSMutableArray array];
+        
+        // Find stale entries
+        for (NSNumber *windowKey in [self.cache allKeys]) {
+            MenuCacheEntry *entry = [self.cache objectForKey:windowKey];
+            if ([entry isStale:self.maxCacheAge]) {
+                [staleWindows addObject:windowKey];
+            }
         }
-    }
-    
-    // Remove stale entries
-    for (NSNumber *windowKey in staleWindows) {
-        unsigned long windowId = [windowKey unsignedLongValue];
-        NSLog(@"MenuCacheManager: Removing stale cache entry for window %lu", windowId);
-        [self invalidateCacheForWindow:windowId];
-    }
-    
-    if ([staleWindows count] > 0) {
-        NSLog(@"MenuCacheManager: Maintenance removed %lu stale entries", 
-              (unsigned long)[staleWindows count]);
-    }
-    
-    // Log statistics periodically (every 10 minutes)
-    static NSUInteger maintenanceCount = 0;
-    maintenanceCount++;
-    if (maintenanceCount % 10 == 0) {
-        [self logCacheStatistics];
+        
+        // Remove stale entries
+        for (NSNumber *windowKey in staleWindows) {
+            unsigned long windowId = [windowKey unsignedLongValue];
+            NSLog(@"MenuCacheManager: Removing stale cache entry for window %lu", windowId);
+            [self invalidateCacheForWindowLocked:windowId];
+        }
+        
+        if ([staleWindows count] > 0) {
+            NSLog(@"MenuCacheManager: Maintenance removed %lu stale entries", 
+                  (unsigned long)[staleWindows count]);
+        }
+        
+        // Log statistics periodically (every 10 minutes)
+        static NSUInteger maintenanceCount = 0;
+        maintenanceCount++;
+        if (maintenanceCount % 10 == 0) {
+            [self logCacheStatistics];
+        }
     }
 }
 
-- (void)evictLRUEntry
+// Internal method - must be called with @synchronized(self)
+- (void)evictLRUEntryLocked
 {
     if ([self.lruOrder count] == 0) {
         return;
@@ -277,29 +299,46 @@
     self.cacheEvictions++;
 }
 
-- (void)moveToFront:(NSNumber *)windowKey
+- (void)evictLRUEntry
+{
+    @synchronized(self) {
+        [self evictLRUEntryLocked];
+    }
+}
+
+// Internal method - must be called with @synchronized(self)
+- (void)moveToFrontLocked:(NSNumber *)windowKey
 {
     [self.lruOrder removeObject:windowKey];
     [self.lruOrder insertObject:windowKey atIndex:0];
+}
+
+- (void)moveToFront:(NSNumber *)windowKey
+{
+    @synchronized(self) {
+        [self moveToFrontLocked:windowKey];
+    }
 }
 
 #pragma mark - Statistics
 
 - (NSDictionary *)getCacheStatistics
 {
-    NSUInteger totalRequests = self.cacheHits + self.cacheMisses;
-    double hitRatio = (totalRequests > 0) ? ((double)self.cacheHits / totalRequests) * 100.0 : 0.0;
-    
-    return @{
-        @"cacheSize": @([self.cache count]),
-        @"maxCacheSize": @(self.maxCacheSize),
-        @"maxCacheAge": @(self.maxCacheAge),
-        @"cacheHits": @(self.cacheHits),
-        @"cacheMisses": @(self.cacheMisses),
-        @"cacheEvictions": @(self.cacheEvictions),
-        @"hitRatio": @(hitRatio),
-        @"totalRequests": @(totalRequests)
-    };
+    @synchronized(self) {
+        NSUInteger totalRequests = self.cacheHits + self.cacheMisses;
+        double hitRatio = (totalRequests > 0) ? ((double)self.cacheHits / totalRequests) * 100.0 : 0.0;
+        
+        return @{
+            @"cacheSize": @([self.cache count]),
+            @"maxCacheSize": @(self.maxCacheSize),
+            @"maxCacheAge": @(self.maxCacheAge),
+            @"cacheHits": @(self.cacheHits),
+            @"cacheMisses": @(self.cacheMisses),
+            @"cacheEvictions": @(self.cacheEvictions),
+            @"hitRatio": @(hitRatio),
+            @"totalRequests": @(totalRequests)
+        };
+    }
 }
 
 - (void)logCacheStatistics
@@ -314,15 +353,17 @@
           [stats[@"hitRatio"] doubleValue], stats[@"totalRequests"]);
     NSLog(@"MenuCacheManager: Max cache age: %.1fs", [stats[@"maxCacheAge"] doubleValue]);
     
-    // Log current cache contents
-    if ([self.cache count] > 0) {
-        NSLog(@"MenuCacheManager: Cached windows:");
-        for (NSNumber *windowKey in self.lruOrder) {
-            MenuCacheEntry *entry = [self.cache objectForKey:windowKey];
-            NSLog(@"MenuCacheManager:   Window %@ (%@): %lu items, age %.1fs, accessed %lu times",
-                  windowKey, [entry applicationName] ?: @"Unknown",
-                  (unsigned long)[[entry menu] numberOfItems],
-                  [entry age], (unsigned long)[entry accessCount]);
+    // Log current cache contents (thread-safe)
+    @synchronized(self) {
+        if ([self.cache count] > 0) {
+            NSLog(@"MenuCacheManager: Cached windows:");
+            for (NSNumber *windowKey in self.lruOrder) {
+                MenuCacheEntry *entry = [self.cache objectForKey:windowKey];
+                NSLog(@"MenuCacheManager:   Window %@ (%@): %lu items, age %.1fs, accessed %lu times",
+                      windowKey, [entry applicationName] ?: @"Unknown",
+                      (unsigned long)[[entry menu] numberOfItems],
+                      [entry age], (unsigned long)[entry accessCount]);
+            }
         }
     }
     NSLog(@"MenuCacheManager: ========================");

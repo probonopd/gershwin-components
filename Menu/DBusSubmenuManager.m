@@ -46,9 +46,11 @@ static NSMutableSet *refreshedByAboutToShow = nil;
     [submenu setDelegate:delegate];
     NSLog(@"DBusSubmenuManager: Successfully set delegate for submenu");
     
-    // Store the delegate to prevent it from being deallocated
+    // Store the delegate to prevent it from being deallocated (thread-safe)
     NSString *submenuKey = [NSString stringWithFormat:@"submenu_%p", submenu];
-    [submenuDelegates setObject:delegate forKey:submenuKey];
+    @synchronized([DBusSubmenuManager class]) {
+        [submenuDelegates setObject:delegate forKey:submenuKey];
+    }
     
     NSLog(@"DBusSubmenuManager: Stored delegate with key '%@' for lazy loading (itemId=%@)", submenuKey, itemId);
     
@@ -70,8 +72,10 @@ static NSMutableSet *refreshedByAboutToShow = nil;
 + (void)cleanup
 {
     NSLog(@"DBusSubmenuManager: Performing cleanup...");
-    [submenuDelegates removeAllObjects];
-    [refreshedByAboutToShow removeAllObjects];
+    @synchronized([DBusSubmenuManager class]) {
+        [submenuDelegates removeAllObjects];
+        [refreshedByAboutToShow removeAllObjects];
+    }
 }
 
 @end
@@ -124,11 +128,18 @@ static NSMutableSet *refreshedByAboutToShow = nil;
         return;
     }
     
-    // Check if this menu was already refreshed by AboutToShow to avoid duplicate calls
+    // Check if this menu was already refreshed by AboutToShow to avoid duplicate calls (thread-safe)
     NSString *itemIdKey = [NSString stringWithFormat:@"refreshed_%@", self.itemId];
-    if ([refreshedByAboutToShow containsObject:itemIdKey]) {
+    BOOL alreadyRefreshed = NO;
+    @synchronized([DBusSubmenuManager class]) {
+        alreadyRefreshed = [refreshedByAboutToShow containsObject:itemIdKey];
+        if (alreadyRefreshed) {
+            [refreshedByAboutToShow removeObject:itemIdKey];
+        }
+    }
+    
+    if (alreadyRefreshed) {
         NSLog(@"DBusSubmenuDelegate: Menu already refreshed by AboutToShow, skipping duplicate refresh");
-        [refreshedByAboutToShow removeObject:itemIdKey];
         return;
     }
     
@@ -174,7 +185,9 @@ static NSMutableSet *refreshedByAboutToShow = nil;
         
         if (needsRefresh || [[menu itemArray] count] == 0) {
             NSLog(@"DBusSubmenuDelegate: ===== MENU UPDATE NEEDED, REFRESHING SUBMENU =====");
-            [refreshedByAboutToShow addObject:itemIdKey];
+            @synchronized([DBusSubmenuManager class]) {
+                [refreshedByAboutToShow addObject:itemIdKey];
+            }
             [self refreshSubmenu:menu];
         } else {
             NSLog(@"DBusSubmenuDelegate: No menu update needed, using existing content");
