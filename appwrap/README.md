@@ -11,7 +11,9 @@ appwrap [OPTIONS] /path/to/application.desktop [output_directory]
 ### Arguments
 
 - `/path/to/application.desktop` - Path to a freedesktop .desktop file
-- `[output_directory]` - (Optional) Directory where the app bundle will be created. Defaults to `~/Desktop`
+- `[output_directory]` - (Optional) Directory where the app bundle will be created. 
+  - If not specified for non-root users: `~/Applications` (created if it doesn't exist)
+  - If not specified for root: `/Local/Applications` (created if it doesn't exist)
 
 ### Options
 
@@ -19,7 +21,7 @@ appwrap [OPTIONS] /path/to/application.desktop [output_directory]
 
 ## Examples
 
-Create a Chromium app bundle in the Desktop folder:
+Create a Chromium app bundle in the default location (~Applications as non-root):
 ```bash
 appwrap /usr/share/applications/chromium.desktop
 ```

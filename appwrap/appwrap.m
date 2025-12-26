@@ -490,7 +490,9 @@ int main(int argc, char *argv[])
   if (argc < 2)
     {
       fprintf(stderr, "Usage: %s [OPTIONS] /path/to/application.desktop [output_dir]\n", argv[0]);
-      fprintf(stderr, "  If output_dir is not specified, ~/Desktop is used\n");
+      fprintf(stderr, "  If output_dir is not specified:\n");
+      fprintf(stderr, "    - ~/Applications is used for non-root users\n");
+      fprintf(stderr, "    - /Local/Applications is used for root\n");
       fprintf(stderr, "\nOptions:\n");
       fprintf(stderr, "  -f, --force    Overwrite existing app bundle without asking\n");
       [pool release];
@@ -522,22 +524,46 @@ int main(int argc, char *argv[])
   NSString *desktopFilePath = [NSString stringWithUTF8String:argv[desktopFileArgIdx]];
   NSString *outputDir = nil;
 
-  // Get output directory (default to ~/Desktop)
+  // Get output directory
   if (desktopFileArgIdx + 1 < argc)
     {
       outputDir = [NSString stringWithUTF8String:argv[desktopFileArgIdx + 1]];
     }
   else
     {
-      outputDir = [NSHomeDirectory() stringByAppendingPathComponent:@"Desktop"];
+      // Use conditional directory based on whether running as root
+      if (geteuid() == 0)
+        {
+          outputDir = @"/Local/Applications";
+        }
+      else
+        {
+          outputDir = [NSHomeDirectory() stringByAppendingPathComponent:@"Applications"];
+        }
     }
 
   // Expand ~ in paths
   desktopFilePath = [desktopFilePath stringByExpandingTildeInPath];
   outputDir = [outputDir stringByExpandingTildeInPath];
 
-  // Check if desktop file exists
+  // Create output directory if it doesn't exist
   NSFileManager *fm = [NSFileManager defaultManager];
+  NSError *dirError = nil;
+  if (![fm fileExistsAtPath:outputDir])
+    {
+      if (![fm createDirectoryAtPath:outputDir
+            withIntermediateDirectories:YES
+                             attributes:nil
+                                  error:&dirError])
+        {
+          fprintf(stderr, "Error: Failed to create output directory: %s\n",
+                  [[dirError localizedDescription] UTF8String]);
+          [pool release];
+          exit(EXIT_FAILURE);
+        }
+    }
+
+  // Check if desktop file exists
   if (![fm fileExistsAtPath:desktopFilePath])
     {
       fprintf(stderr, "Error: Desktop file not found: %s\n", [desktopFilePath UTF8String]);
