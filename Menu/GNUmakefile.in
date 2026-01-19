@@ -75,7 +75,7 @@ Menu_RESOURCE_FILES = \
 
 
 # Libraries and frameworks - configured by configure script
-Menu_TOOL_LIBS += @DBUS_LIBS@ -lX11
+Menu_TOOL_LIBS += @DBUS_LIBS@ -lX11 -ldispatch
 Menu_GUI_LIBS += -L/System/Library/Libraries -lgnustep-gui -lgnustep-base -lobjc
 Menu_LDFLAGS += -Wl,--export-dynamic -L/System/Library/Libraries -Wl,-rpath,/System/Library/Libraries -Wl,--no-as-needed
 
