@@ -859,6 +859,58 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [systemMenu addItem:prefsItem];
         [systemMenu addItem:[NSMenuItem separatorItem]];
 
+        // Add "Window" submenu with tiling options
+        NSMenuItem *windowItem = [[NSMenuItem alloc] initWithTitle:@"Window" action:nil keyEquivalent:@""];
+        NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
+
+        // Center window
+        NSMenuItem *centerItem = [[NSMenuItem alloc] initWithTitle:@"Center" action:@selector(centerWindow:) keyEquivalent:@""];
+        [centerItem setTarget:self];
+        [windowMenu addItem:centerItem];
+
+        // Maximize vertical/horizontal
+        NSMenuItem *maxVertItem = [[NSMenuItem alloc] initWithTitle:@"Maximize Vertical" action:@selector(maximizeWindowVertically:) keyEquivalent:@""];
+        [maxVertItem setTarget:self];
+        [windowMenu addItem:maxVertItem];
+
+        NSMenuItem *maxHorizItem = [[NSMenuItem alloc] initWithTitle:@"Maximize Horizontal" action:@selector(maximizeWindowHorizontally:) keyEquivalent:@""];
+        [maxHorizItem setTarget:self];
+        [windowMenu addItem:maxHorizItem];
+
+        [windowMenu addItem:[NSMenuItem separatorItem]];
+
+        // Half-screen tiling
+        NSMenuItem *tileLeftItem = [[NSMenuItem alloc] initWithTitle:@"Tile Left" action:@selector(tileWindowLeft:) keyEquivalent:@""];
+        [tileLeftItem setTarget:self];
+        [windowMenu addItem:tileLeftItem];
+
+        NSMenuItem *tileRightItem = [[NSMenuItem alloc] initWithTitle:@"Tile Right" action:@selector(tileWindowRight:) keyEquivalent:@""];
+        [tileRightItem setTarget:self];
+        [windowMenu addItem:tileRightItem];
+
+        [windowMenu addItem:[NSMenuItem separatorItem]];
+
+        // Quarter-screen tiling
+        NSMenuItem *tileTopLeftItem = [[NSMenuItem alloc] initWithTitle:@"Tile Top Left" action:@selector(tileWindowTopLeft:) keyEquivalent:@""];
+        [tileTopLeftItem setTarget:self];
+        [windowMenu addItem:tileTopLeftItem];
+
+        NSMenuItem *tileTopRightItem = [[NSMenuItem alloc] initWithTitle:@"Tile Top Right" action:@selector(tileWindowTopRight:) keyEquivalent:@""];
+        [tileTopRightItem setTarget:self];
+        [windowMenu addItem:tileTopRightItem];
+
+        NSMenuItem *tileBottomLeftItem = [[NSMenuItem alloc] initWithTitle:@"Tile Bottom Left" action:@selector(tileWindowBottomLeft:) keyEquivalent:@""];
+        [tileBottomLeftItem setTarget:self];
+        [windowMenu addItem:tileBottomLeftItem];
+
+        NSMenuItem *tileBottomRightItem = [[NSMenuItem alloc] initWithTitle:@"Tile Bottom Right" action:@selector(tileWindowBottomRight:) keyEquivalent:@""];
+        [tileBottomRightItem setTarget:self];
+        [windowMenu addItem:tileBottomRightItem];
+
+        [windowItem setSubmenu:windowMenu];
+        [systemMenu addItem:windowItem];
+        [systemMenu addItem:[NSMenuItem separatorItem]];
+
         // Keep a reference to this system submenu so we can populate it dynamically
         self.systemMenu = systemMenu;
         [systemMenu setDelegate:self];
@@ -878,7 +930,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
         
         [systemItem setSubmenu:systemMenu];
-        
+
         // Insert at the beginning of the menu
         [menu insertItem:systemItem atIndex:0];
 
@@ -1098,16 +1150,17 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
 
     NSArray *items = [menu itemArray];
-    NSInteger prefsIndex = NSNotFound;
+    NSInteger windowIndex = NSNotFound;
     for (NSUInteger i = 0; i < [items count]; i++) {
         NSMenuItem *it = [items objectAtIndex:i];
-        if ([[it title] isEqualToString:@"System Preferences"]) {
-            prefsIndex = (NSInteger)i;
+        if ([[it title] isEqualToString:@"Window"]) {
+            windowIndex = (NSInteger)i;
             break;
         }
     }
 
-    NSInteger startIndex = (prefsIndex != NSNotFound) ? (prefsIndex + 2) : 3; // where app list should begin
+    // App list starts after Window menu + separator (windowIndex + 2)
+    NSInteger startIndex = (windowIndex != NSNotFound) ? (windowIndex + 2) : 5; // where app list should begin
 
     // Remove any old application entries that were previously added directly after the prefs separator
     while ([menu numberOfItems] > startIndex) {
@@ -1708,6 +1761,105 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     }
 #endif
 } 
+
+- (void)sendTileClientMessage:(const char *)atomName
+{
+    // Send an X11 client message to the window manager to trigger tiling
+    Display *display = XOpenDisplay(NULL);
+    if (!display) {
+        NSLog(@"AppMenuWidget: Cannot open X11 display for tile message");
+        return;
+    }
+
+    Window root = DefaultRootWindow(display);
+
+    // Create the client message event
+    XEvent event;
+    memset(&event, 0, sizeof(event));
+    event.xclient.type = ClientMessage;
+    event.xclient.serial = 0;
+    event.xclient.send_event = True;
+    event.xclient.window = root;
+    event.xclient.message_type = XInternAtom(display, atomName, False);
+    event.xclient.format = 32;
+    event.xclient.data.l[0] = 0;
+    event.xclient.data.l[1] = CurrentTime;
+    event.xclient.data.l[2] = 0;
+    event.xclient.data.l[3] = 0;
+    event.xclient.data.l[4] = 0;
+
+    // Send to root window with SubstructureRedirect | SubstructureNotify mask
+    // so the window manager receives it
+    XSendEvent(display, root, False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &event);
+    XFlush(display);
+    XCloseDisplay(display);
+
+    NSLog(@"AppMenuWidget: Sent %s client message to window manager", atomName);
+}
+
+- (void)centerWindow:(NSMenuItem *)sender
+{
+    (void)sender;
+    NSLog(@"AppMenuWidget: Center Window requested");
+    [self sendTileClientMessage:"_GERSHWIN_CENTER_WINDOW"];
+}
+
+- (void)maximizeWindowVertically:(NSMenuItem *)sender
+{
+    (void)sender;
+    NSLog(@"AppMenuWidget: Maximize Window Vertically requested");
+    [self sendTileClientMessage:"_GERSHWIN_MAXIMIZE_VERTICAL"];
+}
+
+- (void)maximizeWindowHorizontally:(NSMenuItem *)sender
+{
+    (void)sender;
+    NSLog(@"AppMenuWidget: Maximize Window Horizontally requested");
+    [self sendTileClientMessage:"_GERSHWIN_MAXIMIZE_HORIZONTAL"];
+}
+
+- (void)tileWindowLeft:(NSMenuItem *)sender
+{
+    (void)sender;
+    NSLog(@"AppMenuWidget: Tile Window Left requested");
+    [self sendTileClientMessage:"_GERSHWIN_TILE_LEFT"];
+}
+
+- (void)tileWindowRight:(NSMenuItem *)sender
+{
+    (void)sender;
+    NSLog(@"AppMenuWidget: tileWindowRight: called! sender=%@", sender);
+    [self sendTileClientMessage:"_GERSHWIN_TILE_RIGHT"];
+}
+
+- (void)tileWindowTopLeft:(NSMenuItem *)sender
+{
+    (void)sender;
+    NSLog(@"AppMenuWidget: Tile Window Top Left requested");
+    [self sendTileClientMessage:"_GERSHWIN_TILE_TOP_LEFT"];
+}
+
+- (void)tileWindowTopRight:(NSMenuItem *)sender
+{
+    (void)sender;
+    NSLog(@"AppMenuWidget: tileWindowTopRight: called! sender=%@", sender);
+    [self sendTileClientMessage:"_GERSHWIN_TILE_TOP_RIGHT"];
+}
+
+- (void)tileWindowBottomLeft:(NSMenuItem *)sender
+{
+    (void)sender;
+    NSLog(@"AppMenuWidget: Tile Window Bottom Left requested");
+    [self sendTileClientMessage:"_GERSHWIN_TILE_BOTTOM_LEFT"];
+}
+
+- (void)tileWindowBottomRight:(NSMenuItem *)sender
+{
+    (void)sender;
+    NSLog(@"AppMenuWidget: Tile Window Bottom Right requested");
+    [self sendTileClientMessage:"_GERSHWIN_TILE_BOTTOM_RIGHT"];
+}
 
 - (void)openSystemPreferences:(NSMenuItem *)sender
 {
