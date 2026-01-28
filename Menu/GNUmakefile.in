@@ -1,14 +1,11 @@
 GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 include $(GNUSTEP_MAKEFILES)/common.make
 
+GNUSTEP_APPS = $(GNUSTEP_CORE_SERVICES_APPS)
+
 PACKAGE_NAME = Menu
-GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 VERSION = 1.0
 APP_NAME = Menu
-
-# Ensure internal GNUstep install uses the canonical CoreServices path.
-# This sets APP_INSTALL_DIR in $(GNUSTEP_MAKEFILES)/Instance/application.make
-Menu_INSTALL_DIR = /System/Library/CoreServices/Applications
 
 # App info
 Menu_APPLICATION_ICON = Menu.png
@@ -101,54 +98,18 @@ ifeq ($(UNAME_S),FreeBSD)
 	ADDITIONAL_CPPFLAGS = @DBUS_CFLAGS@
 endif
 
-# Canonical install location for Menu.app
-INSTALL_APPS_DIR = /System/Library/CoreServices/Applications
-
 include $(GNUSTEP_MAKEFILES)/application.make
 
-# Custom install target that completely overrides built-in behavior
-.PHONY: custom-install custom-uninstall
-
-install:: custom-install
-
-custom-install: $(APP_NAME).app
-	@echo "Building status item bundles..."
+after-install::
+	@echo "Building and installing status item bundles..."
 	@(cd StatusItems/SystemMonitor && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
 	@(cd StatusItems/TimeDisplay && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
-	@echo "Status item bundles built successfully"
 	@if [ -n "$(DESTDIR)" ]; then \
-		echo "Installing $(APP_NAME) to $(DESTDIR)$(INSTALL_APPS_DIR)"; \
-		rm -rf $(DESTDIR)/System/Applications/$(APP_NAME).app || true; \
-		rm -rf $(DESTDIR)/System/CoreServices/Applications/$(APP_NAME).app || true; \
-		rm -rf $(DESTDIR)/System/Library/CoreServices/Applications/$(APP_NAME).app || true; \
-		mkdir -p $(DESTDIR)$(INSTALL_APPS_DIR); \
-		cp -R $(APP_NAME).app $(DESTDIR)$(INSTALL_APPS_DIR)/; \
-		mkdir -p $(DESTDIR)$(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources; \
-		cp Menu.png $(DESTDIR)$(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources/; \
-		echo "Installing status item bundles..."; \
-		mkdir -p $(DESTDIR)/System/Library/Menu/StatusItems; \
-		cp -R StatusItems/SystemMonitor/SystemMonitor.bundle $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/TimeDisplay/TimeDisplay.bundle $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
+		mkdir -p $(DESTDIR)$(GNUSTEP_SYSTEM_LIBRARY)/Menu/StatusItems; \
+		cp -R StatusItems/SystemMonitor/SystemMonitor.bundle $(DESTDIR)$(GNUSTEP_SYSTEM_LIBRARY)/Menu/StatusItems/ || true; \
+		cp -R StatusItems/TimeDisplay/TimeDisplay.bundle $(DESTDIR)$(GNUSTEP_SYSTEM_LIBRARY)/Menu/StatusItems/ || true; \
 	else \
-		echo "Installing $(APP_NAME) to $(INSTALL_APPS_DIR)"; \
-		rm -rf $(GNUSTEP_SYSTEM_APPS)/$(APP_NAME).app || true; \
-		mkdir -p $(INSTALL_APPS_DIR); \
-		cp -R $(APP_NAME).app $(INSTALL_APPS_DIR)/; \
-		mkdir -p $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources; \
-		cp Menu.png $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources/; \
-			echo "Installing status item bundles..."; \
-			mkdir -p /System/Library/Menu/StatusItems; \
-			cp -R StatusItems/SystemMonitor/SystemMonitor.bundle /System/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/TimeDisplay/TimeDisplay.bundle /System/Library/Menu/StatusItems/ || true; \
-	fi
-# Override uninstall target to properly support DESTDIR and PREFIX
-uninstall:: custom-uninstall
-
-custom-uninstall:
-	@if [ -n "$(DESTDIR)" ]; then \
-		echo "Uninstalling $(APP_NAME) from $(DESTDIR)$(INSTALL_APPS_DIR)"; \
-		rm -rf $(DESTDIR)$(INSTALL_APPS_DIR)/$(APP_NAME).app; \
-	else \
-		echo "Uninstalling $(APP_NAME) from $(INSTALL_APPS_DIR)"; \
-		rm -rf $(INSTALL_APPS_DIR)/$(APP_NAME).app; \
+		mkdir -p $(GNUSTEP_SYSTEM_LIBRARY)/Menu/StatusItems; \
+		cp -R StatusItems/SystemMonitor/SystemMonitor.bundle $(GNUSTEP_SYSTEM_LIBRARY)/Menu/StatusItems/ || true; \
+		cp -R StatusItems/TimeDisplay/TimeDisplay.bundle $(GNUSTEP_SYSTEM_LIBRARY)/Menu/StatusItems/ || true; \
 	fi
