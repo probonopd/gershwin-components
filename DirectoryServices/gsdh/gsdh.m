@@ -29,12 +29,37 @@
     return self;
 }
 
+#pragma mark - Path Resolution
+
+- (NSString *)usersPath {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    // Check /Network first (client with mounted server)
+    if ([fm fileExistsAtPath:GSDH_NETWORK_USERS_PLIST]) {
+        return GSDH_NETWORK_USERS_PLIST;
+    }
+    // Fall back to /Local (server or standalone)
+    return GSDH_LOCAL_USERS_PLIST;
+}
+
+- (NSString *)groupsPath {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if ([fm fileExistsAtPath:GSDH_NETWORK_GROUPS_PLIST]) {
+        return GSDH_NETWORK_GROUPS_PLIST;
+    }
+    return GSDH_LOCAL_GROUPS_PLIST;
+}
+
+- (BOOL)isServer {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    return [fm fileExistsAtPath:GSDH_DOMAIN_PLIST];
+}
+
 #pragma mark - Plist Loading
 
 - (NSDictionary *)loadUsers {
-    // Check if cache is valid (reload if file changed)
+    NSString *path = [self usersPath];
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSDictionary *attrs = [fm attributesOfItemAtPath:GSDH_USERS_PLIST error:nil];
+    NSDictionary *attrs = [fm attributesOfItemAtPath:path error:nil];
     NSDate *modDate = attrs[NSFileModificationDate];
 
     if (self.usersCache && self.usersCacheDate &&
@@ -42,20 +67,23 @@
         return self.usersCache;
     }
 
-    self.usersCache = [NSDictionary dictionaryWithContentsOfFile:GSDH_USERS_PLIST];
+    self.usersCache = [NSDictionary dictionaryWithContentsOfFile:path];
     self.usersCacheDate = modDate;
 
     if (!self.usersCache) {
-        NSLog(@"gsdh: Failed to load %@", GSDH_USERS_PLIST);
+        NSLog(@"gsdh: No users found at %@", path);
         self.usersCache = @{};
+    } else {
+        NSLog(@"gsdh: Loaded %lu users from %@", (unsigned long)[self.usersCache count], path);
     }
 
     return self.usersCache;
 }
 
 - (NSDictionary *)loadGroups {
+    NSString *path = [self groupsPath];
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSDictionary *attrs = [fm attributesOfItemAtPath:GSDH_GROUPS_PLIST error:nil];
+    NSDictionary *attrs = [fm attributesOfItemAtPath:path error:nil];
     NSDate *modDate = attrs[NSFileModificationDate];
 
     if (self.groupsCache && self.groupsCacheDate &&
@@ -63,11 +91,13 @@
         return self.groupsCache;
     }
 
-    self.groupsCache = [NSDictionary dictionaryWithContentsOfFile:GSDH_GROUPS_PLIST];
+    self.groupsCache = [NSDictionary dictionaryWithContentsOfFile:path];
     self.groupsCacheDate = modDate;
 
     if (!self.groupsCache) {
         self.groupsCache = @{};
+    } else {
+        NSLog(@"gsdh: Loaded %lu groups from %@", (unsigned long)[self.groupsCache count], path);
     }
 
     return self.groupsCache;

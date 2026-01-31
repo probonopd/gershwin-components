@@ -9,25 +9,29 @@ NSS module and helper daemon for managing users and groups via plist files.
 
 ## Data Files
 
-- `/Local/Library/DirectoryServices/Users.plist`
-- `/Local/Library/DirectoryServices/Groups.plist`
+gsdh checks for plists in this order:
+1. `/Network/Library/DirectoryServices/` (client with server mounted)
+2. `/Local/Library/DirectoryServices/` (server or standalone)
 
 ## Building
 
 ```sh
-# Ensure GNUstep environment is loaded
 . /System/Library/Makefiles/GNUstep.sh
-
-# Build all components
-=======
 gmake
 sudo -E gmake install
 ```
 
-## Configuration
+## Standalone Setup
+
+For a single machine with local users only.
 
 ### 1. Create Users.plist
 
+```sh
+sudo mkdir -p /Local/Library/DirectoryServices
+```
+
+`/Local/Library/DirectoryServices/Users.plist`:
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -44,7 +48,7 @@ sudo -E gmake install
         <key>realName</key>
         <string>Test User</string>
         <key>homeDirectory</key>
-        <string>/Users/testuser</string>
+        <string>/Local/Users/testuser</string>
         <key>shell</key>
         <string>/bin/sh</string>
         <key>passwordHash</key>
@@ -63,6 +67,7 @@ openssl passwd -6 yourpassword
 
 ### 2. Create Groups.plist
 
+`/Local/Library/DirectoryServices/Groups.plist`:
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -83,18 +88,142 @@ openssl passwd -6 yourpassword
 </plist>
 ```
 
-### 3. Configure nsswitch.conf
+### 3. Create home directory
+
+```sh
+sudo mkdir -p /Local/Users/testuser
+sudo chown 5001:5001 /Local/Users/testuser
+```
+
+### 4. Configure nsswitch.conf
 
 ```
 passwd: files gershwin
 group: files gershwin
 ```
 
-### 4. Start gsdh
+### 5. Start gsdh
 
 ```sh
 sudo gsdh
 ```
+
+## Server Setup
+
+A server stores users in `/Local` and exports via NFS for clients.
+
+### 1. Complete standalone setup above
+
+### 2. Create Domain.plist
+
+This marks the machine as a server:
+
+```sh
+sudo touch /Local/Library/DirectoryServices/Domain.plist
+```
+
+Or with content:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>role</key>
+    <string>server</string>
+</dict>
+</plist>
+```
+
+### 3. Export /Local via NFS
+
+#### FreeBSD
+
+Add to `/etc/exports`:
+```
+/Local -alldirs -maproot=root
+```
+
+Enable and start NFS:
+```sh
+# /etc/rc.conf
+nfs_server_enable="YES"
+rpcbind_enable="YES"
+mountd_enable="YES"
+
+# Start services
+sudo service rpcbind start
+sudo service mountd start
+sudo service nfsd start
+```
+
+#### Debian/Linux
+
+Add to `/etc/exports`:
+```
+/Local *(rw,sync,no_subtree_check,no_root_squash)
+```
+
+Enable and start NFS:
+```sh
+sudo apt install nfs-kernel-server
+sudo systemctl enable nfs-kernel-server
+sudo systemctl start nfs-kernel-server
+sudo exportfs -ra
+```
+
+#### Verify
+
+```sh
+showmount -e localhost
+```
+
+## Client Setup
+
+A client mounts `/Network` from the server and uses those users.
+
+### 1. Configure nsswitch.conf
+
+```
+passwd: files gershwin
+group: files gershwin
+```
+
+### 2. Mount /Network from server
+
+```sh
+sudo mkdir -p /Network
+sudo mount -t nfs server:/Local /Network
+```
+
+Or add to `/etc/fstab` for persistent mount:
+```
+server:/Local    /Network    nfs    rw    0    0
+```
+
+### 3. Start gsdh
+
+```sh
+sudo gsdh
+```
+
+gsdh will detect `/Network/Library/DirectoryServices/Users.plist` and use it.
+
+### 4. Verify
+
+```sh
+getent passwd testuser
+# Should show: testuser:*:5001:5001:Test User:/Local/Users/testuser:/bin/sh
+```
+
+Note: Home directory shows `/Local/Users/testuser` but on client this resolves to `/Network/Users/testuser` via the NFS mount.
+
+## How It Works
+
+| Machine | /Network mounted? | Domain.plist exists? | gsdh reads from |
+|---------|-------------------|---------------------|-----------------|
+| Server | No | Yes | /Local |
+| Client | Yes | No | /Network |
+| Standalone | No | No | /Local |
 
 ## Authentication
 
@@ -105,12 +234,16 @@ No PAM configuration changes required.
 ## Testing
 
 ```sh
+# Check which path gsdh is using
+sudo gsdh &
+# Look for "Loaded N users from /path" in output
+
 # NSS lookup
 getent passwd testuser
 id testuser
 
 # Direct socket query (as root to see hash)
-echo "getpwnam:testuser" | nc -U /var/run/gershwin-directory.sock
+sudo sh -c 'echo "getpwnam:testuser" | nc -U /var/run/gershwin-directory.sock'
 ```
 
 ## User Fields

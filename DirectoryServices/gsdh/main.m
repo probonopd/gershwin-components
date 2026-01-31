@@ -16,9 +16,10 @@ void printUsage(const char *progname) {
     fprintf(stderr, "  -d    Run in foreground (debug mode)\n");
     fprintf(stderr, "  -h    Show this help\n");
     fprintf(stderr, "\n");
-    fprintf(stderr, "GNUstep Directory Helper - provides user/group lookups for NSS/PAM\n");
+    fprintf(stderr, "GNUstep Directory Helper - provides user/group lookups for NSS\n");
     fprintf(stderr, "Listens on: %s\n", GSDH_SOCKET_PATH);
-    fprintf(stderr, "Reads from: %s\n", [GSDH_USERS_PLIST UTF8String]);
+    fprintf(stderr, "Checks: %s (first)\n", [GSDH_NETWORK_USERS_PLIST UTF8String]);
+    fprintf(stderr, "        %s (fallback)\n", [GSDH_LOCAL_USERS_PLIST UTF8String]);
 }
 
 int main(int argc, char *argv[]) {
