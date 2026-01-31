@@ -60,8 +60,6 @@ sudo mkdir -p /Local/Library/DirectoryServices
         <string>/bin/sh</string>
         <key>passwordHash</key>
         <string>$6$...</string>
-        <key>canLogin</key>
-        <true/>
     </dict>
 </dict>
 </plist>
@@ -229,10 +227,8 @@ gsdh will detect `/Network/Library/DirectoryServices/Users.plist` and use it.
 
 ```sh
 getent passwd testuser
-# Should show: testuser:*:5001:5001:Test User:/Local/Users/testuser:/bin/sh
+# Should show: testuser:*:5001:5001:Test User:/Network/Users/testuser:/bin/sh
 ```
-
-Note: Home directory shows `/Local/Users/testuser` but on client this resolves to `/Network/Users/testuser` via the NFS mount.
 
 ## How It Works
 
@@ -273,7 +269,6 @@ sudo sh -c 'echo "getpwnam:testuser" | nc -U /var/run/gershwin-directory.sock'
 | realName | no | GECOS field |
 | shell | no | Login shell (default: /usr/sbin/nologin) |
 | passwordHash | yes* | SHA-512 hash (*for login) |
-| canLogin | no | Default: true |
 
 Home directory is derived automatically: `/Local/Users/<username>` on server, `/Network/Users/<username>` on client.
 
