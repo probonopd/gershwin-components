@@ -13,6 +13,15 @@ gsdh checks for plists in this order:
 1. `/Network/Library/DirectoryServices/` (client with server mounted)
 2. `/Local/Library/DirectoryServices/` (server or standalone)
 
+## nsswitch.conf
+
+Required on all machines (server, client, standalone):
+
+```
+passwd: files gershwin
+group: files gershwin
+```
+
 ## Building
 
 ```sh
@@ -95,14 +104,7 @@ sudo mkdir -p /Local/Users/testuser
 sudo chown 5001:5001 /Local/Users/testuser
 ```
 
-### 4. Configure nsswitch.conf
-
-```
-passwd: files gershwin
-group: files gershwin
-```
-
-### 5. Start gsdh
+### 4. Start gsdh
 
 ```sh
 sudo gsdh
@@ -181,14 +183,7 @@ showmount -e localhost
 
 A client mounts `/Network` from the server and uses those users.
 
-### 1. Configure nsswitch.conf
-
-```
-passwd: files gershwin
-group: files gershwin
-```
-
-### 2. Enable NFS client
+### 1. Enable NFS client
 
 #### FreeBSD
 
@@ -208,7 +203,7 @@ sudo service nfsclient start
 sudo apt install nfs-common
 ```
 
-### 3. Mount /Network from server
+### 2. Mount /Network from server
 
 ```sh
 sudo mkdir -p /Network
