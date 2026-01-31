@@ -183,7 +183,11 @@ showmount -e localhost
 
 A client mounts `/Network` from the server and uses those users.
 
-### 1. Enable NFS client
+### 1. Build and install gsdh/nss_gershwin
+
+Complete the Building and nsswitch.conf steps above.
+
+### 2. Enable NFS client
 
 #### FreeBSD
 
@@ -203,7 +207,7 @@ sudo service nfsclient start
 sudo apt install nfs-common
 ```
 
-### 2. Mount /Network from server
+### 3. Mount /Network from server
 
 ```sh
 sudo mkdir -p /Network
@@ -215,7 +219,7 @@ Or add to `/etc/fstab` for persistent mount:
 server:/Local    /Network    nfs    rw    0    0
 ```
 
-### 3. Start gsdh
+### 4. Start gsdh
 
 ```sh
 sudo gsdh
@@ -223,7 +227,7 @@ sudo gsdh
 
 gsdh will detect `/Network/Library/DirectoryServices/Users.plist` and use it.
 
-### 4. Verify
+### 5. Verify
 
 ```sh
 getent passwd testuser
