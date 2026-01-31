@@ -54,6 +54,12 @@
     return [fm fileExistsAtPath:GSDH_DOMAIN_PLIST];
 }
 
+- (BOOL)isClient {
+    // Client = reading from /Network (not server or standalone)
+    NSFileManager *fm = [NSFileManager defaultManager];
+    return [fm fileExistsAtPath:GSDH_NETWORK_USERS_PLIST];
+}
+
 #pragma mark - Plist Loading
 
 - (NSDictionary *)loadUsers {
@@ -405,13 +411,20 @@
         }
     }
 
+    // Get home directory, rewriting /Local to /Network on clients
+    NSString *homeDir = user[@"homeDirectory"] ?: @"/nonexistent";
+    if ([self isClient] && [homeDir hasPrefix:@"/Local/"]) {
+        homeDir = [homeDir stringByReplacingCharactersInRange:NSMakeRange(0, 6)
+                                                   withString:@"/Network"];
+    }
+
     return [NSString stringWithFormat:@"%@:%@:%@:%@:%@:%@:%@",
             user[@"username"] ?: @"",
             passwordField,
             user[@"uid"] ?: @"65534",
             user[@"gid"] ?: @"65534",
             user[@"realName"] ?: @"",
-            user[@"homeDirectory"] ?: @"/nonexistent",
+            homeDir,
             user[@"shell"] ?: @"/usr/sbin/nologin"];
 }
 
