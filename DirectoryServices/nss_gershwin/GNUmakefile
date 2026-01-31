@@ -1,24 +1,24 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
-LIBRARY_NAME = nss_gershwin
+# FreeBSD/Linux NSS expects nss_<name>.so.1 (no lib prefix)
+# GNUstep library.make adds lib prefix, so we use custom targets
 
-nss_gershwin_C_FILES = nss_gershwin.c
+CC ?= cc
+CFLAGS += -Wall -Wextra -fPIC
+LDFLAGS += -shared
 
-nss_gershwin_CFLAGS = -Wall -Wextra
-nss_gershwin_LDFLAGS =
+NSS_LIB = nss_gershwin.so.1
+INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARIES)
 
-# Build as shared library with version
-nss_gershwin_SOVERSION = 1
+all: $(NSS_LIB)
 
-# Install to /System/Library/Libraries
-GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
+$(NSS_LIB): nss_gershwin.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<
 
-include $(GNUSTEP_MAKEFILES)/library.make
+clean:
+	rm -f $(NSS_LIB) *.o
 
-# Custom post-install to run ldconfig
-after-install::
-	ldconfig -m $(GNUSTEP_LIBRARIES)
-
-# Clean up module files
-after-clean::
-	rm -f *.o *.so *.so.*
+install: $(NSS_LIB)
+	install -d $(INSTALL_DIR)
+	install -m 755 $(NSS_LIB) $(INSTALL_DIR)/$(NSS_LIB)
+	ldconfig -m $(INSTALL_DIR) || true
