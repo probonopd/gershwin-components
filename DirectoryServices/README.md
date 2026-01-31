@@ -30,7 +30,7 @@ PAM (Pluggable Authentication Module) that authenticates users against gsdh.
 
 ```sh
 # Ensure GNUstep environment is loaded
-. /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
+. /System/Library/Makefiles/GNUstep.sh
 
 # Build all components
 gmake
