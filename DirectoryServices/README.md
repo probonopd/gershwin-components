@@ -56,8 +56,6 @@ sudo mkdir -p /Local/Library/DirectoryServices
         <integer>5001</integer>
         <key>realName</key>
         <string>Test User</string>
-        <key>homeDirectory</key>
-        <string>/Local/Users/testuser</string>
         <key>shell</key>
         <string>/bin/sh</string>
         <key>passwordHash</key>
@@ -273,10 +271,11 @@ sudo sh -c 'echo "getpwnam:testuser" | nc -U /var/run/gershwin-directory.sock'
 | uid | yes | User ID |
 | gid | yes | Primary group ID |
 | realName | no | GECOS field |
-| homeDirectory | no | Home directory |
-| shell | no | Login shell |
+| shell | no | Login shell (default: /usr/sbin/nologin) |
 | passwordHash | yes* | SHA-512 hash (*for login) |
 | canLogin | no | Default: true |
+
+Home directory is derived automatically: `/Local/Users/<username>` on server, `/Network/Users/<username>` on client.
 
 ## Group Fields
 

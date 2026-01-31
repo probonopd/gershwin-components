@@ -411,12 +411,11 @@
         }
     }
 
-    // Get home directory, rewriting /Local to /Network on clients
-    NSString *homeDir = user[@"homeDirectory"] ?: @"/nonexistent";
-    if ([self isClient] && [homeDir hasPrefix:@"/Local/"]) {
-        homeDir = [homeDir stringByReplacingCharactersInRange:NSMakeRange(0, 6)
-                                                   withString:@"/Network"];
-    }
+    // Construct home directory from username
+    // /Local/Users/<username> on server/standalone, /Network/Users/<username> on client
+    NSString *base = [self isClient] ? @"/Network" : @"/Local";
+    NSString *username = user[@"username"] ?: @"nobody";
+    NSString *homeDir = [NSString stringWithFormat:@"%@/Users/%@", base, username];
 
     return [NSString stringWithFormat:@"%@:%@:%@:%@:%@:%@:%@",
             user[@"username"] ?: @"",

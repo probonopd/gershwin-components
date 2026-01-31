@@ -25,7 +25,6 @@
 
 // Role detection
 - (BOOL)isServer;
-- (BOOL)isClient;
 - (NSString *)usersPath;
 - (NSString *)groupsPath;
 
