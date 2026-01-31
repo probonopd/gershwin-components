@@ -248,6 +248,15 @@
 }
 
 - (void)handleClient:(int)clientFd {
+    // Get peer credentials to check if caller is root
+    uid_t peerUid = (uid_t)-1;
+    gid_t peerGid = (gid_t)-1;
+    if (getpeereid(clientFd, &peerUid, &peerGid) < 0) {
+        NSLog(@"gsdh: getpeereid failed: %s", strerror(errno));
+        // Default to non-root for safety
+        peerUid = (uid_t)-1;
+    }
+
     char buffer[2048];
     ssize_t n = read(clientFd, buffer, sizeof(buffer) - 1);
     if (n <= 0) {
@@ -262,7 +271,7 @@
     }
 
     NSString *request = [NSString stringWithUTF8String:buffer];
-    NSString *response = [self processRequest:request];
+    NSString *response = [self processRequest:request callerUid:peerUid];
 
     if (response) {
         write(clientFd, [response UTF8String], [response lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
@@ -271,28 +280,30 @@
     close(clientFd);
 }
 
-- (NSString *)processRequest:(NSString *)request {
+- (NSString *)processRequest:(NSString *)request callerUid:(uid_t)callerUid {
     NSArray *parts = [request componentsSeparatedByString:@":"];
     if (parts.count < 1) return @"ERROR";
 
     NSString *command = parts[0];
+    BOOL callerIsRoot = (callerUid == 0);
 
-    // getpwnam:username -> name:x:uid:gid:gecos:home:shell
+    // getpwnam:username -> name:hash_or_star:uid:gid:gecos:home:shell
+    // Hash is only returned if caller is root (like /etc/master.passwd)
     if ([command isEqualToString:@"getpwnam"] && parts.count >= 2) {
         NSString *username = parts[1];
         NSDictionary *user = [self userWithName:username];
         if (user) {
-            return [self passwdLineForUser:user];
+            return [self passwdLineForUser:user includeHash:callerIsRoot];
         }
         return @"NOTFOUND";
     }
 
-    // getpwuid:uid -> name:x:uid:gid:gecos:home:shell
+    // getpwuid:uid -> name:hash_or_star:uid:gid:gecos:home:shell
     if ([command isEqualToString:@"getpwuid"] && parts.count >= 2) {
         uid_t uid = [parts[1] intValue];
         NSDictionary *user = [self userWithUID:uid];
         if (user) {
-            return [self passwdLineForUser:user];
+            return [self passwdLineForUser:user includeHash:callerIsRoot];
         }
         return @"NOTFOUND";
     }
@@ -332,7 +343,7 @@
     if ([command isEqualToString:@"getpwent"]) {
         NSMutableArray *lines = [NSMutableArray array];
         for (NSDictionary *user in [self allUsers]) {
-            [lines addObject:[self passwdLineForUser:user]];
+            [lines addObject:[self passwdLineForUser:user includeHash:callerIsRoot]];
         }
         return [lines componentsJoinedByString:@"\n"];
     }
@@ -349,10 +360,24 @@
     return @"ERROR";
 }
 
-- (NSString *)passwdLineForUser:(NSDictionary *)user {
-    // Format: name:x:uid:gid:gecos:home:shell
-    return [NSString stringWithFormat:@"%@:x:%@:%@:%@:%@:%@",
+- (NSString *)passwdLineForUser:(NSDictionary *)user includeHash:(BOOL)includeHash {
+    // Format: name:password:uid:gid:gecos:home:shell
+    // If includeHash is YES (caller is root), return actual hash for pam_unix authentication
+    // If includeHash is NO, return "*" (like /etc/passwd vs /etc/master.passwd)
+    NSString *passwordField = @"*";
+    if (includeHash) {
+        NSString *hash = user[@"passwordHash"];
+        if (hash && ![hash isEqual:[NSNull null]] && [hash length] > 0) {
+            passwordField = hash;
+        } else {
+            // No password set - account is locked
+            passwordField = @"*";
+        }
+    }
+
+    return [NSString stringWithFormat:@"%@:%@:%@:%@:%@:%@:%@",
             user[@"username"] ?: @"",
+            passwordField,
             user[@"uid"] ?: @"65534",
             user[@"gid"] ?: @"65534",
             user[@"realName"] ?: @"",
