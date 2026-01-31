@@ -188,7 +188,27 @@ passwd: files gershwin
 group: files gershwin
 ```
 
-### 2. Mount /Network from server
+### 2. Enable NFS client
+
+#### FreeBSD
+
+```sh
+# /etc/rc.conf
+nfs_client_enable="YES"
+rpcbind_enable="YES"
+
+# Start services
+sudo service rpcbind start
+sudo service nfsclient start
+```
+
+#### Debian/Linux
+
+```sh
+sudo apt install nfs-common
+```
+
+### 3. Mount /Network from server
 
 ```sh
 sudo mkdir -p /Network
