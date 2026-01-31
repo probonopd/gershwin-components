@@ -1,0 +1,374 @@
+#import "gsdh.h"
+#import <sys/socket.h>
+#import <sys/un.h>
+#import <sys/stat.h>
+#import <unistd.h>
+#import <errno.h>
+#import <string.h>
+
+@implementation GSDirectoryHelper {
+    int _serverSocket;
+    BOOL _running;
+}
+
++ (instancetype)sharedHelper {
+    static GSDirectoryHelper *shared = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        shared = [[GSDirectoryHelper alloc] init];
+    });
+    return shared;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _serverSocket = -1;
+        _running = NO;
+    }
+    return self;
+}
+
+#pragma mark - Plist Loading
+
+- (NSDictionary *)loadUsers {
+    // Check if cache is valid (reload if file changed)
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSDictionary *attrs = [fm attributesOfItemAtPath:GSDH_USERS_PLIST error:nil];
+    NSDate *modDate = attrs[NSFileModificationDate];
+
+    if (self.usersCache && self.usersCacheDate &&
+        [modDate compare:self.usersCacheDate] != NSOrderedDescending) {
+        return self.usersCache;
+    }
+
+    self.usersCache = [NSDictionary dictionaryWithContentsOfFile:GSDH_USERS_PLIST];
+    self.usersCacheDate = modDate;
+
+    if (!self.usersCache) {
+        NSLog(@"gsdh: Failed to load %@", GSDH_USERS_PLIST);
+        self.usersCache = @{};
+    }
+
+    return self.usersCache;
+}
+
+- (NSDictionary *)loadGroups {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSDictionary *attrs = [fm attributesOfItemAtPath:GSDH_GROUPS_PLIST error:nil];
+    NSDate *modDate = attrs[NSFileModificationDate];
+
+    if (self.groupsCache && self.groupsCacheDate &&
+        [modDate compare:self.groupsCacheDate] != NSOrderedDescending) {
+        return self.groupsCache;
+    }
+
+    self.groupsCache = [NSDictionary dictionaryWithContentsOfFile:GSDH_GROUPS_PLIST];
+    self.groupsCacheDate = modDate;
+
+    if (!self.groupsCache) {
+        self.groupsCache = @{};
+    }
+
+    return self.groupsCache;
+}
+
+#pragma mark - User Lookups
+
+- (NSDictionary *)userWithName:(NSString *)name {
+    NSDictionary *users = [self loadUsers];
+    return users[name];
+}
+
+- (NSDictionary *)userWithUID:(uid_t)uid {
+    NSDictionary *users = [self loadUsers];
+    for (NSString *username in users) {
+        NSDictionary *user = users[username];
+        id uidValue = user[@"uid"];
+        uid_t userUid;
+        if ([uidValue isKindOfClass:[NSNumber class]]) {
+            userUid = [uidValue unsignedIntValue];
+        } else {
+            userUid = (uid_t)[[uidValue description] intValue];
+        }
+        if (userUid == uid) {
+            return user;
+        }
+    }
+    return nil;
+}
+
+- (NSArray *)allUsers {
+    NSDictionary *users = [self loadUsers];
+    return [users allValues];
+}
+
+#pragma mark - Group Lookups
+
+- (NSDictionary *)groupWithName:(NSString *)name {
+    NSDictionary *groups = [self loadGroups];
+    return groups[name];
+}
+
+- (NSDictionary *)groupWithGID:(gid_t)gid {
+    NSDictionary *groups = [self loadGroups];
+    for (NSString *groupname in groups) {
+        NSDictionary *group = groups[groupname];
+        id gidValue = group[@"gid"];
+        gid_t groupGid;
+        if ([gidValue isKindOfClass:[NSNumber class]]) {
+            groupGid = [gidValue unsignedIntValue];
+        } else {
+            groupGid = (gid_t)[[gidValue description] intValue];
+        }
+        if (groupGid == gid) {
+            return group;
+        }
+    }
+    return nil;
+}
+
+- (NSArray *)allGroups {
+    NSDictionary *groups = [self loadGroups];
+    return [groups allValues];
+}
+
+#pragma mark - Password Handling
+
+- (NSString *)hashPassword:(NSString *)password {
+    // Generate random salt
+    uint8_t saltBytes[16];
+    arc4random_buf(saltBytes, sizeof(saltBytes));
+
+    static const char *saltChars =
+        "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    char saltStr[17];
+    for (int i = 0; i < 16; i++) {
+        saltStr[i] = saltChars[saltBytes[i] % 64];
+    }
+    saltStr[16] = '\0';
+
+    // SHA-512 format: $6$rounds=N$salt$
+    char setting[64];
+    snprintf(setting, sizeof(setting), "$6$rounds=5000$%s$", saltStr);
+
+    char *hash = crypt([password UTF8String], setting);
+    if (!hash) return nil;
+
+    return [NSString stringWithUTF8String:hash];
+}
+
+- (BOOL)verifyPassword:(NSString *)password againstHash:(NSString *)hash {
+    if (!password || !hash) return NO;
+
+    char *computed = crypt([password UTF8String], [hash UTF8String]);
+    if (!computed) return NO;
+
+    return strcmp(computed, [hash UTF8String]) == 0;
+}
+
+- (BOOL)authenticateUser:(NSString *)username password:(NSString *)password {
+    NSDictionary *user = [self userWithName:username];
+    if (!user) return NO;
+
+    NSString *storedHash = user[@"passwordHash"];
+    if (!storedHash || [storedHash isEqual:[NSNull null]]) return NO;
+
+    // Check if account can login
+    NSNumber *canLogin = user[@"canLogin"];
+    if (canLogin && ![canLogin boolValue]) return NO;
+
+    return [self verifyPassword:password againstHash:storedHash];
+}
+
+#pragma mark - Socket Server
+
+- (BOOL)startServer {
+    // Remove old socket if exists
+    unlink(GSDH_SOCKET_PATH);
+
+    // Create socket
+    _serverSocket = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (_serverSocket < 0) {
+        NSLog(@"gsdh: Failed to create socket: %s", strerror(errno));
+        return NO;
+    }
+
+    // Bind to path
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, GSDH_SOCKET_PATH, sizeof(addr.sun_path) - 1);
+
+    if (bind(_serverSocket, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        NSLog(@"gsdh: Failed to bind socket: %s", strerror(errno));
+        close(_serverSocket);
+        _serverSocket = -1;
+        return NO;
+    }
+
+    // Make socket world-accessible (NSS/PAM run as various users)
+    chmod(GSDH_SOCKET_PATH, 0666);
+
+    // Listen
+    if (listen(_serverSocket, 10) < 0) {
+        NSLog(@"gsdh: Failed to listen: %s", strerror(errno));
+        close(_serverSocket);
+        _serverSocket = -1;
+        return NO;
+    }
+
+    NSLog(@"gsdh: Listening on %s", GSDH_SOCKET_PATH);
+
+    _running = YES;
+
+    // Accept loop
+    while (_running) {
+        int clientFd = accept(_serverSocket, NULL, NULL);
+        if (clientFd < 0) {
+            if (_running) {
+                NSLog(@"gsdh: Accept failed: %s", strerror(errno));
+            }
+            continue;
+        }
+
+        [self handleClient:clientFd];
+    }
+
+    return YES;
+}
+
+- (void)stopServer {
+    _running = NO;
+    if (_serverSocket >= 0) {
+        close(_serverSocket);
+        _serverSocket = -1;
+    }
+    unlink(GSDH_SOCKET_PATH);
+}
+
+- (void)handleClient:(int)clientFd {
+    char buffer[2048];
+    ssize_t n = read(clientFd, buffer, sizeof(buffer) - 1);
+    if (n <= 0) {
+        close(clientFd);
+        return;
+    }
+    buffer[n] = '\0';
+
+    // Remove trailing newline if present
+    if (n > 0 && buffer[n-1] == '\n') {
+        buffer[n-1] = '\0';
+    }
+
+    NSString *request = [NSString stringWithUTF8String:buffer];
+    NSString *response = [self processRequest:request];
+
+    if (response) {
+        write(clientFd, [response UTF8String], [response lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+    }
+
+    close(clientFd);
+}
+
+- (NSString *)processRequest:(NSString *)request {
+    NSArray *parts = [request componentsSeparatedByString:@":"];
+    if (parts.count < 1) return @"ERROR";
+
+    NSString *command = parts[0];
+
+    // getpwnam:username -> name:x:uid:gid:gecos:home:shell
+    if ([command isEqualToString:@"getpwnam"] && parts.count >= 2) {
+        NSString *username = parts[1];
+        NSDictionary *user = [self userWithName:username];
+        if (user) {
+            return [self passwdLineForUser:user];
+        }
+        return @"NOTFOUND";
+    }
+
+    // getpwuid:uid -> name:x:uid:gid:gecos:home:shell
+    if ([command isEqualToString:@"getpwuid"] && parts.count >= 2) {
+        uid_t uid = [parts[1] intValue];
+        NSDictionary *user = [self userWithUID:uid];
+        if (user) {
+            return [self passwdLineForUser:user];
+        }
+        return @"NOTFOUND";
+    }
+
+    // getgrnam:groupname -> name:x:gid:members
+    if ([command isEqualToString:@"getgrnam"] && parts.count >= 2) {
+        NSString *groupname = parts[1];
+        NSDictionary *group = [self groupWithName:groupname];
+        if (group) {
+            return [self groupLineForGroup:group];
+        }
+        return @"NOTFOUND";
+    }
+
+    // getgrgid:gid -> name:x:gid:members
+    if ([command isEqualToString:@"getgrgid"] && parts.count >= 2) {
+        gid_t gid = [parts[1] intValue];
+        NSDictionary *group = [self groupWithGID:gid];
+        if (group) {
+            return [self groupLineForGroup:group];
+        }
+        return @"NOTFOUND";
+    }
+
+    // auth:username:password -> 1 or 0
+    if ([command isEqualToString:@"auth"] && parts.count >= 3) {
+        NSString *username = parts[1];
+        // Password might contain colons, so rejoin remaining parts
+        NSArray *passwordParts = [parts subarrayWithRange:NSMakeRange(2, parts.count - 2)];
+        NSString *password = [passwordParts componentsJoinedByString:@":"];
+
+        BOOL success = [self authenticateUser:username password:password];
+        return success ? @"1" : @"0";
+    }
+
+    // getpwent - enumerate all users (one per line)
+    if ([command isEqualToString:@"getpwent"]) {
+        NSMutableArray *lines = [NSMutableArray array];
+        for (NSDictionary *user in [self allUsers]) {
+            [lines addObject:[self passwdLineForUser:user]];
+        }
+        return [lines componentsJoinedByString:@"\n"];
+    }
+
+    // getgrent - enumerate all groups (one per line)
+    if ([command isEqualToString:@"getgrent"]) {
+        NSMutableArray *lines = [NSMutableArray array];
+        for (NSDictionary *group in [self allGroups]) {
+            [lines addObject:[self groupLineForGroup:group]];
+        }
+        return [lines componentsJoinedByString:@"\n"];
+    }
+
+    return @"ERROR";
+}
+
+- (NSString *)passwdLineForUser:(NSDictionary *)user {
+    // Format: name:x:uid:gid:gecos:home:shell
+    return [NSString stringWithFormat:@"%@:x:%@:%@:%@:%@:%@",
+            user[@"username"] ?: @"",
+            user[@"uid"] ?: @"65534",
+            user[@"gid"] ?: @"65534",
+            user[@"realName"] ?: @"",
+            user[@"homeDirectory"] ?: @"/nonexistent",
+            user[@"shell"] ?: @"/usr/sbin/nologin"];
+}
+
+- (NSString *)groupLineForGroup:(NSDictionary *)group {
+    // Format: name:x:gid:member1,member2,...
+    NSArray *members = group[@"members"] ?: @[];
+    NSString *memberStr = [members componentsJoinedByString:@","];
+
+    return [NSString stringWithFormat:@"%@:x:%@:%@",
+            group[@"groupname"] ?: @"",
+            group[@"gid"] ?: @"65534",
+            memberStr];
+}
+
+@end
