@@ -23,6 +23,10 @@
 // Discovery
 - (NSString *)discoverDirectoryServer;
 
+// Client (leave) operations
+- (BOOL)unmountNetwork;
+- (BOOL)removeFstabEntry;
+
 @end
 
 // Get the appropriate platform implementation for the current system

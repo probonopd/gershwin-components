@@ -41,6 +41,7 @@ static void printUsage(const char *progname) {
     fprintf(stderr, "  init                          Initialize directory structure\n");
     fprintf(stderr, "  promote                       Promote to directory server (configure NFS)\n");
     fprintf(stderr, "  join [server]                 Join a directory server (auto-discovers if omitted)\n");
+    fprintf(stderr, "  leave                         Leave a directory server\n");
     fprintf(stderr, "\n");
 }
 
@@ -779,6 +780,14 @@ static int cmdPromote(void) {
         return 1;
     }
 
+    // Check if another server is already on the network
+    NSString *existingServer = [platform discoverDirectoryServer];
+    if (existingServer) {
+        fprintf(stderr, "A directory server already exists: %s\n", [existingServer UTF8String]);
+        fprintf(stderr, "Only one directory server is allowed per network.\n");
+        return 1;
+    }
+
     printf("Promoting to directory server...\n\n");
 
     // Configure NFS exports
@@ -884,6 +893,43 @@ static int cmdJoin(NSString *server) {
     return 0;
 }
 
+static int cmdLeave(void) {
+    id<DSPlatform> platform = DSPlatformCreate();
+    if (!platform) {
+        fprintf(stderr, "No platform backend available\n");
+        return 1;
+    }
+
+    if (![platform isAvailable]) {
+        fprintf(stderr, "The 'leave' command is not yet supported on %s.\n",
+                [[platform platformName] UTF8String]);
+        return 1;
+    }
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    // Check if we're a client
+    if (![fm fileExistsAtPath:@"/Network"]) {
+        fprintf(stderr, "This machine is not joined to a directory server.\n");
+        return 1;
+    }
+
+    printf("Leaving directory server...\n\n");
+
+    // Unmount /Network
+    if (![platform unmountNetwork]) {
+        return 1;
+    }
+
+    // Remove fstab entry
+    if (![platform removeFstabEntry]) {
+        return 1;
+    }
+
+    printf("\nLeave complete.\n");
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         if (argc < 2) {
@@ -936,6 +982,11 @@ int main(int argc, char *argv[]) {
         if ([command isEqualToString:@"join"]) {
             NSString *server = ([args count] >= 2) ? args[1] : nil;
             return cmdJoin(server);
+        }
+
+        // Handle "leave"
+        if ([command isEqualToString:@"leave"]) {
+            return cmdLeave();
         }
 
         // Handle "user" commands

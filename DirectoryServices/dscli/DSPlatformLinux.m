@@ -78,6 +78,18 @@
     return NO;
 }
 
+- (BOOL)unmountNetwork
+{
+    [self printUnsupported:"leave"];
+    return NO;
+}
+
+- (BOOL)removeFstabEntry
+{
+    [self printUnsupported:"leave"];
+    return NO;
+}
+
 - (NSString *)discoverDirectoryServer
 {
     [self printUnsupported:"join"];

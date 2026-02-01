@@ -95,6 +95,7 @@ dscli group removemember <group> <user> # Remove user from group
 dscli init              # Initialize directory structure
 dscli promote           # Promote to directory server
 dscli join              # Join a directory server (auto-discovers)
+dscli leave             # Leave a directory server
 dscli passwd <username> # Set password (alias for user passwd)
 dscli verify <username> # Verify user can authenticate
 ```
@@ -137,6 +138,8 @@ The `gershwin` module must come before `files` so that admin group members appea
 2. Enables and starts NFS server services (rpcbind, mountd, nfsd)
 3. Creates `Domain.plist` to mark as server
 
+When `Domain.plist` exists, dshelper registers the `GershwinDirectory` service with the network portmapper, allowing clients to auto-discover this server. The promote command checks for existing servers on the network and prevents multiple servers from being promoted.
+
 ### What dscli join Does
 
 1. Auto-discovers directory server via `NSSocketPortNameServer` broadcast
@@ -144,6 +147,13 @@ The `gershwin` module must come before `files` so that admin group members appea
 3. Creates `/Network` mount point
 4. Adds server to `/etc/fstab`
 5. Mounts `/Network` from server
+
+### What dscli leave Does
+
+1. Unmounts `/Network`
+2. Removes server entry from `/etc/fstab`
+
+If a directory server goes offline permanently, all clients must run `dscli leave` before a new server can be promoted.
 
 ## Authentication
 

@@ -273,6 +273,58 @@
     return YES;
 }
 
+#pragma mark - Leave Operations
+
+- (BOOL)unmountNetwork
+{
+    // Check if mounted
+    NSString *cmd = @"mount | grep '/Network' >/dev/null 2>&1";
+    if (![self runCommand:cmd]) {
+        printf("/Network not mounted\n");
+        return YES;
+    }
+
+    if (![self runCommand:@"umount /Network"]) {
+        fprintf(stderr, "Failed to unmount /Network (may be in use)\n");
+        return NO;
+    }
+
+    printf("Unmounted /Network\n");
+    return YES;
+}
+
+- (BOOL)removeFstabEntry
+{
+    NSString *fstabPath = @"/etc/fstab";
+    NSString *contents = [self readFile:fstabPath];
+
+    if (!contents) {
+        return YES;
+    }
+
+    NSMutableArray *lines = [[contents componentsSeparatedByString:@"\n"] mutableCopy];
+    BOOL modified = NO;
+
+    for (NSInteger i = [lines count] - 1; i >= 0; i--) {
+        NSString *line = lines[i];
+        if ([line rangeOfString:@"/Network"].location != NSNotFound) {
+            [lines removeObjectAtIndex:i];
+            modified = YES;
+        }
+    }
+
+    if (modified) {
+        NSString *newContents = [lines componentsJoinedByString:@"\n"];
+        if (![self writeFile:fstabPath contents:newContents]) {
+            fprintf(stderr, "Failed to update /etc/fstab\n");
+            return NO;
+        }
+        printf("Removed /Network from fstab\n");
+    }
+
+    return YES;
+}
+
 #pragma mark - Discovery
 
 - (NSString *)discoverDirectoryServer
