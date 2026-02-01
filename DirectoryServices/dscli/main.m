@@ -94,13 +94,31 @@ static NSString *readPassword(const char *prompt) {
     return [NSString stringWithUTF8String:pass];
 }
 
+static uid_t getUIDValue(id value) {
+    if ([value isKindOfClass:[NSNumber class]]) {
+        return [value unsignedIntValue];
+    } else if (value) {
+        return (uid_t)[[value description] intValue];
+    }
+    return 0;
+}
+
+static gid_t getGIDValue(id value) {
+    if ([value isKindOfClass:[NSNumber class]]) {
+        return [value unsignedIntValue];
+    } else if (value) {
+        return (gid_t)[[value description] intValue];
+    }
+    return 0;
+}
+
 static uid_t findNextUID(NSDictionary *users) {
     uid_t maxUID = 5000;
     for (NSString *username in users) {
         NSDictionary *user = users[username];
-        NSNumber *uid = user[@"uid"];
-        if (uid && [uid unsignedIntValue] > maxUID) {
-            maxUID = [uid unsignedIntValue];
+        uid_t uid = getUIDValue(user[@"uid"]);
+        if (uid > maxUID) {
+            maxUID = uid;
         }
     }
     return maxUID + 1;
@@ -110,9 +128,9 @@ static gid_t findNextGID(NSDictionary *groups) {
     gid_t maxGID = 5000;
     for (NSString *groupname in groups) {
         NSDictionary *group = groups[groupname];
-        NSNumber *gid = group[@"gid"];
-        if (gid && [gid unsignedIntValue] > maxGID) {
-            maxGID = [gid unsignedIntValue];
+        gid_t gid = getGIDValue(group[@"gid"]);
+        if (gid > maxGID) {
+            maxGID = gid;
         }
     }
     return maxGID + 1;
@@ -629,6 +647,56 @@ static int cmdVerify(NSString *username) {
     }
 }
 
+static void configureNsswitch(void) {
+    NSString *path = @"/etc/nsswitch.conf";
+    NSError *error = nil;
+
+    NSString *contents = [NSString stringWithContentsOfFile:path
+                                                   encoding:NSUTF8StringEncoding
+                                                      error:&error];
+    if (!contents) {
+        fprintf(stderr, "Warning: Could not read %s: %s\n",
+                [path UTF8String], [[error localizedDescription] UTF8String]);
+        return;
+    }
+
+    NSMutableArray *lines = [[contents componentsSeparatedByString:@"\n"] mutableCopy];
+    BOOL modified = NO;
+
+    for (NSUInteger i = 0; i < [lines count]; i++) {
+        NSString *line = lines[i];
+        NSString *trimmed = [line stringByTrimmingCharactersInSet:
+                            [NSCharacterSet whitespaceCharacterSet]];
+
+        // Skip comments
+        if ([trimmed hasPrefix:@"#"]) continue;
+
+        // Check for passwd: or group: lines
+        if ([trimmed hasPrefix:@"passwd:"]) {
+            if (![trimmed isEqualToString:@"passwd: gershwin files"]) {
+                printf("nsswitch.conf: %s -> passwd: gershwin files\n", [trimmed UTF8String]);
+                lines[i] = @"passwd: gershwin files";
+                modified = YES;
+            }
+        } else if ([trimmed hasPrefix:@"group:"] && ![trimmed hasPrefix:@"group_compat"]) {
+            if (![trimmed isEqualToString:@"group: gershwin files"]) {
+                printf("nsswitch.conf: %s -> group: gershwin files\n", [trimmed UTF8String]);
+                lines[i] = @"group: gershwin files";
+                modified = YES;
+            }
+        }
+    }
+
+    if (modified) {
+        NSString *newContents = [lines componentsJoinedByString:@"\n"];
+        [newContents writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error];
+        if (error) {
+            fprintf(stderr, "Warning: Could not write %s: %s\n",
+                    [path UTF8String], [[error localizedDescription] UTF8String]);
+        }
+    }
+}
+
 static int cmdInit(void) {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSError *error = nil;
@@ -671,6 +739,9 @@ static int cmdInit(void) {
         savePlist(groups, DS_GROUPS_PLIST);
         printf("Created: %s\n", [DS_GROUPS_PLIST UTF8String]);
     }
+
+    // Configure nsswitch.conf
+    configureNsswitch();
 
     printf("Directory Services initialized.\n");
     return 0;

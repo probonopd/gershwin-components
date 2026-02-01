@@ -14,21 +14,6 @@ dshelper checks for plists in this order:
 1. `/Network/Library/DirectoryServices/` (client with server mounted)
 2. `/Local/Library/DirectoryServices/` (server or standalone)
 
-## nsswitch.conf
-
-Required on all machines (server, client, standalone):
-
-```
-passwd: gershwin files
-group: gershwin files
-```
-
-The `gershwin` module must come before `files` so that:
-- Admin group members appear in `wheel` group (required for `su` to work)
-- Gershwin users are found before falling back to `/etc/passwd`
-
-If dshelper is not running, NSS falls back to `files` automatically.
-
 ## Building
 
 ```sh
@@ -121,7 +106,7 @@ dscli group removemember <groupname> <username>
 # Verify user can authenticate
 dscli verify <username>
 
-# Initialize directory structure (creates /Local/Library/DirectoryServices, etc.)
+# Initialize directory structure and configure nsswitch.conf
 dscli init
 ```
 
@@ -238,7 +223,7 @@ A client mounts `/Network` from the server and uses those users.
 
 ### 1. Build and install dshelper/nss_gershwin
 
-Complete the Building and nsswitch.conf steps above.
+Complete the Building steps above, then run `sudo dscli init`.
 
 ### 2. Enable NFS client
 
@@ -288,6 +273,19 @@ getent passwd testuser
 ```
 
 ## How It Works
+
+### dscli init
+
+The `dscli init` command prepares a machine to use Directory Services:
+
+1. Creates `/Local/Library/DirectoryServices/` directory
+2. Creates `/Local/Users/` directory for home directories
+3. Creates empty `Users.plist` and `Groups.plist` (with admin group gid 5000)
+4. Configures `/etc/nsswitch.conf` to use `gershwin files` for passwd and group
+
+The `gershwin` module must come before `files` so that admin group members appear in the `wheel` group (required for `su`). If dshelper is not running, NSS falls back to `files` automatically.
+
+### Machine Roles
 
 | Machine | /Network mounted? | Domain.plist exists? | dshelper reads from |
 |---------|-------------------|---------------------|---------------------|
