@@ -41,6 +41,10 @@ sudo dscli promote
 showmount -e localhost
 ```
 
+This configures NFS exports, starts NFS services, and creates `Domain.plist`. When dshelper detects `Domain.plist`, it registers the `GershwinDirectory` service with the network portmapper for client auto-discovery.
+
+Only one directory server is allowed per network. The promote command checks for existing servers and prevents duplicates.
+
 ## Client Setup
 
 To use users from a directory server:
@@ -55,6 +59,30 @@ getent passwd jsmith
 ```
 
 The `join` command auto-discovers directory servers on the network.
+
+## Leaving the Directory
+
+To disconnect from a directory server:
+
+```sh
+sudo dscli leave
+```
+
+This unmounts `/Network` and removes the server entry from `/etc/fstab`.
+
+If a directory server goes offline permanently, all clients must run `dscli leave` before a new server can be promoted.
+
+## Demoting the Server
+
+To stop being a directory server:
+
+```sh
+sudo dscli demote
+```
+
+This removes `Domain.plist`, stops NFS services, and removes `/Local` from NFS exports.
+
+All clients must run `dscli leave` before a server can be demoted.
 
 ## dscli Reference
 
@@ -95,8 +123,8 @@ dscli group removemember <group> <user> # Remove user from group
 dscli init              # Initialize directory structure
 dscli promote           # Promote to directory server
 dscli demote            # Demote from directory server
-dscli join              # Join a directory server (auto-discovers)
-dscli leave             # Leave a directory server
+dscli join              # Join a directory (auto-discovers)
+dscli leave             # Leave a directory
 dscli passwd <username> # Set password (alias for user passwd)
 dscli verify <username> # Verify user can authenticate
 ```
@@ -123,47 +151,6 @@ dshelper checks for plists in this order:
 | Server | No | Yes | /Local |
 | Client | Yes | No | /Network |
 | Standalone | No | No | /Local |
-
-### What dscli init Does
-
-1. Creates `/Local/Library/DirectoryServices/` directory
-2. Creates `/Local/Users/` directory for home directories
-3. Creates empty `Users.plist` and `Groups.plist` (with admin group gid 5000)
-4. Configures `/etc/nsswitch.conf` to use `gershwin files` for passwd and group
-
-The `gershwin` module must come before `files` so that admin group members appear in the `wheel` group (required for `su`). If dshelper is not running, NSS falls back to `files` automatically.
-
-### What dscli promote Does
-
-1. Adds `/Local` to NFS exports
-2. Enables and starts NFS server services (rpcbind, mountd, nfsd)
-3. Creates `Domain.plist` to mark as server
-
-When `Domain.plist` exists, dshelper registers the `GershwinDirectory` service with the network portmapper, allowing clients to auto-discover this server. The promote command checks for existing servers on the network and prevents multiple servers from being promoted.
-
-### What dscli demote Does
-
-1. Checks that no clients are connected
-2. Removes `Domain.plist`
-3. Stops NFS server services
-4. Removes `/Local` from NFS exports
-
-All clients must run `dscli leave` before a server can be demoted.
-
-### What dscli join Does
-
-1. Auto-discovers directory server via `NSSocketPortNameServer` broadcast
-2. Enables and starts NFS client services
-3. Creates `/Network` mount point
-4. Adds server to `/etc/fstab`
-5. Mounts `/Network` from server
-
-### What dscli leave Does
-
-1. Unmounts `/Network`
-2. Removes server entry from `/etc/fstab`
-
-If a directory server goes offline permanently, all clients must run `dscli leave` before a new server can be promoted.
 
 ## Authentication
 
