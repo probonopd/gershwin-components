@@ -12,6 +12,7 @@
 - (BOOL)configureNFSExports;
 - (BOOL)enableNFSServer;
 - (BOOL)startNFSServer;
+- (BOOL)restartDSHelper;
 
 // Server (demote) operations
 - (BOOL)removeNFSExports;

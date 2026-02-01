@@ -172,6 +172,17 @@
     return success;
 }
 
+- (BOOL)restartDSHelper
+{
+    // Restart dshelper so it detects server role and registers with gdomap
+    if ([self serviceRestart:@"dshelper"]) {
+        printf("Restarted dshelper (service now discoverable)\n");
+        return YES;
+    }
+    fprintf(stderr, "Failed to restart dshelper\n");
+    return NO;
+}
+
 #pragma mark - Server (Demote) Operations
 
 - (BOOL)removeNFSExports

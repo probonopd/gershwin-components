@@ -837,6 +837,9 @@ static int cmdPromote(void) {
     }
     printf("Created Domain.plist\n");
 
+    // Restart dshelper so it registers with gdomap
+    [platform restartDSHelper];
+
     printf("\nServer promotion complete.\n");
     printf("Clients can now join with: dscli join\n");
     return 0;

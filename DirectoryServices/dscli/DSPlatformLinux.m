@@ -46,6 +46,12 @@
     return NO;
 }
 
+- (BOOL)restartDSHelper
+{
+    [self printUnsupported:"promote"];
+    return NO;
+}
+
 - (BOOL)removeNFSExports
 {
     [self printUnsupported:"demote"];
