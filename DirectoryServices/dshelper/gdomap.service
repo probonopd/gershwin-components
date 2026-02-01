@@ -1,0 +1,12 @@
+[Unit]
+Description=GNUstep Distributed Objects Name Server
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/bin/sh -c '. /System/Library/Makefiles/GNUstep.sh && /System/Library/Tools/gdomap -p'
+ExecStop=/usr/bin/pkill gdomap
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

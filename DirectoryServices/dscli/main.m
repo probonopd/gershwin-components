@@ -864,8 +864,8 @@ static int cmdDemote(void) {
     }
 
     // Check if any clients are still connected by looking at NFS exports
-    // We check if showmount shows any connected clients
-    FILE *fp = popen("showmount -a 2>/dev/null | grep -v '^$' | wc -l", "r");
+    // We check if showmount shows any connected clients (skip header line with tail -n +2)
+    FILE *fp = popen("showmount -a 2>/dev/null | tail -n +2 | grep -v '^$' | wc -l", "r");
     if (fp) {
         char buf[64];
         if (fgets(buf, sizeof(buf), fp)) {

@@ -24,6 +24,7 @@ load_rc_config ${name}
 
 command="/System/Library/Tools/dshelper"
 pidfile="/var/run/${name}.pid"
+gdomap_pidfile="/var/run/gdomap.pid"
 
 start_cmd="${name}_start"
 stop_cmd="${name}_stop"
@@ -34,6 +35,13 @@ dshelper_start()
         echo "${name} already running."
         return 1
     fi
+
+    # Start gdomap if not already running (required for distributed objects)
+    if ! pgrep -q gdomap; then
+        echo "Starting gdomap."
+        /System/Library/Tools/gdomap -p
+    fi
+
     echo "Starting ${name}."
     # dshelper daemonizes itself
     ${command}
@@ -48,6 +56,12 @@ dshelper_stop()
     echo "Stopping ${name}."
     kill $(cat ${pidfile}) 2>/dev/null
     rm -f ${pidfile}
+
+    # Stop gdomap if running
+    if pgrep -q gdomap; then
+        echo "Stopping gdomap."
+        pkill gdomap
+    fi
 }
 
 run_rc_command "$1"

@@ -1,7 +1,8 @@
 [Unit]
 Description=Gershwin Directory Services Helper
-After=network.target rpcbind.service
+After=network.target rpcbind.service gdomap.service
 Before=display-manager.service
+Wants=gdomap.service
 
 [Service]
 Type=forking

@@ -24,9 +24,11 @@ To start dshelper automatically at boot:
 |----------|--------|-------|
 | FreeBSD | `sudo sysrc dshelper_enable=YES` | `sudo service dshelper start` |
 | Linux (sysvinit) | `sudo update-rc.d dshelper defaults` | `sudo service dshelper start` |
-| Linux (systemd) | `sudo systemctl enable dshelper` | `sudo systemctl start dshelper` |
+| Linux (systemd) | `sudo systemctl enable gdomap dshelper` | `sudo systemctl start gdomap dshelper` |
 
 The service runs before the login manager, ensuring directory users can log in.
+
+**Note:** The dshelper service requires **gdomap** (GNUstep Distributed Objects name server) for network service discovery. On FreeBSD and Linux sysvinit, gdomap is bundled with the dshelper service and starts/stops automatically. On Linux systemd, gdomap runs as a separate service unit—enable both as shown above.
 
 ## Quick Start
 
