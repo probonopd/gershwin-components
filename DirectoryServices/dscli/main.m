@@ -930,7 +930,6 @@ static int cmdJoin(NSString *server) {
         server = [platform discoverDirectoryServer];
         if (!server) {
             fprintf(stderr, "No directory server found on network.\n");
-            fprintf(stderr, "Specify server explicitly: dscli join <server-hostname>\n");
             return 1;
         }
     }

@@ -107,13 +107,14 @@ int main(int argc, char *argv[]) {
 
         NSLog(@"dshelper: Starting Directory Services Helper");
 
+        // Register with port name server for discovery BEFORE starting
+        // the blocking accept loop (servers only)
+        [helper registerService];
+
         if (![helper startServer]) {
             NSLog(@"dshelper: Failed to start server");
             return 1;
         }
-
-        // Register with port name server for discovery (servers only)
-        [helper registerService];
 
         return 0;
     }

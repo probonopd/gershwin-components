@@ -382,37 +382,41 @@
 {
     printf("Searching for directory server...\n");
 
-    // Use NSSocketPortNameServer to find registered GershwinDirectory service
-    // The "*" host triggers a broadcast lookup via rpcbind
-    NSSocketPortNameServer *ns = [NSSocketPortNameServer sharedInstance];
+    // Use gdomap to lookup the GershwinDirectory service
+    // gdomap -L performs a network-wide lookup via broadcast
+    FILE *fp = popen("/System/Library/Tools/gdomap -L GershwinDirectory -T tcp_gdo 2>/dev/null", "r");
+    if (!fp) {
+        return nil;
+    }
 
-    @try {
-        NSPort *port = [ns portForName:@"GershwinDirectory" onHost:@"*"];
-        if (port && [port isKindOfClass:[NSSocketPort class]]) {
-            NSSocketPort *socketPort = (NSSocketPort *)port;
+    char buffer[512];
+    NSString *result = nil;
 
-            // Get the remote address from the socket port
-            NSString *address = [socketPort address];
-            if (address && [address length] > 0) {
-                // Try to resolve to hostname
-                NSHost *remoteHost = [NSHost hostWithAddress:address];
-                NSString *hostname = [remoteHost name];
-                if (hostname) {
-                    printf("Found directory server: %s (%s)\n",
-                           [hostname UTF8String], [address UTF8String]);
-                    return hostname;
-                } else {
-                    printf("Found directory server: %s\n", [address UTF8String]);
-                    return address;
+    while (fgets(buffer, sizeof(buffer), fp)) {
+        // gdomap output: "Found GershwinDirectory on host <hostname> port <port>"
+        NSString *line = [NSString stringWithUTF8String:buffer];
+
+        // Look for "on host" pattern
+        NSRange hostRange = [line rangeOfString:@"on host "];
+        if (hostRange.location != NSNotFound) {
+            NSUInteger start = hostRange.location + hostRange.length;
+            NSRange portRange = [line rangeOfString:@" port " options:0
+                                              range:NSMakeRange(start, [line length] - start)];
+            if (portRange.location != NSNotFound) {
+                NSString *hostname = [[line substringWithRange:
+                    NSMakeRange(start, portRange.location - start)]
+                    stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                if ([hostname length] > 0) {
+                    printf("Found directory server: %s\n", [hostname UTF8String]);
+                    result = hostname;
+                    break;
                 }
             }
         }
-    } @catch (NSException *e) {
-        // Broadcast lookup may throw if rpcbind not available
-        NSLog(@"Discovery exception: %@", e);
     }
 
-    return nil;
+    pclose(fp);
+    return result;
 }
 
 @end
