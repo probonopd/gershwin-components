@@ -179,7 +179,14 @@ static int cmdUserList(void) {
     printf("%-20s %-6s %-6s %s\n", "USERNAME", "UID", "GID", "REAL NAME");
     printf("%-20s %-6s %-6s %s\n", "--------", "---", "---", "---------");
 
-    NSArray *sortedKeys = [[users allKeys] sortedArrayUsingSelector:@selector(compare:)];
+    // Sort by UID
+    NSArray *sortedKeys = [[users allKeys] sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        NSInteger uidA = [users[a][@"uid"] integerValue];
+        NSInteger uidB = [users[b][@"uid"] integerValue];
+        if (uidA < uidB) return NSOrderedAscending;
+        if (uidA > uidB) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
     for (NSString *username in sortedKeys) {
         NSDictionary *user = users[username];
         printf("%-20s %-6d %-6d %s\n",
@@ -483,7 +490,14 @@ static int cmdGroupList(void) {
     printf("%-20s %-6s %s\n", "GROUPNAME", "GID", "MEMBERS");
     printf("%-20s %-6s %s\n", "---------", "---", "-------");
 
-    NSArray *sortedKeys = [[groups allKeys] sortedArrayUsingSelector:@selector(compare:)];
+    // Sort by GID
+    NSArray *sortedKeys = [[groups allKeys] sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        NSInteger gidA = [groups[a][@"gid"] integerValue];
+        NSInteger gidB = [groups[b][@"gid"] integerValue];
+        if (gidA < gidB) return NSOrderedAscending;
+        if (gidA > gidB) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
     for (NSString *groupname in sortedKeys) {
         NSDictionary *group = groups[groupname];
         NSArray *members = group[@"members"] ?: @[];
