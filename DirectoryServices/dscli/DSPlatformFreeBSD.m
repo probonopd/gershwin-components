@@ -419,7 +419,7 @@
     // -a specifies interface config, -L performs lookup
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
-        "/System/Library/Tools/gdomap -a %s -L GershwinDirectory -T tcp_gdo 2>/dev/null",
+        "/System/Library/Tools/gdomap -a %s -L GershwinDirectory -T tcp_gdo -M '*' 2>/dev/null",
         ifaceConf);
 
     FILE *fp = popen(cmd, "r");
