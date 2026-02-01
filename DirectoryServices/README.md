@@ -22,7 +22,7 @@ To start dshelper automatically at boot:
 
 | Platform | Enable | Start |
 |----------|--------|-------|
-| FreeBSD | `sysrc dshelper_enable=YES` | `service dshelper start` |
+| FreeBSD | `sudo sysrc dshelper_enable=YES` | `sudo service dshelper start` |
 | Linux (sysvinit) | `sudo update-rc.d dshelper defaults` | `sudo service dshelper start` |
 | Linux (systemd) | `sudo systemctl enable dshelper` | `sudo systemctl start dshelper` |
 
