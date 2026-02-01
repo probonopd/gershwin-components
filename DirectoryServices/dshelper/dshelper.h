@@ -1,19 +1,19 @@
 #import <Foundation/Foundation.h>
 
-#define GSDH_SOCKET_PATH "/var/run/gershwin-directory.sock"
+#define DS_SOCKET_PATH "/var/run/dshelper.sock"
 
 // Network paths (checked first - used when mounted from server)
-#define GSDH_NETWORK_USERS_PLIST @"/Network/Library/DirectoryServices/Users.plist"
-#define GSDH_NETWORK_GROUPS_PLIST @"/Network/Library/DirectoryServices/Groups.plist"
+#define DS_NETWORK_USERS_PLIST @"/Network/Library/DirectoryServices/Users.plist"
+#define DS_NETWORK_GROUPS_PLIST @"/Network/Library/DirectoryServices/Groups.plist"
 
 // Local paths (fallback - used on server or standalone)
-#define GSDH_LOCAL_USERS_PLIST @"/Local/Library/DirectoryServices/Users.plist"
-#define GSDH_LOCAL_GROUPS_PLIST @"/Local/Library/DirectoryServices/Groups.plist"
+#define DS_LOCAL_USERS_PLIST @"/Local/Library/DirectoryServices/Users.plist"
+#define DS_LOCAL_GROUPS_PLIST @"/Local/Library/DirectoryServices/Groups.plist"
 
 // Domain.plist marks a machine as a server
-#define GSDH_DOMAIN_PLIST @"/Local/Library/DirectoryServices/Domain.plist"
+#define DS_DOMAIN_PLIST @"/Local/Library/DirectoryServices/Domain.plist"
 
-@interface GSDirectoryHelper : NSObject
+@interface DSHelper : NSObject
 
 @property (strong) NSDictionary *usersCache;
 @property (strong) NSDictionary *groupsCache;

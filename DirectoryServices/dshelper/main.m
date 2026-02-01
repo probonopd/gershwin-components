@@ -1,12 +1,12 @@
 #import <Foundation/Foundation.h>
-#import "gsdh.h"
+#import "dshelper.h"
 #import <signal.h>
 #import <unistd.h>
 
-static GSDirectoryHelper *helper = nil;
+static DSHelper *helper = nil;
 
 void signalHandler(int sig) {
-    NSLog(@"gsdh: Received signal %d, shutting down...", sig);
+    NSLog(@"dshelper: Received signal %d, shutting down...", sig);
     [helper stopServer];
     exit(0);
 }
@@ -16,10 +16,10 @@ void printUsage(const char *progname) {
     fprintf(stderr, "  -d    Run in foreground (debug mode)\n");
     fprintf(stderr, "  -h    Show this help\n");
     fprintf(stderr, "\n");
-    fprintf(stderr, "GNUstep Directory Helper - provides user/group lookups for NSS\n");
-    fprintf(stderr, "Listens on: %s\n", GSDH_SOCKET_PATH);
-    fprintf(stderr, "Checks: %s (first)\n", [GSDH_NETWORK_USERS_PLIST UTF8String]);
-    fprintf(stderr, "        %s (fallback)\n", [GSDH_LOCAL_USERS_PLIST UTF8String]);
+    fprintf(stderr, "Directory Services Helper - provides user/group lookups for NSS\n");
+    fprintf(stderr, "Listens on: %s\n", DS_SOCKET_PATH);
+    fprintf(stderr, "Checks: %s (first)\n", [DS_NETWORK_USERS_PLIST UTF8String]);
+    fprintf(stderr, "        %s (fallback)\n", [DS_LOCAL_USERS_PLIST UTF8String]);
 }
 
 int main(int argc, char *argv[]) {
@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
 
         // Must run as root to read password hashes
         if (getuid() != 0) {
-            fprintf(stderr, "gsdh: Must run as root\n");
+            fprintf(stderr, "dshelper: Must run as root\n");
             return 1;
         }
 
@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
             }
             if (pid > 0) {
                 // Parent exits
-                printf("gsdh: Started with PID %d\n", pid);
+                printf("dshelper: Started with PID %d\n", pid);
                 return 0;
             }
 
@@ -89,17 +89,17 @@ int main(int argc, char *argv[]) {
                            }
                                 error:&error];
             if (error) {
-                NSLog(@"gsdh: Failed to create %@: %@", dirPath, error);
+                NSLog(@"dshelper: Failed to create %@: %@", dirPath, error);
             }
         }
 
         // Start server
-        helper = [GSDirectoryHelper sharedHelper];
+        helper = [DSHelper sharedHelper];
 
-        NSLog(@"gsdh: Starting GNUstep Directory Helper");
+        NSLog(@"dshelper: Starting Directory Services Helper");
 
         if (![helper startServer]) {
-            NSLog(@"gsdh: Failed to start server");
+            NSLog(@"dshelper: Failed to start server");
             return 1;
         }
 

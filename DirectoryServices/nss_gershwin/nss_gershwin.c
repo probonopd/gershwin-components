@@ -1,7 +1,7 @@
 /*
  * nss_gershwin - NSS module for Gershwin Directory Services
  *
- * Queries gsdh daemon via Unix socket to resolve users and groups.
+ * Queries dshelper daemon via Unix socket to resolve users and groups.
  * Install to: /System/Library/Libraries/nss_gershwin.so.1
  */
 
@@ -17,15 +17,15 @@
 #include <unistd.h>
 #include <nss.h>
 
-#define GSDH_SOCKET_PATH "/var/run/gershwin-directory.sock"
+#define DS_SOCKET_PATH "/var/run/dshelper.sock"
 #define BUFFER_SIZE 4096
 
 /*
- * Query gsdh daemon via Unix socket
+ * Query dshelper daemon via Unix socket
  * Returns 0 on success, -1 on failure
  */
 static int
-query_gsdh(const char *request, char *response, size_t response_len)
+query_dshelper(const char *request, char *response, size_t response_len)
 {
     int fd;
     struct sockaddr_un addr;
@@ -38,7 +38,7 @@ query_gsdh(const char *request, char *response, size_t response_len)
 
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, GSDH_SOCKET_PATH, sizeof(addr.sun_path) - 1);
+    strncpy(addr.sun_path, DS_SOCKET_PATH, sizeof(addr.sun_path) - 1);
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(fd);
@@ -268,7 +268,7 @@ _nss_gershwin_getpwnam_r(const char *name, struct passwd *pwd,
 
     snprintf(request, sizeof(request), "getpwnam:%s", name);
 
-    if (query_gsdh(request, response, sizeof(response)) != 0) {
+    if (query_dshelper(request, response, sizeof(response)) != 0) {
         *errnop = ENOENT;
         return NSS_STATUS_NOTFOUND;
     }
@@ -290,7 +290,7 @@ _nss_gershwin_getpwuid_r(uid_t uid, struct passwd *pwd,
 
     snprintf(request, sizeof(request), "getpwuid:%u", (unsigned)uid);
 
-    if (query_gsdh(request, response, sizeof(response)) != 0) {
+    if (query_dshelper(request, response, sizeof(response)) != 0) {
         *errnop = ENOENT;
         return NSS_STATUS_NOTFOUND;
     }
@@ -312,7 +312,7 @@ _nss_gershwin_getgrnam_r(const char *name, struct group *grp,
 
     snprintf(request, sizeof(request), "getgrnam:%s", name);
 
-    if (query_gsdh(request, response, sizeof(response)) != 0) {
+    if (query_dshelper(request, response, sizeof(response)) != 0) {
         *errnop = ENOENT;
         return NSS_STATUS_NOTFOUND;
     }
@@ -334,7 +334,7 @@ _nss_gershwin_getgrgid_r(gid_t gid, struct group *grp,
 
     snprintf(request, sizeof(request), "getgrgid:%u", (unsigned)gid);
 
-    if (query_gsdh(request, response, sizeof(response)) != 0) {
+    if (query_dshelper(request, response, sizeof(response)) != 0) {
         *errnop = ENOENT;
         return NSS_STATUS_NOTFOUND;
     }
@@ -485,7 +485,7 @@ nss_getgroupmembership(void *retval __unused, void *mdata __unused, va_list ap)
     /* Query gsdh for user's group memberships */
     snprintf(request, sizeof(request), "getgrouplist:%s", username);
 
-    if (query_gsdh(request, response, sizeof(response)) == 0) {
+    if (query_dshelper(request, response, sizeof(response)) == 0) {
         user_found = 1;
         /* Response format: gid1,gid2,gid3,... */
         char *saveptr;

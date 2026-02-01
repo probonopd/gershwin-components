@@ -1,0 +1,808 @@
+#import <Foundation/Foundation.h>
+#import <unistd.h>
+#import <pwd.h>
+#import <grp.h>
+
+#define DS_USERS_PLIST @"/Local/Library/DirectoryServices/Users.plist"
+#define DS_GROUPS_PLIST @"/Local/Library/DirectoryServices/Groups.plist"
+
+static void printUsage(const char *progname) {
+    fprintf(stderr, "Usage: %s <command> [options]\n\n", progname);
+    fprintf(stderr, "User Commands:\n");
+    fprintf(stderr, "  user list                     List all users\n");
+    fprintf(stderr, "  user show <username>          Show user details\n");
+    fprintf(stderr, "  user add <username> [options] Add a new user\n");
+    fprintf(stderr, "    --uid <uid>                 User ID (auto-assigned if omitted)\n");
+    fprintf(stderr, "    --gid <gid>                 Primary group ID (auto-assigned if omitted)\n");
+    fprintf(stderr, "    --realname <name>           Real name / GECOS\n");
+    fprintf(stderr, "    --shell <shell>             Login shell (default: /bin/sh)\n");
+    fprintf(stderr, "    --admin                     Add user to admin group\n");
+    fprintf(stderr, "  user delete <username>        Delete a user\n");
+    fprintf(stderr, "  user passwd <username>        Set user password\n");
+    fprintf(stderr, "  user edit <username> [options] Modify user attributes\n");
+    fprintf(stderr, "    --realname <name>           Change real name\n");
+    fprintf(stderr, "    --shell <shell>             Change shell\n");
+    fprintf(stderr, "    --uid <uid>                 Change UID\n");
+    fprintf(stderr, "    --gid <gid>                 Change primary GID\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Group Commands:\n");
+    fprintf(stderr, "  group list                    List all groups\n");
+    fprintf(stderr, "  group show <groupname>        Show group details\n");
+    fprintf(stderr, "  group add <groupname> [--gid <gid>]  Add a new group\n");
+    fprintf(stderr, "  group delete <groupname>      Delete a group\n");
+    fprintf(stderr, "  group addmember <group> <user>    Add user to group\n");
+    fprintf(stderr, "  group removemember <group> <user> Remove user from group\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Other Commands:\n");
+    fprintf(stderr, "  passwd <username>             Set user password (alias for user passwd)\n");
+    fprintf(stderr, "  verify <username>             Verify user can authenticate\n");
+    fprintf(stderr, "  init                          Initialize directory structure\n");
+    fprintf(stderr, "\n");
+}
+
+static NSMutableDictionary *loadPlist(NSString *path) {
+    NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:path];
+    if (!dict) {
+        dict = [NSMutableDictionary dictionary];
+    }
+    return dict;
+}
+
+static BOOL savePlist(NSDictionary *dict, NSString *path) {
+    NSError *error = nil;
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:dict
+                                                              format:NSPropertyListXMLFormat_v1_0
+                                                             options:0
+                                                               error:&error];
+    if (error) {
+        fprintf(stderr, "Error serializing plist: %s\n", [[error localizedDescription] UTF8String]);
+        return NO;
+    }
+
+    if (![data writeToFile:path options:NSDataWritingAtomic error:&error]) {
+        fprintf(stderr, "Error writing plist: %s\n", [[error localizedDescription] UTF8String]);
+        return NO;
+    }
+
+    return YES;
+}
+
+static NSString *hashPassword(NSString *password) {
+    uint8_t saltBytes[16];
+    arc4random_buf(saltBytes, sizeof(saltBytes));
+
+    static const char *saltChars =
+        "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    char saltStr[17];
+    for (int i = 0; i < 16; i++) {
+        saltStr[i] = saltChars[saltBytes[i] % 64];
+    }
+    saltStr[16] = '\0';
+
+    char setting[64];
+    snprintf(setting, sizeof(setting), "$6$rounds=5000$%s$", saltStr);
+
+    char *hash = crypt([password UTF8String], setting);
+    if (!hash) return nil;
+
+    return [NSString stringWithUTF8String:hash];
+}
+
+static NSString *readPassword(const char *prompt) {
+    char *pass = getpass(prompt);
+    if (!pass) return nil;
+    return [NSString stringWithUTF8String:pass];
+}
+
+static uid_t findNextUID(NSDictionary *users) {
+    uid_t maxUID = 5000;
+    for (NSString *username in users) {
+        NSDictionary *user = users[username];
+        NSNumber *uid = user[@"uid"];
+        if (uid && [uid unsignedIntValue] > maxUID) {
+            maxUID = [uid unsignedIntValue];
+        }
+    }
+    return maxUID + 1;
+}
+
+static gid_t findNextGID(NSDictionary *groups) {
+    gid_t maxGID = 5000;
+    for (NSString *groupname in groups) {
+        NSDictionary *group = groups[groupname];
+        NSNumber *gid = group[@"gid"];
+        if (gid && [gid unsignedIntValue] > maxGID) {
+            maxGID = [gid unsignedIntValue];
+        }
+    }
+    return maxGID + 1;
+}
+
+#pragma mark - User Commands
+
+static int cmdUserList(void) {
+    NSDictionary *users = loadPlist(DS_USERS_PLIST);
+
+    if ([users count] == 0) {
+        printf("No users defined.\n");
+        return 0;
+    }
+
+    printf("%-20s %-6s %-6s %s\n", "USERNAME", "UID", "GID", "REAL NAME");
+    printf("%-20s %-6s %-6s %s\n", "--------", "---", "---", "---------");
+
+    NSArray *sortedKeys = [[users allKeys] sortedArrayUsingSelector:@selector(compare:)];
+    for (NSString *username in sortedKeys) {
+        NSDictionary *user = users[username];
+        printf("%-20s %-6d %-6d %s\n",
+               [username UTF8String],
+               [user[@"uid"] intValue],
+               [user[@"gid"] intValue],
+               [user[@"realName"] UTF8String] ?: "");
+    }
+
+    return 0;
+}
+
+static int cmdUserShow(NSString *username) {
+    NSDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSDictionary *user = users[username];
+
+    if (!user) {
+        fprintf(stderr, "User not found: %s\n", [username UTF8String]);
+        return 1;
+    }
+
+    printf("Username:   %s\n", [user[@"username"] UTF8String]);
+    printf("UID:        %d\n", [user[@"uid"] intValue]);
+    printf("GID:        %d\n", [user[@"gid"] intValue]);
+    printf("Real Name:  %s\n", [user[@"realName"] UTF8String] ?: "");
+    printf("Shell:      %s\n", [user[@"shell"] UTF8String] ?: "/usr/sbin/nologin");
+    printf("Password:   %s\n", user[@"passwordHash"] ? "set" : "not set");
+
+    // Show group memberships
+    NSDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSMutableArray *memberOf = [NSMutableArray array];
+    for (NSString *groupname in groups) {
+        NSDictionary *group = groups[groupname];
+        NSArray *members = group[@"members"];
+        if ([members containsObject:username]) {
+            [memberOf addObject:groupname];
+        }
+    }
+    if ([memberOf count] > 0) {
+        printf("Groups:     %s\n", [[memberOf componentsJoinedByString:@", "] UTF8String]);
+    }
+
+    return 0;
+}
+
+static int cmdUserAdd(NSArray *args) {
+    if ([args count] < 1) {
+        fprintf(stderr, "Usage: dscli user add <username> [options]\n");
+        return 1;
+    }
+
+    NSString *username = args[0];
+    NSMutableDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+
+    if (users[username]) {
+        fprintf(stderr, "User already exists: %s\n", [username UTF8String]);
+        return 1;
+    }
+
+    // Parse options
+    uid_t uid = 0;
+    gid_t gid = 0;
+    NSString *realName = nil;
+    NSString *shell = @"/bin/sh";
+    BOOL addToAdmin = NO;
+
+    for (NSUInteger i = 1; i < [args count]; i++) {
+        NSString *arg = args[i];
+        if ([arg isEqualToString:@"--uid"] && i + 1 < [args count]) {
+            uid = [args[++i] intValue];
+        } else if ([arg isEqualToString:@"--gid"] && i + 1 < [args count]) {
+            gid = [args[++i] intValue];
+        } else if ([arg isEqualToString:@"--realname"] && i + 1 < [args count]) {
+            realName = args[++i];
+        } else if ([arg isEqualToString:@"--shell"] && i + 1 < [args count]) {
+            shell = args[++i];
+        } else if ([arg isEqualToString:@"--admin"]) {
+            addToAdmin = YES;
+        }
+    }
+
+    // Auto-assign UID if not specified
+    if (uid == 0) {
+        uid = findNextUID(users);
+    }
+
+    // Auto-assign GID (create user's private group) if not specified
+    if (gid == 0) {
+        gid = findNextGID(groups);
+    }
+
+    // Create user record
+    NSMutableDictionary *user = [NSMutableDictionary dictionary];
+    user[@"username"] = username;
+    user[@"uid"] = @(uid);
+    user[@"gid"] = @(gid);
+    user[@"shell"] = shell;
+    if (realName) {
+        user[@"realName"] = realName;
+    }
+
+    users[username] = user;
+
+    // Create user's private group if it doesn't exist
+    if (!groups[username]) {
+        NSMutableDictionary *userGroup = [NSMutableDictionary dictionary];
+        userGroup[@"groupname"] = username;
+        userGroup[@"gid"] = @(gid);
+        groups[username] = userGroup;
+    }
+
+    // Add to admin group if requested
+    if (addToAdmin) {
+        NSMutableDictionary *adminGroup = [groups[@"admin"] mutableCopy];
+        if (!adminGroup) {
+            adminGroup = [NSMutableDictionary dictionary];
+            adminGroup[@"groupname"] = @"admin";
+            adminGroup[@"gid"] = @5000;
+        }
+        NSMutableArray *members = [adminGroup[@"members"] mutableCopy] ?: [NSMutableArray array];
+        if (![members containsObject:username]) {
+            [members addObject:username];
+        }
+        adminGroup[@"members"] = members;
+        groups[@"admin"] = adminGroup;
+    }
+
+    // Save both files
+    if (!savePlist(users, DS_USERS_PLIST)) {
+        return 1;
+    }
+    if (!savePlist(groups, DS_GROUPS_PLIST)) {
+        return 1;
+    }
+
+    // Create home directory
+    NSString *homeDir = [NSString stringWithFormat:@"/Local/Users/%@", username];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSError *error = nil;
+
+    if (![fm fileExistsAtPath:homeDir]) {
+        [fm createDirectoryAtPath:homeDir
+      withIntermediateDirectories:YES
+                       attributes:@{
+                           NSFilePosixPermissions: @0755,
+                           NSFileOwnerAccountID: @(uid),
+                           NSFileGroupOwnerAccountID: @(gid)
+                       }
+                            error:&error];
+        if (error) {
+            fprintf(stderr, "Warning: Failed to create home directory: %s\n",
+                    [[error localizedDescription] UTF8String]);
+        } else {
+            printf("Created home directory: %s\n", [homeDir UTF8String]);
+        }
+    }
+
+    printf("User created: %s (uid=%d, gid=%d)\n", [username UTF8String], uid, gid);
+    printf("Run 'dscli passwd %s' to set password.\n", [username UTF8String]);
+
+    return 0;
+}
+
+static int cmdUserDelete(NSString *username) {
+    NSMutableDictionary *users = loadPlist(DS_USERS_PLIST);
+
+    if (!users[username]) {
+        fprintf(stderr, "User not found: %s\n", [username UTF8String]);
+        return 1;
+    }
+
+    [users removeObjectForKey:username];
+
+    if (!savePlist(users, DS_USERS_PLIST)) {
+        return 1;
+    }
+
+    // Remove from all groups
+    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    BOOL groupsModified = NO;
+
+    for (NSString *groupname in [groups allKeys]) {
+        NSMutableDictionary *group = [groups[groupname] mutableCopy];
+        NSMutableArray *members = [group[@"members"] mutableCopy];
+        if (members && [members containsObject:username]) {
+            [members removeObject:username];
+            group[@"members"] = members;
+            groups[groupname] = group;
+            groupsModified = YES;
+        }
+    }
+
+    if (groupsModified) {
+        savePlist(groups, DS_GROUPS_PLIST);
+    }
+
+    printf("User deleted: %s\n", [username UTF8String]);
+    printf("Note: Home directory was not removed.\n");
+
+    return 0;
+}
+
+static int cmdUserPasswd(NSString *username) {
+    NSMutableDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSMutableDictionary *user = [users[username] mutableCopy];
+
+    if (!user) {
+        fprintf(stderr, "User not found: %s\n", [username UTF8String]);
+        return 1;
+    }
+
+    NSString *pass1 = readPassword("New password: ");
+    if (!pass1 || [pass1 length] == 0) {
+        fprintf(stderr, "Password cannot be empty.\n");
+        return 1;
+    }
+
+    NSString *pass2 = readPassword("Confirm password: ");
+    if (![pass1 isEqualToString:pass2]) {
+        fprintf(stderr, "Passwords do not match.\n");
+        return 1;
+    }
+
+    NSString *hash = hashPassword(pass1);
+    if (!hash) {
+        fprintf(stderr, "Failed to hash password.\n");
+        return 1;
+    }
+
+    user[@"passwordHash"] = hash;
+    users[username] = user;
+
+    if (!savePlist(users, DS_USERS_PLIST)) {
+        return 1;
+    }
+
+    printf("Password set for user: %s\n", [username UTF8String]);
+    return 0;
+}
+
+static int cmdUserEdit(NSArray *args) {
+    if ([args count] < 1) {
+        fprintf(stderr, "Usage: dscli user edit <username> [options]\n");
+        return 1;
+    }
+
+    NSString *username = args[0];
+    NSMutableDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSMutableDictionary *user = [users[username] mutableCopy];
+
+    if (!user) {
+        fprintf(stderr, "User not found: %s\n", [username UTF8String]);
+        return 1;
+    }
+
+    BOOL modified = NO;
+
+    for (NSUInteger i = 1; i < [args count]; i++) {
+        NSString *arg = args[i];
+        if ([arg isEqualToString:@"--uid"] && i + 1 < [args count]) {
+            user[@"uid"] = @([args[++i] intValue]);
+            modified = YES;
+        } else if ([arg isEqualToString:@"--gid"] && i + 1 < [args count]) {
+            user[@"gid"] = @([args[++i] intValue]);
+            modified = YES;
+        } else if ([arg isEqualToString:@"--realname"] && i + 1 < [args count]) {
+            user[@"realName"] = args[++i];
+            modified = YES;
+        } else if ([arg isEqualToString:@"--shell"] && i + 1 < [args count]) {
+            user[@"shell"] = args[++i];
+            modified = YES;
+        }
+    }
+
+    if (!modified) {
+        fprintf(stderr, "No changes specified.\n");
+        return 1;
+    }
+
+    users[username] = user;
+
+    if (!savePlist(users, DS_USERS_PLIST)) {
+        return 1;
+    }
+
+    printf("User modified: %s\n", [username UTF8String]);
+    return 0;
+}
+
+#pragma mark - Group Commands
+
+static int cmdGroupList(void) {
+    NSDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+
+    if ([groups count] == 0) {
+        printf("No groups defined.\n");
+        return 0;
+    }
+
+    printf("%-20s %-6s %s\n", "GROUPNAME", "GID", "MEMBERS");
+    printf("%-20s %-6s %s\n", "---------", "---", "-------");
+
+    NSArray *sortedKeys = [[groups allKeys] sortedArrayUsingSelector:@selector(compare:)];
+    for (NSString *groupname in sortedKeys) {
+        NSDictionary *group = groups[groupname];
+        NSArray *members = group[@"members"] ?: @[];
+        printf("%-20s %-6d %s\n",
+               [groupname UTF8String],
+               [group[@"gid"] intValue],
+               [[members componentsJoinedByString:@","] UTF8String]);
+    }
+
+    return 0;
+}
+
+static int cmdGroupShow(NSString *groupname) {
+    NSDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSDictionary *group = groups[groupname];
+
+    if (!group) {
+        fprintf(stderr, "Group not found: %s\n", [groupname UTF8String]);
+        return 1;
+    }
+
+    printf("Group Name: %s\n", [group[@"groupname"] UTF8String]);
+    printf("GID:        %d\n", [group[@"gid"] intValue]);
+
+    NSArray *members = group[@"members"] ?: @[];
+    if ([members count] > 0) {
+        printf("Members:    %s\n", [[members componentsJoinedByString:@", "] UTF8String]);
+    } else {
+        printf("Members:    (none)\n");
+    }
+
+    return 0;
+}
+
+static int cmdGroupAdd(NSArray *args) {
+    if ([args count] < 1) {
+        fprintf(stderr, "Usage: dscli group add <groupname> [--gid <gid>]\n");
+        return 1;
+    }
+
+    NSString *groupname = args[0];
+    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+
+    if (groups[groupname]) {
+        fprintf(stderr, "Group already exists: %s\n", [groupname UTF8String]);
+        return 1;
+    }
+
+    gid_t gid = 0;
+    for (NSUInteger i = 1; i < [args count]; i++) {
+        NSString *arg = args[i];
+        if ([arg isEqualToString:@"--gid"] && i + 1 < [args count]) {
+            gid = [args[++i] intValue];
+        }
+    }
+
+    if (gid == 0) {
+        gid = findNextGID(groups);
+    }
+
+    NSMutableDictionary *group = [NSMutableDictionary dictionary];
+    group[@"groupname"] = groupname;
+    group[@"gid"] = @(gid);
+
+    groups[groupname] = group;
+
+    if (!savePlist(groups, DS_GROUPS_PLIST)) {
+        return 1;
+    }
+
+    printf("Group created: %s (gid=%d)\n", [groupname UTF8String], gid);
+    return 0;
+}
+
+static int cmdGroupDelete(NSString *groupname) {
+    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+
+    if (!groups[groupname]) {
+        fprintf(stderr, "Group not found: %s\n", [groupname UTF8String]);
+        return 1;
+    }
+
+    // Prevent deleting admin group
+    if ([groupname isEqualToString:@"admin"]) {
+        fprintf(stderr, "Cannot delete the admin group.\n");
+        return 1;
+    }
+
+    [groups removeObjectForKey:groupname];
+
+    if (!savePlist(groups, DS_GROUPS_PLIST)) {
+        return 1;
+    }
+
+    printf("Group deleted: %s\n", [groupname UTF8String]);
+    return 0;
+}
+
+static int cmdGroupAddMember(NSString *groupname, NSString *username) {
+    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSMutableDictionary *group = [groups[groupname] mutableCopy];
+
+    if (!group) {
+        fprintf(stderr, "Group not found: %s\n", [groupname UTF8String]);
+        return 1;
+    }
+
+    // Verify user exists
+    NSDictionary *users = loadPlist(DS_USERS_PLIST);
+    if (!users[username]) {
+        fprintf(stderr, "User not found: %s\n", [username UTF8String]);
+        return 1;
+    }
+
+    NSMutableArray *members = [group[@"members"] mutableCopy] ?: [NSMutableArray array];
+    if ([members containsObject:username]) {
+        fprintf(stderr, "User %s is already a member of %s\n",
+                [username UTF8String], [groupname UTF8String]);
+        return 1;
+    }
+
+    [members addObject:username];
+    group[@"members"] = members;
+    groups[groupname] = group;
+
+    if (!savePlist(groups, DS_GROUPS_PLIST)) {
+        return 1;
+    }
+
+    printf("Added %s to group %s\n", [username UTF8String], [groupname UTF8String]);
+    return 0;
+}
+
+static int cmdGroupRemoveMember(NSString *groupname, NSString *username) {
+    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSMutableDictionary *group = [groups[groupname] mutableCopy];
+
+    if (!group) {
+        fprintf(stderr, "Group not found: %s\n", [groupname UTF8String]);
+        return 1;
+    }
+
+    NSMutableArray *members = [group[@"members"] mutableCopy];
+    if (!members || ![members containsObject:username]) {
+        fprintf(stderr, "User %s is not a member of %s\n",
+                [username UTF8String], [groupname UTF8String]);
+        return 1;
+    }
+
+    [members removeObject:username];
+    group[@"members"] = members;
+    groups[groupname] = group;
+
+    if (!savePlist(groups, DS_GROUPS_PLIST)) {
+        return 1;
+    }
+
+    printf("Removed %s from group %s\n", [username UTF8String], [groupname UTF8String]);
+    return 0;
+}
+
+#pragma mark - Other Commands
+
+static int cmdVerify(NSString *username) {
+    NSDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSDictionary *user = users[username];
+
+    if (!user) {
+        fprintf(stderr, "User not found: %s\n", [username UTF8String]);
+        return 1;
+    }
+
+    NSString *storedHash = user[@"passwordHash"];
+    if (!storedHash) {
+        fprintf(stderr, "User has no password set.\n");
+        return 1;
+    }
+
+    NSString *password = readPassword("Password: ");
+    if (!password) {
+        return 1;
+    }
+
+    char *computed = crypt([password UTF8String], [storedHash UTF8String]);
+    if (computed && strcmp(computed, [storedHash UTF8String]) == 0) {
+        printf("Authentication successful.\n");
+        return 0;
+    } else {
+        printf("Authentication failed.\n");
+        return 1;
+    }
+}
+
+static int cmdInit(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSError *error = nil;
+
+    // Create directories
+    NSArray *dirs = @[
+        @"/Local/Library/DirectoryServices",
+        @"/Local/Users"
+    ];
+
+    for (NSString *dir in dirs) {
+        if (![fm fileExistsAtPath:dir]) {
+            [fm createDirectoryAtPath:dir
+          withIntermediateDirectories:YES
+                           attributes:@{NSFilePosixPermissions: @0755}
+                                error:&error];
+            if (error) {
+                fprintf(stderr, "Failed to create %s: %s\n",
+                        [dir UTF8String], [[error localizedDescription] UTF8String]);
+                return 1;
+            }
+            printf("Created: %s\n", [dir UTF8String]);
+        }
+    }
+
+    // Create empty plists if they don't exist
+    if (![fm fileExistsAtPath:DS_USERS_PLIST]) {
+        savePlist(@{}, DS_USERS_PLIST);
+        printf("Created: %s\n", [DS_USERS_PLIST UTF8String]);
+    }
+
+    if (![fm fileExistsAtPath:DS_GROUPS_PLIST]) {
+        // Create with admin group
+        NSDictionary *groups = @{
+            @"admin": @{
+                @"groupname": @"admin",
+                @"gid": @5000
+            }
+        };
+        savePlist(groups, DS_GROUPS_PLIST);
+        printf("Created: %s\n", [DS_GROUPS_PLIST UTF8String]);
+    }
+
+    printf("Directory Services initialized.\n");
+    return 0;
+}
+
+int main(int argc, char *argv[]) {
+    @autoreleasepool {
+        if (argc < 2) {
+            printUsage(argv[0]);
+            return 1;
+        }
+
+        // Check for root
+        if (getuid() != 0) {
+            fprintf(stderr, "dscli: Must run as root\n");
+            return 1;
+        }
+
+        NSMutableArray *args = [NSMutableArray array];
+        for (int i = 1; i < argc; i++) {
+            [args addObject:[NSString stringWithUTF8String:argv[i]]];
+        }
+
+        NSString *command = args[0];
+
+        // Handle "passwd" as alias for "user passwd"
+        if ([command isEqualToString:@"passwd"]) {
+            if ([args count] < 2) {
+                fprintf(stderr, "Usage: dscli passwd <username>\n");
+                return 1;
+            }
+            return cmdUserPasswd(args[1]);
+        }
+
+        // Handle "verify"
+        if ([command isEqualToString:@"verify"]) {
+            if ([args count] < 2) {
+                fprintf(stderr, "Usage: dscli verify <username>\n");
+                return 1;
+            }
+            return cmdVerify(args[1]);
+        }
+
+        // Handle "init"
+        if ([command isEqualToString:@"init"]) {
+            return cmdInit();
+        }
+
+        // Handle "user" commands
+        if ([command isEqualToString:@"user"]) {
+            if ([args count] < 2) {
+                fprintf(stderr, "Usage: dscli user <command> [options]\n");
+                return 1;
+            }
+
+            NSString *subcommand = args[1];
+
+            if ([subcommand isEqualToString:@"list"]) {
+                return cmdUserList();
+            } else if ([subcommand isEqualToString:@"show"]) {
+                if ([args count] < 3) {
+                    fprintf(stderr, "Usage: dscli user show <username>\n");
+                    return 1;
+                }
+                return cmdUserShow(args[2]);
+            } else if ([subcommand isEqualToString:@"add"]) {
+                return cmdUserAdd([args subarrayWithRange:NSMakeRange(2, [args count] - 2)]);
+            } else if ([subcommand isEqualToString:@"delete"]) {
+                if ([args count] < 3) {
+                    fprintf(stderr, "Usage: dscli user delete <username>\n");
+                    return 1;
+                }
+                return cmdUserDelete(args[2]);
+            } else if ([subcommand isEqualToString:@"passwd"]) {
+                if ([args count] < 3) {
+                    fprintf(stderr, "Usage: dscli user passwd <username>\n");
+                    return 1;
+                }
+                return cmdUserPasswd(args[2]);
+            } else if ([subcommand isEqualToString:@"edit"]) {
+                return cmdUserEdit([args subarrayWithRange:NSMakeRange(2, [args count] - 2)]);
+            } else {
+                fprintf(stderr, "Unknown user command: %s\n", [subcommand UTF8String]);
+                return 1;
+            }
+        }
+
+        // Handle "group" commands
+        if ([command isEqualToString:@"group"]) {
+            if ([args count] < 2) {
+                fprintf(stderr, "Usage: dscli group <command> [options]\n");
+                return 1;
+            }
+
+            NSString *subcommand = args[1];
+
+            if ([subcommand isEqualToString:@"list"]) {
+                return cmdGroupList();
+            } else if ([subcommand isEqualToString:@"show"]) {
+                if ([args count] < 3) {
+                    fprintf(stderr, "Usage: dscli group show <groupname>\n");
+                    return 1;
+                }
+                return cmdGroupShow(args[2]);
+            } else if ([subcommand isEqualToString:@"add"]) {
+                return cmdGroupAdd([args subarrayWithRange:NSMakeRange(2, [args count] - 2)]);
+            } else if ([subcommand isEqualToString:@"delete"]) {
+                if ([args count] < 3) {
+                    fprintf(stderr, "Usage: dscli group delete <groupname>\n");
+                    return 1;
+                }
+                return cmdGroupDelete(args[2]);
+            } else if ([subcommand isEqualToString:@"addmember"]) {
+                if ([args count] < 4) {
+                    fprintf(stderr, "Usage: dscli group addmember <group> <user>\n");
+                    return 1;
+                }
+                return cmdGroupAddMember(args[2], args[3]);
+            } else if ([subcommand isEqualToString:@"removemember"]) {
+                if ([args count] < 4) {
+                    fprintf(stderr, "Usage: dscli group removemember <group> <user>\n");
+                    return 1;
+                }
+                return cmdGroupRemoveMember(args[2], args[3]);
+            } else {
+                fprintf(stderr, "Unknown group command: %s\n", [subcommand UTF8String]);
+                return 1;
+            }
+        }
+
+        fprintf(stderr, "Unknown command: %s\n", [command UTF8String]);
+        printUsage(argv[0]);
+        return 1;
+    }
+}

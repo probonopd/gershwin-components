@@ -4,12 +4,13 @@ NSS module and helper daemon for managing users and groups via plist files.
 
 ## Components
 
-- **gsdh** - Directory helper daemon (`/System/Library/Tools/gsdh`)
+- **dshelper** - Directory helper daemon (`/System/Library/Tools/dshelper`)
+- **dscli** - User and group management CLI (`/System/Library/Tools/dscli`)
 - **nss_gershwin** - NSS module (`/System/Library/Libraries/nss_gershwin.so.1`)
 
 ## Data Files
 
-gsdh checks for plists in this order:
+dshelper checks for plists in this order:
 1. `/Network/Library/DirectoryServices/` (client with server mounted)
 2. `/Local/Library/DirectoryServices/` (server or standalone)
 
@@ -26,7 +27,7 @@ The `gershwin` module must come before `files` so that:
 - Admin group members appear in `wheel` group (required for `su` to work)
 - Gershwin users are found before falling back to `/etc/passwd`
 
-If gsdh is not running, NSS falls back to `files` automatically.
+If dshelper is not running, NSS falls back to `files` automatically.
 
 ## Building
 
@@ -36,87 +37,142 @@ gmake
 sudo -E gmake install
 ```
 
+## Quick Start
+
+```sh
+# Initialize directory structure
+sudo dscli init
+
+# Add a user
+sudo dscli user add jsmith --realname "John Smith" --admin
+
+# Set password
+sudo dscli passwd jsmith
+
+# Start the daemon
+sudo dshelper -d
+# Look for "Loaded N users from /path" in output
+
+# Verify
+getent passwd jsmith
+id jsmith
+```
+
+## dscli Reference
+
+### User Commands
+
+```sh
+# List all users
+dscli user list
+
+# Show user details
+dscli user show <username>
+
+# Add a new user
+dscli user add <username> [options]
+  --uid <uid>           User ID (auto-assigned if omitted)
+  --gid <gid>           Primary group ID (auto-assigned if omitted)
+  --realname <name>     Real name / GECOS field
+  --shell <shell>       Login shell (default: /bin/sh)
+  --admin               Add user to admin group
+
+# Delete a user
+dscli user delete <username>
+
+# Set user password
+dscli user passwd <username>
+# or
+dscli passwd <username>
+
+# Modify user attributes
+dscli user edit <username> [options]
+  --realname <name>     Change real name
+  --shell <shell>       Change shell
+  --uid <uid>           Change UID
+  --gid <gid>           Change primary GID
+```
+
+### Group Commands
+
+```sh
+# List all groups
+dscli group list
+
+# Show group details
+dscli group show <groupname>
+
+# Add a new group
+dscli group add <groupname> [--gid <gid>]
+
+# Delete a group
+dscli group delete <groupname>
+
+# Add user to group
+dscli group addmember <groupname> <username>
+
+# Remove user from group
+dscli group removemember <groupname> <username>
+```
+
+### Other Commands
+
+```sh
+# Verify user can authenticate
+dscli verify <username>
+
+# Initialize directory structure (creates /Local/Library/DirectoryServices, etc.)
+dscli init
+```
+
+### Examples
+
+```sh
+# Create an admin user with all options
+sudo dscli user add jsmith \
+  --realname "John Smith" \
+  --shell /bin/zsh \
+  --admin
+sudo dscli passwd jsmith
+
+# Create a regular user
+sudo dscli user add webdev --realname "Web Developer"
+sudo dscli passwd webdev
+
+# Create a group and add members
+sudo dscli group add developers
+sudo dscli group addmember developers jsmith
+sudo dscli group addmember developers webdev
+
+# Change user's shell
+sudo dscli user edit jsmith --shell /usr/local/bin/bash
+
+# Remove user from admin group
+sudo dscli group removemember admin jsmith
+
+# View user's group memberships
+sudo dscli user show jsmith
+
+# Delete a user
+sudo dscli user delete webdev
+```
+
 ## Standalone Setup
 
 For a single machine with local users only.
 
-### 1. Create Users.plist
+### 1. Initialize and create users
 
 ```sh
-sudo mkdir -p /Local/Library/DirectoryServices
+sudo dscli init
+sudo dscli user add testuser --realname "Test User" --admin
+sudo dscli passwd testuser
 ```
 
-`/Local/Library/DirectoryServices/Users.plist`:
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>testuser</key>
-    <dict>
-        <key>username</key>
-        <string>testuser</string>
-        <key>uid</key>
-        <integer>5001</integer>
-        <key>gid</key>
-        <integer>5001</integer>
-        <key>realName</key>
-        <string>Test User</string>
-        <key>shell</key>
-        <string>/bin/sh</string>
-        <key>passwordHash</key>
-        <string>$6$...</string>
-    </dict>
-</dict>
-</plist>
-```
-
-Generate password hash:
-```sh
-openssl passwd -6 yourpassword
-```
-
-### 2. Create Groups.plist
-
-`/Local/Library/DirectoryServices/Groups.plist`:
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>admin</key>
-    <dict>
-        <key>groupname</key>
-        <string>admin</string>
-        <key>gid</key>
-        <integer>5000</integer>
-        <key>members</key>
-        <array>
-            <string>testuser</string>
-        </array>
-    </dict>
-    <key>testuser</key>
-    <dict>
-        <key>groupname</key>
-        <string>testuser</string>
-        <key>gid</key>
-        <integer>5001</integer>
-    </dict>
-</dict>
-</plist>
-```
-
-### 3. Create home directory
+### 2. Start dshelper
 
 ```sh
-sudo mkdir -p /Local/Users/testuser
-sudo chown 5001:5001 /Local/Users/testuser
-```
-
-### 4. Start gsdh
-
-```sh
-sudo gsdh
+sudo dshelper -d
 ```
 
 ## Server Setup
@@ -131,18 +187,6 @@ This marks the machine as a server:
 
 ```sh
 sudo touch /Local/Library/DirectoryServices/Domain.plist
-```
-
-Or with content:
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>role</key>
-    <string>server</string>
-</dict>
-</plist>
 ```
 
 ### 3. Export /Local via NFS
@@ -192,7 +236,7 @@ showmount -e localhost
 
 A client mounts `/Network` from the server and uses those users.
 
-### 1. Build and install gsdh/nss_gershwin
+### 1. Build and install dshelper/nss_gershwin
 
 Complete the Building and nsswitch.conf steps above.
 
@@ -228,13 +272,13 @@ Or add to `/etc/fstab` for persistent mount:
 server:/Local    /Network    nfs    rw    0    0
 ```
 
-### 4. Start gsdh
+### 4. Start dshelper
 
 ```sh
-sudo gsdh
+sudo dshelper -d
 ```
 
-gsdh will detect `/Network/Library/DirectoryServices/Users.plist` and use it.
+dshelper will detect `/Network/Library/DirectoryServices/Users.plist` and use it.
 
 ### 5. Verify
 
@@ -245,8 +289,8 @@ getent passwd testuser
 
 ## How It Works
 
-| Machine | /Network mounted? | Domain.plist exists? | gsdh reads from |
-|---------|-------------------|---------------------|-----------------|
+| Machine | /Network mounted? | Domain.plist exists? | dshelper reads from |
+|---------|-------------------|---------------------|---------------------|
 | Server | No | Yes | /Local |
 | Client | Yes | No | /Network |
 | Standalone | No | No | /Local |
@@ -260,8 +304,8 @@ No PAM configuration changes required.
 ## Testing
 
 ```sh
-# Check which path gsdh is using
-sudo gsdh &
+# Check which path dshelper is using
+sudo dshelper -d
 # Look for "Loaded N users from /path" in output
 
 # NSS lookup
@@ -269,7 +313,7 @@ getent passwd testuser
 id testuser
 
 # Direct socket query (as root to see hash)
-sudo sh -c 'echo "getpwnam:testuser" | nc -U /var/run/gershwin-directory.sock'
+sudo sh -c 'echo "getpwnam:testuser" | nc -U /var/run/dshelper.sock'
 ```
 
 ## User Fields

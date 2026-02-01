@@ -1,4 +1,4 @@
-#import "gsdh.h"
+#import "dshelper.h"
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <sys/stat.h>
@@ -6,16 +6,16 @@
 #import <errno.h>
 #import <string.h>
 
-@implementation GSDirectoryHelper {
+@implementation DSHelper {
     int _serverSocket;
     BOOL _running;
 }
 
 + (instancetype)sharedHelper {
-    static GSDirectoryHelper *shared = nil;
+    static DSHelper *shared = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        shared = [[GSDirectoryHelper alloc] init];
+        shared = [[DSHelper alloc] init];
     });
     return shared;
 }
@@ -34,30 +34,30 @@
 - (NSString *)usersPath {
     NSFileManager *fm = [NSFileManager defaultManager];
     // Check /Network first (client with mounted server)
-    if ([fm fileExistsAtPath:GSDH_NETWORK_USERS_PLIST]) {
-        return GSDH_NETWORK_USERS_PLIST;
+    if ([fm fileExistsAtPath:DS_NETWORK_USERS_PLIST]) {
+        return DS_NETWORK_USERS_PLIST;
     }
     // Fall back to /Local (server or standalone)
-    return GSDH_LOCAL_USERS_PLIST;
+    return DS_LOCAL_USERS_PLIST;
 }
 
 - (NSString *)groupsPath {
     NSFileManager *fm = [NSFileManager defaultManager];
-    if ([fm fileExistsAtPath:GSDH_NETWORK_GROUPS_PLIST]) {
-        return GSDH_NETWORK_GROUPS_PLIST;
+    if ([fm fileExistsAtPath:DS_NETWORK_GROUPS_PLIST]) {
+        return DS_NETWORK_GROUPS_PLIST;
     }
-    return GSDH_LOCAL_GROUPS_PLIST;
+    return DS_LOCAL_GROUPS_PLIST;
 }
 
 - (BOOL)isServer {
     NSFileManager *fm = [NSFileManager defaultManager];
-    return [fm fileExistsAtPath:GSDH_DOMAIN_PLIST];
+    return [fm fileExistsAtPath:DS_DOMAIN_PLIST];
 }
 
 - (BOOL)isClient {
     // Client = reading from /Network (not server or standalone)
     NSFileManager *fm = [NSFileManager defaultManager];
-    return [fm fileExistsAtPath:GSDH_NETWORK_USERS_PLIST];
+    return [fm fileExistsAtPath:DS_NETWORK_USERS_PLIST];
 }
 
 #pragma mark - Plist Loading
@@ -77,10 +77,10 @@
     self.usersCacheDate = modDate;
 
     if (!self.usersCache) {
-        NSLog(@"gsdh: No users found at %@", path);
+        NSLog(@"dshelper: No users found at %@", path);
         self.usersCache = @{};
     } else {
-        NSLog(@"gsdh: Loaded %lu users from %@", (unsigned long)[self.usersCache count], path);
+        NSLog(@"dshelper: Loaded %lu users from %@", (unsigned long)[self.usersCache count], path);
     }
 
     return self.usersCache;
@@ -103,7 +103,7 @@
     if (!self.groupsCache) {
         self.groupsCache = @{};
     } else {
-        NSLog(@"gsdh: Loaded %lu groups from %@", (unsigned long)[self.groupsCache count], path);
+        NSLog(@"dshelper: Loaded %lu groups from %@", (unsigned long)[self.groupsCache count], path);
     }
 
     return self.groupsCache;
@@ -210,10 +210,6 @@
     NSString *storedHash = user[@"passwordHash"];
     if (!storedHash || [storedHash isEqual:[NSNull null]]) return NO;
 
-    // Check if account can login
-    NSNumber *canLogin = user[@"canLogin"];
-    if (canLogin && ![canLogin boolValue]) return NO;
-
     return [self verifyPassword:password againstHash:storedHash];
 }
 
@@ -221,12 +217,12 @@
 
 - (BOOL)startServer {
     // Remove old socket if exists
-    unlink(GSDH_SOCKET_PATH);
+    unlink(DS_SOCKET_PATH);
 
     // Create socket
     _serverSocket = socket(AF_UNIX, SOCK_STREAM, 0);
     if (_serverSocket < 0) {
-        NSLog(@"gsdh: Failed to create socket: %s", strerror(errno));
+        NSLog(@"dshelper: Failed to create socket: %s", strerror(errno));
         return NO;
     }
 
@@ -234,27 +230,27 @@
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, GSDH_SOCKET_PATH, sizeof(addr.sun_path) - 1);
+    strncpy(addr.sun_path, DS_SOCKET_PATH, sizeof(addr.sun_path) - 1);
 
     if (bind(_serverSocket, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        NSLog(@"gsdh: Failed to bind socket: %s", strerror(errno));
+        NSLog(@"dshelper: Failed to bind socket: %s", strerror(errno));
         close(_serverSocket);
         _serverSocket = -1;
         return NO;
     }
 
     // Make socket world-accessible (NSS/PAM run as various users)
-    chmod(GSDH_SOCKET_PATH, 0666);
+    chmod(DS_SOCKET_PATH, 0666);
 
     // Listen
     if (listen(_serverSocket, 10) < 0) {
-        NSLog(@"gsdh: Failed to listen: %s", strerror(errno));
+        NSLog(@"dshelper: Failed to listen: %s", strerror(errno));
         close(_serverSocket);
         _serverSocket = -1;
         return NO;
     }
 
-    NSLog(@"gsdh: Listening on %s", GSDH_SOCKET_PATH);
+    NSLog(@"dshelper: Listening on %s", DS_SOCKET_PATH);
 
     _running = YES;
 
@@ -263,7 +259,7 @@
         int clientFd = accept(_serverSocket, NULL, NULL);
         if (clientFd < 0) {
             if (_running) {
-                NSLog(@"gsdh: Accept failed: %s", strerror(errno));
+                NSLog(@"dshelper: Accept failed: %s", strerror(errno));
             }
             continue;
         }
@@ -280,7 +276,7 @@
         close(_serverSocket);
         _serverSocket = -1;
     }
-    unlink(GSDH_SOCKET_PATH);
+    unlink(DS_SOCKET_PATH);
 }
 
 - (void)handleClient:(int)clientFd {
@@ -288,7 +284,7 @@
     uid_t peerUid = (uid_t)-1;
     gid_t peerGid = (gid_t)-1;
     if (getpeereid(clientFd, &peerUid, &peerGid) < 0) {
-        NSLog(@"gsdh: getpeereid failed: %s", strerror(errno));
+        NSLog(@"dshelper: getpeereid failed: %s", strerror(errno));
         // Default to non-root for safety
         peerUid = (uid_t)-1;
     }
