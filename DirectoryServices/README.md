@@ -55,7 +55,7 @@ sudo dscli promote
 showmount -e localhost
 ```
 
-This configures NFS exports, starts NFS services, and creates `Domain.plist`. When dshelper detects `Domain.plist`, it registers the `GershwinDirectory` service with the network portmapper for client auto-discovery.
+This configures NFS exports, starts NFS services, creates `Domain.plist`, and restarts dshelper. When dshelper starts on a server (where `Domain.plist` exists), it registers the `GershwinDirectory` service with gdomap for client auto-discovery.
 
 Only one directory server is allowed per network. The promote command checks for existing servers and prevents duplicates.
 
@@ -106,7 +106,7 @@ To stop being a directory server:
 sudo dscli demote
 ```
 
-This removes `Domain.plist`, stops NFS services, and removes `/Local` from NFS exports.
+This unregisters the service from gdomap (so clients can no longer discover it), removes `Domain.plist`, stops NFS services, and removes `/Local` from NFS exports.
 
 All clients must run `dscli leave` before a server can be demoted.
 
@@ -146,6 +146,7 @@ dscli group removemember <group> <user> # Remove user from group
 ### Other Commands
 
 ```sh
+dscli list              # List all users, groups, and status
 dscli init              # Initialize directory structure
 dscli promote           # Promote to directory server
 dscli demote            # Demote from directory server
@@ -154,6 +155,13 @@ dscli leave             # Leave a directory
 dscli passwd <username> # Set password (alias for user passwd)
 dscli verify <username> # Verify user can authenticate
 ```
+
+The `list` command provides a comprehensive overview:
+- **Role**: Server, Client, or Standalone
+- **Connected Clients**: (on server) machines with active NFS mounts
+- **Connected Server**: (on client) which server this machine is joined to
+- **Users**: All users sorted by UID
+- **Groups**: All groups sorted by GID
 
 ## dshelper Reference
 
@@ -315,19 +323,25 @@ The `dscli promote`, `demote`, `join`, and `leave` commands use platform-specifi
 - (NSString *)platformName;
 - (BOOL)isAvailable;
 
-// Server operations
+// Server (promote) operations
 - (BOOL)configureNFSExports;
 - (BOOL)enableNFSServer;
 - (BOOL)startNFSServer;
+- (BOOL)restartDSHelper;
+
+// Server (demote) operations
 - (BOOL)removeNFSExports;
 - (BOOL)stopNFSServer;
+- (BOOL)unregisterService;
 
-// Client operations
+// Client (join) operations
 - (BOOL)enableNFSClient;
 - (BOOL)startNFSClient;
 - (BOOL)createNetworkMount:(NSString *)server;
 - (BOOL)addFstabEntry:(NSString *)server;
 - (BOOL)mountNetwork;
+
+// Client (leave) operations
 - (BOOL)unmountNetwork;
 - (BOOL)removeFstabEntry;
 

@@ -60,6 +60,7 @@ static void printUsage(const char *progname) {
     fprintf(stderr, "  group removemember <group> <user> Remove user from group\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Other Commands:\n");
+    fprintf(stderr, "  list                          List all users, groups, and status\n");
     fprintf(stderr, "  passwd <username>             Set user password (alias for user passwd)\n");
     fprintf(stderr, "  verify <username>             Verify user can authenticate\n");
     fprintf(stderr, "  init                          Initialize directory structure\n");
@@ -164,6 +165,111 @@ static gid_t findNextGID(NSDictionary *groups) {
         }
     }
     return maxGID + 1;
+}
+
+#pragma mark - List All Command
+
+static int cmdList(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    // Determine role
+    BOOL isServer = [fm fileExistsAtPath:DS_DOMAIN_PLIST];
+    BOOL isClient = [fm fileExistsAtPath:@"/Network/Library/DirectoryServices"];
+
+    // Show role
+    printf("=== Directory Services Status ===\n");
+    if (isServer) {
+        printf("Role: Server\n");
+
+        // Show connected clients using showmount
+        printf("\nConnected Clients:\n");
+        FILE *fp = popen("showmount -a 2>/dev/null | tail -n +2 | grep -v '^$'", "r");
+        if (fp) {
+            char buf[256];
+            int count = 0;
+            while (fgets(buf, sizeof(buf), fp)) {
+                // Format: "host:mountpoint"
+                char *colon = strchr(buf, ':');
+                if (colon) {
+                    *colon = '\0';
+                    printf("  %s\n", buf);
+                    count++;
+                }
+            }
+            pclose(fp);
+            if (count == 0) {
+                printf("  (none)\n");
+            }
+        }
+    } else if (isClient) {
+        printf("Role: Client\n");
+
+        // Show which server we're connected to from fstab
+        printf("\nConnected to Server:\n");
+        FILE *fp = popen("grep '/Network' /etc/fstab 2>/dev/null | awk '{print $1}' | cut -d: -f1", "r");
+        if (fp) {
+            char buf[256];
+            if (fgets(buf, sizeof(buf), fp)) {
+                buf[strcspn(buf, "\n")] = 0;
+                printf("  %s\n", buf);
+            } else {
+                printf("  (unknown)\n");
+            }
+            pclose(fp);
+        }
+    } else {
+        printf("Role: Standalone\n");
+    }
+
+    // Show users
+    NSDictionary *users = loadPlist(getUsersPlistPath());
+    printf("\n=== Users (%lu) ===\n", (unsigned long)[users count]);
+    if ([users count] > 0) {
+        printf("%-20s %-6s %-6s %s\n", "USERNAME", "UID", "GID", "REAL NAME");
+        printf("%-20s %-6s %-6s %s\n", "--------", "---", "---", "---------");
+
+        NSArray *sortedUsers = [[users allKeys] sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+            NSInteger uidA = [users[a][@"uid"] integerValue];
+            NSInteger uidB = [users[b][@"uid"] integerValue];
+            if (uidA < uidB) return NSOrderedAscending;
+            if (uidA > uidB) return NSOrderedDescending;
+            return NSOrderedSame;
+        }];
+        for (NSString *username in sortedUsers) {
+            NSDictionary *user = users[username];
+            printf("%-20s %-6d %-6d %s\n",
+                   [username UTF8String],
+                   [user[@"uid"] intValue],
+                   [user[@"gid"] intValue],
+                   [user[@"realName"] UTF8String] ?: "");
+        }
+    }
+
+    // Show groups
+    NSDictionary *groups = loadPlist(getGroupsPlistPath());
+    printf("\n=== Groups (%lu) ===\n", (unsigned long)[groups count]);
+    if ([groups count] > 0) {
+        printf("%-20s %-6s %s\n", "GROUPNAME", "GID", "MEMBERS");
+        printf("%-20s %-6s %s\n", "---------", "---", "-------");
+
+        NSArray *sortedGroups = [[groups allKeys] sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+            NSInteger gidA = [groups[a][@"gid"] integerValue];
+            NSInteger gidB = [groups[b][@"gid"] integerValue];
+            if (gidA < gidB) return NSOrderedAscending;
+            if (gidA > gidB) return NSOrderedDescending;
+            return NSOrderedSame;
+        }];
+        for (NSString *groupname in sortedGroups) {
+            NSDictionary *group = groups[groupname];
+            NSArray *members = group[@"members"] ?: @[];
+            printf("%-20s %-6d %s\n",
+                   [groupname UTF8String],
+                   [group[@"gid"] intValue],
+                   [[members componentsJoinedByString:@","] UTF8String]);
+        }
+    }
+
+    return 0;
 }
 
 #pragma mark - User Commands
@@ -1065,6 +1171,11 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
             return cmdVerify(args[1]);
+        }
+
+        // Handle "list"
+        if ([command isEqualToString:@"list"]) {
+            return cmdList();
         }
 
         // Handle "init"
