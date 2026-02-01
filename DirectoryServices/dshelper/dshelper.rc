@@ -19,6 +19,9 @@ load_rc_config ${name}
 
 : ${dshelper_enable:="NO"}
 
+# Source GNUstep environment
+. /System/Library/Makefiles/GNUstep.sh
+
 command="/System/Library/Tools/dshelper"
 pidfile="/var/run/${name}.pid"
 

@@ -5,7 +5,7 @@ Before=display-manager.service
 
 [Service]
 Type=forking
-ExecStart=/System/Library/Tools/dshelper
+ExecStart=/bin/sh -c '. /System/Library/Makefiles/GNUstep.sh && /System/Library/Tools/dshelper'
 PIDFile=/var/run/dshelper.pid
 Restart=on-failure
 
