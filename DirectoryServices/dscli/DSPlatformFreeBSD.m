@@ -382,10 +382,49 @@
 {
     printf("Searching for directory server...\n");
 
+    // Generate interface config for gdomap if needed
+    // gdomap needs to know local interfaces to do broadcast lookups
+    const char *ifaceConf = "/tmp/gdomap-iface.conf";
+    FILE *ifp = popen(
+        "ifconfig -a | awk '"
+        "/^[a-z]/ { iface = $1 } "
+        "/inet / && !/127\\.0\\.0\\.1/ { "
+        "    addr = $2; "
+        "    for (i = 1; i <= NF; i++) { "
+        "        if ($i == \"netmask\") mask = $(i+1); "
+        "        if ($i == \"broadcast\") bcast = $(i+1); "
+        "    } "
+        "    if (addr && mask) { "
+        "        if (mask ~ /^0x/) { "
+        "            cmd = \"printf \\\"%d.%d.%d.%d\\\" 0x\" substr(mask,3,2) \" 0x\" substr(mask,5,2) \" 0x\" substr(mask,7,2) \" 0x\" substr(mask,9,2); "
+        "            cmd | getline mask; "
+        "            close(cmd); "
+        "        } "
+        "        print addr, mask, (bcast ? bcast : \"0.0.0.0\"); "
+        "    } "
+        "}'", "r");
+    if (ifp) {
+        FILE *conf = fopen(ifaceConf, "w");
+        if (conf) {
+            char buf[256];
+            while (fgets(buf, sizeof(buf), ifp)) {
+                fputs(buf, conf);
+            }
+            fclose(conf);
+        }
+        pclose(ifp);
+    }
+
     // Use gdomap to lookup the GershwinDirectory service
-    // gdomap -L performs a network-wide lookup via broadcast
-    FILE *fp = popen("/System/Library/Tools/gdomap -L GershwinDirectory -T tcp_gdo 2>/dev/null", "r");
+    // -a specifies interface config, -L performs lookup
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+        "/System/Library/Tools/gdomap -a %s -L GershwinDirectory -T tcp_gdo 2>/dev/null",
+        ifaceConf);
+
+    FILE *fp = popen(cmd, "r");
     if (!fp) {
+        unlink(ifaceConf);
         return nil;
     }
 
@@ -393,29 +432,33 @@
     NSString *result = nil;
 
     while (fgets(buffer, sizeof(buffer), fp)) {
-        // gdomap output: "Found GershwinDirectory on host <hostname> port <port>"
+        // gdomap output: "Found GershwinDirectory on '<ip>' port <port>"
         NSString *line = [NSString stringWithUTF8String:buffer];
 
-        // Look for "on host" pattern
-        NSRange hostRange = [line rangeOfString:@"on host "];
-        if (hostRange.location != NSNotFound) {
-            NSUInteger start = hostRange.location + hostRange.length;
-            NSRange portRange = [line rangeOfString:@" port " options:0
-                                              range:NSMakeRange(start, [line length] - start)];
-            if (portRange.location != NSNotFound) {
-                NSString *hostname = [[line substringWithRange:
-                    NSMakeRange(start, portRange.location - start)]
-                    stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-                if ([hostname length] > 0) {
-                    printf("Found directory server: %s\n", [hostname UTF8String]);
-                    result = hostname;
-                    break;
+        // Look for "Found" pattern
+        NSRange foundRange = [line rangeOfString:@"Found "];
+        if (foundRange.location != NSNotFound) {
+            // Extract IP from 'x.x.x.x'
+            NSRange quoteStart = [line rangeOfString:@"'"];
+            if (quoteStart.location != NSNotFound) {
+                NSUInteger start = quoteStart.location + 1;
+                NSRange quoteEnd = [line rangeOfString:@"'" options:0
+                                                 range:NSMakeRange(start, [line length] - start)];
+                if (quoteEnd.location != NSNotFound) {
+                    NSString *addr = [line substringWithRange:
+                        NSMakeRange(start, quoteEnd.location - start)];
+                    if ([addr length] > 0) {
+                        printf("Found directory server: %s\n", [addr UTF8String]);
+                        result = addr;
+                        break;
+                    }
                 }
             }
         }
     }
 
     pclose(fp);
+    unlink(ifaceConf);
     return result;
 }
 

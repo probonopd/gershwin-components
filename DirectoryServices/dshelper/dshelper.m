@@ -2,6 +2,7 @@
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <sys/stat.h>
+#import <sys/select.h>
 #import <netinet/in.h>
 #import <arpa/inet.h>
 #import <unistd.h>
@@ -28,6 +29,7 @@
     self = [super init];
     if (self) {
         _serverSocket = -1;
+        _discoverySocket = -1;
         _running = NO;
     }
     return self;
@@ -223,21 +225,21 @@
     // Remove old socket if exists
     unlink(DS_SOCKET_PATH);
 
-    // Create socket
+    // Create UNIX socket for local clients (NSS/PAM)
     _serverSocket = socket(AF_UNIX, SOCK_STREAM, 0);
     if (_serverSocket < 0) {
-        NSLog(@"dshelper: Failed to create socket: %s", strerror(errno));
+        NSLog(@"dshelper: Failed to create UNIX socket: %s", strerror(errno));
         return NO;
     }
 
     // Bind to path
-    struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, DS_SOCKET_PATH, sizeof(addr.sun_path) - 1);
+    struct sockaddr_un unixAddr;
+    memset(&unixAddr, 0, sizeof(unixAddr));
+    unixAddr.sun_family = AF_UNIX;
+    strncpy(unixAddr.sun_path, DS_SOCKET_PATH, sizeof(unixAddr.sun_path) - 1);
 
-    if (bind(_serverSocket, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        NSLog(@"dshelper: Failed to bind socket: %s", strerror(errno));
+    if (bind(_serverSocket, (struct sockaddr *)&unixAddr, sizeof(unixAddr)) < 0) {
+        NSLog(@"dshelper: Failed to bind UNIX socket: %s", strerror(errno));
         close(_serverSocket);
         _serverSocket = -1;
         return NO;
@@ -246,9 +248,8 @@
     // Make socket world-accessible (NSS/PAM run as various users)
     chmod(DS_SOCKET_PATH, 0666);
 
-    // Listen
     if (listen(_serverSocket, 10) < 0) {
-        NSLog(@"dshelper: Failed to listen: %s", strerror(errno));
+        NSLog(@"dshelper: Failed to listen on UNIX socket: %s", strerror(errno));
         close(_serverSocket);
         _serverSocket = -1;
         return NO;
@@ -256,19 +257,79 @@
 
     NSLog(@"dshelper: Listening on %s", DS_SOCKET_PATH);
 
+    // For servers, also create TCP socket for network discovery
+    if ([self isServer]) {
+        _discoverySocket = socket(AF_INET, SOCK_STREAM, 0);
+        if (_discoverySocket < 0) {
+            NSLog(@"dshelper: Failed to create TCP socket: %s", strerror(errno));
+        } else {
+            int reuse = 1;
+            setsockopt(_discoverySocket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+            struct sockaddr_in tcpAddr;
+            memset(&tcpAddr, 0, sizeof(tcpAddr));
+            tcpAddr.sin_family = AF_INET;
+            tcpAddr.sin_addr.s_addr = INADDR_ANY;
+            tcpAddr.sin_port = htons(DS_SERVICE_PORT);
+
+            if (bind(_discoverySocket, (struct sockaddr *)&tcpAddr, sizeof(tcpAddr)) < 0) {
+                NSLog(@"dshelper: Failed to bind TCP port %d: %s", DS_SERVICE_PORT, strerror(errno));
+                close(_discoverySocket);
+                _discoverySocket = -1;
+            } else if (listen(_discoverySocket, 10) < 0) {
+                NSLog(@"dshelper: Failed to listen on TCP port %d: %s", DS_SERVICE_PORT, strerror(errno));
+                close(_discoverySocket);
+                _discoverySocket = -1;
+            } else {
+                NSLog(@"dshelper: Listening on TCP port %d", DS_SERVICE_PORT);
+            }
+        }
+    }
+
     _running = YES;
 
-    // Accept loop
+    // Accept loop using select() to handle both sockets
     while (_running) {
-        int clientFd = accept(_serverSocket, NULL, NULL);
-        if (clientFd < 0) {
-            if (_running) {
-                NSLog(@"dshelper: Accept failed: %s", strerror(errno));
-            }
-            continue;
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(_serverSocket, &readfds);
+
+        int maxFd = _serverSocket;
+        if (_discoverySocket >= 0) {
+            FD_SET(_discoverySocket, &readfds);
+            if (_discoverySocket > maxFd) maxFd = _discoverySocket;
         }
 
-        [self handleClient:clientFd];
+        struct timeval tv;
+        tv.tv_sec = 1;
+        tv.tv_usec = 0;
+
+        int ready = select(maxFd + 1, &readfds, NULL, NULL, &tv);
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            if (_running) {
+                NSLog(@"dshelper: select failed: %s", strerror(errno));
+            }
+            break;
+        }
+
+        if (ready == 0) continue; // Timeout, check _running
+
+        // Check UNIX socket
+        if (FD_ISSET(_serverSocket, &readfds)) {
+            int clientFd = accept(_serverSocket, NULL, NULL);
+            if (clientFd >= 0) {
+                [self handleClient:clientFd];
+            }
+        }
+
+        // Check TCP socket (for network clients)
+        if (_discoverySocket >= 0 && FD_ISSET(_discoverySocket, &readfds)) {
+            int clientFd = accept(_discoverySocket, NULL, NULL);
+            if (clientFd >= 0) {
+                [self handleNetworkClient:clientFd];
+            }
+        }
     }
 
     return YES;
@@ -280,7 +341,40 @@
         close(_serverSocket);
         _serverSocket = -1;
     }
+    if (_discoverySocket >= 0) {
+        close(_discoverySocket);
+        _discoverySocket = -1;
+    }
     unlink(DS_SOCKET_PATH);
+}
+
+- (void)handleNetworkClient:(int)clientFd {
+    // Network clients can only perform limited operations (no credential passing)
+    // They can request directory info but cannot modify data
+    char buffer[2048];
+    ssize_t n = read(clientFd, buffer, sizeof(buffer) - 1);
+    if (n <= 0) {
+        close(clientFd);
+        return;
+    }
+    buffer[n] = '\0';
+
+    // Remove trailing newline if present
+    if (n > 0 && buffer[n-1] == '\n') {
+        buffer[n-1] = '\0';
+    }
+
+    NSString *request = [NSString stringWithUTF8String:buffer];
+
+    // For network clients, only allow read operations (caller is not trusted)
+    // Use a non-root UID to restrict access
+    NSString *response = [self processRequest:request callerUid:(uid_t)-1];
+
+    if (response) {
+        write(clientFd, [response UTF8String], [response lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+    }
+
+    close(clientFd);
 }
 
 - (void)handleClient:(int)clientFd {

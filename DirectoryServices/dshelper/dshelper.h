@@ -5,6 +5,8 @@
 #define DS_SERVICE_PORT 4721
 #define DS_DISCOVERY_PORT 4720
 #define DS_DISCOVERY_MAGIC "DSDISC"
+#define DS_DISCOVERY_PORT 4720
+#define DS_DISCOVERY_MAGIC "DSDISC"
 
 // Network paths (checked first - used when mounted from server)
 #define DS_NETWORK_USERS_PLIST @"/Network/Library/DirectoryServices/Users.plist"
