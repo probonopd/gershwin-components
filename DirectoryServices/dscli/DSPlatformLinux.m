@@ -58,6 +58,12 @@
     return NO;
 }
 
+- (BOOL)unregisterService
+{
+    [self printUnsupported:"demote"];
+    return NO;
+}
+
 #pragma mark - Client (Join) Operations
 
 - (BOOL)enableNFSClient

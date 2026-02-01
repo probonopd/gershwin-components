@@ -887,6 +887,9 @@ static int cmdDemote(void) {
         printf("Removed Domain.plist\n");
     }
 
+    // Unregister service from gdomap (so clients can't discover us)
+    [platform unregisterService];
+
     // Stop NFS server
     [platform stopNFSServer];
 

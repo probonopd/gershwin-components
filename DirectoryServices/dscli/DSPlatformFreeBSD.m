@@ -223,6 +223,16 @@
     return YES;
 }
 
+- (BOOL)unregisterService
+{
+    // Unregister GershwinDirectory from gdomap
+    if ([self runCommand:@"/System/Library/Tools/gdomap -U GershwinDirectory -T tcp_gdo >/dev/null 2>&1"]) {
+        printf("Unregistered GershwinDirectory from gdomap\n");
+        return YES;
+    }
+    return NO;
+}
+
 #pragma mark - Client (Join) Operations
 
 - (BOOL)enableNFSClient

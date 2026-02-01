@@ -16,6 +16,7 @@
 // Server (demote) operations
 - (BOOL)removeNFSExports;
 - (BOOL)stopNFSServer;
+- (BOOL)unregisterService;
 
 // Client (join) operations
 - (BOOL)enableNFSClient;
