@@ -287,3 +287,87 @@ Direct socket query (as root to see password hash):
 ```sh
 sudo sh -c 'echo "getpwnam:testuser" | nc -U /var/run/dshelper.sock'
 ```
+
+## Developer Guide
+
+### Platform Backends
+
+The `dscli promote`, `demote`, `join`, and `leave` commands use platform-specific backends to configure NFS and network mounts. Backends are defined in `dscli/` with a protocol and per-platform implementations.
+
+**DSPlatform.h** defines the protocol:
+
+```objc
+@protocol DSPlatform <NSObject>
+- (NSString *)platformName;
+- (BOOL)isAvailable;
+
+// Server operations
+- (BOOL)configureNFSExports;
+- (BOOL)enableNFSServer;
+- (BOOL)startNFSServer;
+- (BOOL)removeNFSExports;
+- (BOOL)stopNFSServer;
+
+// Client operations
+- (BOOL)enableNFSClient;
+- (BOOL)startNFSClient;
+- (BOOL)createNetworkMount:(NSString *)server;
+- (BOOL)addFstabEntry:(NSString *)server;
+- (BOOL)mountNetwork;
+- (BOOL)unmountNetwork;
+- (BOOL)removeFstabEntry;
+
+// Discovery
+- (NSString *)discoverDirectoryServer;
+@end
+```
+
+**Current implementations:**
+
+| File | Platform | Status |
+|------|----------|--------|
+| DSPlatformFreeBSD.m | FreeBSD | Complete |
+| DSPlatformLinux.m | Linux | Stub |
+
+The factory function `DSPlatformCreate()` returns the appropriate backend based on compile-time platform detection.
+
+**Note:** On Linux, only standalone mode is currently supported. The `promote`, `demote`, `join`, and `leave` commands will fail until the Linux backend is completed. Linux users can still use `dscli init` and manage local users/groups via plist files.
+
+### Adding a New Backend
+
+1. Create `DSPlatform<Name>.m` implementing the `DSPlatform` protocol
+2. Update `DSPlatform.m` to return your backend for the appropriate platform
+3. Implement all required methods for NFS server/client configuration
+
+Example for a new platform:
+
+```objc
+// DSPlatformNetBSD.m
+#import "DSPlatform.h"
+
+@interface DSPlatformNetBSD : NSObject <DSPlatform>
+@end
+
+@implementation DSPlatformNetBSD
+
+- (NSString *)platformName { return @"NetBSD"; }
+- (BOOL)isAvailable { return YES; }
+
+- (BOOL)configureNFSExports {
+    // Add /Local to /etc/exports
+    // NetBSD-specific format
+}
+
+// ... implement remaining methods
+
+@end
+```
+
+### Completing the Linux Backend
+
+The Linux backend in `DSPlatformLinux.m` is currently a stub. To complete it:
+
+1. Implement `configureNFSExports` to write `/etc/exports` (Linux format)
+2. Implement `enableNFSServer`/`startNFSServer` using systemctl or service commands
+3. Implement `addFstabEntry` with Linux NFS mount options
+4. Test on both systemd and sysvinit systems
