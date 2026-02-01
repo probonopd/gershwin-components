@@ -35,8 +35,7 @@ sudo dscli user add jsmith --realname "John Smith" --admin
 sudo dscli passwd jsmith
 
 # Start the daemon
-sudo dshelper -d
-# Look for "Loaded N users from /path" in output
+sudo dshelper
 
 # Verify
 getent passwd jsmith
@@ -157,7 +156,7 @@ sudo dscli passwd testuser
 ### 2. Start dshelper
 
 ```sh
-sudo dshelper -d
+sudo dshelper
 ```
 
 ## Server Setup
@@ -260,7 +259,7 @@ server:/Local    /Network    nfs    rw    0    0
 ### 4. Start dshelper
 
 ```sh
-sudo dshelper -d
+sudo dshelper
 ```
 
 dshelper will detect `/Network/Library/DirectoryServices/Users.plist` and use it.
@@ -299,18 +298,25 @@ Authentication works through standard `pam_unix`. The daemon returns password ha
 
 No PAM configuration changes required.
 
-## Testing
+## Troubleshooting
+
+Run dshelper in foreground mode to see debug output:
 
 ```sh
-# Check which path dshelper is using
 sudo dshelper -d
 # Look for "Loaded N users from /path" in output
+```
 
-# NSS lookup
+Test NSS lookups:
+
+```sh
 getent passwd testuser
 id testuser
+```
 
-# Direct socket query (as root to see hash)
+Direct socket query (as root to see password hash):
+
+```sh
 sudo sh -c 'echo "getpwnam:testuser" | nc -U /var/run/dshelper.sock'
 ```
 
