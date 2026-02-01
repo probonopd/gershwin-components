@@ -216,9 +216,20 @@ This allows clients to discover and connect to directory servers without manual 
 
 ## Authentication
 
-Authentication works through standard `pam_unix`. The daemon returns password hashes only to root callers (verified via `getpeereid`), matching FreeBSD's `/etc/master.passwd` security model.
+Directory Services uses plist files instead of traditional Unix configuration files (`/etc/passwd`, `/etc/group`, `/etc/shadow`). This separation keeps directory-managed users distinct from local system accounts.
 
-No PAM configuration changes required.
+On the server, user and group plists are stored in `/Local/Library/DirectoryServices/`. When clients join the directory, the server's `/Local` is NFS-mounted at `/Network` on the client. The dshelper daemon reads from `/Network/Library/DirectoryServices/` when the mount is present, giving clients access to the same user database as the server.
+
+The **nss_gershwin** NSS module integrates with the system's name service switch. When configured in `/etc/nsswitch.conf`:
+
+```
+passwd: gershwin files
+group:  gershwin files
+```
+
+The system queries dshelper for directory users first, then falls back to local files (`/etc/passwd`, `/etc/group`). This allows directory accounts to take precedence while still supporting local system accounts.
+
+Authentication works through standard `pam_unix`. The daemon returns password hashes only to root callers (verified via `getpeereid`), matching FreeBSD's `/etc/master.passwd` security model. No PAM configuration changes are required—pam_unix automatically uses NSS to resolve users, so directory users authenticate seamlessly.
 
 ## Admin Access
 
