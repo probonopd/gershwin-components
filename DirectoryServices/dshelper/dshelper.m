@@ -2,12 +2,16 @@
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <sys/stat.h>
+#import <netinet/in.h>
+#import <arpa/inet.h>
 #import <unistd.h>
 #import <errno.h>
 #import <string.h>
+#import <pthread.h>
 
 @implementation DSHelper {
     int _serverSocket;
+    int _discoverySocket;
     BOOL _running;
 }
 

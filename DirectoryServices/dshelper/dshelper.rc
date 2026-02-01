@@ -25,9 +25,36 @@ load_rc_config ${name}
 command="/System/Library/Tools/dshelper"
 pidfile="/var/run/${name}.pid"
 gdomap_pidfile="/var/run/gdomap.pid"
+gdomap_iface="/var/run/gdomap-iface.conf"
 
 start_cmd="${name}_start"
 stop_cmd="${name}_stop"
+
+# Generate gdomap interface config from active network interfaces
+generate_gdomap_iface()
+{
+    rm -f ${gdomap_iface}
+    # Get all non-loopback IPv4 interfaces with address, netmask, broadcast
+    ifconfig -a | awk '
+        /^[a-z]/ { iface = $1 }
+        /inet / && !/127\.0\.0\.1/ {
+            addr = $2
+            for (i = 1; i <= NF; i++) {
+                if ($i == "netmask") mask = $(i+1)
+                if ($i == "broadcast") bcast = $(i+1)
+            }
+            if (addr && mask) {
+                # Convert hex netmask to dotted decimal if needed
+                if (mask ~ /^0x/) {
+                    cmd = "printf \"%d.%d.%d.%d\" 0x" substr(mask,3,2) " 0x" substr(mask,5,2) " 0x" substr(mask,7,2) " 0x" substr(mask,9,2)
+                    cmd | getline mask
+                    close(cmd)
+                }
+                print addr, mask, (bcast ? bcast : "0.0.0.0")
+            }
+        }
+    ' > ${gdomap_iface}
+}
 
 dshelper_start()
 {
@@ -38,8 +65,10 @@ dshelper_start()
 
     # Start gdomap if not already running (required for distributed objects)
     if ! pgrep -q gdomap; then
+        echo "Generating gdomap interface config."
+        generate_gdomap_iface
         echo "Starting gdomap."
-        /System/Library/Tools/gdomap -p
+        /System/Library/Tools/gdomap -a ${gdomap_iface}
     fi
 
     echo "Starting ${name}."
@@ -62,6 +91,7 @@ dshelper_stop()
         echo "Stopping gdomap."
         pkill gdomap
     fi
+    rm -f ${gdomap_iface}
 }
 
 run_rc_command "$1"
