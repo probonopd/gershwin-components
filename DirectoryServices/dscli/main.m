@@ -40,6 +40,7 @@ static void printUsage(const char *progname) {
     fprintf(stderr, "  verify <username>             Verify user can authenticate\n");
     fprintf(stderr, "  init                          Initialize directory structure\n");
     fprintf(stderr, "  promote                       Promote to directory server (configure NFS)\n");
+    fprintf(stderr, "  demote                        Demote from directory server\n");
     fprintf(stderr, "  join [server]                 Join a directory server (auto-discovers if omitted)\n");
     fprintf(stderr, "  leave                         Leave a directory server\n");
     fprintf(stderr, "\n");
@@ -813,7 +814,62 @@ static int cmdPromote(void) {
     printf("Created Domain.plist\n");
 
     printf("\nServer promotion complete.\n");
-    printf("Clients can now join with: dscli join <this-server-hostname>\n");
+    printf("Clients can now join with: dscli join\n");
+    return 0;
+}
+
+static int cmdDemote(void) {
+    id<DSPlatform> platform = DSPlatformCreate();
+    if (!platform) {
+        fprintf(stderr, "No platform backend available\n");
+        return 1;
+    }
+
+    if (![platform isAvailable]) {
+        fprintf(stderr, "The 'demote' command is not yet supported on %s.\n",
+                [[platform platformName] UTF8String]);
+        return 1;
+    }
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    // Check if we're a server
+    if (![fm fileExistsAtPath:DS_DOMAIN_PLIST]) {
+        fprintf(stderr, "This machine is not a directory server.\n");
+        return 1;
+    }
+
+    // Check if any clients are still connected by looking at NFS exports
+    // We check if showmount shows any connected clients
+    FILE *fp = popen("showmount -a 2>/dev/null | grep -v '^$' | wc -l", "r");
+    if (fp) {
+        char buf[64];
+        if (fgets(buf, sizeof(buf), fp)) {
+            int clientCount = atoi(buf);
+            if (clientCount > 0) {
+                fprintf(stderr, "Cannot demote: %d client(s) still connected.\n", clientCount);
+                fprintf(stderr, "All clients must run 'dscli leave' before demoting.\n");
+                pclose(fp);
+                return 1;
+            }
+        }
+        pclose(fp);
+    }
+
+    printf("Demoting directory server...\n\n");
+
+    // Remove Domain.plist first (stops dshelper from advertising)
+    if ([fm removeItemAtPath:DS_DOMAIN_PLIST error:nil]) {
+        printf("Removed Domain.plist\n");
+    }
+
+    // Stop NFS server
+    [platform stopNFSServer];
+
+    // Remove NFS exports
+    [platform removeNFSExports];
+
+    printf("\nServer demotion complete.\n");
     return 0;
 }
 
@@ -976,6 +1032,11 @@ int main(int argc, char *argv[]) {
         // Handle "promote"
         if ([command isEqualToString:@"promote"]) {
             return cmdPromote();
+        }
+
+        // Handle "demote"
+        if ([command isEqualToString:@"demote"]) {
+            return cmdDemote();
         }
 
         // Handle "join"

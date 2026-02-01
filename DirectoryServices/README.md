@@ -94,6 +94,7 @@ dscli group removemember <group> <user> # Remove user from group
 ```sh
 dscli init              # Initialize directory structure
 dscli promote           # Promote to directory server
+dscli demote            # Demote from directory server
 dscli join              # Join a directory server (auto-discovers)
 dscli leave             # Leave a directory server
 dscli passwd <username> # Set password (alias for user passwd)
@@ -139,6 +140,15 @@ The `gershwin` module must come before `files` so that admin group members appea
 3. Creates `Domain.plist` to mark as server
 
 When `Domain.plist` exists, dshelper registers the `GershwinDirectory` service with the network portmapper, allowing clients to auto-discover this server. The promote command checks for existing servers on the network and prevents multiple servers from being promoted.
+
+### What dscli demote Does
+
+1. Checks that no clients are connected
+2. Removes `Domain.plist`
+3. Stops NFS server services
+4. Removes `/Local` from NFS exports
+
+All clients must run `dscli leave` before a server can be demoted.
 
 ### What dscli join Does
 

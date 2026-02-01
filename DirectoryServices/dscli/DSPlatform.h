@@ -13,6 +13,10 @@
 - (BOOL)enableNFSServer;
 - (BOOL)startNFSServer;
 
+// Server (demote) operations
+- (BOOL)removeNFSExports;
+- (BOOL)stopNFSServer;
+
 // Client (join) operations
 - (BOOL)enableNFSClient;
 - (BOOL)startNFSClient;

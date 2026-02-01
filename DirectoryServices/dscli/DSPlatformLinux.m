@@ -46,6 +46,18 @@
     return NO;
 }
 
+- (BOOL)removeNFSExports
+{
+    [self printUnsupported:"demote"];
+    return NO;
+}
+
+- (BOOL)stopNFSServer
+{
+    [self printUnsupported:"demote"];
+    return NO;
+}
+
 #pragma mark - Client (Join) Operations
 
 - (BOOL)enableNFSClient

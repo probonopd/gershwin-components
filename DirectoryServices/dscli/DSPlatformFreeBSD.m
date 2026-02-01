@@ -172,6 +172,57 @@
     return success;
 }
 
+#pragma mark - Server (Demote) Operations
+
+- (BOOL)removeNFSExports
+{
+    NSString *exportsPath = @"/etc/exports";
+    NSString *contents = [self readFile:exportsPath];
+
+    if (!contents) {
+        return YES;
+    }
+
+    NSMutableArray *lines = [[contents componentsSeparatedByString:@"\n"] mutableCopy];
+    BOOL modified = NO;
+
+    for (NSInteger i = [lines count] - 1; i >= 0; i--) {
+        NSString *line = lines[i];
+        if ([line rangeOfString:@"/Local"].location != NSNotFound) {
+            [lines removeObjectAtIndex:i];
+            modified = YES;
+        }
+    }
+
+    if (modified) {
+        NSString *newContents = [lines componentsJoinedByString:@"\n"];
+        if (![self writeFile:exportsPath contents:newContents]) {
+            fprintf(stderr, "Failed to update /etc/exports\n");
+            return NO;
+        }
+        printf("Removed /Local from NFS exports\n");
+
+        // Reload exports
+        [self runCommand:@"exportfs -r >/dev/null 2>&1"];
+    }
+
+    return YES;
+}
+
+- (BOOL)stopNFSServer
+{
+    // Stop nfsd but leave rpcbind running (may be needed by other services)
+    if ([self runCommand:@"service nfsd stop >/dev/null 2>&1"]) {
+        printf("Stopped nfsd\n");
+    }
+
+    if ([self runCommand:@"service mountd stop >/dev/null 2>&1"]) {
+        printf("Stopped mountd\n");
+    }
+
+    return YES;
+}
+
 #pragma mark - Client (Join) Operations
 
 - (BOOL)enableNFSClient
