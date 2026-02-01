@@ -1,0 +1,13 @@
+[Unit]
+Description=Gershwin Directory Services Helper
+After=network.target rpcbind.service
+Before=display-manager.service
+
+[Service]
+Type=forking
+ExecStart=/System/Library/Tools/dshelper
+PIDFile=/var/run/dshelper.pid
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

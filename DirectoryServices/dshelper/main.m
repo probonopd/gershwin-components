@@ -9,6 +9,7 @@ void signalHandler(int sig) {
     NSLog(@"dshelper: Received signal %d, shutting down...", sig);
     [helper unregisterService];
     [helper stopServer];
+    unlink("/var/run/dshelper.pid");
     exit(0);
 }
 
@@ -64,6 +65,13 @@ int main(int argc, char *argv[]) {
             // Child continues
             setsid();
             chdir("/");
+
+            // Write pid file
+            FILE *pf = fopen("/var/run/dshelper.pid", "w");
+            if (pf) {
+                fprintf(pf, "%d\n", getpid());
+                fclose(pf);
+            }
 
             // Close standard file descriptors
             close(STDIN_FILENO);

@@ -16,6 +16,18 @@ gmake
 sudo -E gmake install
 ```
 
+## Enabling the Service
+
+To start dshelper automatically at boot:
+
+| Platform | Enable | Start |
+|----------|--------|-------|
+| FreeBSD | `sysrc dshelper_enable=YES` | `service dshelper start` |
+| Linux (sysvinit) | `sudo update-rc.d dshelper defaults` | `sudo service dshelper start` |
+| Linux (systemd) | `sudo systemctl enable dshelper` | `sudo systemctl start dshelper` |
+
+The service runs before the login manager, ensuring directory users can log in.
+
 ## Quick Start
 
 ```sh

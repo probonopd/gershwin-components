@@ -1,0 +1,50 @@
+#!/bin/sh
+
+# PROVIDE: dshelper
+# REQUIRE: FILESYSTEMS rpcbind
+# BEFORE: loginwindow
+# KEYWORD: shutdown
+#
+# Add the following lines to /etc/rc.conf to enable dshelper:
+#
+# dshelper_enable="YES"
+#
+
+. /etc/rc.subr
+
+name="dshelper"
+rcvar=dshelper_enable
+
+load_rc_config ${name}
+
+: ${dshelper_enable:="NO"}
+
+command="/System/Library/Tools/dshelper"
+pidfile="/var/run/${name}.pid"
+
+start_cmd="${name}_start"
+stop_cmd="${name}_stop"
+
+dshelper_start()
+{
+    if [ -f ${pidfile} ]; then
+        echo "${name} already running."
+        return 1
+    fi
+    echo "Starting ${name}."
+    # dshelper daemonizes itself
+    ${command}
+}
+
+dshelper_stop()
+{
+    if [ ! -f ${pidfile} ]; then
+        echo "${name} not running."
+        return 1
+    fi
+    echo "Stopping ${name}."
+    kill $(cat ${pidfile}) 2>/dev/null
+    rm -f ${pidfile}
+}
+
+run_rc_command "$1"
