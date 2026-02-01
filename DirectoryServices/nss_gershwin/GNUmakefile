@@ -21,9 +21,4 @@ clean:
 install: $(NSS_LIB)
 	install -d $(INSTALL_DIR)
 	install -m 755 $(NSS_LIB) $(INSTALL_DIR)/$(NSS_LIB)
-ifeq ($(findstring freebsd,$(GNUSTEP_HOST_OS)),freebsd)
-	@if [ -d /usr/local/libdata/ldconfig ]; then \
-		echo "$(INSTALL_DIR)" > /usr/local/libdata/ldconfig/gershwin; \
-	fi
-endif
 	ldconfig -m $(INSTALL_DIR) || true
