@@ -40,7 +40,7 @@ static void printUsage(const char *progname) {
     fprintf(stderr, "  verify <username>             Verify user can authenticate\n");
     fprintf(stderr, "  init                          Initialize directory structure\n");
     fprintf(stderr, "  promote                       Promote to directory server (configure NFS)\n");
-    fprintf(stderr, "  join <server>                 Join a directory server\n");
+    fprintf(stderr, "  join [server]                 Join a directory server (auto-discovers if omitted)\n");
     fprintf(stderr, "\n");
 }
 
@@ -836,6 +836,16 @@ static int cmdJoin(NSString *server) {
         return 1;
     }
 
+    // If no server specified, try to discover one
+    if (!server) {
+        server = [platform discoverDirectoryServer];
+        if (!server) {
+            fprintf(stderr, "No directory server found on network.\n");
+            fprintf(stderr, "Specify server explicitly: dscli join <server-hostname>\n");
+            return 1;
+        }
+    }
+
     printf("Joining directory server: %s\n\n", [server UTF8String]);
 
     // Enable NFS client
@@ -924,11 +934,8 @@ int main(int argc, char *argv[]) {
 
         // Handle "join"
         if ([command isEqualToString:@"join"]) {
-            if ([args count] < 2) {
-                fprintf(stderr, "Usage: dscli join <server>\n");
-                return 1;
-            }
-            return cmdJoin(args[1]);
+            NSString *server = ([args count] >= 2) ? args[1] : nil;
+            return cmdJoin(server);
         }
 
         // Handle "user" commands

@@ -47,12 +47,14 @@ To use users from a directory server:
 
 ```sh
 sudo dscli init
-sudo dscli join <server-hostname>
+sudo dscli join
 sudo dshelper
 
 # Verify
 getent passwd jsmith
 ```
+
+The `join` command auto-discovers directory servers on the network.
 
 ## dscli Reference
 
@@ -92,7 +94,7 @@ dscli group removemember <group> <user> # Remove user from group
 ```sh
 dscli init              # Initialize directory structure
 dscli promote           # Promote to directory server
-dscli join <server>     # Join a directory server
+dscli join              # Join a directory server (auto-discovers)
 dscli passwd <username> # Set password (alias for user passwd)
 dscli verify <username> # Verify user can authenticate
 ```
@@ -137,10 +139,11 @@ The `gershwin` module must come before `files` so that admin group members appea
 
 ### What dscli join Does
 
-1. Enables and starts NFS client services
-2. Creates `/Network` mount point
-3. Adds server to `/etc/fstab`
-4. Mounts `/Network` from server
+1. Auto-discovers directory server via `NSSocketPortNameServer` broadcast
+2. Enables and starts NFS client services
+3. Creates `/Network` mount point
+4. Adds server to `/etc/fstab`
+5. Mounts `/Network` from server
 
 ## Authentication
 

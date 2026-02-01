@@ -7,6 +7,7 @@ static DSHelper *helper = nil;
 
 void signalHandler(int sig) {
     NSLog(@"dshelper: Received signal %d, shutting down...", sig);
+    [helper unregisterService];
     [helper stopServer];
     exit(0);
 }
@@ -102,6 +103,9 @@ int main(int argc, char *argv[]) {
             NSLog(@"dshelper: Failed to start server");
             return 1;
         }
+
+        // Register with port name server for discovery (servers only)
+        [helper registerService];
 
         return 0;
     }

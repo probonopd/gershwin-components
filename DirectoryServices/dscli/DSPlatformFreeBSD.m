@@ -3,6 +3,9 @@
 #import <stdlib.h>
 #import <unistd.h>
 #import <sys/stat.h>
+#import <sys/socket.h>
+#import <netinet/in.h>
+#import <arpa/inet.h>
 
 @interface DSPlatformFreeBSD : NSObject <DSPlatform>
 @end
@@ -268,6 +271,45 @@
 
     printf("Mounted /Network\n");
     return YES;
+}
+
+#pragma mark - Discovery
+
+- (NSString *)discoverDirectoryServer
+{
+    printf("Searching for directory server...\n");
+
+    // Use NSSocketPortNameServer to find registered GershwinDirectory service
+    // The "*" host triggers a broadcast lookup via rpcbind
+    NSSocketPortNameServer *ns = [NSSocketPortNameServer sharedInstance];
+
+    @try {
+        NSPort *port = [ns portForName:@"GershwinDirectory" onHost:@"*"];
+        if (port && [port isKindOfClass:[NSSocketPort class]]) {
+            NSSocketPort *socketPort = (NSSocketPort *)port;
+
+            // Get the remote address from the socket port
+            NSString *address = [socketPort address];
+            if (address && [address length] > 0) {
+                // Try to resolve to hostname
+                NSHost *remoteHost = [NSHost hostWithAddress:address];
+                NSString *hostname = [remoteHost name];
+                if (hostname) {
+                    printf("Found directory server: %s (%s)\n",
+                           [hostname UTF8String], [address UTF8String]);
+                    return hostname;
+                } else {
+                    printf("Found directory server: %s\n", [address UTF8String]);
+                    return address;
+                }
+            }
+        }
+    } @catch (NSException *e) {
+        // Broadcast lookup may throw if rpcbind not available
+        NSLog(@"Discovery exception: %@", e);
+    }
+
+    return nil;
 }
 
 @end

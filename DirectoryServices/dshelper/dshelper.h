@@ -1,6 +1,8 @@
 #import <Foundation/Foundation.h>
 
 #define DS_SOCKET_PATH "/var/run/dshelper.sock"
+#define DS_SERVICE_NAME @"GershwinDirectory"
+#define DS_SERVICE_PORT 4721
 
 // Network paths (checked first - used when mounted from server)
 #define DS_NETWORK_USERS_PLIST @"/Network/Library/DirectoryServices/Users.plist"
@@ -31,6 +33,10 @@
 // Start listening on socket
 - (BOOL)startServer;
 - (void)stopServer;
+
+// Service registration for discovery
+- (BOOL)registerService;
+- (void)unregisterService;
 
 // User lookups
 - (NSDictionary *)userWithName:(NSString *)name;

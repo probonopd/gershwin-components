@@ -20,6 +20,9 @@
 - (BOOL)addFstabEntry:(NSString *)server;
 - (BOOL)mountNetwork;
 
+// Discovery
+- (NSString *)discoverDirectoryServer;
+
 @end
 
 // Get the appropriate platform implementation for the current system

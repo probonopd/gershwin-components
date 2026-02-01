@@ -555,4 +555,43 @@
     return [NSString stringWithFormat:@"sudo:x:27:%@", memberStr];
 }
 
+#pragma mark - Service Registration
+
+- (BOOL)registerService {
+    // Only register if we're a server (have Domain.plist)
+    if (![self isServer]) {
+        NSLog(@"dshelper: Not a server, skipping service registration");
+        return YES;
+    }
+
+    NSSocketPortNameServer *ns = [NSSocketPortNameServer sharedInstance];
+    NSSocketPort *port = [NSSocketPort portWithNumber:DS_SERVICE_PORT
+                                               onHost:nil
+                                         forceAddress:nil
+                                             listener:YES];
+
+    if (!port) {
+        NSLog(@"dshelper: Failed to create socket port on %d", DS_SERVICE_PORT);
+        return NO;
+    }
+
+    if (![ns registerPort:port forName:DS_SERVICE_NAME]) {
+        NSLog(@"dshelper: Failed to register service '%@'", DS_SERVICE_NAME);
+        return NO;
+    }
+
+    NSLog(@"dshelper: Registered service '%@' on port %d", DS_SERVICE_NAME, DS_SERVICE_PORT);
+    return YES;
+}
+
+- (void)unregisterService {
+    if (![self isServer]) {
+        return;
+    }
+
+    NSSocketPortNameServer *ns = [NSSocketPortNameServer sharedInstance];
+    [ns removePortForName:DS_SERVICE_NAME];
+    NSLog(@"dshelper: Unregistered service '%@'", DS_SERVICE_NAME);
+}
+
 @end

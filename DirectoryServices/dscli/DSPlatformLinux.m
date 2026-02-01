@@ -78,4 +78,10 @@
     return NO;
 }
 
+- (NSString *)discoverDirectoryServer
+{
+    [self printUnsupported:"join"];
+    return nil;
+}
+
 @end
