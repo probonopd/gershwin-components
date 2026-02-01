@@ -515,6 +515,8 @@ static void RedirectLogs(void) {
             @"tools": @[
                 @{@"name": @"launch_app", @"description": @"Launches a GNUstep application. The application will automatically register its UIBridge service via Distributed Objects if it uses the Eau theme.", @"inputSchema": @{@"type": @"object", @"properties": @{@"app_path": @{@"type": @"string", @"description": @"The absolute path to the .app bundle or its binary executable."}}}, @"outputSchema": contentSchema},
                 @{@"name": @"list_apps", @"description": @"Scans standard GNUstep application directories and returns a list of installed applications. Use this to discover which apps are available to be launched and tested on the current system.", @"inputSchema": @{@"type": @"object", @"properties": @{}}, @"outputSchema": contentSchema},
+                @{@"name": @"list_running_apps", @"description": @"Scans running processes for GNUstep applications that have registered an Eau theme UIBridge service via Distributed Objects and returns their PID, service name, and optional metadata (app name, preview). Use this to discover already-launched apps to attach to.", @"inputSchema": @{@"type": @"object", @"properties": @{}}, @"outputSchema": contentSchema},
+                @{@"name": @"attach_app", @"description": @"Attach UIBridge to an already-running GNUstep application by PID or service name. Provide either 'pid' (integer) or 'service_name' (string). On success the server's currentPID is set to the attached app's PID.", @"inputSchema": @{@"type": @"object", @"properties": @{@"pid": @{@"type": @"integer"}, @"service_name": @{@"type": @"string"}}}, @"outputSchema": contentSchema},
                 @{@"name": @"list_files", @"description": @"Lists files in a given directory path. Useful for exploring application resources, data bundles, or confirming the presence of specifically required files before or during testing.", @"inputSchema": @{@"type": @"object", @"properties": @{@"path": @{@"type": @"string", @"description": @"The directory path to list."}}}, @"outputSchema": contentSchema},
                 @{@"name": @"read_file_content", @"description": @"Reads the full text content of a file. Use this to inspect configuration files, logs, or other text-based data within the application's environment.", @"inputSchema": @{@"type": @"object", @"properties": @{@"path": @{@"type": @"string", @"description": @"The path to the file to read."}}}, @"outputSchema": contentSchema},
                 @{@"name": @"get_root", @"description": @"Retrieves the entry-level Objective-C objects for the currently running app: the NSApp instance and a list of all top-level windows. This provides the starting point for exploring the UI widget tree and application-wide state.", @"inputSchema": @{@"type": @"object", @"properties": @{}}, @"outputSchema": contentSchema},
@@ -642,7 +644,7 @@ static void RedirectLogs(void) {
                     result = @{
                         @"pid": @(self.currentPID), 
                         @"status": @"launched",
-                        @"observation": @"Application launched. The UIBridge server will automatically attempt to connect via Distributed Objects (DO) in the background. You can monitor progress via logs or wait for 'notifications/ui_event'."
+                        @"observation": @"Application launched. You can monitor progress via logs in /tmp or wait for 'notifications/ui_event'."
                     };
                 } else {
                      errorMsg = @"Failed to launch";
@@ -687,6 +689,107 @@ static void RedirectLogs(void) {
                 }
             }
             result = @{@"apps": apps};
+        } else if ([toolName isEqualToString:@"list_running_apps"]) {
+            NSMutableArray *found = [NSMutableArray array];
+            NSTask *psTask = [[NSTask alloc] init];
+            [psTask setLaunchPath:@"/bin/ps"];
+            [psTask setArguments:@[@"-axo", @"pid="]];
+            NSPipe *pipe = [NSPipe pipe];
+            [psTask setStandardOutput:pipe];
+            [psTask setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+            @try {
+                [psTask launch];
+                [psTask waitUntilExit];
+            } @catch (NSException *e) {
+                NSLog(@"[Server] Failed to run ps for list_running_apps: %@", e);
+                [psTask release];
+                result = @{@"apps": found};
+            }
+
+            NSData *psData = [[pipe fileHandleForReading] readDataToEndOfFile];
+            [psTask release];
+
+            NSString *psOutput = [[NSString alloc] initWithData:psData encoding:NSUTF8StringEncoding];
+            NSArray *lines = [psOutput componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+            [psOutput release];
+
+            for (NSString *line in lines) {
+                NSString *entry = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                if ([entry length] == 0) continue;
+                NSCharacterSet *digits = [NSCharacterSet decimalDigitCharacterSet];
+                if ([entry rangeOfCharacterFromSet:[digits invertedSet]].location != NSNotFound) continue;
+
+                NSString *themeServiceName = [NSString stringWithFormat:@"org.gershwin.Gershwin.Theme.UIBridge.%@", entry];
+                id proxy = [NSConnection rootProxyForConnectionWithRegisteredName:themeServiceName host:nil];
+                if (proxy) {
+                    [(NSDistantObject *)proxy setProtocolForProxy:@protocol(UIBridgeProtocol)];
+                    NSConnection *conn = [proxy connectionForProxy];
+                    [conn setRequestTimeout:1.0];
+                    [conn setReplyTimeout:1.0];
+                    [conn enableMultipleThreads];
+
+                    NSMutableDictionary *info = [NSMutableDictionary dictionary];
+                    info[@"pid"] = @([entry intValue]);
+                    info[@"service"] = themeServiceName;
+
+                    NSString *commPath = [NSString stringWithFormat:@"/proc/%@/comm", entry];
+                    NSError *err = nil;
+                    NSString *comm = [NSString stringWithContentsOfFile:commPath encoding:NSUTF8StringEncoding error:&err];
+                    if (comm) info[@"comm"] = [comm stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+
+                    @try {
+                        NSString *rootJSON = [proxy rootObjectsJSON];
+                        if ([rootJSON length] > 0) {
+                            NSString *preview = [rootJSON substringToIndex:MIN((NSUInteger)256, [rootJSON length])];
+                            info[@"preview"] = preview;
+                        }
+                    } @catch (NSException *e) {
+                        // ignore failures to query the app; service presence is enough
+                    }
+
+                    [found addObject:info];
+                }
+            }
+
+            result = @{@"apps": found};
+        } else if ([toolName isEqualToString:@"attach_app"]) {
+            NSNumber *pidNum = callParams[@"pid"];
+            NSString *service = callParams[@"service_name"];
+            id proxy = nil;
+            int pid = 0;
+            if (service) {
+                proxy = [NSConnection rootProxyForConnectionWithRegisteredName:service host:nil];
+                if (proxy) {
+                    [(NSDistantObject *)proxy setProtocolForProxy:@protocol(UIBridgeProtocol)];
+                    NSConnection *conn = [proxy connectionForProxy];
+                    [conn setRequestTimeout:2.0];
+                    [conn setReplyTimeout:2.0];
+                    [conn enableMultipleThreads];
+                    // try a light probe
+                    @try {
+                        [proxy rootObjectsJSON];
+                    } @catch (NSException *e) {
+                        proxy = nil;
+                    }
+                    // attempt to extract PID from service name if formatted with trailing PID
+                    if (proxy && pid == 0) {
+                        NSCharacterSet *nonDigits = [[NSCharacterSet decimalDigitCharacterSet] invertedSet];
+                        NSString *digits = [[service componentsSeparatedByCharactersInSet:nonDigits] componentsJoinedByString:@""];
+                        if ([digits length] > 0) pid = [digits intValue];
+                    }
+                }
+            } else if (pidNum) {
+                pid = [pidNum intValue];
+                proxy = ConnectToApp(pid);
+            } else {
+                errorMsg = @"Missing pid or service_name";
+            }
+            if (proxy) {
+                self.currentPID = pid;
+                result = @{@"status": @"attached", @"pid": @(self.currentPID), @"service": service ?: [NSString stringWithFormat:@"org.gershwin.Gershwin.Theme.UIBridge.%d", self.currentPID]};
+            } else {
+                errorMsg = @"Failed to attach to service/pid";
+            }
         } else if ([toolName isEqualToString:@"list_files"]) {
             NSString *path = callParams[@"path"];
             if (!path) path = @".";
