@@ -347,6 +347,13 @@
     // getgrnam:groupname -> name:x:gid:members
     if ([command isEqualToString:@"getgrnam"] && parts.count >= 2) {
         NSString *groupname = parts[1];
+        // Special handling for wheel and sudo - return with admin members
+        if ([groupname isEqualToString:@"wheel"] && [self groupExistsInEtcGroup:@"wheel"]) {
+            return [self wheelGroupLine];
+        }
+        if ([groupname isEqualToString:@"sudo"] && [self groupExistsInEtcGroup:@"sudo"]) {
+            return [self sudoGroupLine];
+        }
         NSDictionary *group = [self groupWithName:groupname];
         if (group) {
             return [self groupLineForGroup:group];
@@ -357,6 +364,13 @@
     // getgrgid:gid -> name:x:gid:members
     if ([command isEqualToString:@"getgrgid"] && parts.count >= 2) {
         gid_t gid = [parts[1] intValue];
+        // Special handling for wheel (0) and sudo (27) - only if they exist in /etc/group
+        if (gid == 0 && [self groupExistsInEtcGroup:@"wheel"]) {
+            return [self wheelGroupLine];
+        }
+        if (gid == 27 && [self groupExistsInEtcGroup:@"sudo"]) {
+            return [self sudoGroupLine];
+        }
         NSDictionary *group = [self groupWithGID:gid];
         if (group) {
             return [self groupLineForGroup:group];
@@ -391,6 +405,54 @@
             [lines addObject:[self groupLineForGroup:group]];
         }
         return [lines componentsJoinedByString:@"\n"];
+    }
+
+    // getgrouplist:username -> gid1,gid2,gid3,...
+    // Returns all groups the user is a member of
+    if ([command isEqualToString:@"getgrouplist"] && parts.count >= 2) {
+        NSString *username = parts[1];
+        NSMutableArray *gids = [NSMutableArray array];
+
+        // Get user's primary group
+        NSDictionary *user = [self userWithName:username];
+        if (user) {
+            id gidValue = user[@"gid"];
+            if (gidValue) {
+                [gids addObject:gidValue];
+            }
+        }
+
+        // Check all groups for membership
+        NSDictionary *groups = [self loadGroups];
+        for (NSString *groupname in groups) {
+            NSDictionary *group = groups[groupname];
+            NSArray *members = group[@"members"];
+            if (members && [members containsObject:username]) {
+                id gidValue = group[@"gid"];
+                if (gidValue && ![gids containsObject:gidValue]) {
+                    [gids addObject:gidValue];
+                }
+            }
+        }
+
+        if ([gids count] == 0) {
+            return @"NOTFOUND";
+        }
+
+        return [gids componentsJoinedByString:@","];
+    }
+
+    // getadminmembers -> user1,user2,...
+    // Returns all members of the admin group (gid 5000)
+    if ([command isEqualToString:@"getadminmembers"]) {
+        NSDictionary *adminGroup = [self groupWithGID:5000];
+        if (adminGroup) {
+            NSArray *members = adminGroup[@"members"];
+            if (members && [members count] > 0) {
+                return [members componentsJoinedByString:@","];
+            }
+        }
+        return @"NOTFOUND";
     }
 
     return @"ERROR";
@@ -436,6 +498,65 @@
             group[@"groupname"] ?: @"",
             group[@"gid"] ?: @"65534",
             memberStr];
+}
+
+- (NSArray *)adminMembers {
+    NSDictionary *adminGroup = [self groupWithGID:5000];
+    if (adminGroup) {
+        return adminGroup[@"members"] ?: @[];
+    }
+    return @[];
+}
+
+- (BOOL)groupExistsInEtcGroup:(NSString *)groupname {
+    NSString *contents = [NSString stringWithContentsOfFile:@"/etc/group"
+                                                   encoding:NSUTF8StringEncoding
+                                                      error:nil];
+    if (!contents) return NO;
+
+    for (NSString *line in [contents componentsSeparatedByString:@"\n"]) {
+        NSArray *parts = [line componentsSeparatedByString:@":"];
+        if (parts.count >= 3 && [parts[0] isEqualToString:groupname]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+- (NSArray *)membersFromEtcGroup:(NSString *)groupname {
+    // Read /etc/group and extract members for a group
+    NSString *contents = [NSString stringWithContentsOfFile:@"/etc/group"
+                                                   encoding:NSUTF8StringEncoding
+                                                      error:nil];
+    if (!contents) return @[];
+
+    for (NSString *line in [contents componentsSeparatedByString:@"\n"]) {
+        NSArray *parts = [line componentsSeparatedByString:@":"];
+        if (parts.count >= 4 && [parts[0] isEqualToString:groupname]) {
+            NSString *memberStr = parts[3];
+            if (memberStr.length > 0) {
+                return [memberStr componentsSeparatedByString:@","];
+            }
+            return @[];
+        }
+    }
+    return @[];
+}
+
+- (NSString *)wheelGroupLine {
+    // Merge /etc/group wheel members with admin members
+    NSMutableSet *members = [NSMutableSet setWithArray:[self membersFromEtcGroup:@"wheel"]];
+    [members addObjectsFromArray:[self adminMembers]];
+    NSString *memberStr = [[members allObjects] componentsJoinedByString:@","];
+    return [NSString stringWithFormat:@"wheel:x:0:%@", memberStr];
+}
+
+- (NSString *)sudoGroupLine {
+    // Merge /etc/group sudo members with admin members
+    NSMutableSet *members = [NSMutableSet setWithArray:[self membersFromEtcGroup:@"sudo"]];
+    [members addObjectsFromArray:[self adminMembers]];
+    NSString *memberStr = [[members allObjects] componentsJoinedByString:@","];
+    return [NSString stringWithFormat:@"sudo:x:27:%@", memberStr];
 }
 
 @end

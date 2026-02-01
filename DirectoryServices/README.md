@@ -18,9 +18,15 @@ gsdh checks for plists in this order:
 Required on all machines (server, client, standalone):
 
 ```
-passwd: files gershwin
-group: files gershwin
+passwd: gershwin files
+group: gershwin files
 ```
+
+The `gershwin` module must come before `files` so that:
+- Admin group members appear in `wheel` group (required for `su` to work)
+- Gershwin users are found before falling back to `/etc/passwd`
+
+If gsdh is not running, NSS falls back to `files` automatically.
 
 ## Building
 
@@ -78,16 +84,23 @@ openssl passwd -6 yourpassword
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>admin</key>
+    <dict>
+        <key>groupname</key>
+        <string>admin</string>
+        <key>gid</key>
+        <integer>5000</integer>
+        <key>members</key>
+        <array>
+            <string>testuser</string>
+        </array>
+    </dict>
     <key>testuser</key>
     <dict>
         <key>groupname</key>
         <string>testuser</string>
         <key>gid</key>
         <integer>5001</integer>
-        <key>members</key>
-        <array>
-            <string>testuser</string>
-        </array>
     </dict>
 </dict>
 </plist>
@@ -279,3 +292,15 @@ Home directory is derived automatically: `/Local/Users/<username>` on server, `/
 | groupname | yes | Group name |
 | gid | yes | Group ID |
 | members | no | Array of usernames |
+
+## Admin Access
+
+Members of the `admin` group (gid 5000) are automatically nested into `wheel` and `sudo` groups if they exist on the system. This enables `su` access on FreeBSD (wheel) and sudo access on Linux (sudo group).
+
+For distributions without these groups, or for explicit control, add to sudoers:
+
+```
+# FreeBSD: /usr/local/etc/sudoers.d/gershwin
+# Linux:   /etc/sudoers.d/gershwin
+%admin ALL = (ALL) ALL
+```

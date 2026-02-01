@@ -435,6 +435,119 @@ nss_getgrgid_r(void *retval, void *mdata __unused, va_list ap)
 }
 
 /*
+ * Check if a group exists in /etc/group
+ */
+static int
+group_exists_in_etc(const char *groupname)
+{
+    FILE *f = fopen("/etc/group", "r");
+    if (!f) return 0;
+
+    char line[512];
+    size_t namelen = strlen(groupname);
+
+    while (fgets(line, sizeof(line), f)) {
+        /* Check if line starts with "groupname:" */
+        if (strncmp(line, groupname, namelen) == 0 && line[namelen] == ':') {
+            fclose(f);
+            return 1;
+        }
+    }
+
+    fclose(f);
+    return 0;
+}
+
+/*
+ * getgroupmembership - return all groups for a user
+ * This is where we add wheel (0) for admin users
+ * sudo (27) is only added on Linux where it exists
+ */
+#define ADMIN_GID 5000
+#define WHEEL_GID 0
+#define SUDO_GID 27
+
+static int
+nss_getgroupmembership(void *retval __unused, void *mdata __unused, va_list ap)
+{
+    const char *username = va_arg(ap, const char *);
+    gid_t basegid __unused = va_arg(ap, gid_t);
+    gid_t *groups = va_arg(ap, gid_t *);
+    int maxgrp = va_arg(ap, int);
+    int *grpcnt = va_arg(ap, int *);
+
+    char request[256];
+    char response[BUFFER_SIZE];
+    int count = *grpcnt;
+    int is_admin = 0;
+    int user_found = 0;
+
+    /* Query gsdh for user's group memberships */
+    snprintf(request, sizeof(request), "getgrouplist:%s", username);
+
+    if (query_gsdh(request, response, sizeof(response)) == 0) {
+        user_found = 1;
+        /* Response format: gid1,gid2,gid3,... */
+        char *saveptr;
+        char *gidstr = strtok_r(response, ",", &saveptr);
+
+        while (gidstr && count < maxgrp) {
+            gid_t gid = (gid_t)strtoul(gidstr, NULL, 10);
+
+            /* Check if already in list */
+            int found = 0;
+            for (int i = 0; i < count; i++) {
+                if (groups[i] == gid) {
+                    found = 1;
+                    break;
+                }
+            }
+
+            if (!found) {
+                groups[count++] = gid;
+                if (gid == ADMIN_GID) {
+                    is_admin = 1;
+                }
+            }
+
+            gidstr = strtok_r(NULL, ",", &saveptr);
+        }
+    }
+
+    /* If user not found in gsdh, let next NSS module handle it */
+    if (!user_found) {
+        return NS_NOTFOUND;
+    }
+
+    /* If user is in admin group, add wheel (and sudo on Linux) */
+    if (is_admin) {
+        int has_wheel = 0;
+
+        for (int i = 0; i < count; i++) {
+            if (groups[i] == WHEEL_GID) has_wheel = 1;
+        }
+
+        if (!has_wheel && count < maxgrp) {
+            groups[count++] = WHEEL_GID;
+        }
+
+        /* Only add sudo group if it exists (Linux) */
+        if (group_exists_in_etc("sudo")) {
+            int has_sudo = 0;
+            for (int i = 0; i < count; i++) {
+                if (groups[i] == SUDO_GID) has_sudo = 1;
+            }
+            if (!has_sudo && count < maxgrp) {
+                groups[count++] = SUDO_GID;
+            }
+        }
+    }
+
+    *grpcnt = count;
+    return NS_SUCCESS;
+}
+
+/*
  * Module registration for FreeBSD NSS
  */
 static ns_mtab methods[] = {
@@ -442,6 +555,7 @@ static ns_mtab methods[] = {
     { NSDB_PASSWD, "getpwuid_r", nss_getpwuid_r, NULL },
     { NSDB_GROUP,  "getgrnam_r", nss_getgrnam_r, NULL },
     { NSDB_GROUP,  "getgrgid_r", nss_getgrgid_r, NULL },
+    { NSDB_GROUP,  "getgroupmembership", nss_getgroupmembership, NULL },
 };
 
 ns_mtab *
