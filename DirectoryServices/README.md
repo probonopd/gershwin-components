@@ -99,6 +99,18 @@ dscli group addmember <groupname> <username>
 dscli group removemember <groupname> <username>
 ```
 
+### Server/Client Commands
+
+```sh
+# Promote to directory server (configures NFS exports)
+dscli promote
+
+# Join a directory server (configures NFS client mount)
+dscli join <server>
+```
+
+Note: `promote` and `join` are currently only supported on FreeBSD.
+
 ### Other Commands
 
 ```sh
@@ -163,54 +175,38 @@ sudo dshelper
 
 A server stores users in `/Local` and exports via NFS for clients.
 
-### 1. Complete standalone setup above
-
-### 2. Create Domain.plist
-
-This marks the machine as a server:
+### FreeBSD
 
 ```sh
-sudo touch /Local/Library/DirectoryServices/Domain.plist
+# Complete standalone setup first, then:
+sudo dscli promote
 ```
 
-### 3. Export /Local via NFS
+This configures NFS exports, enables and starts NFS services, and creates `Domain.plist`.
 
-#### FreeBSD
+### Linux (Manual)
 
-Add to `/etc/exports`:
-```
-/Local -alldirs -maproot=root
-```
+On Linux, `dscli promote` is not yet supported. Configure manually:
 
-Enable and start NFS:
-```sh
-# /etc/rc.conf
-nfs_server_enable="YES"
-rpcbind_enable="YES"
-mountd_enable="YES"
+1. Add to `/etc/exports`:
+   ```
+   /Local *(rw,sync,no_subtree_check,no_root_squash)
+   ```
 
-# Start services
-sudo service rpcbind start
-sudo service mountd start
-sudo service nfsd start
-```
+2. Enable and start NFS:
+   ```sh
+   sudo apt install nfs-kernel-server
+   sudo systemctl enable nfs-kernel-server
+   sudo systemctl start nfs-kernel-server
+   sudo exportfs -ra
+   ```
 
-#### Debian/Linux
+3. Mark as server:
+   ```sh
+   sudo touch /Local/Library/DirectoryServices/Domain.plist
+   ```
 
-Add to `/etc/exports`:
-```
-/Local *(rw,sync,no_subtree_check,no_root_squash)
-```
-
-Enable and start NFS:
-```sh
-sudo apt install nfs-kernel-server
-sudo systemctl enable nfs-kernel-server
-sudo systemctl start nfs-kernel-server
-sudo exportfs -ra
-```
-
-#### Verify
+### Verify
 
 ```sh
 showmount -e localhost
@@ -220,51 +216,43 @@ showmount -e localhost
 
 A client mounts `/Network` from the server and uses those users.
 
-### 1. Build and install dshelper/nss_gershwin
-
-Complete the Building steps above, then run `sudo dscli init`.
-
-### 2. Enable NFS client
-
-#### FreeBSD
+### FreeBSD
 
 ```sh
-# /etc/rc.conf
-nfs_client_enable="YES"
-rpcbind_enable="YES"
-
-# Start services
-sudo service rpcbind start
-sudo service nfsclient start
-```
-
-#### Debian/Linux
-
-```sh
-sudo apt install nfs-common
-```
-
-### 3. Mount /Network from server
-
-```sh
-sudo mkdir -p /Network
-sudo mount -t nfs server:/Local /Network
-```
-
-Or add to `/etc/fstab` for persistent mount:
-```
-server:/Local    /Network    nfs    rw    0    0
-```
-
-### 4. Start dshelper
-
-```sh
+# Build and install, then:
+sudo dscli init
+sudo dscli join <server-hostname>
 sudo dshelper
 ```
 
-dshelper will detect `/Network/Library/DirectoryServices/Users.plist` and use it.
+This configures NFS client, mounts `/Network`, and adds to `/etc/fstab`.
 
-### 5. Verify
+### Linux (Manual)
+
+On Linux, `dscli join` is not yet supported. Configure manually:
+
+1. Install NFS client:
+   ```sh
+   sudo apt install nfs-common
+   ```
+
+2. Mount the server:
+   ```sh
+   sudo mkdir -p /Network
+   sudo mount -t nfs server:/Local /Network
+   ```
+
+3. Add to `/etc/fstab` for persistent mount:
+   ```
+   server:/Local    /Network    nfs    rw    0    0
+   ```
+
+4. Start dshelper:
+   ```sh
+   sudo dshelper
+   ```
+
+### Verify
 
 ```sh
 getent passwd testuser
@@ -283,6 +271,23 @@ The `dscli init` command prepares a machine to use Directory Services:
 4. Configures `/etc/nsswitch.conf` to use `gershwin files` for passwd and group
 
 The `gershwin` module must come before `files` so that admin group members appear in the `wheel` group (required for `su`). If dshelper is not running, NSS falls back to `files` automatically.
+
+### dscli promote
+
+The `dscli promote` command configures a machine as a directory server:
+
+1. Adds `/Local` to NFS exports
+2. Enables and starts NFS server services (rpcbind, mountd, nfsd)
+3. Creates `Domain.plist` to mark as server
+
+### dscli join
+
+The `dscli join <server>` command configures a machine as a directory client:
+
+1. Enables and starts NFS client services
+2. Creates `/Network` mount point
+3. Adds server to `/etc/fstab`
+4. Mounts `/Network` from server
 
 ### Machine Roles
 

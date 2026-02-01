@@ -2,9 +2,11 @@
 #import <unistd.h>
 #import <pwd.h>
 #import <grp.h>
+#import "DSPlatform.h"
 
 #define DS_USERS_PLIST @"/Local/Library/DirectoryServices/Users.plist"
 #define DS_GROUPS_PLIST @"/Local/Library/DirectoryServices/Groups.plist"
+#define DS_DOMAIN_PLIST @"/Local/Library/DirectoryServices/Domain.plist"
 
 static void printUsage(const char *progname) {
     fprintf(stderr, "Usage: %s <command> [options]\n\n", progname);
@@ -37,6 +39,8 @@ static void printUsage(const char *progname) {
     fprintf(stderr, "  passwd <username>             Set user password (alias for user passwd)\n");
     fprintf(stderr, "  verify <username>             Verify user can authenticate\n");
     fprintf(stderr, "  init                          Initialize directory structure\n");
+    fprintf(stderr, "  promote                       Promote to directory server (configure NFS)\n");
+    fprintf(stderr, "  join <server>                 Join a directory server\n");
     fprintf(stderr, "\n");
 }
 
@@ -747,6 +751,129 @@ static int cmdInit(void) {
     return 0;
 }
 
+static int cmdPromote(void) {
+    id<DSPlatform> platform = DSPlatformCreate();
+    if (!platform) {
+        fprintf(stderr, "No platform backend available\n");
+        return 1;
+    }
+
+    if (![platform isAvailable]) {
+        fprintf(stderr, "The 'promote' command is not yet supported on %s.\n",
+                [[platform platformName] UTF8String]);
+        fprintf(stderr, "Please follow the manual NFS configuration steps in the README.\n");
+        return 1;
+    }
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    // Check if already a server
+    if ([fm fileExistsAtPath:DS_DOMAIN_PLIST]) {
+        fprintf(stderr, "This machine is already a directory server.\n");
+        return 1;
+    }
+
+    // Check if /Local/Library/DirectoryServices exists
+    if (![fm fileExistsAtPath:@"/Local/Library/DirectoryServices"]) {
+        fprintf(stderr, "Directory Services not initialized. Run 'dscli init' first.\n");
+        return 1;
+    }
+
+    printf("Promoting to directory server...\n\n");
+
+    // Configure NFS exports
+    if (![platform configureNFSExports]) {
+        return 1;
+    }
+
+    // Enable NFS services
+    if (![platform enableNFSServer]) {
+        return 1;
+    }
+
+    // Start NFS services
+    if (![platform startNFSServer]) {
+        return 1;
+    }
+
+    // Create Domain.plist to mark as server
+    if (![@{} writeToFile:DS_DOMAIN_PLIST atomically:YES]) {
+        fprintf(stderr, "Failed to create Domain.plist\n");
+        return 1;
+    }
+    printf("Created Domain.plist\n");
+
+    printf("\nServer promotion complete.\n");
+    printf("Clients can now join with: dscli join <this-server-hostname>\n");
+    return 0;
+}
+
+static int cmdJoin(NSString *server) {
+    id<DSPlatform> platform = DSPlatformCreate();
+    if (!platform) {
+        fprintf(stderr, "No platform backend available\n");
+        return 1;
+    }
+
+    if (![platform isAvailable]) {
+        fprintf(stderr, "The 'join' command is not yet supported on %s.\n",
+                [[platform platformName] UTF8String]);
+        fprintf(stderr, "Please follow the manual NFS configuration steps in the README.\n");
+        return 1;
+    }
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    // Check if already a server
+    if ([fm fileExistsAtPath:DS_DOMAIN_PLIST]) {
+        fprintf(stderr, "This machine is a directory server. Cannot join another server.\n");
+        return 1;
+    }
+
+    // Check if /Network is already mounted
+    if ([fm fileExistsAtPath:@"/Network/Library/DirectoryServices"]) {
+        fprintf(stderr, "Already joined to a directory server.\n");
+        return 1;
+    }
+
+    printf("Joining directory server: %s\n\n", [server UTF8String]);
+
+    // Enable NFS client
+    if (![platform enableNFSClient]) {
+        return 1;
+    }
+
+    // Start NFS client
+    if (![platform startNFSClient]) {
+        return 1;
+    }
+
+    // Create /Network mount point
+    if (![platform createNetworkMount:server]) {
+        return 1;
+    }
+
+    // Add fstab entry
+    if (![platform addFstabEntry:server]) {
+        return 1;
+    }
+
+    // Mount /Network
+    if (![platform mountNetwork]) {
+        return 1;
+    }
+
+    // Verify the mount has DirectoryServices
+    if (![fm fileExistsAtPath:@"/Network/Library/DirectoryServices"]) {
+        fprintf(stderr, "\nWarning: /Network/Library/DirectoryServices not found.\n");
+        fprintf(stderr, "Verify the server has been promoted with 'dscli promote'.\n");
+        return 1;
+    }
+
+    printf("\nJoin complete. Start dshelper to enable directory users.\n");
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         if (argc < 2) {
@@ -788,6 +915,20 @@ int main(int argc, char *argv[]) {
         // Handle "init"
         if ([command isEqualToString:@"init"]) {
             return cmdInit();
+        }
+
+        // Handle "promote"
+        if ([command isEqualToString:@"promote"]) {
+            return cmdPromote();
+        }
+
+        // Handle "join"
+        if ([command isEqualToString:@"join"]) {
+            if ([args count] < 2) {
+                fprintf(stderr, "Usage: dscli join <server>\n");
+                return 1;
+            }
+            return cmdJoin(args[1]);
         }
 
         // Handle "user" commands

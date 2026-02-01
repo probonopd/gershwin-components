@@ -2,7 +2,11 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 TOOL_NAME = dscli
 
-dscli_OBJC_FILES = main.m
+dscli_OBJC_FILES = \
+	main.m \
+	DSPlatform.m \
+	DSPlatformFreeBSD.m \
+	DSPlatformLinux.m
 
 dscli_OBJCFLAGS = -fobjc-arc
 dscli_LDFLAGS = -lcrypt
