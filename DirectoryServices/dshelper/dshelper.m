@@ -569,10 +569,10 @@
     }
 
     // Register with gdomap using command line
-    // -R registers a name, -T specifies type, -P specifies port
+    // IMPORTANT: -P must come before -R because -R triggers immediate action
     NSString *cmd = [NSString stringWithFormat:
-        @"/System/Library/Tools/gdomap -R %@ -T tcp_gdo -P %d",
-        DS_SERVICE_NAME, DS_SERVICE_PORT];
+        @"/System/Library/Tools/gdomap -P %d -T tcp_gdo -R %@",
+        DS_SERVICE_PORT, DS_SERVICE_NAME];
 
     int result = system([cmd UTF8String]);
     if (result != 0) {
