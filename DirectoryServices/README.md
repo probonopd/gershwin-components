@@ -164,6 +164,56 @@ dshelper checks for plists in this order:
 | Client | Yes | No | /Network |
 | Standalone | No | No | /Local |
 
+## Service Discovery
+
+Directory servers are discovered automatically using GNUstep's network services API.
+
+### Server Registration
+
+When dshelper starts on a server (where `Domain.plist` exists), it registers itself with the network portmapper:
+
+```objc
+NSSocketPortNameServer *ns = [NSSocketPortNameServer sharedInstance];
+NSSocketPort *port = [NSSocketPort portWithNumber:4721
+                                           onHost:nil
+                                     forceAddress:nil
+                                         listener:YES];
+[ns registerPort:port forName:@"GershwinDirectory"];
+```
+
+- **NSSocketPortNameServer** provides network-wide name registration via the system's `rpcbind` service
+- **NSSocketPort** creates a TCP listener socket on port 4721
+- `registerPort:forName:` binds the name "GershwinDirectory" to this port across the network
+
+### Client Discovery
+
+When a client runs `dscli join`, it searches for registered servers:
+
+```objc
+NSSocketPortNameServer *ns = [NSSocketPortNameServer sharedInstance];
+NSPort *port = [ns portForName:@"GershwinDirectory" onHost:@"*"];
+```
+
+- `portForName:onHost:` with host `@"*"` broadcasts a lookup across the local network
+- Returns the port registered by the server, or nil if no server is found
+
+### Getting the Server Hostname
+
+Once discovered, the server's address is resolved to a hostname:
+
+```objc
+NSSocketPort *socketPort = (NSSocketPort *)port;
+NSString *address = [socketPort address];  // IP address string
+NSHost *remoteHost = [NSHost hostWithAddress:address];
+NSString *hostname = [remoteHost name];    // DNS hostname
+```
+
+- **NSSocketPort** `-address` returns the server's IP address as a string
+- **NSHost** `-hostWithAddress:` creates a host object from an IP
+- **NSHost** `-name` performs reverse DNS lookup to get the hostname
+
+This allows clients to discover and connect to directory servers without manual configuration.
+
 ## Authentication
 
 Authentication works through standard `pam_unix`. The daemon returns password hashes only to root callers (verified via `getpeereid`), matching FreeBSD's `/etc/master.passwd` security model.
