@@ -72,6 +72,18 @@ getent passwd jsmith
 
 The `join` command auto-discovers directory servers on the network.
 
+## Managing Users from Clients
+
+Since the user database is shared over NFS, admin users can manage accounts from any client machine:
+
+```sh
+sudo dscli user add newuser --realname "New User" --admin
+sudo dscli passwd newuser
+sudo dscli user delete olduser
+```
+
+Changes are written directly to the server's plist files via the NFS mount and take effect immediately across all machines.
+
 ## Leaving the Directory
 
 To disconnect from a directory server:

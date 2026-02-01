@@ -4,9 +4,33 @@
 #import <grp.h>
 #import "DSPlatform.h"
 
-#define DS_USERS_PLIST @"/Local/Library/DirectoryServices/Users.plist"
-#define DS_GROUPS_PLIST @"/Local/Library/DirectoryServices/Groups.plist"
+// Network paths (checked first - used when mounted from server)
+#define DS_NETWORK_USERS_PLIST @"/Network/Library/DirectoryServices/Users.plist"
+#define DS_NETWORK_GROUPS_PLIST @"/Network/Library/DirectoryServices/Groups.plist"
+
+// Local paths (fallback - used on server or standalone)
+#define DS_LOCAL_USERS_PLIST @"/Local/Library/DirectoryServices/Users.plist"
+#define DS_LOCAL_GROUPS_PLIST @"/Local/Library/DirectoryServices/Groups.plist"
 #define DS_DOMAIN_PLIST @"/Local/Library/DirectoryServices/Domain.plist"
+
+// Get the appropriate users plist path (Network first, then Local)
+static NSString *getUsersPlistPath(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if ([fm fileExistsAtPath:DS_NETWORK_USERS_PLIST]) {
+        return DS_NETWORK_USERS_PLIST;
+    }
+    return DS_LOCAL_USERS_PLIST;
+}
+
+// Get the appropriate groups plist path (Network first, then Local)
+static NSString *getGroupsPlistPath(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if ([fm fileExistsAtPath:DS_NETWORK_GROUPS_PLIST]) {
+        return DS_NETWORK_GROUPS_PLIST;
+    }
+    return DS_LOCAL_GROUPS_PLIST;
+}
+
 
 static void printUsage(const char *progname) {
     fprintf(stderr, "Usage: %s <command> [options]\n\n", progname);
@@ -145,7 +169,7 @@ static gid_t findNextGID(NSDictionary *groups) {
 #pragma mark - User Commands
 
 static int cmdUserList(void) {
-    NSDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSDictionary *users = loadPlist(getUsersPlistPath());
 
     if ([users count] == 0) {
         printf("No users defined.\n");
@@ -169,7 +193,7 @@ static int cmdUserList(void) {
 }
 
 static int cmdUserShow(NSString *username) {
-    NSDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSDictionary *users = loadPlist(getUsersPlistPath());
     NSDictionary *user = users[username];
 
     if (!user) {
@@ -185,7 +209,7 @@ static int cmdUserShow(NSString *username) {
     printf("Password:   %s\n", user[@"passwordHash"] ? "set" : "not set");
 
     // Show group memberships
-    NSDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSDictionary *groups = loadPlist(getGroupsPlistPath());
     NSMutableArray *memberOf = [NSMutableArray array];
     for (NSString *groupname in groups) {
         NSDictionary *group = groups[groupname];
@@ -208,8 +232,8 @@ static int cmdUserAdd(NSArray *args) {
     }
 
     NSString *username = args[0];
-    NSMutableDictionary *users = loadPlist(DS_USERS_PLIST);
-    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSMutableDictionary *users = loadPlist(getUsersPlistPath());
+    NSMutableDictionary *groups = loadPlist(getGroupsPlistPath());
 
     if (users[username]) {
         fprintf(stderr, "User already exists: %s\n", [username UTF8String]);
@@ -285,10 +309,10 @@ static int cmdUserAdd(NSArray *args) {
     }
 
     // Save both files
-    if (!savePlist(users, DS_USERS_PLIST)) {
+    if (!savePlist(users, getUsersPlistPath())) {
         return 1;
     }
-    if (!savePlist(groups, DS_GROUPS_PLIST)) {
+    if (!savePlist(groups, getGroupsPlistPath())) {
         return 1;
     }
 
@@ -321,7 +345,7 @@ static int cmdUserAdd(NSArray *args) {
 }
 
 static int cmdUserDelete(NSString *username) {
-    NSMutableDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSMutableDictionary *users = loadPlist(getUsersPlistPath());
 
     if (!users[username]) {
         fprintf(stderr, "User not found: %s\n", [username UTF8String]);
@@ -330,12 +354,12 @@ static int cmdUserDelete(NSString *username) {
 
     [users removeObjectForKey:username];
 
-    if (!savePlist(users, DS_USERS_PLIST)) {
+    if (!savePlist(users, getUsersPlistPath())) {
         return 1;
     }
 
     // Remove from all groups
-    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSMutableDictionary *groups = loadPlist(getGroupsPlistPath());
     BOOL groupsModified = NO;
 
     for (NSString *groupname in [groups allKeys]) {
@@ -350,7 +374,7 @@ static int cmdUserDelete(NSString *username) {
     }
 
     if (groupsModified) {
-        savePlist(groups, DS_GROUPS_PLIST);
+        savePlist(groups, getGroupsPlistPath());
     }
 
     printf("User deleted: %s\n", [username UTF8String]);
@@ -360,7 +384,7 @@ static int cmdUserDelete(NSString *username) {
 }
 
 static int cmdUserPasswd(NSString *username) {
-    NSMutableDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSMutableDictionary *users = loadPlist(getUsersPlistPath());
     NSMutableDictionary *user = [users[username] mutableCopy];
 
     if (!user) {
@@ -389,7 +413,7 @@ static int cmdUserPasswd(NSString *username) {
     user[@"passwordHash"] = hash;
     users[username] = user;
 
-    if (!savePlist(users, DS_USERS_PLIST)) {
+    if (!savePlist(users, getUsersPlistPath())) {
         return 1;
     }
 
@@ -404,7 +428,7 @@ static int cmdUserEdit(NSArray *args) {
     }
 
     NSString *username = args[0];
-    NSMutableDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSMutableDictionary *users = loadPlist(getUsersPlistPath());
     NSMutableDictionary *user = [users[username] mutableCopy];
 
     if (!user) {
@@ -438,7 +462,7 @@ static int cmdUserEdit(NSArray *args) {
 
     users[username] = user;
 
-    if (!savePlist(users, DS_USERS_PLIST)) {
+    if (!savePlist(users, getUsersPlistPath())) {
         return 1;
     }
 
@@ -449,7 +473,7 @@ static int cmdUserEdit(NSArray *args) {
 #pragma mark - Group Commands
 
 static int cmdGroupList(void) {
-    NSDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSDictionary *groups = loadPlist(getGroupsPlistPath());
 
     if ([groups count] == 0) {
         printf("No groups defined.\n");
@@ -473,7 +497,7 @@ static int cmdGroupList(void) {
 }
 
 static int cmdGroupShow(NSString *groupname) {
-    NSDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSDictionary *groups = loadPlist(getGroupsPlistPath());
     NSDictionary *group = groups[groupname];
 
     if (!group) {
@@ -501,7 +525,7 @@ static int cmdGroupAdd(NSArray *args) {
     }
 
     NSString *groupname = args[0];
-    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSMutableDictionary *groups = loadPlist(getGroupsPlistPath());
 
     if (groups[groupname]) {
         fprintf(stderr, "Group already exists: %s\n", [groupname UTF8String]);
@@ -526,7 +550,7 @@ static int cmdGroupAdd(NSArray *args) {
 
     groups[groupname] = group;
 
-    if (!savePlist(groups, DS_GROUPS_PLIST)) {
+    if (!savePlist(groups, getGroupsPlistPath())) {
         return 1;
     }
 
@@ -535,7 +559,7 @@ static int cmdGroupAdd(NSArray *args) {
 }
 
 static int cmdGroupDelete(NSString *groupname) {
-    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSMutableDictionary *groups = loadPlist(getGroupsPlistPath());
 
     if (!groups[groupname]) {
         fprintf(stderr, "Group not found: %s\n", [groupname UTF8String]);
@@ -550,7 +574,7 @@ static int cmdGroupDelete(NSString *groupname) {
 
     [groups removeObjectForKey:groupname];
 
-    if (!savePlist(groups, DS_GROUPS_PLIST)) {
+    if (!savePlist(groups, getGroupsPlistPath())) {
         return 1;
     }
 
@@ -559,7 +583,7 @@ static int cmdGroupDelete(NSString *groupname) {
 }
 
 static int cmdGroupAddMember(NSString *groupname, NSString *username) {
-    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSMutableDictionary *groups = loadPlist(getGroupsPlistPath());
     NSMutableDictionary *group = [groups[groupname] mutableCopy];
 
     if (!group) {
@@ -568,7 +592,7 @@ static int cmdGroupAddMember(NSString *groupname, NSString *username) {
     }
 
     // Verify user exists
-    NSDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSDictionary *users = loadPlist(getUsersPlistPath());
     if (!users[username]) {
         fprintf(stderr, "User not found: %s\n", [username UTF8String]);
         return 1;
@@ -585,7 +609,7 @@ static int cmdGroupAddMember(NSString *groupname, NSString *username) {
     group[@"members"] = members;
     groups[groupname] = group;
 
-    if (!savePlist(groups, DS_GROUPS_PLIST)) {
+    if (!savePlist(groups, getGroupsPlistPath())) {
         return 1;
     }
 
@@ -594,7 +618,7 @@ static int cmdGroupAddMember(NSString *groupname, NSString *username) {
 }
 
 static int cmdGroupRemoveMember(NSString *groupname, NSString *username) {
-    NSMutableDictionary *groups = loadPlist(DS_GROUPS_PLIST);
+    NSMutableDictionary *groups = loadPlist(getGroupsPlistPath());
     NSMutableDictionary *group = [groups[groupname] mutableCopy];
 
     if (!group) {
@@ -613,7 +637,7 @@ static int cmdGroupRemoveMember(NSString *groupname, NSString *username) {
     group[@"members"] = members;
     groups[groupname] = group;
 
-    if (!savePlist(groups, DS_GROUPS_PLIST)) {
+    if (!savePlist(groups, getGroupsPlistPath())) {
         return 1;
     }
 
@@ -624,7 +648,7 @@ static int cmdGroupRemoveMember(NSString *groupname, NSString *username) {
 #pragma mark - Other Commands
 
 static int cmdVerify(NSString *username) {
-    NSDictionary *users = loadPlist(DS_USERS_PLIST);
+    NSDictionary *users = loadPlist(getUsersPlistPath());
     NSDictionary *user = users[username];
 
     if (!user) {
@@ -729,12 +753,12 @@ static int cmdInit(void) {
     }
 
     // Create empty plists if they don't exist
-    if (![fm fileExistsAtPath:DS_USERS_PLIST]) {
-        savePlist(@{}, DS_USERS_PLIST);
-        printf("Created: %s\n", [DS_USERS_PLIST UTF8String]);
+    if (![fm fileExistsAtPath:DS_LOCAL_USERS_PLIST]) {
+        savePlist(@{}, DS_LOCAL_USERS_PLIST);
+        printf("Created: %s\n", [DS_LOCAL_USERS_PLIST UTF8String]);
     }
 
-    if (![fm fileExistsAtPath:DS_GROUPS_PLIST]) {
+    if (![fm fileExistsAtPath:DS_LOCAL_GROUPS_PLIST]) {
         // Create with admin group
         NSDictionary *groups = @{
             @"admin": @{
@@ -742,8 +766,8 @@ static int cmdInit(void) {
                 @"gid": @5000
             }
         };
-        savePlist(groups, DS_GROUPS_PLIST);
-        printf("Created: %s\n", [DS_GROUPS_PLIST UTF8String]);
+        savePlist(groups, DS_LOCAL_GROUPS_PLIST);
+        printf("Created: %s\n", [DS_LOCAL_GROUPS_PLIST UTF8String]);
     }
 
     // Configure nsswitch.conf
