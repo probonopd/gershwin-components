@@ -16,8 +16,9 @@
 + (NSString *)getApplicationNameForWindow:(unsigned long)windowId;
 + (BOOL)isWindowValid:(unsigned long)windowId;
 + (BOOL)isWindowMapped:(unsigned long)windowId;
++ (BOOL)isWindowSkippableAsActive:(unsigned long)windowId;
 + (BOOL)isDesktopWindow:(unsigned long)windowId;
-+ (NSArray *)getAllWindows;
++ (NSArray *)getAllWindows; 
 + (unsigned long)getActiveWindow;
 + (NSString *)getWindowProperty:(unsigned long)windowId atomName:(NSString *)atomName;
 + (NSString*)getWindowMenuService:(unsigned long)windowId;

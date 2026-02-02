@@ -203,6 +203,12 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
         } else if (!canGetAttrs) {
             NSLog(@"WindowMonitor: Cannot get attributes for initial window %lu - trusting WM", newActiveWindow);
         }
+
+        // Ignore tooltips, popup menus, and undecorated override_redirect windows as active
+        if (newActiveWindow != 0 && [MenuUtils isWindowSkippableAsActive:newActiveWindow]) {
+            NSLog(@"WindowMonitor: Initial active window %lu is skippable (tooltip/popup/override) - ignoring", newActiveWindow);
+            newActiveWindow = _currentActiveWindow;
+        }
         
         if (newActiveWindow != 0) {
             XSelectInput(_display, (Window)newActiveWindow, StructureNotifyMask | PropertyChangeMask);
@@ -255,6 +261,12 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
             // Only ignore if we get a BadWindow error, otherwise keep it
             // For now, trust the window manager's report
             NSLog(@"WindowMonitor: Cannot get attributes for active window %lu - trusting WM report anyway", newActiveWindow);
+        }
+
+        // Ignore tooltips, popup menus, and undecorated override_redirect windows as active
+        if (newActiveWindow != 0 && [MenuUtils isWindowSkippableAsActive:newActiveWindow]) {
+            NSLog(@"WindowMonitor: Active window %lu is skippable (tooltip/popup/override) - ignoring", newActiveWindow);
+            newActiveWindow = _currentActiveWindow;
         }
         
         // Select for events on this window if we can

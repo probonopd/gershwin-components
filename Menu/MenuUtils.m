@@ -422,8 +422,81 @@ static Display *_sharedDisplay = NULL;
     return desktopWindow;
 }
 
-+ (pid_t)getWindowPID:(unsigned long)windowId
++ (BOOL)isWindowSkippableAsActive:(unsigned long)windowId
 {
+    if (windowId == 0) return YES;
+
+    Display *display = [self openDisplay];
+    if (!display) return NO;
+
+    // Get window attributes
+    XWindowAttributes attrs;
+    if (XGetWindowAttributes(display, (Window)windowId, &attrs) == 0) {
+        // Can't get attrs; be conservative and treat as not skippable
+        return NO;
+    }
+
+    // Skip override-redirect windows (tooltips, menus from toolkits often set this)
+    if (attrs.override_redirect) {
+        NSLog(@"MenuUtils: Window %lu has override_redirect - skipping as active", windowId);
+        return YES;
+    }
+
+    // Check _MOTIF_WM_HINTS decorations flag (decorations == 0 => undecorated)
+    Atom motifAtom = XInternAtom(display, "_MOTIF_WM_HINTS", False);
+    if (motifAtom != None) {
+        Atom actualType; int actualFormat; unsigned long nitems, bytesAfter;
+        unsigned char *prop = NULL;
+        if (XGetWindowProperty(display, (Window)windowId, motifAtom,
+                              0, 5, False, XA_CARDINAL,
+                              &actualType, &actualFormat, &nitems, &bytesAfter,
+                              &prop) == Success && prop) {
+            long *hints = (long *)prop;
+            if (nitems >= 3) {
+                long decorations = hints[2];
+                if (decorations == 0) {
+                    XFree(prop);
+                    NSLog(@"MenuUtils: Window %lu has no decorations (_MOTIF_WM_HINTS) - skipping as active", windowId);
+                    return YES;
+                }
+            }
+            XFree(prop);
+        }
+    }
+
+    // Check _NET_WM_WINDOW_TYPE for tooltip/popup/menu/notification
+    Atom windowTypeAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE", False);
+    Atom tooltipAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE_TOOLTIP", False);
+    Atom popupAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE_POPUP_MENU", False);
+    Atom dropdownAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU", False);
+    Atom notifAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE_NOTIFICATION", False);
+    Atom menuAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE_MENU", False);
+
+    if (windowTypeAtom != None) {
+        Atom actualType; int actualFormat; unsigned long nitems, bytesAfter;
+        unsigned char *prop = NULL;
+        if (XGetWindowProperty(display, (Window)windowId, windowTypeAtom,
+                              0, (~0L), False, XA_ATOM,
+                              &actualType, &actualFormat, &nitems, &bytesAfter,
+                              &prop) == Success && prop) {
+            Atom *types = (Atom *)prop;
+            for (unsigned long i = 0; i < nitems; i++) {
+                if (types[i] == tooltipAtom || types[i] == popupAtom || types[i] == dropdownAtom || types[i] == notifAtom || types[i] == menuAtom) {
+                    XFree(prop);
+                    NSLog(@"MenuUtils: Window %lu has skippable _NET_WM_WINDOW_TYPE - skipping as active", windowId);
+                    return YES;
+                }
+            }
+            XFree(prop);
+        }
+    }
+
+    [self closeDisplay:display];
+    return NO;
+}
+
++ (pid_t)getWindowPID:(unsigned long)windowId
+{ 
     if (windowId == 0) return 0;
 
     Display *display = [self openDisplay];
@@ -446,8 +519,13 @@ static Display *_sharedDisplay = NULL;
                           &actualType, &actualFormat, &nitems, &bytesAfter,
                           &prop) == Success && prop) {
         if (nitems >= 1) {
-            unsigned long val = *((unsigned long *)prop);
-            pid = (pid_t)val;
+            if (actualFormat == 32) {
+                pid = (pid_t)(*(uint32_t *)prop);
+            } else if (actualFormat == 16) {
+                pid = (pid_t)(*(uint16_t *)prop);
+            } else if (actualFormat == 8) {
+                pid = (pid_t)(*(uint8_t *)prop);
+            }
         }
         XFree(prop);
     }
