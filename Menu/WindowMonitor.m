@@ -196,16 +196,15 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
             if (affected != 0 && [MenuUtils isWindowSkippableAsActive:affected]) {
                 NSLog(@"WindowMonitor: Skippable window %lu destroyed/unmapped - flagging to suppress next PropertyNotify", affected);
                 _lastSkippableWindow = affected;
-                continue;
-            }
-            
-            // Clear the flag if a non-skippable window event occurs
-            _lastSkippableWindow = 0;
-            
-            if (affected != 0 && affected == _currentActiveWindow) {
-                // Window that was active is now gone - check what the new active window is
-                NSLog(@"WindowMonitor: Active window %lu destroyed/unmapped - checking for new active window", affected);
-                [self checkActiveWindow];
+            } else {
+                // Clear the flag if a non-skippable window event occurs
+                _lastSkippableWindow = 0;
+                
+                if (affected != 0 && affected == _currentActiveWindow) {
+                    // Window that was active is now gone - check what the new active window is
+                    NSLog(@"WindowMonitor: Active window %lu destroyed/unmapped - checking for new active window", affected);
+                    [self checkActiveWindow];
+                }
             }
         }
     }

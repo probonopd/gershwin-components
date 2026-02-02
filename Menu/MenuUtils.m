@@ -429,8 +429,6 @@ static Display *_sharedDisplay = NULL;
     Display *display = [self openDisplay];
     if (!display) return NO;
 
-    BOOL shouldSkip = NO;
-
     // Get window attributes
     XWindowAttributes attrs;
     if (XGetWindowAttributes(display, (Window)windowId, &attrs) == 0) {
@@ -498,7 +496,7 @@ static Display *_sharedDisplay = NULL;
     }
 
     [self closeDisplay:display];
-    return shouldSkip;
+    return NO;
 }
 
 + (pid_t)getWindowPID:(unsigned long)windowId
