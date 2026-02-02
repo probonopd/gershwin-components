@@ -692,67 +692,72 @@ static void RedirectLogs(void) {
         } else if ([toolName isEqualToString:@"list_running_apps"]) {
             NSMutableArray *found = [NSMutableArray array];
             NSTask *psTask = [[NSTask alloc] init];
-            [psTask setLaunchPath:@"/bin/ps"];
-            [psTask setArguments:@[@"-axo", @"pid="]];
+            [psTask setLaunchPath:@"/usr/bin/env"];
+            [psTask setArguments:@[@"ps", @"-axo", @"pid="]];
             NSPipe *pipe = [NSPipe pipe];
             [psTask setStandardOutput:pipe];
             [psTask setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+            
+            BOOL didRun = NO;
             @try {
                 [psTask launch];
                 [psTask waitUntilExit];
+                didRun = YES;
             } @catch (NSException *e) {
                 NSLog(@"[Server] Failed to run ps for list_running_apps: %@", e);
+            } @finally {
                 [psTask release];
+            }
+
+            if (!didRun) {
                 result = @{@"apps": found};
-            }
+            } else {
+                NSData *psData = [[pipe fileHandleForReading] readDataToEndOfFile];
 
-            NSData *psData = [[pipe fileHandleForReading] readDataToEndOfFile];
-            [psTask release];
+                NSString *psOutput = [[NSString alloc] initWithData:psData encoding:NSUTF8StringEncoding];
+                NSArray *lines = [psOutput componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+                [psOutput release];
 
-            NSString *psOutput = [[NSString alloc] initWithData:psData encoding:NSUTF8StringEncoding];
-            NSArray *lines = [psOutput componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
-            [psOutput release];
+                for (NSString *line in lines) {
+                    NSString *entry = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    if ([entry length] == 0) continue;
+                    NSCharacterSet *digits = [NSCharacterSet decimalDigitCharacterSet];
+                    if ([entry rangeOfCharacterFromSet:[digits invertedSet]].location != NSNotFound) continue;
 
-            for (NSString *line in lines) {
-                NSString *entry = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-                if ([entry length] == 0) continue;
-                NSCharacterSet *digits = [NSCharacterSet decimalDigitCharacterSet];
-                if ([entry rangeOfCharacterFromSet:[digits invertedSet]].location != NSNotFound) continue;
+                    NSString *themeServiceName = [NSString stringWithFormat:@"org.gershwin.Gershwin.Theme.UIBridge.%@", entry];
+                    id proxy = [NSConnection rootProxyForConnectionWithRegisteredName:themeServiceName host:nil];
+                    if (proxy) {
+                        [(NSDistantObject *)proxy setProtocolForProxy:@protocol(UIBridgeProtocol)];
+                        NSConnection *conn = [proxy connectionForProxy];
+                        [conn setRequestTimeout:1.0];
+                        [conn setReplyTimeout:1.0];
+                        [conn enableMultipleThreads];
 
-                NSString *themeServiceName = [NSString stringWithFormat:@"org.gershwin.Gershwin.Theme.UIBridge.%@", entry];
-                id proxy = [NSConnection rootProxyForConnectionWithRegisteredName:themeServiceName host:nil];
-                if (proxy) {
-                    [(NSDistantObject *)proxy setProtocolForProxy:@protocol(UIBridgeProtocol)];
-                    NSConnection *conn = [proxy connectionForProxy];
-                    [conn setRequestTimeout:1.0];
-                    [conn setReplyTimeout:1.0];
-                    [conn enableMultipleThreads];
+                        NSMutableDictionary *info = [NSMutableDictionary dictionary];
+                        info[@"pid"] = @([entry intValue]);
+                        info[@"service"] = themeServiceName;
 
-                    NSMutableDictionary *info = [NSMutableDictionary dictionary];
-                    info[@"pid"] = @([entry intValue]);
-                    info[@"service"] = themeServiceName;
+                        NSString *commPath = [NSString stringWithFormat:@"/proc/%@/comm", entry];
+                        NSError *err = nil;
+                        NSString *comm = [NSString stringWithContentsOfFile:commPath encoding:NSUTF8StringEncoding error:&err];
+                        if (comm) info[@"comm"] = [comm stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 
-                    NSString *commPath = [NSString stringWithFormat:@"/proc/%@/comm", entry];
-                    NSError *err = nil;
-                    NSString *comm = [NSString stringWithContentsOfFile:commPath encoding:NSUTF8StringEncoding error:&err];
-                    if (comm) info[@"comm"] = [comm stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-
-                    @try {
-                        NSString *rootJSON = [proxy rootObjectsJSON];
-                        if ([rootJSON length] > 0) {
-                            NSString *preview = [rootJSON substringToIndex:MIN((NSUInteger)256, [rootJSON length])];
-                            info[@"preview"] = preview;
+                        @try {
+                            NSString *rootJSON = [proxy rootObjectsJSON];
+                            if ([rootJSON length] > 0) {
+                                NSString *preview = [rootJSON substringToIndex:MIN((NSUInteger)256, [rootJSON length])];
+                                info[@"preview"] = preview;
+                            }
+                        } @catch (NSException *e) {
+                            // ignore failures to query the app; service presence is enough
                         }
-                    } @catch (NSException *e) {
-                        // ignore failures to query the app; service presence is enough
+
+                        [found addObject:info];
                     }
-
-                    [found addObject:info];
                 }
-            }
 
-            result = @{@"apps": found};
-        } else if ([toolName isEqualToString:@"attach_app"]) {
+                result = @{@"apps": found};
+            } else if ([toolName isEqualToString:@"attach_app"]) {
             NSNumber *pidNum = callParams[@"pid"];
             NSString *service = callParams[@"service_name"];
             id proxy = nil;

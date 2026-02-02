@@ -22,6 +22,7 @@
     dispatch_source_t _x11EventSource;
     dispatch_queue_t _x11Queue;
     unsigned long _currentActiveWindow;
+    unsigned long _lastSkippableWindow;
     BOOL _monitoring;
 }
 - (void)_postWindowNotification:(NSDictionary *)userInfo;
@@ -59,6 +60,7 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
         _gstepAppAtom = 0;
         _x11EventSource = NULL;
         _currentActiveWindow = 0;
+        _lastSkippableWindow = 0;
         _monitoring = NO;
         
         // Create serial queue for X11 operations
@@ -162,13 +164,47 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
             event.xproperty.window == _rootWindow &&
             event.xproperty.atom == _netActiveWindowAtom) {
             
+            // Check if this PropertyNotify is right after a skippable window unmap
+            // Read what the WM says is active now
+            Atom actualType;
+            int actualFormat;
+            unsigned long nitems, bytesAfter;
+            unsigned char *prop = NULL;
+            unsigned long wmActiveWindow = 0;
+            
+            if (XGetWindowProperty(_display, _rootWindow, _netActiveWindowAtom,
+                                  0, 1, False, XA_WINDOW,
+                                  &actualType, &actualFormat, &nitems, &bytesAfter,
+                                  &prop) == 0 && prop) {
+                wmActiveWindow = *(Window*)prop;
+                XFree(prop);
+            }
+            
+            // If the WM is now reporting 0 or a skippable window, and we just saw a skippable window unmap,
+            // suppress this check to avoid clearing the menu
+            if ((wmActiveWindow == 0 || [MenuUtils isWindowSkippableAsActive:wmActiveWindow]) && _lastSkippableWindow != 0) {
+                NSLog(@"WindowMonitor: PropertyNotify for _NET_ACTIVE_WINDOW after skippable window unmap - suppressing to avoid menu interference (WM reports: %lu)", wmActiveWindow);
+                _lastSkippableWindow = 0; // Clear the flag
+                continue;
+            }
+            
             [self checkActiveWindow];
         } else if (event.type == DestroyNotify || event.type == UnmapNotify) {
             Window affected = (event.type == DestroyNotify) ? event.xdestroywindow.window : event.xunmap.window;
-            if (affected != 0 && affected == _currentActiveWindow) {
-                // Window that was active is now gone - check what the new active window is
-                NSLog(@"WindowMonitor: Active window %lu destroyed/unmapped - checking for new active window", affected);
-                [self checkActiveWindow];
+            
+            // Check if this is a skippable window being destroyed/unmapped
+            if (affected != 0 && [MenuUtils isWindowSkippableAsActive:affected]) {
+                NSLog(@"WindowMonitor: Skippable window %lu destroyed/unmapped - flagging to suppress next PropertyNotify", affected);
+                _lastSkippableWindow = affected;
+            } else {
+                // Clear the flag if a non-skippable window event occurs
+                _lastSkippableWindow = 0;
+                
+                if (affected != 0 && affected == _currentActiveWindow) {
+                    // Window that was active is now gone - check what the new active window is
+                    NSLog(@"WindowMonitor: Active window %lu destroyed/unmapped - checking for new active window", affected);
+                    [self checkActiveWindow];
+                }
             }
         }
     }
@@ -207,6 +243,7 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
         // Ignore tooltips, popup menus, and undecorated override_redirect windows as active
         if (newActiveWindow != 0 && [MenuUtils isWindowSkippableAsActive:newActiveWindow]) {
             NSLog(@"WindowMonitor: Initial active window %lu is skippable (tooltip/popup/override) - ignoring", newActiveWindow);
+            _lastSkippableWindow = newActiveWindow; // Track this for later unmap suppression
             newActiveWindow = _currentActiveWindow;
         }
         
@@ -266,6 +303,7 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
         // Ignore tooltips, popup menus, and undecorated override_redirect windows as active
         if (newActiveWindow != 0 && [MenuUtils isWindowSkippableAsActive:newActiveWindow]) {
             NSLog(@"WindowMonitor: Active window %lu is skippable (tooltip/popup/override) - ignoring", newActiveWindow);
+            _lastSkippableWindow = newActiveWindow; // Track this for later unmap suppression
             newActiveWindow = _currentActiveWindow;
         }
         

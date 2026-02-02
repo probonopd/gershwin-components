@@ -433,12 +433,14 @@ static Display *_sharedDisplay = NULL;
     XWindowAttributes attrs;
     if (XGetWindowAttributes(display, (Window)windowId, &attrs) == 0) {
         // Can't get attrs; be conservative and treat as not skippable
+        [self closeDisplay:display];
         return NO;
     }
 
     // Skip override-redirect windows (tooltips, menus from toolkits often set this)
     if (attrs.override_redirect) {
         NSLog(@"MenuUtils: Window %lu has override_redirect - skipping as active", windowId);
+        [self closeDisplay:display];
         return YES;
     }
 
@@ -457,6 +459,7 @@ static Display *_sharedDisplay = NULL;
                 if (decorations == 0) {
                     XFree(prop);
                     NSLog(@"MenuUtils: Window %lu has no decorations (_MOTIF_WM_HINTS) - skipping as active", windowId);
+                    [self closeDisplay:display];
                     return YES;
                 }
             }
@@ -484,6 +487,7 @@ static Display *_sharedDisplay = NULL;
                 if (types[i] == tooltipAtom || types[i] == popupAtom || types[i] == dropdownAtom || types[i] == notifAtom || types[i] == menuAtom) {
                     XFree(prop);
                     NSLog(@"MenuUtils: Window %lu has skippable _NET_WM_WINDOW_TYPE - skipping as active", windowId);
+                    [self closeDisplay:display];
                     return YES;
                 }
             }
