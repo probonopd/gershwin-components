@@ -1,0 +1,19 @@
+[Unit]
+Description=Gershwin Login Window
+After=dshelper.service systemd-logind.service
+Wants=dshelper.service
+
+[Service]
+Type=simple
+ExecStart=/bin/sh -c '. /System/Library/Makefiles/GNUstep.sh && exec /System/Library/Scripts/LoginWindow.sh'
+Restart=on-failure
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+[Install]
+WantedBy=graphical.target

@@ -1,0 +1,31 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          loginwindow
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     5
+# Default-Stop:
+# Short-Description: Run LoginWindow script at runlevel 5
+### END INIT INFO
+
+SCRIPT="/System/Library/Scripts/LoginWindow.sh"
+
+case "$1" in
+  start)
+    echo "Starting LoginWindow script"
+    "$SCRIPT" &
+    ;;
+  stop)
+    echo "Nothing to stop for LoginWindow script"
+    ;;
+  restart)
+    $0 stop
+    $0 start
+    ;;
+  *)
+    echo "Usage: /etc/init.d/loginwindow {start|stop|restart}"
+    exit 1
+    ;;
+esac
+
+exit 0
