@@ -1,0 +1,64 @@
+name: Build Gershwin TCZ for Tiny Core Linux
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  build-tcz:
+    name: Build Gershwin TCZ (Debian x86_64)
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm
+
+    steps:
+      - name: Checkout gershwin-components
+        uses: actions/checkout@v4
+
+      - name: Install base tools
+        run: |
+          apt-get update -y
+          apt-get install -y git squashfs-tools tree
+
+      - name: Clone gershwin-developer
+        run: git clone https://github.com/gershwin-desktop/gershwin-developer.git /Developer
+
+      - name: Bootstrap build dependencies
+        run: |
+          cd /Developer
+          ./Library/Scripts/Bootstrap.sh
+
+      - name: Checkout all upstream sources
+        run: |
+          cd /Developer
+          ./Library/Scripts/Checkout.sh
+
+      - name: Use our gershwin-components checkout
+        run: |
+          rm -rf /Developer/Library/Sources/gershwin-components
+          cp -r "$GITHUB_WORKSPACE" /Developer/Library/Sources/gershwin-components
+
+      - name: Build and install Gershwin
+        run: |
+          cd /Developer
+          make install
+
+      - name: Package as TCZ
+        run: |
+          TIMESTAMP=$(date +%y%m%d%H%M%S)
+          TCZ_NAME="Gershwin-Debian-${TIMESTAMP}.tcz"
+          mksquashfs /System "$TCZ_NAME" -b 4k -noappend -noI -noId -no-progress -noF -noX
+          md5sum "$TCZ_NAME" > "${TCZ_NAME}.md5.txt"
+          echo "TCZ_NAME=${TCZ_NAME}" >> "$GITHUB_ENV"
+
+      - name: Upload TCZ artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gershwin-tcz
+          path: |
+            Gershwin-Debian-*.tcz
+            Gershwin-Debian-*.tcz.md5.txt
+          if-no-files-found: error
