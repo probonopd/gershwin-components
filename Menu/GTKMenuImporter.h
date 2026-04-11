@@ -30,6 +30,9 @@
 @property (nonatomic, strong) NSMutableDictionary *actionGroupCache;     // windowId -> action group info
 @property (nonatomic, strong) NSTimer *cleanupTimer;
 @property (nonatomic, weak) AppMenuWidget *appMenuWidget;
+// Service name for which keyboard shortcuts are currently grabbed.  Used to
+// skip redundant re-registration when switching between windows of the same app.
+@property (nonatomic, strong) NSString *lastRegisteredShortcutService;
 
 // MenuProtocolHandler conformance
 - (BOOL)connectToDBus;

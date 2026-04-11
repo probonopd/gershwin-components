@@ -205,8 +205,22 @@
     if (legacyCachedMenu) {
         NSDebugLog(@"DBusMenuImporter: Returning cached menu for window %lu", windowId);
         
-        // Re-register shortcuts
-        [self reregisterShortcutsForMenu:legacyCachedMenu windowId:windowId];
+        // Re-register shortcuts only when the endpoint changed since last registration.
+        // Switching between two windows of the same application (same service+path)
+        // means the X11 key grabs are already in place — re-registering would burn
+        // one XSync per shortcut needlessly.
+        NSString *shortcutKey = (serviceName && objectPath)
+            ? [NSString stringWithFormat:@"%@|%@", serviceName, objectPath]
+            : nil;
+        if (!shortcutKey || !self.lastRegisteredShortcutKey ||
+            ![self.lastRegisteredShortcutKey isEqualToString:shortcutKey]) {
+            NSLog(@"DBusMenuImporter: Re-registering shortcuts for %@ (was: %@)",
+                  shortcutKey ?: @"<nil>", self.lastRegisteredShortcutKey ?: @"<none>");
+            [self reregisterShortcutsForMenu:legacyCachedMenu windowId:windowId];
+            self.lastRegisteredShortcutKey = shortcutKey;
+        } else {
+            NSDebugLog(@"DBusMenuImporter: Shortcuts already registered for %@ - skipping re-registration", shortcutKey);
+        }
         
         return legacyCachedMenu;
     }
@@ -507,11 +521,20 @@
         @synchronized(_windowRegistryLock) {
             // Get the service name before removing to clean up related delegates
             serviceName = [[self.registeredWindows objectForKey:windowKey] copy];
+            NSString *objectPath = [[self.windowMenuPaths objectForKey:windowKey] copy];
             
             [self.registeredWindows removeObjectForKey:windowKey];
             [self.windowMenuPaths removeObjectForKey:windowKey];
             [self.menuCache removeObjectForKey:windowKey];
             [self.loadRetries removeObjectForKey:windowKey];
+
+            // Invalidate shortcut-registration cache when removing the endpoint that was active
+            if (serviceName && objectPath) {
+                NSString *key = [NSString stringWithFormat:@"%@|%@", serviceName, objectPath];
+                if ([key isEqualToString:self.lastRegisteredShortcutKey]) {
+                    self.lastRegisteredShortcutKey = nil;
+                }
+            }
         }
         
         // Clean up submenu delegates associated with this service to prevent

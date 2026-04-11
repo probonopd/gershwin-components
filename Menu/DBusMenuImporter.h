@@ -26,6 +26,9 @@
 @property (nonatomic, strong) NSTimer *cleanupTimer;
 @property (nonatomic, weak) AppMenuWidget *appMenuWidget;  // Reference to AppMenuWidget for immediate menu display
 @property (atomic, assign) BOOL processingMessages;        // Guard to prevent re-entrant DBus processing
+// "service:path" composite key for which shortcuts are currently grabbed.
+// Used to avoid redundant re-registration on repeated focus of the same window.
+@property (nonatomic, strong) NSString *lastRegisteredShortcutKey;
 
 - (BOOL)connectToDBus;
 - (void)showDBusErrorAndExit;

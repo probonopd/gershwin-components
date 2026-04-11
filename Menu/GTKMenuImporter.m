@@ -150,9 +150,18 @@ static int x11ErrorHandler(Display *display, XErrorEvent *error) {
     if (legacyCachedMenu) {
         NSDebugLog(@"GTKMenuImporter: Returning cached GTK menu for window %lu", windowId);
         
-        // Re-register shortcuts for cached menu since they may have been unregistered
-        // when the window lost focus
-        [self reregisterShortcutsForMenu:legacyCachedMenu windowId:windowId];
+        // Re-register shortcuts only when the service has changed since we last registered.
+        // If the same service is still active the X11 key grabs are already in place —
+        // calling reregisterShortcutsForMenu would redundantly attempt to XGrabKey every
+        // shortcut (one X11 round trip per shortcut, per switch back to this window).
+        if (!self.lastRegisteredShortcutService || ![self.lastRegisteredShortcutService isEqualToString:serviceName]) {
+            NSLog(@"GTKMenuImporter: Re-registering shortcuts for service %@ (was: %@)",
+                  serviceName ?: @"<nil>", self.lastRegisteredShortcutService ?: @"<none>");
+            [self reregisterShortcutsForMenu:legacyCachedMenu windowId:windowId];
+            self.lastRegisteredShortcutService = serviceName;
+        } else {
+            NSDebugLog(@"GTKMenuImporter: Shortcuts already registered for service %@ - skipping re-registration", serviceName);
+        }
         
         return legacyCachedMenu;
     }
@@ -176,12 +185,16 @@ static int x11ErrorHandler(Display *display, XErrorEvent *error) {
           windowId, serviceName, menuPath, actionPath ?: @"none");
     
     // Load the menu using GTK protocol
+    NSTimeInterval t0 = [NSDate timeIntervalSinceReferenceDate];
     NSMenu *menu = [self loadGTKMenuFromDBus:serviceName menuPath:menuPath actionPath:actionPath];
     if (menu) {
-        NSDebugLog(@"GTKMenuImporter: Successfully loaded GTK menu with %lu items", 
-              (unsigned long)[[menu itemArray] count]);
+        NSTimeInterval elapsed = [NSDate timeIntervalSinceReferenceDate] - t0;
+        NSLog(@"GTKMenuImporter: Loaded GTK menu with %lu items in %.0fms",
+              (unsigned long)[[menu itemArray] count], elapsed * 1000.0);
         // Cache the successfully loaded menu to avoid expensive re-parsing on window re-focus
         [_menuCache setObject:menu forKey:windowKey];
+        // Record that shortcuts were just registered for this service
+        self.lastRegisteredShortcutService = serviceName;
     } else {
         NSDebugLog(@"GTKMenuImporter: Failed to load GTK menu for window %lu", windowId);
     }
@@ -279,6 +292,14 @@ static int x11ErrorHandler(Display *display, XErrorEvent *error) {
     [_windowActionPaths removeObjectForKey:windowKey];
     [_menuCache removeObjectForKey:windowKey];
     [_actionGroupCache removeObjectForKey:windowKey];
+
+    // If we just removed the last window for the service that currently holds
+    // keyboard grabs, invalidate the shortcut-registration cache so the next
+    // focus will re-register (the grabs will have been released by
+    // unregisterNonDirectShortcuts in loadMenu:forWindow:).
+    if (serviceName && [serviceName isEqualToString:self.lastRegisteredShortcutService]) {
+        self.lastRegisteredShortcutService = nil;
+    }
     
     // Clean up submenu delegates associated with this service to prevent
     // crashes when trying to use stale DBus connections
@@ -806,9 +827,13 @@ static int x11ErrorHandler(Display *display, XErrorEvent *error) {
             return;
         }
     }
+
+    NSTimeInterval _t0 = [NSDate timeIntervalSinceReferenceDate];
     
-    NSDebugLog(@"GTKMenuImporter: Re-registering shortcuts for GTK menu (window %lu) with fresh DBus connection", windowId);
+    NSLog(@"GTKMenuImporter: Re-registering shortcuts for GTK menu (window %lu, service %@)", windowId, serviceName);
     [self reregisterShortcutsForMenuItems:[menu itemArray] serviceName:serviceName actionPath:actionPath];
+    NSLog(@"GTKMenuImporter: reregisterShortcutsForMenu took %.1fms",
+          ([NSDate timeIntervalSinceReferenceDate] - _t0) * 1000.0);
 }
 
 - (void)reregisterShortcutsForMenuItems:(NSArray *)items serviceName:(NSString *)serviceName actionPath:(NSString *)actionPath

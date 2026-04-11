@@ -432,6 +432,11 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         BOOL isDifferentApp = !self.currentApplicationName ||
                              ![self.currentApplicationName isEqualToString:newAppName];
 
+        // Pre-set currentApplicationName here so displayMenuForWindow: can skip the
+        // duplicate X11 lookup (it would otherwise call getApplicationNameForWindow: again).
+        if (newAppName && [newAppName length] > 0) {
+            self.currentApplicationName = newAppName;
+        }
         self.currentWindowId = activeWindow;
         
         // Reset grace period start time for new window focus
@@ -613,6 +618,8 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     }
     self.isInsideDisplayMenuForWindow = YES;
 
+    NSTimeInterval _t_displayStart = [NSDate timeIntervalSinceReferenceDate];
+
     @try { // @finally guarantees isInsideDisplayMenuForWindow is cleared on ALL exit paths
 
     // OPTIMIZATION: If we already have a valid menu for this exact window, skip the expensive re-import.
@@ -654,14 +661,20 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         }
     }
 
-    // Get application name for this window
-    NSString *appName = nil;
-    @try {
-        appName = [MenuUtils getApplicationNameForWindow:windowId];
-    }
-    @catch (NSException *exception) {
-        NSLog(@"AppMenuWidget: Exception getting app name for window %lu in displayMenuForWindow: %@", windowId, exception);
-        appName = nil;
+    // Get application name for this window; use the value already cached in
+    // currentApplicationName (set by updateForActiveWindowId: just before calling us)
+    // to avoid a duplicate X11 round trip.
+    NSString *appName = (self.currentApplicationName && [self.currentApplicationName length] > 0)
+        ? self.currentApplicationName
+        : nil;
+    if (!appName) {
+        @try {
+            appName = [MenuUtils getApplicationNameForWindow:windowId];
+        }
+        @catch (NSException *exception) {
+            NSLog(@"AppMenuWidget: Exception getting app name for window %lu in displayMenuForWindow: %@", windowId, exception);
+            appName = nil;
+        }
     }
 
     if (appName && [appName length] > 0) {
@@ -749,11 +762,11 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         return;
     }
     
-    NSLog(@"AppMenuWidget: ===== LOADING MENU FROM PROTOCOL MANAGER =====");
-    NSLog(@"AppMenuWidget: This is where AboutToShow events should be triggered for submenus");
+    NSLog(@"AppMenuWidget: Loading menu from protocol manager for window %lu", windowId);
 
     // Get the menu from protocol manager for registered windows
     NSMenu *menu = nil;
+    NSTimeInterval _t_getMenu = [NSDate timeIntervalSinceReferenceDate];
     @try {
         menu = [self.protocolManager getMenuForWindow:windowId];
     }
@@ -761,6 +774,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         NSLog(@"AppMenuWidget: Exception getting menu from protocol manager for window %lu: %@", windowId, exception);
         menu = nil;
     }
+    NSLog(@"AppMenuWidget: getMenuForWindow: took %.1fms", ([NSDate timeIntervalSinceReferenceDate] - _t_getMenu) * 1000.0);
 
     if (!menu) {
         NSLog(@"AppMenuWidget: Failed to get menu for window %lu (protocol manager)", windowId);
@@ -768,15 +782,9 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         return;
     }
     
-    // Debug: Log menu details for placeholder detection
-    NSLog(@"AppMenuWidget: Menu has %lu items", (unsigned long)[[menu itemArray] count]);
-    if ([[menu itemArray] count] > 0) {
-        NSMenuItem *firstItem = [[menu itemArray] objectAtIndex:0];
-        NSLog(@"AppMenuWidget: First menu item: '%@' (enabled: %@)", [firstItem title], [firstItem isEnabled] ? @"YES" : @"NO");
-    }
-    
     BOOL isPlaceholder = [self isPlaceholderMenu:menu];
-    NSLog(@"AppMenuWidget: isPlaceholderMenu: %@", isPlaceholder ? @"YES" : @"NO");
+    NSLog(@"AppMenuWidget: Got menu with %lu items (placeholder: %@) for window %lu",
+          (unsigned long)[[menu itemArray] count], isPlaceholder ? @"YES" : @"NO", windowId);
     
     if (isPlaceholder) {
         NSLog(@"AppMenuWidget: Placeholder menu - clearing");
@@ -790,6 +798,10 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     } // @try
     @finally {
         self.isInsideDisplayMenuForWindow = NO;
+        NSTimeInterval _t_displayElapsed = [NSDate timeIntervalSinceReferenceDate] - _t_displayStart;
+        if (_t_displayElapsed > 0.020) {
+            NSLog(@"AppMenuWidget: displayMenuForWindow:%lu took %.1fms", windowId, _t_displayElapsed * 1000.0);
+        }
     }
 }
 
@@ -1532,28 +1544,19 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         return;
     }
     
+    NSTimeInterval _t_loadStart = [NSDate timeIntervalSinceReferenceDate];
+
     // Cancel any scheduled fallback for this window since we're loading a real menu
     [self cancelScheduledFallbackForWindow:windowId];
 
-    NSLog(@"AppMenuWidget: Loading menu for window %lu", windowId);
-    
     // Clear the waiting flag - we have a new menu
     self.isWaitingForMenu = NO;
     self.currentMenu = menu;
     self.lastLoadedMenuWindowId = windowId;  // Track which window we loaded for (used by same-window guard)
     self.needsRedraw = YES;  // Mark that we need to redraw with new menu
     
-    NSLog(@"AppMenuWidget: ===== MENU LOADED, SETTING UP VIEW =====");
-    NSLog(@"AppMenuWidget: Menu has %lu top-level items", (unsigned long)[[menu itemArray] count]);
-    
-    // Log each top-level menu item and whether it has submenus
-    NSArray *items = [menu itemArray];
-    for (NSUInteger i = 0; i < [items count]; i++) {
-        NSMenuItem *item = [items objectAtIndex:i];
-        NSDebugLog(@"AppMenuWidget: Top-level item %lu: '%@' (has submenu: %@, submenu items: %lu)", 
-              i, [item title], [item hasSubmenu] ? @"YES" : @"NO",
-              [item hasSubmenu] ? (unsigned long)[[[item submenu] itemArray] count] : 0);
-    }
+    NSLog(@"AppMenuWidget: Loading menu for window %lu (%lu top-level items)",
+          windowId, (unsigned long)[[menu itemArray] count]);
     
     // ANTI-FLICKER: Clear shortcuts ONLY if switching to a different application
     // This must happen before setupMenuViewWithMenu to avoid conflicts
@@ -1563,9 +1566,11 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         BOOL switchingToDifferentApp = (oldPid == 0 || newPid == 0 || oldPid != newPid);
         
         if (switchingToDifferentApp) {
-            NSLog(@"AppMenuWidget: Switching to different app (PID %d -> %d) - clearing non-direct shortcuts", 
-                  (int)oldPid, (int)newPid);
+            NSTimeInterval _t_ungrab = [NSDate timeIntervalSinceReferenceDate];
             [[X11ShortcutManager sharedManager] unregisterNonDirectShortcuts];
+            NSLog(@"AppMenuWidget: Cleared shortcuts for app switch (PID %d -> %d) in %.1fms",
+                  (int)oldPid, (int)newPid,
+                  ([NSDate timeIntervalSinceReferenceDate] - _t_ungrab) * 1000.0);
         } else {
             NSLog(@"AppMenuWidget: Same app (PID %d) - keeping shortcuts registered", (int)newPid);
         }
@@ -1573,7 +1578,6 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     
     @try {
         [self setupMenuViewWithMenu:menu];
-        NSLog(@"AppMenuWidget: setupMenuViewWithMenu completed successfully");
     }
     @catch (NSException *exception) {
         NSLog(@"AppMenuWidget: EXCEPTION in setupMenuViewWithMenu: %@", exception);
@@ -1583,7 +1587,8 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     // Re-register shortcuts for this menu since we may have cleared them above
     [self reregisterShortcutsForMenu:menu];
     
-    NSLog(@"AppMenuWidget: Successfully loaded fallback menu with %lu items", (unsigned long)[[menu itemArray] count]);
+    NSLog(@"AppMenuWidget: loadMenu:forWindow:%lu completed in %.1fms",
+          windowId, ([NSDate timeIntervalSinceReferenceDate] - _t_loadStart) * 1000.0);
 } 
 
 

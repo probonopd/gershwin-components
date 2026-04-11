@@ -158,6 +158,9 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
     static const int MAX_EVENTS_PER_BATCH = 50;
     int eventsProcessed = 0;
     
+    int totalPendingAtEntry = XPending(_display);
+    (void)totalPendingAtEntry; // suppress unused warning when NSDebugLog is compiled out
+
     // Process pending X11 events (up to MAX_EVENTS_PER_BATCH)
     while (XPending(_display) > 0 && eventsProcessed < MAX_EVENTS_PER_BATCH) {
         XEvent event;
@@ -179,6 +182,10 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
         }
     }
     
+    if (eventsProcessed > 0) {
+        NSDebugLog(@"WindowMonitor: Processed %d X11 event(s) in batch (had %d pending at entry)",
+                   eventsProcessed, totalPendingAtEntry);
+    }
     if (eventsProcessed >= MAX_EVENTS_PER_BATCH && XPending(_display) > 0) {
         NSLog(@"WindowMonitor: Hit event batch limit (%d), %d events still pending - will process on next fd-ready",
               MAX_EVENTS_PER_BATCH, XPending(_display));
@@ -215,8 +222,9 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
             NSLog(@"WindowMonitor: Cannot get attributes for initial window %lu - trusting WM", newActiveWindow);
         }
         
+        // Select StructureNotifyMask only (no PropertyChangeMask — see checkActiveWindow comment)
         if (newActiveWindow != 0) {
-            XSelectInput(_display, (Window)newActiveWindow, StructureNotifyMask | PropertyChangeMask);
+            XSelectInput(_display, (Window)newActiveWindow, StructureNotifyMask);
         }
     }
     
@@ -248,29 +256,25 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
         XFree(prop);
     }
 
-    // FIX: Don't report window==0 unless X11 truly says there's no active window
-    // If XGetWindowProperty returns a window ID, trust it - even if we can't query its attributes
-    // Window attributes can fail during WM operations (reparenting, etc) but the window is still valid
     if (newActiveWindow != 0) {
         XWindowAttributes attrs;
-        // Try to get attributes, but don't reject the window if this fails
-        // The window manager set this as active, so trust it
         BOOL canGetAttrs = XGetWindowAttributes(_display, (Window)newActiveWindow, &attrs);
         
         if (canGetAttrs && attrs.map_state == IsUnmapped) {
-            // Window is explicitly unmapped - this is a valid "no window" state
             NSLog(@"WindowMonitor: Active window %lu is unmapped - treating as no active window", newActiveWindow);
             newActiveWindow = 0;
         } else if (!canGetAttrs) {
-            // Can't get attributes - might be during WM operation
-            // Only ignore if we get a BadWindow error, otherwise keep it
-            // For now, trust the window manager's report
             NSLog(@"WindowMonitor: Cannot get attributes for active window %lu - trusting WM report anyway", newActiveWindow);
         }
         
-        // Select for events on this window if we can
+        // Select StructureNotifyMask only — NOT PropertyChangeMask.
+        // PropertyChangeMask causes a torrent of events whenever the focused app
+        // updates any X11 property (page title, loading progress, state hints …).
+        // Those events are never acted on by processX11Events (which only handles
+        // _NET_ACTIVE_WINDOW changes on the root window), so subscribing to them
+        // wastes CPU waking the GCD dispatch source for no reason.
         if (newActiveWindow != 0) {
-            XSelectInput(_display, (Window)newActiveWindow, StructureNotifyMask | PropertyChangeMask);
+            XSelectInput(_display, (Window)newActiveWindow, StructureNotifyMask);
         }
     }
     
@@ -282,9 +286,6 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
         [self performSelectorOnMainThread:@selector(_postWindowNotification:)
                                withObject:userInfo
                             waitUntilDone:NO];
-    } else {
-        // Window hasn't changed - suppress notification to avoid spam
-        // This can happen during WM operations or when we check after a window closes
     }
 }
 

@@ -291,7 +291,9 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         return;
     }
 
-    NSLog(@"X11ShortcutManager: Unregistering non-direct (DBus) shortcuts, preserving direct shortcuts");
+    NSTimeInterval _t0 = [NSDate timeIntervalSinceReferenceDate];
+    NSUInteger countBefore = [_grabbedKeys count];
+    NSLog(@"X11ShortcutManager: Unregistering non-direct shortcuts (%lu grabs held)", countBefore);
 
     if (!_display) {
         // If no display, just remove entries from memory
@@ -388,7 +390,10 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         _eventMonitorThread = nil;
     }
 
-    NSLog(@"X11ShortcutManager: After unregisterNonDirectShortcuts - _grabbedKeys count: %lu", (unsigned long)[_grabbedKeys count]);
+    NSLog(@"X11ShortcutManager: unregisterNonDirectShortcuts released %lu grabs in %.1fms (remaining: %lu)",
+          countBefore - [_grabbedKeys count],
+          ([NSDate timeIntervalSinceReferenceDate] - _t0) * 1000.0,
+          (unsigned long)[_grabbedKeys count]);
 }
 
 - (BOOL)shouldSwapCtrlAlt
@@ -684,20 +689,25 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                    menuItemKey:(NSString *)menuItemKey 
                 shortcutString:(NSString *)shortcutString
 {
-    // Check if this shortcut is already taken
-    if ([self isShortcutAlreadyTaken:keycode modifier:x11_modifier]) {
-        NSDebugLog(@"X11ShortcutManager: Shortcut %@ is already taken - skipping", shortcutString);
-        return NO;
+    NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", keycode, x11_modifier];
+
+    // If we already hold this grab (e.g. same app re-registered after coming back into
+    // focus), just refresh the mapping without touching X11 at all — no round trips.
+    if ([_grabbedKeys objectForKey:keycodeModifierKey]) {
+        [_shortcutToMenuItemMap setObject:menuItemKey forKey:keycodeModifierKey];
+        [_grabbedKeys setObject:menuItemKey forKey:keycodeModifierKey];
+        NSDebugLog(@"X11ShortcutManager: Shortcut %@ already grabbed by us - refreshed mapping", shortcutString);
+        return YES;
     }
-    
-    // Try to grab the key
+
+    // Attempt to grab the key.  grabX11Key issues all XGrabKey variants in one
+    // batch with a single trailing XSync, so this is now O(1) round trips.
     if (![self grabX11Key:keycode modifier:x11_modifier]) {
-        NSLog(@"X11ShortcutManager: Failed to grab X11 key for shortcut %@", shortcutString);
+        NSDebugLog(@"X11ShortcutManager: Shortcut %@ is taken or failed to grab - skipping", shortcutString);
         return NO;
     }
     
     // Store the mapping from keycode+modifier to menu item
-    NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", keycode, x11_modifier];
     [_shortcutToMenuItemMap setObject:menuItemKey forKey:keycodeModifierKey];
     [_grabbedKeys setObject:menuItemKey forKey:keycodeModifierKey];
     [_registeredShortcuts addObject:shortcutString];
@@ -856,71 +866,53 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     }
 
     Window root = DefaultRootWindow(_display);
-    BOOL success = YES;
     
-    // Set up error handling
+    // Set up error handling before all grabs
     x11_grab_error_occurred = NO;
     int (*oldHandler)(Display *, XErrorEvent *) = XSetErrorHandler(handleX11GrabError);
     
-    // Base combination
+    // Issue ALL XGrabKey variants (base + lock-key combinations) without
+    // flushing in between.  A single XSync at the very end will flush the
+    // entire batch and deliver any error events.  This reduces the number of
+    // server round trips from up to 8 down to 1.
+
+    // Base combination — must succeed for registration to be considered successful
     XGrabKey(_display, keycode, modifier, root, False, GrabModeAsync, GrabModeAsync);
-    XSync(_display, False);
-    if (x11_grab_error_occurred) success = NO;
-    
-    // With numlock
-    if (_numlock_mask && !x11_grab_error_occurred) {
+
+    // Lock-key variants (for delivering shortcuts regardless of lock-key state)
+    if (_numlock_mask) {
         XGrabKey(_display, keycode, modifier | _numlock_mask, root, False, GrabModeAsync, GrabModeAsync);
-        XSync(_display, False);
     }
-    
-    // With capslock
-    if (_capslock_mask && !x11_grab_error_occurred) {
+    if (_capslock_mask) {
         XGrabKey(_display, keycode, modifier | _capslock_mask, root, False, GrabModeAsync, GrabModeAsync);
-        XSync(_display, False);
     }
-    
-    // With scrolllock
-    if (_scrolllock_mask && !x11_grab_error_occurred) {
+    if (_scrolllock_mask) {
         XGrabKey(_display, keycode, modifier | _scrolllock_mask, root, False, GrabModeAsync, GrabModeAsync);
-        XSync(_display, False);
     }
-    
-    // With numlock + capslock
-    if (_numlock_mask && _capslock_mask && !x11_grab_error_occurred) {
+    if (_numlock_mask && _capslock_mask) {
         XGrabKey(_display, keycode, modifier | _numlock_mask | _capslock_mask, root, False, GrabModeAsync, GrabModeAsync);
-        XSync(_display, False);
     }
-    
-    // With numlock + scrolllock
-    if (_numlock_mask && _scrolllock_mask && !x11_grab_error_occurred) {
+    if (_numlock_mask && _scrolllock_mask) {
         XGrabKey(_display, keycode, modifier | _numlock_mask | _scrolllock_mask, root, False, GrabModeAsync, GrabModeAsync);
-        XSync(_display, False);
     }
-    
-    // With capslock + scrolllock
-    if (_capslock_mask && _scrolllock_mask && !x11_grab_error_occurred) {
+    if (_capslock_mask && _scrolllock_mask) {
         XGrabKey(_display, keycode, modifier | _capslock_mask | _scrolllock_mask, root, False, GrabModeAsync, GrabModeAsync);
-        XSync(_display, False);
     }
-    
-    // With all locks
-    if (_numlock_mask && _capslock_mask && _scrolllock_mask && !x11_grab_error_occurred) {
+    if (_numlock_mask && _capslock_mask && _scrolllock_mask) {
         XGrabKey(_display, keycode, modifier | _numlock_mask | _capslock_mask | _scrolllock_mask, root, False, GrabModeAsync, GrabModeAsync);
-        XSync(_display, False);
     }
-    
+
+    // Single synchronisation point for the entire batch
+    XSync(_display, False);
+
     // Restore error handler
     XSetErrorHandler(oldHandler);
-    
-    NSDebugLog(@"X11ShortcutManager: Key grab result for keycode=%d modifier=0x%x: %s", 
-          keycode, modifier, (success && !x11_grab_error_occurred) ? "SUCCESS" : "FAILED");
-    
-    // Additional debug: Check if the key grab worked by testing it
-    if (success && !x11_grab_error_occurred) {
-        NSDebugLog(@"X11ShortcutManager: Verifying key grab - connection fd: %d", ConnectionNumber(_display));
-    }
-    
-    return success && !x11_grab_error_occurred;
+
+    BOOL success = !x11_grab_error_occurred;
+    NSDebugLog(@"X11ShortcutManager: Key grab result for keycode=%d modifier=0x%x: %s",
+               keycode, modifier, success ? "SUCCESS" : "FAILED");
+
+    return success;
 }
 
 - (void)startX11EventMonitoring
