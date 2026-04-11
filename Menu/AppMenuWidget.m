@@ -525,52 +525,13 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         return NO;
     }
 
-    // Fast reject for windows that don't even advertise menu-related properties.
-    if (![MenuUtils windowIndicatesMenuSupport:windowId]) {
-        return NO;
-    }
-
-    // GNUstep windows should publish a menu via our native IPC path shortly.
-    if ([MenuUtils getWindowProperty:windowId atomName:@"_GNUSTEP_WM_ATTR"] != nil) {
-        return YES;
-    }
-
-    GNUDBusConnection *bus = [GNUDBusConnection sessionBus];
-    if (!bus || ![bus isConnected]) {
-        return NO;
-    }
-
-    // Canonical/KDE-style endpoint
-    NSString *service = [MenuUtils getWindowMenuService:windowId];
-    NSString *path = [MenuUtils getWindowMenuPath:windowId];
-    if (service && path) {
-        id intro = [bus callMethod:@"Introspect"
-                         onService:service
-                        objectPath:path
-                         interface:@"org.freedesktop.DBus.Introspectable"
-                         arguments:nil];
-        if ([intro isKindOfClass:[NSString class]] &&
-            [(NSString *)intro containsString:@"com.canonical.dbusmenu"]) {
-            return YES;
-        }
-    }
-
-    // GTK endpoint
-    NSString *gtkService = [MenuUtils getWindowProperty:windowId atomName:@"_GTK_UNIQUE_BUS_NAME"];
-    NSString *gtkMenuPath = [MenuUtils getWindowProperty:windowId atomName:@"_GTK_MENUBAR_OBJECT_PATH"];
-    if (gtkService && gtkMenuPath) {
-        id intro = [bus callMethod:@"Introspect"
-                         onService:gtkService
-                        objectPath:gtkMenuPath
-                         interface:@"org.freedesktop.DBus.Introspectable"
-                         arguments:nil];
-        if ([intro isKindOfClass:[NSString class]] &&
-            [(NSString *)intro containsString:@"org.gtk.Menus"]) {
-            return YES;
-        }
-    }
-
-    return NO;
+    // If the window advertises standard menu-support X11 properties it will
+    // register its menu over D-Bus very shortly.  The X11 property checks in
+    // windowIndicatesMenuSupport: already require BOTH the service name AND the
+    // object/menu path to be set, which is sufficient evidence that the menu
+    // will arrive.  Performing additional blocking D-Bus Introspect calls here
+    // would stall the main thread for up to 500 ms per window switch.
+    return [MenuUtils windowIndicatesMenuSupport:windowId];
 }
 
 // Always display a menu with at least the system ⌘ item, even when no application menu is available.
@@ -703,23 +664,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         appName = nil;
     }
 
-    // Verify the application still has at least one visible window before showing its menu
     if (appName && [appName length] > 0) {
-        BOOL appHasWindows = NO;
-        NSDictionary *windowApps = [MenuUtils getAllVisibleWindowApplications];
-        for (NSString *visibleApp in [windowApps allValues]) {
-            if ([visibleApp isEqualToString:appName]) {
-                appHasWindows = YES;
-                break;
-            }
-        }
-
-        if (!appHasWindows) {
-            NSLog(@"AppMenuWidget: Application %@ has no visible windows - not displaying its menu", appName);
-            [self clearMenuAndHideView];
-            return;
-        }
-
         self.currentApplicationName = appName;
         NSLog(@"AppMenuWidget: Window %lu belongs to application: %@", windowId, appName);
     }
@@ -928,15 +873,12 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
         [nc addObserver:self selector:@selector(systemMenuDidBeginTracking:) name:NSMenuDidBeginTrackingNotification object:systemMenu];
 
-        // Populate once now so items show up immediately; we'll also repopulate when opened/tracked
-        [self menuNeedsUpdate:systemMenu];
-        // Log what we added for debugging
-        NSArray *sysItems = [self.systemMenu itemArray];
-        NSMutableArray *titles = [NSMutableArray array];
-        for (NSMenuItem *mi in sysItems) {
-            [titles addObject:[mi title]];
-        }
-        NSDebugLog(@"AppMenuWidget: System submenu initially has %lu items", (unsigned long)[sysItems count]);
+        // Defer the initial filesystem scan (app-list population) to the next run-loop
+        // cycle so that menu display is not blocked.  When the user actually opens the
+        // ⌘ menu the systemMenuDidBeginTracking: handler will also trigger a refresh.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self menuNeedsUpdate:systemMenu];
+        });
 
         
         [systemItem setSubmenu:systemMenu];

@@ -96,19 +96,17 @@ static NSUInteger _rapidDbusNotificationCount = 0;
 
     NSDebugLog(@"MenuController: DBus file descriptor reported data available");
     
-    // Lock the menu window from redrawing during DBus processing to prevent flashing
-    [self.menuBar disableFlushWindow];
-    
+    // Process D-Bus messages.  Do NOT flush the window here — the run-loop's
+    // normal redraw cycle (triggered by setNeedsDisplay calls from menu handlers)
+    // is sufficient and much cheaper than forcing an explicit XFlush on every
+    // D-Bus fd notification.  Doing so was causing ~100 flush operations per
+    // burst of menu-update signals after window switches, keeping the main
+    // thread busy for several seconds.
     @try {
         [[MenuProtocolManager sharedManager] processDBusMessages];
     }
     @catch (NSException *exception) {
         NSLog(@"MenuController: Exception processing DBus messages: %@", exception);
-    }
-    @finally {
-        // Re-enable window drawing and flush all pending updates at once
-        [self.menuBar enableFlushWindow];
-        [self.menuBar flushWindow];
     }
 
     // Re-arm the watcher so we continue receiving notifications
