@@ -876,11 +876,15 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         // Defer the initial filesystem scan (app-list population) to the next run-loop
         // cycle so that menu display is not blocked.  When the user actually opens the
         // ⌘ menu the systemMenuDidBeginTracking: handler will also trigger a refresh.
+        // Use a strong local capture so the block keeps the menu alive regardless of
+        // whether self.systemMenu is replaced before the block runs.
+        NSMenu *capturedSystemMenu = systemMenu;
+        __weak typeof(self) weakSelf = self;
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self menuNeedsUpdate:systemMenu];
+            typeof(self) strongSelf = weakSelf;
+            if (strongSelf) [strongSelf menuNeedsUpdate:capturedSystemMenu];
         });
 
-        
         [systemItem setSubmenu:systemMenu];
         
         // Insert at the beginning of the menu
