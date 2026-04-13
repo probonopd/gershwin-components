@@ -10,8 +10,6 @@
 #import "MenuProtocolManager.h"
 #import "MenuUtils.h"
 #import "X11ShortcutManager.h"
-#import "GTKActionHandler.h"
-#import "DBusMenuActionHandler.h"
 #import "DBusConnection.h"
 #import "ActionSearch.h"
 #import <X11/Xlib.h>
@@ -805,9 +803,14 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     }
     
     NSDebugLLog(@"gwcomp", @"AppMenuWidget: ===== LOADING MENU FROM PROTOCOL MANAGER =====");
-    NSDebugLLog(@"gwcomp", @"AppMenuWidget: This is where AboutToShow events should be triggered for submenus");
 
-    // Get the menu from protocol manager for registered windows
+    /* The DBus/Canonical and org.gtk.Menus importers are gone. The only
+       remaining live path is GNUStepMenuImporter, which receives menus
+       pushed via Distributed Objects from pkgwrap's runtime menu-stub
+       sidecar (one per wrapped X11 app) and from any future GNUstep
+       client. GNUstep apps themselves no longer go through this path —
+       MenuController.activeWindowChangedNotification: short-circuits them
+       so they draw their own bar. */
     NSMenu *menu = nil;
     @try {
         menu = [self.protocolManager getMenuForWindow:windowId];

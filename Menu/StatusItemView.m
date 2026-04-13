@@ -57,8 +57,10 @@
 
     NSRect bounds = [self bounds];
 
-    /* Transparent background — the MenuBarView provides the actual background */
-    [[NSColor clearColor] set];
+    /* Match the bar's opaque background (0.992,0.992,0.992,1.0) so each
+     * status item sits on the same colour as MenuBarView and the slot,
+     * eliminating per-item color stripes. */
+    [[NSColor colorWithCalibratedRed:0.992 green:0.992 blue:0.992 alpha:1.0] set];
     NSRectFill(bounds);
 
     /* Optional highlight on mouse-down */

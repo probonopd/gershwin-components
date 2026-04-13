@@ -8,7 +8,8 @@
 #import "MenuApplication.h"
 #import "MenuController.h"
 #import "X11ShortcutManager.h"
-#import "DBusMenuParser.h"
+/* DBusMenuParser.h removed: the canonical/dbusmenu importer was deleted
+ * in the macOS-model menu refactor. Cleanup hooks below are now no-ops. */
 #import "DBusConnection.h"
 #import "CustomMenuPanel.h"
 #import "ActionSearch.h"
@@ -35,7 +36,7 @@ static void cleanup_on_exit(void)
     
     @try {
         [[X11ShortcutManager sharedManager] cleanup];
-        [DBusMenuParser cleanup];
+        /* [DBusMenuParser cleanup] removed: parser deleted in refactor. */
     } @catch (NSException *exception) {
         NSDebugLLog(@"gwcomp", @"Menu.app: Exception during atexit cleanup: %@", exception);
     }
@@ -66,7 +67,7 @@ static void signalHandler(int sig)
     @try {
         // Clean up global shortcuts
         [[X11ShortcutManager sharedManager] cleanup];
-        [DBusMenuParser cleanup];
+        /* [DBusMenuParser cleanup] removed: parser deleted in refactor. */
     } @catch (NSException *exception) {
         NSDebugLLog(@"gwcomp", @"Menu.app: Exception during signal cleanup: %@", exception);
     }
@@ -440,7 +441,7 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
         // Ensure global shortcuts are cleaned up before termination
         NSDebugLLog(@"gwcomp", @"MenuApplication: Cleaning up global shortcuts...");
         [[X11ShortcutManager sharedManager] cleanup];
-        [DBusMenuParser cleanup];
+        /* [DBusMenuParser cleanup] removed: parser deleted in refactor. */
         
         NSDebugLLog(@"gwcomp", @"MenuApplication: Graceful cleanup completed");
     } @catch (NSException *exception) {

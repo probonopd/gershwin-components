@@ -14,7 +14,15 @@
     self = [super initWithFrame:frameRect];
     if (self) {
         // Use the theme's menubar background color instead of hardcoded values
-        self.backgroundColor = [[GSTheme theme] menuItemBackgroundColor];
+        /* Hardcode the same RGBA (0.992,0.992,0.992,1.0) Eau's slot fill
+         * uses. The dynamic theme lookup was being run before Eau had
+         * finished registering the GSTheme category methods, so the
+         * respondsToSelector branch returned NO and we fell back to the
+         * alpha-0.95 colour, producing the visible seam. */
+        self.backgroundColor = [NSColor colorWithCalibratedRed:0.992
+                                                          green:0.992
+                                                           blue:0.992
+                                                          alpha:1.0];
         _cachedBackgroundColor = self.backgroundColor;
         _needsRedraw = YES;
     }

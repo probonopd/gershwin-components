@@ -23,16 +23,7 @@ Menu_OBJC_FILES = \
 	AppMenuWidget.m \
 	MenuProtocolManager.m \
 	GNUStepMenuImporter.m \
-	DBusMenuImporter.m \
-	GTKMenuImporter.m \
-	DBusMenuParser.m \
-	GTKMenuParser.m \
-	DBusMenuShortcutParser.m \
 	GNUStepMenuActionHandler.m \
-	DBusMenuActionHandler.m \
-	GTKActionHandler.m \
-	DBusSubmenuManager.m \
-	GTKSubmenuManager.m \
 	DBusConnection.m \
 	MenuUtils.m \
 	X11ShortcutManager.m \
@@ -42,7 +33,6 @@ Menu_OBJC_FILES = \
 	StatusItemsView.m \
 	StatusItemView.m \
 	WindowMonitor.m \
-	AppMenuImporter.m \
 	StatusItems/TimeDisplay/TimeDisplayProvider.m \
 	StatusItems/SystemMonitor/SystemMonitorProvider.m
 
@@ -56,16 +46,7 @@ Menu_HEADER_FILES = \
 	MenuProtocolManager.h \
 	GNUStepMenuIPC.h \
 	GNUStepMenuImporter.h \
-	DBusMenuImporter.h \
-	GTKMenuImporter.h \
-	DBusMenuParser.h \
-	GTKMenuParser.h \
-	DBusMenuShortcutParser.h \
 	GNUStepMenuActionHandler.h \
-	DBusMenuActionHandler.h \
-	GTKActionHandler.h \
-	DBusSubmenuManager.h \
-	GTKSubmenuManager.h \
 	DBusConnection.h \
 	MenuUtils.h \
 	X11ShortcutManager.h \
@@ -75,8 +56,7 @@ Menu_HEADER_FILES = \
 	StatusItemManager.h \
 	StatusItemsView.h \
 	StatusItemView.h \
-	WindowMonitor.h \
-	AppMenuImporter.h
+	WindowMonitor.h
 
 # Resources
 Menu_RESOURCE_FILES = \

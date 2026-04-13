@@ -9,8 +9,6 @@
 #import "MenuBarView.h"
 #import "AppMenuWidget.h"
 #import "MenuProtocolManager.h"
-#import "DBusMenuImporter.h"
-#import "GTKMenuImporter.h"
 #import "GNUStepMenuImporter.h"
 #import "RoundedCornersView.h"
 #import "X11ShortcutManager.h"
@@ -20,9 +18,14 @@
 #import "StatusItemsView.h"
 #import "StatusItemView.h"
 #import "WindowMonitor.h"
-#import "AppMenuImporter.h"
+/* AppMenuImporter and the DBus / GTK menu importers were deleted in the
+ * macOS-model menu refactor. Only GNUStepMenuImporter remains; it is the
+ * receive-side of pkgwrap's runtime menu-stub sidecar (and any future
+ * GNUstep client). */
 #import "GNUstepGUI/GSTheme.h"
 #import <X11/Xlib.h>
+#import <X11/Xatom.h>
+#import <GNUstepGUI/GSDisplayServer.h>
 #import <X11/Xatom.h>
 #import <X11/Xutil.h>
 #import <sys/select.h>
@@ -184,8 +187,14 @@ static NSUInteger _rapidDbusNotificationCount = 0;
 
 - (NSColor *)backgroundColor
 {
-    NSColor *color = [[GSTheme theme] menuItemBackgroundColor];
-    return color;
+    /* Match Eau's slot panel fill exactly. Eau provides
+     * -menuBarBackgroundColor at alpha 1.0 so the slot and our bar's
+     * left/right strips render to identical pixels — no seam. */
+    GSTheme *theme = [GSTheme theme];
+    if ([theme respondsToSelector:@selector(menuBarBackgroundColor)]) {
+        return [(id)theme menuBarBackgroundColor];
+    }
+    return [theme menuItemBackgroundColor];
 }
 
 - (NSColor *)transparentColor
@@ -353,11 +362,61 @@ static NSUInteger _rapidDbusNotificationCount = 0;
     NSDebugLLog(@"gwcomp", @"MenuController: Menu bar repositioned successfully");
 }
 
+/* Advertise the slot rect (in X11 screen coords, top-left origin) where
+ * each GNUstep app should draw its NSMacintoshInterfaceStyle top-strip
+ * menu. Eau's modifyRect:forMenu:isHorizontal: reads this property and
+ * narrows libs-gui's panel frame to fit. We also lower our own bar one
+ * level so the app's panel naturally appears above us inside the slot
+ * region — outside the slot (left = command area, right = status items)
+ * we remain visible. */
+- (void)_advertiseMenuSlot
+{
+    NSWindow *bar = self.menuBar;
+    if (!bar) return;
+    GSDisplayServer *server = GSServerForWindow(bar);
+    if (!server) return;
+    Display *dpy = (Display *)[server serverDevice];
+    if (!dpy) return;
+    Window root = DefaultRootWindow(dpy);
+
+    Atom geomAtom = XInternAtom(dpy, "_GERSHWIN_MENU_SLOT_GEOMETRY", False);
+
+    /* Use screen rect of the bar so apps don't need to know our internal
+     * layout. Slot is the middle of the bar; reserve space on left and
+     * right. Coords are X11 (top-left origin). */
+    NSRect barFrame = [bar frame];
+    CGFloat screenH = [[NSScreen mainScreen] frame].size.height;
+    /* Reserve only enough on the LEFT for the command/Apple icon; slot
+     * starts immediately after it so the app's menu items appear right
+     * next to the icon (macOS layout). 280 px on the RIGHT for the
+     * status items / clock. */
+    long reservedLeft  = 40;
+    long reservedRight = 280;
+    long slotWidth = (long)barFrame.size.width - reservedLeft - reservedRight;
+    if (slotWidth < 200) slotWidth = 200;
+    long geom[4];
+    geom[0] = (long)barFrame.origin.x + reservedLeft;
+    geom[1] = (long)(screenH - (barFrame.origin.y + barFrame.size.height));
+    geom[2] = slotWidth;
+    geom[3] = (long)barFrame.size.height;
+    XChangeProperty(dpy, root, geomAtom, XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)geom, 4);
+    XFlush(dpy);
+    NSLog(@"MenuController: Advertised menu slot at screen (%ld, %ld, %ld, %ld)",
+          geom[0], geom[1], geom[2], geom[3]);
+
+    /* Lower our bar one level below NSMainMenuWindowLevel so each app's
+     * NSMenuPanel (created at NSMainMenuWindowLevel by libs-gui under
+     * Macintosh style) naturally sits above us in the slot region. */
+    [bar setLevel:NSMainMenuWindowLevel - 1];
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
     NSDebugLLog(@"gwcomp", @"MenuController: Application did finish launching");
-    
+
     [self.menuBar orderFront:self];
+    [self _advertiseMenuSlot];
     [self setupWindowMonitoring];
     
     NSDebugLLog(@"gwcomp", @"MenuController: Application setup complete");
@@ -703,16 +762,16 @@ static NSUInteger _rapidDbusNotificationCount = 0;
     NSDebugLLog(@"gwcomp", @"MenuController: Creating MenuProtocolManager...");
     self.protocolManager = [MenuProtocolManager sharedManager];
     
-    // Register both Canonical and GTK protocol handlers
+    /* Only the GNUstep handler remains. The Canonical (com.canonical.dbusmenu)
+     * and GTK (org.gtk.Menus) live-IPC paths were deleted; their bug
+     * surface (stale validation, broken action dispatch, registrar wedges,
+     * etc.) was the original motivation for this refactor. Apps wrapped
+     * by pkgwrap continue to work via pkgwrap-menu-stub which speaks the
+     * GSGNUstepMenuServer DO protocol implemented by GNUStepMenuImporter. */
     GNUStepMenuImporter *gnustepHandler = [[GNUStepMenuImporter alloc] init];
-    DBusMenuImporter *canonicalHandler = [[DBusMenuImporter alloc] init];
-    GTKMenuImporter *gtkHandler = [[GTKMenuImporter alloc] init];
-    
     [self.protocolManager registerProtocolHandler:gnustepHandler forType:MenuProtocolTypeGNUstep];
-    [self.protocolManager registerProtocolHandler:canonicalHandler forType:MenuProtocolTypeCanonical];
-    [self.protocolManager registerProtocolHandler:gtkHandler forType:MenuProtocolTypeGTK];
-    
-    NSDebugLLog(@"gwcomp", @"MenuController: Registered GNUstep, Canonical, and GTK protocol handlers");
+
+    NSDebugLLog(@"gwcomp", @"MenuController: Registered GNUstep protocol handler");
     NSDebugLLog(@"gwcomp", @"MenuController: createProtocolManager COMPLETED");
 }
 
@@ -787,11 +846,23 @@ static NSUInteger _rapidDbusNotificationCount = 0;
 
     NSNumber *windowIdNum = notification.userInfo[@"windowId"];
     unsigned long windowId = windowIdNum ? [windowIdNum unsignedLongValue] : 0;
-    
+
     // Check if the focus changed to the Menu application itself.
     // If so, we ignore the change to keep the previous application's menu visible.
     if (windowId != 0 && [NSApp windowWithWindowNumber:windowId] != nil) {
         NSDebugLLog(@"gwcomp", @"MenuController: Focus changed to Menu app window (0x%lx) - ignoring to preserve current menu", windowId);
+        return;
+    }
+
+    /* Slot-bar architecture: GNUstep apps draw their menu items inside the
+       advertised slot via libs-gui's NSMacintoshInterfaceStyle. Menu.app's
+       bar shows only the app icon (left) and status items (right). To
+       avoid drawing the same menu twice, blank AppMenuWidget's slot
+       region whenever the active window is a GNUstep window. */
+    if (windowId != 0 && [self.windowMonitor isGNUstepWindow:windowId]) {
+        [self.appMenuWidget clearMenuAndHideView];
+        self.lastProcessedWindowId = windowId;
+        self.lastProcessedTime = [[NSDate date] timeIntervalSince1970];
         return;
     }
 

@@ -73,15 +73,20 @@
 
 - (void)drawRect:(NSRect)dirtyRect
 {
-    /* Transparent — the MenuBarView background shows through */
+    /* Fill with the same opaque RGBA Eau's slot panel and MenuBarView use
+     * (0.992,0.992,0.992,1.0). Previously this filled with clearColor and
+     * relied on MenuBarView's background to show through, but
+     * MenuBarView's drawRect cache skipped repainting under partial
+     * dirty rects, exposing the NSWindow background instead — visible as
+     * a darker stripe on the right of the bar. */
     (void)dirtyRect;
-    [[NSColor clearColor] set];
+    [[NSColor colorWithCalibratedRed:0.992 green:0.992 blue:0.992 alpha:1.0] set];
     NSRectFill([self bounds]);
 }
 
 - (BOOL)isOpaque
 {
-    return NO;
+    return YES;
 }
 
 @end
