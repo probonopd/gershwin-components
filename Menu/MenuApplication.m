@@ -81,7 +81,10 @@ static void cleanup_on_exit(void)
 id menu_drawRectWithoutBottomLine(id self, SEL _cmd, NSRect dirtyRect);
 
 @interface MenuApplication ()
-@property (nonatomic, strong) NSMutableArray *terminationSignalSources;
+{
+    dispatch_source_t terminationSignalSources[3];
+    NSUInteger terminationSignalSourceCount;
+}
 - (void)installGracefulTerminationSignals;
 - (void)installTerminationSourceForSignal:(int)sig name:(NSString *)name;
 - (void)handleTerminationSignal:(int)sig;
@@ -357,7 +360,7 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
         NSDebugLLog(@"gwcomp", @"MenuApplication: SIGALRM handler installed");
     }
     
-    self.terminationSignalSources = [NSMutableArray array];
+    terminationSignalSourceCount = 0;
     [self installTerminationSourceForSignal:SIGTERM name:@"SIGTERM"];
     [self installTerminationSourceForSignal:SIGINT name:@"SIGINT"];
     [self installTerminationSourceForSignal:SIGHUP name:@"SIGHUP"];
@@ -390,7 +393,9 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
         [strongSelf handleTerminationSignal:sig];
     });
     dispatch_resume(source);
-    [self.terminationSignalSources addObject:(__bridge id)source];
+    if (terminationSignalSourceCount < 3) {
+        terminationSignalSources[terminationSignalSourceCount++] = source;
+    }
 
     NSDebugLLog(@"gwcomp", @"MenuApplication: %@ dispatch source registered", name);
 }
