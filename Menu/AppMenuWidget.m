@@ -632,6 +632,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [sysMenu addItem:[NSMenuItem separatorItem]];
 
         self.systemMenu = sysMenu;
+        self.systemMenuPopulatedFromCache = NO;
         [sysMenu setDelegate:self];
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(systemMenuDidBeginTracking:)
@@ -852,7 +853,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 {
     NSMenu *menu = (NSMenu *)[note object];
     if (menu != self.systemMenu) return;
-    [self menuNeedsUpdate:self.systemMenu];
+    [self populateSystemMenu];
 }
 
 - (void)menuWillOpen:(NSMenu *)menu
@@ -862,11 +863,25 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
 - (void)menuNeedsUpdate:(NSMenu *)menu
 {
-    if (menu != self.systemMenu) return;
+    /* The system ⌘ submenu is populated lazily by systemMenuDidBeginTracking:
+       (only when the user clicks ⌘).  We must NOT populate it here because
+       GNUstep calls menuNeedsUpdate: on every run-loop cycle for every
+       submenu that has a delegate.  Populating 161+ app-bundle items here
+       would trigger FcFontSort per item and spin the CPU for seconds. */
+    (void)menu;
+}
+
+- (void)populateSystemMenu
+{
+    NSMenu *menu = self.systemMenu;
+    if (!menu) return;
 
     /* Use cached app list if fresh enough. */
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
     BOOL cacheValid = (self.cachedAppBundleList && (now - self.cachedAppBundleListTime) < SYSTEM_MENU_CACHE_TTL);
+
+    /* Already populated with current cache — skip. */
+    if (cacheValid && self.systemMenuPopulatedFromCache) return;
 
     /* Find insertion point (after "System Preferences" + separator). */
     NSArray *items = [menu itemArray];
@@ -911,6 +926,8 @@ static int handleX11Error(Display *display, XErrorEvent *event)
                                                       action:nil keyEquivalent:@""];
     [appsItem setSubmenu:appsSubmenu];
     [menu insertItem:appsItem atIndex:startIndex];
+
+    self.systemMenuPopulatedFromCache = YES;
 }
 
 - (NSArray *)scanApplicationBundles

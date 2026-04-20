@@ -32,6 +32,7 @@
 /* Cached list of .app bundles for the system submenu (rebuilt at most every 30s) */
 @property (nonatomic, strong) NSArray *cachedAppBundleList;
 @property (nonatomic, assign) NSTimeInterval cachedAppBundleListTime;
+@property (nonatomic, assign) BOOL systemMenuPopulatedFromCache;
 
 /* Coalescing timer for window focus changes */
 @property (nonatomic, strong) NSTimer *coalesceTimer;
