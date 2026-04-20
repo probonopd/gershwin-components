@@ -1,0 +1,168 @@
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
+include $(GNUSTEP_MAKEFILES)/common.make
+
+PACKAGE_NAME = Menu
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
+VERSION = 1.0
+APP_NAME = Menu
+
+# Ensure internal GNUstep install uses the canonical CoreServices path.
+# This sets APP_INSTALL_DIR in $(GNUSTEP_MAKEFILES)/Instance/application.make
+Menu_INSTALL_DIR = /System/Library/CoreServices/Applications
+
+# App info
+Menu_APPLICATION_ICON = Menu.png
+Menu_PRINCIPAL_CLASS = MenuApplication
+
+# Source files
+Menu_OBJC_FILES = \
+	main.m \
+	MenuApplication.m \
+	MenuController.m \
+	MenuProfiler.m \
+	MenuBarView.m \
+	CustomMenuPanel.m \
+	AppMenuWidget.m \
+	MenuProtocolManager.m \
+	CrashHandler.m \
+	GNUStepMenuImporter.m \
+	DBusMenuImporter.m \
+	GTKMenuImporter.m \
+	DBusMenuParser.m \
+	GTKMenuParser.m \
+	DBusMenuShortcutParser.m \
+	GNUStepMenuActionHandler.m \
+	DBusMenuActionHandler.m \
+	GTKActionHandler.m \
+	DBusSubmenuManager.m \
+	GTKSubmenuManager.m \
+	DBusConnection.m \
+	MenuUtils.m \
+	X11ShortcutManager.m \
+	RoundedCornersView.m \
+	ActionSearch.m \
+	StatusItemManager.m \
+	StatusItemsView.m \
+        StatusItemView.m \
+	WindowMonitor.m \
+	AppMenuImporter.m \
+	WindowSwitchContext.m \
+	StatusItems/TimeDisplay/TimeDisplayProvider.m \
+	StatusItems/SystemMonitor/SystemMonitorProvider.m
+
+# Header files
+Menu_HEADER_FILES = \
+	MenuApplication.h \
+	MenuProfiler.h \
+	MenuController.h \
+	MenuBarView.h \
+	CustomMenuPanel.h \
+	AppMenuWidget.h \
+	MenuProtocolManager.h \
+	CrashHandler.h \
+	GNUStepMenuIPC.h \
+	GNUStepMenuImporter.h \
+	DBusMenuImporter.h \
+	GTKMenuImporter.h \
+	DBusMenuParser.h \
+	GTKMenuParser.h \
+	DBusMenuShortcutParser.h \
+	GNUStepMenuActionHandler.h \
+	DBusMenuActionHandler.h \
+	GTKActionHandler.h \
+	DBusSubmenuManager.h \
+	GTKSubmenuManager.h \
+	DBusConnection.h \
+	MenuUtils.h \
+	X11ShortcutManager.h \
+	RoundedCornersView.h \
+	ActionSearch.h \
+	StatusItemProvider.h \
+	StatusItemManager.h \
+	StatusItemsView.h \
+        StatusItemView.h \
+	WindowMonitor.h \
+	AppMenuImporter.h \
+	WindowSwitchContext.h
+
+# Resources
+Menu_RESOURCE_FILES = \
+	Menu.png \
+	Info.plist
+
+
+# Libraries and frameworks - configured by configure script
+Menu_TOOL_LIBS += -ldbus-1 -lX11
+Menu_GUI_LIBS += -L/System/Library/Libraries -lgnustep-gui -lgnustep-base -lobjc -ldispatch
+Menu_LDFLAGS += -Wl,--export-dynamic -L/System/Library/Libraries -Wl,-rpath,/System/Library/Libraries -Wl,--no-as-needed
+
+# Compiler flags - Force use of /System GNUstep and objc2 with ARC
+
+# Platform-specific flags for Linux and BSD - configured by configure script
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_GNU_SOURCE
+	ADDITIONAL_CPPFLAGS =  -I/usr/include/dbus-1.0 -I/usr/lib/aarch64-linux-gnu/dbus-1.0/include
+endif
+ifeq ($(UNAME_S),FreeBSD)
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE
+	ADDITIONAL_CPPFLAGS =  -I/usr/include/dbus-1.0 -I/usr/lib/aarch64-linux-gnu/dbus-1.0/include
+endif
+
+# Profiling: build with  make PROFILE=1  to enable CPU instrumentation.
+# When enabled, a summary is printed every 10s and on SIGUSR1.
+ifeq ($(PROFILE),1)
+ADDITIONAL_OBJCFLAGS += -DMENU_PROFILING=1
+endif
+
+# Canonical install location for Menu.app
+INSTALL_APPS_DIR = /System/Library/CoreServices/Applications
+
+include $(GNUSTEP_MAKEFILES)/application.make
+
+# Custom install target that completely overrides built-in behavior
+.PHONY: custom-install custom-uninstall
+
+install:: custom-install
+
+custom-install: $(APP_NAME).app
+	@echo "Building status item bundles..."
+	@(cd StatusItems/SystemMonitor && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
+	@(cd StatusItems/TimeDisplay && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
+	@echo "Status item bundles built successfully"
+	@if [ -n "$(DESTDIR)" ]; then \
+		echo "Installing $(APP_NAME) to $(DESTDIR)$(INSTALL_APPS_DIR)"; \
+		rm -rf $(DESTDIR)/System/Applications/$(APP_NAME).app || true; \
+		rm -rf $(DESTDIR)/System/CoreServices/Applications/$(APP_NAME).app || true; \
+		rm -rf $(DESTDIR)/System/Library/CoreServices/Applications/$(APP_NAME).app || true; \
+		mkdir -p $(DESTDIR)$(INSTALL_APPS_DIR); \
+		cp -R $(APP_NAME).app $(DESTDIR)$(INSTALL_APPS_DIR)/; \
+		mkdir -p $(DESTDIR)$(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources; \
+		cp Menu.png $(DESTDIR)$(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources/; \
+		echo "Installing status item bundles..."; \
+		mkdir -p $(DESTDIR)/System/Library/Menu/StatusItems; \
+		cp -R StatusItems/SystemMonitor/SystemMonitor.bundle $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
+		cp -R StatusItems/TimeDisplay/TimeDisplay.bundle $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
+	else \
+		echo "Installing $(APP_NAME) to $(INSTALL_APPS_DIR)"; \
+		rm -rf $(GNUSTEP_SYSTEM_APPS)/$(APP_NAME).app || true; \
+		mkdir -p $(INSTALL_APPS_DIR); \
+		cp -R $(APP_NAME).app $(INSTALL_APPS_DIR)/; \
+		mkdir -p $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources; \
+		cp Menu.png $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources/; \
+			echo "Installing status item bundles..."; \
+			mkdir -p /System/Library/Menu/StatusItems; \
+			cp -R StatusItems/SystemMonitor/SystemMonitor.bundle /System/Library/Menu/StatusItems/ || true; \
+			cp -R StatusItems/TimeDisplay/TimeDisplay.bundle /System/Library/Menu/StatusItems/ || true; \
+	fi
+# Override uninstall target to properly support DESTDIR and PREFIX
+uninstall:: custom-uninstall
+
+custom-uninstall:
+	@if [ -n "$(DESTDIR)" ]; then \
+		echo "Uninstalling $(APP_NAME) from $(DESTDIR)$(INSTALL_APPS_DIR)"; \
+		rm -rf $(DESTDIR)$(INSTALL_APPS_DIR)/$(APP_NAME).app; \
+	else \
+		echo "Uninstalling $(APP_NAME) from $(INSTALL_APPS_DIR)"; \
+		rm -rf $(INSTALL_APPS_DIR)/$(APP_NAME).app; \
+	fi

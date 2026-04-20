@@ -57,8 +57,6 @@
 @end
 
 @interface MenuController ()
-- (void)scheduleDelayedActiveWindowReconcileForWindowId:(unsigned long)windowId;
-- (void)performDelayedActiveWindowReconcile:(NSTimer *)timer;
 @end
 
 @implementation MenuController
@@ -77,8 +75,6 @@ static NSUInteger _rapidDbusNotificationCount = 0;
 #define DBUS_MIN_NOTIFICATION_INTERVAL 0.005   // 5ms minimum gap
 #define DBUS_RAPID_FIRE_THRESHOLD 100          // number of rapid fires before back-off
 #define DBUS_BACKOFF_INTERVAL 0.1              // 100ms cooldown after rapid fire
-#define ACTIVE_WINDOW_RECONCILE_DELAY 0.06     // 60ms delayed settle check
-#define ACTIVE_WINDOW_RECONCILE_RETRY_DELAY 0.12 // 120ms one-shot retry if still mismatched
 
 - (void)dbusFileDescriptorReady:(NSNotification *)notification {
     MENU_PROFILE_BEGIN(dbusFileDescriptorReady);
@@ -206,8 +202,6 @@ static NSUInteger _rapidDbusNotificationCount = 0;
     if (self) {
         // Initialize trailing-edge debounce properties to prevent infinite loops
         self.lastActiveWindowScanTime = 0;
-        self.pendingReconcileWindowId = 0;
-        self.activeWindowReconcileRetryCount = 0;
         
         // Initialize window monitor
         self.windowMonitor = [WindowMonitor sharedMonitor];
@@ -648,11 +642,6 @@ static NSUInteger _rapidDbusNotificationCount = 0;
     [self.windowMonitor stopMonitoring];
     self.windowMonitor = nil;
 
-    if (self.activeWindowReconcileTimer) {
-        [self.activeWindowReconcileTimer invalidate];
-        self.activeWindowReconcileTimer = nil;
-    }
-    
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     
     [[MenuProtocolManager sharedManager] cleanup];
@@ -986,7 +975,7 @@ static NSUInteger _rapidDbusNotificationCount = 0;
 
     // Start watchdog timer to validate active window and clear menus for closed windows
     // Use a conservative interval since event-driven WindowMonitor handles real-time changes
-    self.windowValidationTimer = [NSTimer scheduledTimerWithTimeInterval:2.0
+    self.windowValidationTimer = [NSTimer scheduledTimerWithTimeInterval:5.0
                                                                   target:self
                                                                 selector:@selector(windowValidationTick:)
                                                                 userInfo:nil
@@ -999,228 +988,45 @@ static NSUInteger _rapidDbusNotificationCount = 0;
 {
     MENU_PROFILE_BEGIN(activeWindowChangedNotification);
 
-    NSNumber *lostIdNum = notification.userInfo[@"lostWindowId"];
-    // When a window is lost, don't directly clear the menu.
-    // Instead, route through the normal updateForActiveWindowId: path which has:
-    // - Grace period logic (preserves menu while new window registers)
-    // - Reconcile scheduling (validates focus state at settle time)
-    // - Pending state tracking (coherent async update model)
-    // The notification will typically also contain the new active windowId,
-    // which the normal path will process correctly.
-    // See: https://github.com/gershwin-components/gershwin-components/issues/XXX
-
-    // NOTE: We no longer check isWindowMapped here for the currently shown window.
-    // The windowValidationTick watchdog (every 2s) handles stale-window cleanup with
-    // better logic (preserves menu if window IS the active window).
-    // Doing it here caused a tight loop: XGetWindowAttributes failure on a shared
-    // X11 Display (thread-safety issue) was misinterpreted as "unmapped", which cleared
-    // the menu, which triggered a full re-import on the next notification.
-    // See windowValidationTick: for the proper stale-window check.
-
     NSNumber *windowIdNum = notification.userInfo[@"windowId"];
     unsigned long windowId = windowIdNum ? [windowIdNum unsignedLongValue] : 0;
 
-    // Fast-path dedup: if we already processed this exact window and still show a valid
-    // menu for it, avoid re-running the full update path.
-    // EXCEPTION: If we just came from a "no window" state (modal dialog closed), we must
-    // invalidate the cached menu to avoid showing stale state. This handles:
-    // - Opening "About This Computer" in Workspace then closing it (goes to no-window,
-    //   then back to same window ID)
-    // - Other modal/transient window scenarios
-    //
-    // Track: if windowId is 0, set lastWindowStateWasZero = true
+    /* Track no-window → window transitions for modal recovery. */
     if (windowId == 0) {
         self.lastWindowStateWasZero = YES;
     }
-    
-    // Skip dedup if we just transitioned from zero to non-zero (modal recovery)
     BOOL justRecoveredFromModal = self.lastWindowStateWasZero && windowId != 0;
     if (justRecoveredFromModal) {
-        NSLog(@"[RECOVER-FROM-MODAL] transitioning from no-window to 0x%lx - invalidating dedup cache", windowId);
-        self.lastWindowStateWasZero = NO;  // Reset for next time
+        self.lastWindowStateWasZero = NO;
     }
-    
-    if (windowId != 0 && !justRecoveredFromModal && !lostIdNum && windowId == self.lastProcessedWindowId && 
-        self.appMenuWidget && self.appMenuWidget.currentWindowId == windowId && 
+
+    /* Fast-path dedup: same window, menu still valid, not recovering from modal. */
+    if (windowId != 0 && !justRecoveredFromModal &&
+        windowId == self.lastProcessedWindowId &&
+        self.appMenuWidget && self.appMenuWidget.currentWindowId == windowId &&
         self.appMenuWidget.currentMenu != nil && self.appMenuWidget.menuView != nil &&
-        ![self.appMenuWidget.menuView isHidden] &&
-        [self.appMenuWidget.menuView menu] == self.appMenuWidget.currentMenu) {
-        NSLog(@"[DEDUP-SKIP] win=0x%lx same window & menu OK — no update", windowId);
-        MENU_PROFILE_END(activeWindowChangedNotification);
-        return;
-    }
-    
-    // Check if the focus changed to the Menu application itself.
-    // If so, we ignore the change to keep the previous application's menu visible.
-    MENU_PROFILE_BEGIN(activeWindowChangedNotificationMenuWindowCheck);
-    NSWindow *menuWindow = nil;
-    if (windowId != 0) {
-        menuWindow = [NSApp windowWithWindowNumber:windowId];
-    }
-    MENU_PROFILE_END(activeWindowChangedNotificationMenuWindowCheck);
-    if (menuWindow != nil) {
-        NSDebugLLog(@"gwcomp", @"MenuController: Focus changed to Menu app window (0x%lx) - ignoring to preserve current menu", windowId);
+        ![self.appMenuWidget.menuView isHidden]) {
+        NSDebugLLog(@"gwcomp", @"MenuController: [DEDUP-SKIP] win=0x%lx same window & menu OK", windowId);
         MENU_PROFILE_END(activeWindowChangedNotification);
         return;
     }
 
-    // Removed probe-only PID lookup block: expensive and not used for behavior.
+    /* Ignore focus on Menu.app itself. */
+    if (windowId != 0 && [NSApp windowWithWindowNumber:windowId] != nil) {
+        MENU_PROFILE_END(activeWindowChangedNotification);
+        return;
+    }
 
     self.lastProcessedWindowId = windowId;
     self.lastProcessedTime = [[NSDate date] timeIntervalSince1970];
 
-    // Always use updateForActiveWindowId - it has proper anti-flicker handling
-    // including grace periods for windowId == 0 (transient no-window states)
-    NSDebugLLog(@"gwcomp", @"MenuController: Active window changed (notification) to 0x%lx", windowId);
-
+    /* Forward to AppMenuWidget's coalescing update path.
+       The widget handles all timing, retry, and dedup internally. */
     if (self.appMenuWidget) {
-        MENU_PROFILE_BEGIN(activeWindowChangedNotificationWidgetUpdate);
         [self.appMenuWidget updateForActiveWindowId:windowId];
-        // Schedule delayed reconcile only when needed. If the notification already produced
-        // a correct non-empty shown state, extra reconcile passes just burn CPU.
-        BOOL preservingExistingMenuOnZero = (windowId == 0 &&
-                                             self.appMenuWidget.currentMenu != nil &&
-                                             self.appMenuWidget.currentWindowId != 0);
-        BOOL needsReconcile = (!preservingExistingMenuOnZero && windowId == 0) ||
-                              (self.appMenuWidget.currentWindowId != windowId) ||
-                              (self.appMenuWidget.currentMenu == nil);
-        if (needsReconcile) {
-            [self scheduleDelayedActiveWindowReconcileForWindowId:windowId];
-        }
-        MENU_PROFILE_END(activeWindowChangedNotificationWidgetUpdate);
     }
 
     MENU_PROFILE_END(activeWindowChangedNotification);
-}
-
-- (void)scheduleDelayedActiveWindowReconcileForWindowId:(unsigned long)windowId
-{
-    MENU_PROFILE_BEGIN(scheduleDelayedActiveWindowReconcile);
-
-    self.pendingReconcileWindowId = windowId;
-    self.activeWindowReconcileRetryCount = 0;
-    if (self.activeWindowReconcileTimer) {
-        [self.activeWindowReconcileTimer invalidate];
-        self.activeWindowReconcileTimer = nil;
-    }
-
-    self.activeWindowReconcileTimer = [NSTimer scheduledTimerWithTimeInterval:ACTIVE_WINDOW_RECONCILE_DELAY
-                                                                        target:self
-                                                                      selector:@selector(performDelayedActiveWindowReconcile:)
-                                                                      userInfo:nil
-                                                                       repeats:NO];
-
-    MENU_PROFILE_END(scheduleDelayedActiveWindowReconcile);
-}
-
-- (void)performDelayedActiveWindowReconcile:(NSTimer *)timer
-{
-    MENU_PROFILE_BEGIN(performDelayedActiveWindowReconcile);
-
-    (void)timer;
-    self.activeWindowReconcileTimer = nil;
-
-    if (!self.appMenuWidget) {
-        MENU_PROFILE_END(performDelayedActiveWindowReconcile);
-        return;
-    }
-
-    unsigned long expectedWindowId = self.pendingReconcileWindowId;
-    if (expectedWindowId == 0 && self.appMenuWidget.currentWindowId == 0) {
-        MENU_PROFILE_END(performDelayedActiveWindowReconcile);
-        return;
-    }
-
-    unsigned long monitorWindowId = 0;
-    @try {
-        monitorWindowId = [[WindowMonitor sharedMonitor] getActiveWindow];
-    }
-    @catch (NSException *ex) {
-        NSDebugLLog(@"gwcomp", @"MenuController: Delayed reconcile failed to read active window: %@", ex);
-    }
-
-    NSDebugLLog(@"gwcomp", @"MenuController: Delayed reconcile expected=0x%lx monitor=0x%lx shown=0x%lx",
-          expectedWindowId,
-          monitorWindowId,
-          self.appMenuWidget.currentWindowId);
-
-    // Re-read active window at settle time and force a final correction pass.
-    // Only intervene when there is a genuine mismatch — unconditional updates caused spurious
-    // menu replacements when a stale X11 read at settle time disagreed with correct state
-    // already set by a more recent notification.
-    unsigned long shownWindowId = self.appMenuWidget.currentWindowId;
-
-    // If we are stuck on system-only menubar while monitor has a real active window,
-    // force a direct menu load attempt for that window before generic mismatch logic.
-    BOOL showingSystemOnly = NO;
-    NSMenu *shownMenu = self.appMenuWidget.currentMenu;
-    if (shownWindowId == 0 && shownMenu != nil) {
-        NSArray *shownItems = [shownMenu itemArray];
-        if ([shownItems count] == 1) {
-            NSMenuItem *onlyItem = [shownItems objectAtIndex:0];
-            if ([[onlyItem title] isEqualToString:@"⌘"]) {
-                showingSystemOnly = YES;
-            }
-        }
-    }
-    if (monitorWindowId != 0 && shownWindowId == 0 && showingSystemOnly) {
-        NSLog(@"[RECONCILE] System-only shown with active monitor=0x%lx - forcing direct menu load", monitorWindowId);
-        self.appMenuWidget.lastLoadedMenuWindowId = 0;
-        [self.appMenuWidget displayMenuForWindow:monitorWindowId];
-        shownWindowId = self.appMenuWidget.currentWindowId;
-    }
-
-    if (monitorWindowId != 0 && monitorWindowId != shownWindowId) {
-        BOOL skipCorrection = NO;
-
-        // Treat frame/client ID churn as equivalent when both map to the same PID.
-        // This prevents repeated reconcile corrections that only oscillate XIDs.
-        pid_t shownPid = (shownWindowId != 0) ? [MenuUtils getWindowPID:shownWindowId] : 0;
-        pid_t monitorPid = [MenuUtils getWindowPID:monitorWindowId];
-        if (shownPid != 0 && monitorPid != 0 && shownPid == monitorPid) {
-            NSLog(@"[RECONCILE] Equivalent windows by PID: shown=0x%lx monitor=0x%lx pid=%d - skipping correction",
-                  shownWindowId,
-                  monitorWindowId,
-                  (int)shownPid);
-            skipCorrection = YES;
-        }
-
-        // Dialog monitors often point to transient XIDs while the owner app menu is correct.
-        if (!skipCorrection && [MenuUtils isDialogWindow:monitorWindowId] && shownWindowId != 0 && self.appMenuWidget.currentMenu != nil) {
-            NSLog(@"[RECONCILE] Monitor window 0x%lx is dialog/transient; preserving shown=0x%lx",
-                  monitorWindowId,
-                  shownWindowId);
-            skipCorrection = YES;
-        }
-
-        if (!skipCorrection) {
-            NSLog(@"[RECONCILE] Mismatch: shown=0x%lx monitor=0x%lx expected=0x%lx - correcting",
-                  shownWindowId, monitorWindowId, expectedWindowId);
-            [self.appMenuWidget updateForActiveWindowId:monitorWindowId];
-        }
-    } else if (monitorWindowId != 0 && monitorWindowId == shownWindowId
-               && self.appMenuWidget.currentMenu == nil) {
-        NSLog(@"[RECONCILE] Correct win=0x%lx but no menu yet — retrying load", monitorWindowId);
-        [self.appMenuWidget updateForActiveWindowId:monitorWindowId];
-    } else {
-        NSDebugLLog(@"gwcomp", @"MenuController: Reconcile OK — shown=0x%lx matches monitor=0x%lx", shownWindowId, monitorWindowId);
-    }
-    // NOTE: updateForActiveWindow is intentionally NOT called here. It reads X11 independently
-    // and can return a transient/stale window that overrides the already-correct state.
-
-    if (monitorWindowId != 0 && self.appMenuWidget.currentWindowId != monitorWindowId && self.activeWindowReconcileRetryCount == 0) {
-        self.activeWindowReconcileRetryCount = 1;
-        NSDebugLLog(@"gwcomp", @"MenuController: Delayed reconcile mismatch persists (shown=0x%lx monitor=0x%lx) - scheduling one retry",
-              self.appMenuWidget.currentWindowId,
-              monitorWindowId);
-        self.activeWindowReconcileTimer = [NSTimer scheduledTimerWithTimeInterval:ACTIVE_WINDOW_RECONCILE_RETRY_DELAY
-                                                                            target:self
-                                                                          selector:@selector(performDelayedActiveWindowReconcile:)
-                                                                          userInfo:nil
-                                                                           repeats:NO];
-    }
-
-    MENU_PROFILE_END(performDelayedActiveWindowReconcile);
 }
 
 - (void)windowValidationTick:(NSTimer *)timer
