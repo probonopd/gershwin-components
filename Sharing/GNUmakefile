@@ -52,7 +52,7 @@ custom-install: $(BUNDLE_NAME)$(BUNDLE_EXTENSION) $(HELPER_BIN)
 		cp gershwin-sharing-mdns.sh $(DESTDIR)$(HELPER_INSTALL_DIR)/; \
 		chmod 755 $(DESTDIR)$(HELPER_INSTALL_DIR)/gershwin-sharing-mdns.sh; \
 		echo "Installing systemd service (if systemd is present)"; \
-		if [ -d "$(DESTDIR)/run/systemd/system" ]; then \
+		if [ -x "$(DESTDIR)/usr/bin/systemctl" ] || [ -x "$(DESTDIR)/bin/systemctl" ]; then \
 			mkdir -p $(DESTDIR)/etc/systemd/system; \
 			cp gershwin-sharing-mdns.service $(DESTDIR)/etc/systemd/system/; \
 		fi; \
@@ -70,7 +70,7 @@ custom-install: $(BUNDLE_NAME)$(BUNDLE_EXTENSION) $(HELPER_BIN)
 		cp gershwin-sharing-mdns.sh $(HELPER_INSTALL_DIR)/; \
 		chmod 755 $(HELPER_INSTALL_DIR)/gershwin-sharing-mdns.sh; \
 		echo "Installing systemd service (if systemd is present)"; \
-		if [ -d "/run/systemd/system" ]; then \
+		if command -v systemctl >/dev/null 2>&1; then \
 			cp gershwin-sharing-mdns.service /etc/systemd/system/; \
 			systemctl daemon-reload 2>/dev/null || true; \
 			systemctl enable gershwin-sharing-mdns.service 2>/dev/null || true; \

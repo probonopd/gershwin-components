@@ -24,7 +24,7 @@ ifeq ($(findstring freebsd,$(GNUSTEP_HOST_OS)),freebsd)
 	$(INSTALL) -m 555 dshelper.rc /usr/local/etc/rc.d/dshelper
 endif
 ifeq ($(findstring linux,$(GNUSTEP_HOST_OS)),linux)
-	@if [ -d /run/systemd/system ]; then \
+	@if command -v systemctl >/dev/null 2>&1; then \
 		$(MKINSTALLDIRS) /etc/systemd/system; \
 		$(INSTALL) -m 644 dshelper.service /etc/systemd/system/dshelper.service; \
 		$(INSTALL) -m 644 gdomap.service /etc/systemd/system/gdomap.service; \
