@@ -392,11 +392,23 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         }
 
         /* If switching to a DIFFERENT window (including from system-only state):
-           clear immediately to avoid showing stale menu from the previous app. */
+           clear immediately to avoid showing stale menu from the previous app.
+           Exception: if the new window has no identifying properties at all
+           (pid==0, no app name) it is likely a transient/popup belonging to the
+           current app (e.g. Chrome's "Restore pages?" dialog).  In that case,
+           keep the current menu during the retry period. */
         if (windowId != self.currentWindowId) {
-            NSLog(@"AppMenuWidget: CLEARING on window change 0x%lx → 0x%lx", 
-                  self.currentWindowId, windowId);
-            [self clearToSystemOnly];
+            BOOL sameApp = (ctx.pid != 0 && ctx.pid == self.currentWindowPID);
+            BOOL unidentifiable = (ctx.pid == 0 &&
+                                   (ctx.appName == nil || [ctx.appName length] == 0));
+            if (!sameApp && !unidentifiable) {
+                NSLog(@"AppMenuWidget: CLEARING on window change 0x%lx → 0x%lx",
+                      self.currentWindowId, windowId);
+                [self clearToSystemOnly];
+            } else {
+                NSLog(@"AppMenuWidget: KEEPING menu — transient/same-app window 0x%lx (pid=%d unidentifiable=%d)",
+                      windowId, (int)ctx.pid, (int)unidentifiable);
+            }
         }
 
         /* Schedule discovery retry. This will check all protocols (DO, GTK, D-Bus)
@@ -671,6 +683,20 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
         [menu setDelegate:self];
 
+        /* Set this widget as delegate for all first-level submenus so that
+           menuWillOpen: fires when the user opens any submenu (e.g. "Edit"),
+           allowing refreshMenuStateForWindow: to pull fresh enabled/state
+           values from the app before the user sees the items.  Without this,
+           the pull path is never triggered and Copy stays greyed out after
+           Select All because the push path (updateMenuForWindow:) is blocked
+           by the _materializationTimeByWindow dedup guard. */
+        for (NSMenuItem *__menuItem in [menu itemArray]) {
+            NSMenu *__sub = [__menuItem submenu];
+            if (__sub && __sub != self.systemMenu) {
+                [__sub setDelegate:self];
+            }
+        }
+
         /* Wire up items without a target. */
         BOOL isGNUStepMenu = NO;
         NSArray *items = [menu itemArray];
@@ -868,35 +894,75 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 {
     NSMenu *menu = (NSMenu *)[note object];
     if (menu != self.systemMenu) return;
+    NSDebugLog(@"AppMenuWidget: systemMenuDidBeginTracking - populating apps");
     [self populateSystemMenu];
 }
 
 - (void)menuWillOpen:(NSMenu *)menu
 {
     NSDebugLog(@"AppMenuWidget: menuWillOpen: '%@'", [menu title] ?: @"(no title)");
+
+    /* Populate system menu on first open (delegate method may fire before
+       NSMenuDidBeginTrackingNotification in some GNUstep versions). */
+    if (menu == self.systemMenu) {
+        NSDebugLog(@"AppMenuWidget: menuWillOpen system menu, populating");
+        [self populateSystemMenu];
+        return;
+    }
+    
+    if (self.currentWindowId == 0) return;
+    if (![self.protocolManager hasMenuForWindow:self.currentWindowId]) return;
+
+    BOOL refreshed = [self.protocolManager refreshMenuStateForWindow:self.currentWindowId];
+    if (refreshed) {
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: Refreshed menu state for window 0x%lx before opening menu '%@'", self.currentWindowId, [menu title] ?: @"(no title)");
+    }
 }
 
 - (void)menuNeedsUpdate:(NSMenu *)menu
 {
-    /* The system ⌘ submenu is populated lazily by systemMenuDidBeginTracking:
-       (only when the user clicks ⌘).  We must NOT populate it here because
-       GNUstep calls menuNeedsUpdate: on every run-loop cycle for every
-       submenu that has a delegate.  Populating 161+ app-bundle items here
-       would trigger FcFontSort per item and spin the CPU for seconds. */
-    (void)menu;
+    /* Populate system menu but with throttling to avoid CPU thrashing from
+       GNUstep calling menuNeedsUpdate: on every run-loop cycle for every
+       submenu that has a delegate. */
+    if (menu != self.systemMenu) {
+        return;
+    }
+
+    NSDebugLog(@"AppMenuWidget: menuNeedsUpdate called for system menu");
+
+    /* Throttle updates to avoid repeated app tree scanning. */
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (now - self.lastSystemMenuUpdateTime < 0.1) {
+        /* Throttled — skip. */
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: menuNeedsUpdate throttled");
+        return;
+    }
+    self.lastSystemMenuUpdateTime = now;
+
+    [self populateSystemMenu];
 }
 
 - (void)populateSystemMenu
 {
     NSMenu *menu = self.systemMenu;
-    if (!menu) return;
+    if (!menu) {
+        NSLog(@"AppMenuWidget: populateSystemMenu - no systemMenu");
+        return;
+    }
+
+    NSLog(@"AppMenuWidget: populateSystemMenu called");
 
     /* Use cached app tree if fresh enough. */
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
     BOOL cacheValid = (self.cachedAppBundleTree && (now - self.cachedAppBundleTreeTime) < SYSTEM_MENU_CACHE_TTL);
 
     /* Already populated with current cache — skip. */
-    if (cacheValid && self.systemMenuPopulatedFromCache) return;
+    if (cacheValid && self.systemMenuPopulatedFromCache) {
+        NSLog(@"AppMenuWidget: populateSystemMenu skipped (cached), has %ld items", (long)[menu numberOfItems]);
+        return;
+    }
+
+    NSLog(@"AppMenuWidget: populateSystemMenu proceeding (cacheValid=%d, populated=%d)", cacheValid, self.systemMenuPopulatedFromCache);
 
     /* Find insertion point (after "System Preferences" + separator). */
     NSArray *items = [menu itemArray];
@@ -922,8 +988,10 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     /* Build the "Applications" submenu from the tree. */
     NSMenu *appsSubmenu = [[NSMenu alloc] initWithTitle:NSLocalizedString(@"Applications", nil)];
+    NSLog(@"AppMenuWidget: Scanning app tree with %ld root keys", (long)[[appTree allKeys] count]);
     [self addMenuItemsFromTree:appTree toMenu:appsSubmenu];
 
+    NSLog(@"AppMenuWidget: Built apps submenu with %ld items", (long)[appsSubmenu numberOfItems]);
     if ([appsSubmenu numberOfItems] == 0) {
         NSMenuItem *none = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"No applications found", nil)
                                                       action:nil keyEquivalent:@""];
@@ -935,6 +1003,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
                                                       action:nil keyEquivalent:@""];
     [appsItem setSubmenu:appsSubmenu];
     [menu insertItem:appsItem atIndex:startIndex];
+    NSLog(@"AppMenuWidget: Inserted Applications submenu at index %ld, menu now has %ld items", (long)startIndex, (long)[menu numberOfItems]);
 
     self.systemMenuPopulatedFromCache = YES;
 }
@@ -943,6 +1012,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
 - (NSDictionary *)scanApplicationBundleTree
 {
+    NSLog(@"AppMenuWidget: scanApplicationBundleTree starting");
     NSArray *roots = @[[NSHomeDirectory() stringByAppendingPathComponent:@"Applications"],
                        @"/Local/Applications", @"/Local/Application",
                        @"/Network/Applications", @"/Network/Application",
@@ -965,8 +1035,11 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         BOOL isDir = NO;
         if (![fm fileExistsAtPath:root isDirectory:&isDir] || !isDir) continue;
         NSInteger rootPri = priorityForRoot(root);
+        NSLog(@"AppMenuWidget: Scanning root %@ (priority %ld)", root, (long)rootPri);
         [self scanDirectory:root relativeTo:root priority:rootPri into:appsByKey fileManager:fm];
     }
+
+    NSLog(@"AppMenuWidget: Found %ld applications total", (long)[appsByKey count]);
 
     /* Build a tree from the flat deduplicated entries.
        Tree structure: NSDictionary where:

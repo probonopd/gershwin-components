@@ -33,6 +33,7 @@
 @property (nonatomic, strong) NSDictionary *cachedAppBundleTree;
 @property (nonatomic, assign) NSTimeInterval cachedAppBundleTreeTime;
 @property (nonatomic, assign) BOOL systemMenuPopulatedFromCache;
+@property (nonatomic, assign) NSTimeInterval lastSystemMenuUpdateTime;
 
 /* Coalescing timer for window focus changes */
 @property (nonatomic, strong) NSTimer *coalesceTimer;
