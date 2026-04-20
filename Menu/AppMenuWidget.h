@@ -43,6 +43,10 @@
 @property (nonatomic, assign) unsigned long menuRetryWindowId;
 @property (nonatomic, assign) NSUInteger menuRetryCount;
 
+/* Cache of windows we've already determined have no menus (30s TTL).
+   Avoids wasting time retrying windows that don't export menus. */
+@property (nonatomic, strong) NSMutableDictionary *windowsWithoutMenus;  /* window ID → NSDate */
+
 /* Re-entrance guard */
 @property (nonatomic, assign) BOOL isInsideHandleFocusChange;
 

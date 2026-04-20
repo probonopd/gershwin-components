@@ -150,6 +150,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         self.isInsideHandleFocusChange = NO;
         self.menuRetryCount = 0;
         self.cachedAppBundleTreeTime = 0;
+        self.windowsWithoutMenus = [NSMutableDictionary dictionary];
 
         [AppMenuWidget setCurrentWidget:self];
 
@@ -380,7 +381,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         }
     }
 
-    /* If the window has no registered menu yet, schedule retry. */
+    /* If the window has no registered menu yet, check if we're switching windows. */
     if (!ctx.hasRegisteredMenu) {
         NSDebugLLog(@"gwcomp", @"AppMenuWidget: Window 0x%lx has no menu yet (PID %d)", windowId, (int)ctx.pid);
 
@@ -390,12 +391,19 @@ static int handleX11Error(Display *display, XErrorEvent *event)
             return;
         }
 
-        /* For all other windows: schedule retry and let the mechanism discover whether
-           a menu exists. D-Bus and GTK menus often have a brief delay before properties
-           appear. We DON'T clear here — if the menu never appears after 3 seconds,
-           the retry exhaustion handler will clear to system-only. This prevents the race
-           condition where rapid window switching causes incorrect clears before async
-           menu discovery completes. */
+        /* If switching to a DIFFERENT window: clear immediately to avoid showing
+           stale menu from the previous app. Then schedule retry to discover if this
+           new window has a menu (D-Bus/GTK properties may not be set yet). */
+        BOOL switchingWindows = (windowId != self.currentWindowId && self.currentWindowId != 0);
+        if (switchingWindows) {
+            NSDebugLLog(@"gwcomp", @"AppMenuWidget: Switching window 0x%lx → 0x%lx — clearing", 
+                        self.currentWindowId, windowId);
+            [self clearToSystemOnly];
+        }
+
+        /* Schedule discovery retry. This will check all protocols (DO, GTK, D-Bus)
+           and load a menu if one exists. D-Bus properties often have a brief
+           async delay (~100-500ms) before appearing. */
         [self scheduleMenuRetryForWindow:windowId];
         return;
     }
@@ -438,6 +446,19 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
 - (void)scheduleMenuRetryForWindow:(unsigned long)windowId
 {
+    /* Check if we've already determined this window has no menu (within TTL). */
+    NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
+    NSDate *failTime = [self.windowsWithoutMenus objectForKey:windowKey];
+    if (failTime) {
+        NSTimeInterval age = -[failTime timeIntervalSinceNow];
+        if (age < 30.0) {  /* 30 second TTL: skip retry for recently confirmed no-menu windows */
+            NSDebugLLog(@"gwcomp", @"AppMenuWidget: Window 0x%lx recently confirmed to have no menu — skipping retry", windowId);
+            return;
+        }
+        /* TTL expired — allow retry in case properties now exist */
+        [self.windowsWithoutMenus removeObjectForKey:windowKey];
+    }
+
     /* If already retrying this window, let the timer run. */
     if (self.menuRetryTimer && self.menuRetryWindowId == windowId) return;
 
@@ -493,11 +514,13 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     /* Budget exhausted? */
     if (self.menuRetryCount >= MENU_RETRY_MAX) {
-        NSLog(@"AppMenuWidget: Window 0x%lx still has no menu after %d retries — staying on system menu",
+        NSLog(@"AppMenuWidget: Window 0x%lx still has no menu after %d retries — caching as no-menu window",
               windowId, MENU_RETRY_MAX);
-        /* Stay on system-only menu.  Do NOT fall back to the desktop
-           window's menu — that would show a wrong menu for apps that
-           simply don't export one. */
+        /* Mark this window as confirmed to have no menu (30s TTL) to avoid retrying it again soon. */
+        NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
+        [self.windowsWithoutMenus setObject:[NSDate date] forKey:windowKey];
+        
+        /* Stay on system-only menu. */
         if (![self isShowingSystemOnlyMenu]) {
             [self clearToSystemOnly];
         }
