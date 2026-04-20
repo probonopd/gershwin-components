@@ -391,13 +391,11 @@ static int handleX11Error(Display *display, XErrorEvent *event)
             return;
         }
 
-        /* If switching to a DIFFERENT window: clear immediately to avoid showing
-           stale menu from the previous app. Then schedule retry to discover if this
-           new window has a menu (D-Bus/GTK properties may not be set yet). */
-        BOOL switchingWindows = (windowId != self.currentWindowId && self.currentWindowId != 0);
-        if (switchingWindows) {
-            NSDebugLLog(@"gwcomp", @"AppMenuWidget: Switching window 0x%lx → 0x%lx — clearing", 
-                        self.currentWindowId, windowId);
+        /* If switching to a DIFFERENT window (including from system-only state):
+           clear immediately to avoid showing stale menu from the previous app. */
+        if (windowId != self.currentWindowId) {
+            NSLog(@"AppMenuWidget: CLEARING on window change 0x%lx → 0x%lx", 
+                  self.currentWindowId, windowId);
             [self clearToSystemOnly];
         }
 
@@ -419,10 +417,14 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         NSLog(@"AppMenuWidget: Exception getting menu for 0x%lx: %@", windowId, exception);
     }
 
+    NSLog(@"AppMenuWidget: HAS_REGISTERED_MENU - windowId=0x%lx got menu=%p", windowId, menu);
     if (!menu || [self isPlaceholderMenu:menu]) {
-        NSDebugLLog(@"gwcomp", @"AppMenuWidget: Nil/placeholder menu for 0x%lx — scheduling retry", windowId);
-        /* Don't clear yet—GTK/D-Bus menus may still be loading.
-           Let retry discover them. */
+        NSLog(@"AppMenuWidget: NIL/PLACEHOLDER menu for 0x%lx — clearing and scheduling retry", windowId);
+        /* When switching to a different window and fetching its menu returns nil/placeholder,
+           clear the old menu immediately. Then retry to discover if the menu loads. */
+        if (windowId != self.currentWindowId && self.currentWindowId != 0) {
+            [self clearToSystemOnly];
+        }
         [self scheduleMenuRetryForWindow:windowId];
         return;
     }
