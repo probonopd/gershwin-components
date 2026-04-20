@@ -29,9 +29,9 @@
 /* The system submenu (contains Search, System Preferences, and dynamic application list) */
 @property (nonatomic, strong) NSMenu *systemMenu;
 
-/* Cached list of .app bundles for the system submenu (rebuilt at most every 30s) */
-@property (nonatomic, strong) NSArray *cachedAppBundleList;
-@property (nonatomic, assign) NSTimeInterval cachedAppBundleListTime;
+/* Cached tree of .app bundles for the system submenu (rebuilt at most every 30s) */
+@property (nonatomic, strong) NSDictionary *cachedAppBundleTree;
+@property (nonatomic, assign) NSTimeInterval cachedAppBundleTreeTime;
 @property (nonatomic, assign) BOOL systemMenuPopulatedFromCache;
 
 /* Coalescing timer for window focus changes */

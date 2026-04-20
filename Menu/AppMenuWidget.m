@@ -149,7 +149,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         self.needsRedraw = YES;
         self.isInsideHandleFocusChange = NO;
         self.menuRetryCount = 0;
-        self.cachedAppBundleListTime = 0;
+        self.cachedAppBundleTreeTime = 0;
 
         [AppMenuWidget setCurrentWidget:self];
 
@@ -380,26 +380,30 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         }
     }
 
-    /* Determine if this is a cross-app switch. */
-    BOOL crossApp = (self.currentWindowPID != 0 && ctx.pid != 0 && ctx.pid != self.currentWindowPID);
-
     /* If the window has no registered menu yet, schedule retry. */
     if (!ctx.hasRegisteredMenu) {
         NSDebugLLog(@"gwcomp", @"AppMenuWidget: Window 0x%lx has no menu yet (PID %d)", windowId, (int)ctx.pid);
 
-        /* Desktop window with no menu — just show system-only. */
+        /* Desktop window with no menu — just show system-only immediately. */
         if (ctx.isDesktop) {
             [self clearToSystemOnly];
             return;
         }
 
-        /* Cross-app switch: clear old menu immediately so user doesn't see stale menu. */
-        if (crossApp) {
-            [self clearToSystemOnly];
+        /* If the window has X11 properties indicating menu support (GTK, D-Bus,
+           or GNUstep), wait for the retry mechanism to discover the menu.
+           These menus usually appear within 100–500ms due to async initialization. */
+        if ([MenuUtils windowIndicatesMenuSupport:windowId]) {
+            NSDebugLLog(@"gwcomp", @"AppMenuWidget: Window 0x%lx has menu-support properties — waiting for discovery", windowId);
+            [self scheduleMenuRetryForWindow:windowId];
+            return;
         }
-        /* Same-app switch: keep existing menu visible while waiting. */
 
-        [self scheduleMenuRetryForWindow:windowId];
+        /* No menu-support properties detected — app likely doesn't export menus.
+           Clear immediately to avoid showing stale menu from previous app. */
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: Window 0x%lx shows no menu-support properties — clearing to system-only", windowId);
+        [self clearToSystemOnly];
+        [self scheduleMenuRetryForWindow:windowId];  /* Still retry in case properties appear later */
         return;
     }
 
@@ -416,7 +420,8 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     if (!menu || [self isPlaceholderMenu:menu]) {
         NSDebugLLog(@"gwcomp", @"AppMenuWidget: Nil/placeholder menu for 0x%lx — scheduling retry", windowId);
-        if (crossApp) [self clearToSystemOnly];
+        /* Don't clear yet—GTK/D-Bus menus may still be loading.
+           Let retry discover them. */
         [self scheduleMenuRetryForWindow:windowId];
         return;
     }
@@ -495,21 +500,13 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     /* Budget exhausted? */
     if (self.menuRetryCount >= MENU_RETRY_MAX) {
-        NSLog(@"AppMenuWidget: Window 0x%lx still has no menu after %d retries", windowId, MENU_RETRY_MAX);
-
-        /* Try desktop fallback if we're still showing system-only. */
-        if ([self isShowingSystemOnlyMenu]) {
-            unsigned long desktopWindowId = [MenuUtils findDesktopWindow];
-            if (desktopWindowId != 0 && [self.protocolManager hasMenuForWindow:desktopWindowId]) {
-                NSLog(@"AppMenuWidget: Falling back to Desktop menu for 0x%lx", desktopWindowId);
-                WindowSwitchContext *dctx = [WindowSwitchContext contextForWindow:desktopWindowId
-                                                                 protocolManager:self.protocolManager];
-                if (dctx) {
-                    dctx.hasRegisteredMenu = YES;
-                    [self handleFocusChange:dctx];
-                }
-                return;
-            }
+        NSLog(@"AppMenuWidget: Window 0x%lx still has no menu after %d retries — staying on system menu",
+              windowId, MENU_RETRY_MAX);
+        /* Stay on system-only menu.  Do NOT fall back to the desktop
+           window's menu — that would show a wrong menu for apps that
+           simply don't export one. */
+        if (![self isShowingSystemOnlyMenu]) {
+            [self clearToSystemOnly];
         }
         [self cancelMenuRetry];
         return;
@@ -876,9 +873,9 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     NSMenu *menu = self.systemMenu;
     if (!menu) return;
 
-    /* Use cached app list if fresh enough. */
+    /* Use cached app tree if fresh enough. */
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-    BOOL cacheValid = (self.cachedAppBundleList && (now - self.cachedAppBundleListTime) < SYSTEM_MENU_CACHE_TTL);
+    BOOL cacheValid = (self.cachedAppBundleTree && (now - self.cachedAppBundleTreeTime) < SYSTEM_MENU_CACHE_TTL);
 
     /* Already populated with current cache — skip. */
     if (cacheValid && self.systemMenuPopulatedFromCache) return;
@@ -896,26 +893,20 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [menu removeItemAtIndex:startIndex];
     }
 
-    NSArray *sortedApps;
+    NSDictionary *appTree;
     if (cacheValid) {
-        sortedApps = self.cachedAppBundleList;
+        appTree = self.cachedAppBundleTree;
     } else {
-        sortedApps = [self scanApplicationBundles];
-        self.cachedAppBundleList = sortedApps;
-        self.cachedAppBundleListTime = now;
+        appTree = [self scanApplicationBundleTree];
+        self.cachedAppBundleTree = appTree;
+        self.cachedAppBundleTreeTime = now;
     }
 
-    /* Build the "Applications" submenu. */
+    /* Build the "Applications" submenu from the tree. */
     NSMenu *appsSubmenu = [[NSMenu alloc] initWithTitle:NSLocalizedString(@"Applications", nil)];
-    for (NSDictionary *entry in sortedApps) {
-        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[@"title"]
-                                                      action:@selector(openApplicationBundle:)
-                                               keyEquivalent:@""];
-        [item setTarget:self];
-        [item setRepresentedObject:entry[@"path"]];
-        [appsSubmenu addItem:item];
-    }
-    if ([sortedApps count] == 0) {
+    [self addMenuItemsFromTree:appTree toMenu:appsSubmenu];
+
+    if ([appsSubmenu numberOfItems] == 0) {
         NSMenuItem *none = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"No applications found", nil)
                                                       action:nil keyEquivalent:@""];
         [none setEnabled:NO];
@@ -930,50 +921,168 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     self.systemMenuPopulatedFromCache = YES;
 }
 
-- (NSArray *)scanApplicationBundles
-{
-    NSArray *dirs = @[[NSHomeDirectory() stringByAppendingPathComponent:@"Applications"],
-                      @"/Local/Applications", @"/Local/Application",
-                      @"/Network/Applications", @"/Network/Application",
-                      @"/Applications",
-                      @"/System/Applications", @"/System/Application"];
+#pragma mark - Application bundle scanning (recursive with subdirectory submenus)
 
-    NSInteger (^priorityForPath)(NSString *) = ^NSInteger(NSString *p) {
+- (NSDictionary *)scanApplicationBundleTree
+{
+    NSArray *roots = @[[NSHomeDirectory() stringByAppendingPathComponent:@"Applications"],
+                       @"/Local/Applications", @"/Local/Application",
+                       @"/Network/Applications", @"/Network/Application",
+                       @"/Applications",
+                       @"/System/Applications", @"/System/Application"];
+
+    NSInteger (^priorityForRoot)(NSString *) = ^NSInteger(NSString *root) {
         NSString *home = [NSHomeDirectory() stringByAppendingPathComponent:@"Applications"];
-        if ([p hasPrefix:home]) return 4;
-        if ([p hasPrefix:@"/Local/Applications"] || [p hasPrefix:@"/Local/Application"]) return 3;
-        if ([p hasPrefix:@"/Applications"]) return 2;
-        if ([p hasPrefix:@"/Network/Applications"] || [p hasPrefix:@"/Network/Application"]) return 1;
+        if ([root isEqualToString:home]) return 4;
+        if ([root hasPrefix:@"/Local/"]) return 3;
+        if ([root isEqualToString:@"/Applications"]) return 2;
+        if ([root hasPrefix:@"/Network/"]) return 1;
         return 0;
     };
 
     NSFileManager *fm = [NSFileManager defaultManager];
     NSMutableDictionary *appsByKey = [NSMutableDictionary dictionary];
 
-    for (NSString *dir in dirs) {
+    for (NSString *root in roots) {
         BOOL isDir = NO;
-        if (![fm fileExistsAtPath:dir isDirectory:&isDir] || !isDir) continue;
-        NSArray *contents = [fm contentsOfDirectoryAtPath:dir error:nil];
-        for (NSString *entry in contents) {
-            if (![[entry pathExtension] isEqualToString:@"app"]) continue;
-            NSString *fullPath = [dir stringByAppendingPathComponent:entry];
+        if (![fm fileExistsAtPath:root isDirectory:&isDir] || !isDir) continue;
+        NSInteger rootPri = priorityForRoot(root);
+        [self scanDirectory:root relativeTo:root priority:rootPri into:appsByKey fileManager:fm];
+    }
+
+    /* Build a tree from the flat deduplicated entries.
+       Tree structure: NSDictionary where:
+         @"_apps" → NSMutableArray of @{@"title":…, @"path":…} for apps at this level
+         any other key → child NSDictionary (subdirectory submenu) */
+    NSMutableDictionary *tree = [NSMutableDictionary dictionary];
+    for (NSDictionary *entry in [appsByKey allValues]) {
+        NSArray *relPath = entry[@"relPath"];
+        NSMutableDictionary *node = tree;
+        for (NSString *component in relPath) {
+            NSMutableDictionary *child = node[component];
+            if (!child) {
+                child = [NSMutableDictionary dictionary];
+                node[component] = child;
+            }
+            node = child;
+        }
+        NSMutableArray *apps = node[@"_apps"];
+        if (!apps) {
+            apps = [NSMutableArray array];
+            node[@"_apps"] = apps;
+        }
+        [apps addObject:@{@"title": entry[@"title"], @"path": entry[@"path"]}];
+    }
+
+    [self sortTreeApps:tree];
+    return [tree copy];
+}
+
+- (void)scanDirectory:(NSString *)dir
+           relativeTo:(NSString *)root
+             priority:(NSInteger)pri
+                 into:(NSMutableDictionary *)appsByKey
+          fileManager:(NSFileManager *)fm
+{
+    NSArray *contents = [fm contentsOfDirectoryAtPath:dir error:nil];
+    if (!contents) return;
+
+    /* Compute relative path components from root to this directory. */
+    NSArray *relPath;
+    if ([dir length] <= [root length]) {
+        relPath = @[];
+    } else {
+        NSString *relDir = [dir substringFromIndex:[root length]];
+        if ([relDir hasPrefix:@"/"]) relDir = [relDir substringFromIndex:1];
+        relPath = [relDir pathComponents];
+    }
+
+    for (NSString *entry in contents) {
+        NSString *fullPath = [dir stringByAppendingPathComponent:entry];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:fullPath isDirectory:&isDir]) continue;
+
+        if ([[entry pathExtension] isEqualToString:@"app"]) {
+            /* .app bundle — deduplicate by bundle ID */
             NSString *infoPath = [fullPath stringByAppendingPathComponent:@"Contents/Info.plist"];
             NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:infoPath];
             NSString *bundleID = info[@"CFBundleIdentifier"];
             NSString *key = (bundleID && [bundleID length] > 0) ? bundleID
                             : [[[entry stringByDeletingPathExtension] lowercaseString] copy];
-            NSInteger pri = priorityForPath(fullPath);
             NSDictionary *existing = appsByKey[key];
-            NSString *displayName = [[fullPath lastPathComponent] stringByDeletingPathExtension];
+            NSString *displayName = [[entry stringByDeletingPathExtension] copy];
             if (!existing || pri > [existing[@"priority"] integerValue]) {
-                appsByKey[key] = @{@"path": fullPath, @"title": displayName, @"priority": @(pri)};
+                appsByKey[key] = @{@"path": fullPath, @"title": displayName,
+                                   @"priority": @(pri), @"relPath": relPath};
+            }
+        } else if (isDir) {
+            /* Subdirectory — recurse (skip hidden directories) */
+            if (![entry hasPrefix:@"."]) {
+                [self scanDirectory:fullPath relativeTo:root priority:pri into:appsByKey fileManager:fm];
             }
         }
     }
+}
 
-    return [[appsByKey allValues] sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
-        return [[a[@"title"] lowercaseString] compare:[b[@"title"] lowercaseString]];
+- (void)sortTreeApps:(NSMutableDictionary *)tree
+{
+    NSMutableArray *apps = tree[@"_apps"];
+    if (apps) {
+        [apps sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+            return [[a[@"title"] lowercaseString] compare:[b[@"title"] lowercaseString]];
+        }];
+    }
+    for (NSString *key in [tree allKeys]) {
+        if ([key isEqualToString:@"_apps"]) continue;
+        id child = tree[key];
+        if ([child isKindOfClass:[NSMutableDictionary class]]) {
+            [self sortTreeApps:child];
+        }
+    }
+}
+
+- (void)addMenuItemsFromTree:(NSDictionary *)tree toMenu:(NSMenu *)menu
+{
+    /* Collect both subdirectory submenus and app items, then interleave
+       them alphabetically so the list feels natural. */
+    NSMutableArray *entries = [NSMutableArray array];
+
+    for (NSString *key in [tree allKeys]) {
+        if ([key isEqualToString:@"_apps"]) continue;
+        [entries addObject:@{@"_type": @"dir", @"_name": key, @"_tree": tree[key]}];
+    }
+
+    NSArray *apps = tree[@"_apps"];
+    if (apps) {
+        for (NSDictionary *app in apps) {
+            [entries addObject:@{@"_type": @"app", @"_name": app[@"title"], @"_path": app[@"path"]}];
+        }
+    }
+
+    [entries sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [[a[@"_name"] lowercaseString] compare:[b[@"_name"] lowercaseString]];
     }];
+
+    for (NSDictionary *entry in entries) {
+        if ([entry[@"_type"] isEqualToString:@"dir"]) {
+            NSDictionary *subtree = entry[@"_tree"];
+            NSMenu *submenu = [[NSMenu alloc] initWithTitle:entry[@"_name"]];
+            [self addMenuItemsFromTree:subtree toMenu:submenu];
+            if ([submenu numberOfItems] > 0) {
+                NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[@"_name"]
+                                                              action:nil keyEquivalent:@""];
+                [item setSubmenu:submenu];
+                [menu addItem:item];
+            }
+        } else {
+            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[@"_name"]
+                                                          action:@selector(openApplicationBundle:)
+                                                   keyEquivalent:@""];
+            [item setTarget:self];
+            [item setRepresentedObject:entry[@"_path"]];
+            [menu addItem:item];
+        }
+    }
 }
 
 - (void)menuDidClose:(NSMenu *)menu
