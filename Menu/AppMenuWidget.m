@@ -390,20 +390,13 @@ static int handleX11Error(Display *display, XErrorEvent *event)
             return;
         }
 
-        /* If the window has X11 properties indicating menu support (GTK, D-Bus,
-           or GNUstep), wait for the retry mechanism to discover the menu.
-           These menus usually appear within 100–500ms due to async initialization. */
-        if ([MenuUtils windowIndicatesMenuSupport:windowId]) {
-            NSDebugLLog(@"gwcomp", @"AppMenuWidget: Window 0x%lx has menu-support properties — waiting for discovery", windowId);
-            [self scheduleMenuRetryForWindow:windowId];
-            return;
-        }
-
-        /* No menu-support properties detected — app likely doesn't export menus.
-           Clear immediately to avoid showing stale menu from previous app. */
-        NSDebugLLog(@"gwcomp", @"AppMenuWidget: Window 0x%lx shows no menu-support properties — clearing to system-only", windowId);
-        [self clearToSystemOnly];
-        [self scheduleMenuRetryForWindow:windowId];  /* Still retry in case properties appear later */
+        /* For all other windows: schedule retry and let the mechanism discover whether
+           a menu exists. D-Bus and GTK menus often have a brief delay before properties
+           appear. We DON'T clear here — if the menu never appears after 3 seconds,
+           the retry exhaustion handler will clear to system-only. This prevents the race
+           condition where rapid window switching causes incorrect clears before async
+           menu discovery completes. */
+        [self scheduleMenuRetryForWindow:windowId];
         return;
     }
 
