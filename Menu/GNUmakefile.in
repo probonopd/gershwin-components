@@ -46,6 +46,7 @@ Menu_OBJC_FILES = \
 	StatusItemView.m \
 	WindowMonitor.m \
 	AppMenuImporter.m \
+	WindowSwitchContext.m \
 	StatusItems/TimeDisplay/TimeDisplayProvider.m \
 	StatusItems/SystemMonitor/SystemMonitorProvider.m
 
@@ -81,7 +82,8 @@ Menu_HEADER_FILES = \
 	StatusItemsView.h \
 	StatusItemView.h \
 	WindowMonitor.h \
-	AppMenuImporter.h
+	AppMenuImporter.h \
+	WindowSwitchContext.h
 
 # Resources
 Menu_RESOURCE_FILES = \
