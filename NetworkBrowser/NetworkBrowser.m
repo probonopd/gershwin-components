@@ -6,6 +6,8 @@
 
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
+#import <netinet/in.h>
+#import <arpa/inet.h>
 #import "NetworkBrowser.h"
 
 @implementation NetworkBrowser
@@ -143,9 +145,13 @@
   [detailsScroll setHasVerticalScroller: YES];
   [detailsScroll setHasHorizontalScroller: NO];
 
-  detailsText = [[NSTextView alloc] initWithFrame: NSZeroRect];
+  NSRect detailsFrame = NSMakeRect(0, 0,
+    [detailsScroll contentSize].width,
+    [detailsScroll contentSize].height);
+  detailsText = [[NSTextView alloc] initWithFrame: detailsFrame];
   [detailsText setEditable: NO];
   [detailsText setSelectable: YES];
+  [detailsText setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
 
   [detailsScroll setDocumentView: detailsText];
   [contentView addSubview: detailsScroll];
@@ -224,36 +230,120 @@
     }
   else if (table == servicesTable)
     {
-      NSInteger selectedRow = [servicesTable selectedRow];
-      NSMutableString *details = [[NSMutableString alloc] init];
+      [self updateDetailsForSelectedService];
+    }
+}
 
-      if (selectedRow >= 0 && selectedRow < (NSInteger)[services count])
+/**
+ * Build and display details for the currently selected service.
+ * Called on selection change and when a service finishes resolving.
+ */
+- (void)updateDetailsForSelectedService
+{
+  NSInteger selectedRow = [servicesTable selectedRow];
+  NSMutableString *details = [[NSMutableString alloc] init];
+
+  if (selectedRow >= 0 && selectedRow < (NSInteger)[services count])
+    {
+      NSNetService *service = [services objectAtIndex: selectedRow];
+      [details appendFormat: @"Name: %@\n", [service name]];
+      [details appendFormat: @"Type: %@\n", [service type]];
+      [details appendFormat: @"Domain: %@\n", [service domain]];
+
+      int port = [service port];
+      if (port > 0)
+        [details appendFormat: @"Port: %d\n", port];
+      else
+        [details appendString: @"Port: (resolving...)\n"];
+
+      NSString *host = [service hostName];
+      if (host)
+        [details appendFormat: @"Host: %@\n", host];
+      else
+        [details appendString: @"Host: (resolving...)\n"];
+
+      NSArray *addresses = [service addresses];
+      if ([addresses count] > 0)
         {
-          NSNetService *service = [services objectAtIndex: selectedRow];
-          [details appendFormat: @"Name: %@\n", [service name]];
-          [details appendFormat: @"Type: %@\n", [service type]];
-          [details appendFormat: @"Domain: %@\n", [service domain]];
-          [details appendFormat: @"Port: %d\n", [service port]];
-          [details appendFormat: @"Host: %@\n", [service hostName] ? [service hostName] : @"(pending)"];
-
-          NSArray *addresses = [service addresses];
-          if ([addresses count] > 0)
+          [details appendString: @"Addresses:\n"];
+          for (NSData *addr in addresses)
             {
-              [details appendString: @"Addresses:\n"];
-              for (NSData *addr in addresses)
+              struct sockaddr *sa = (struct sockaddr *)[addr bytes];
+              char addrStr[INET6_ADDRSTRLEN];
+              if (sa->sa_family == AF_INET)
+                {
+                  struct sockaddr_in *sin = (struct sockaddr_in *)sa;
+                  inet_ntop(AF_INET, &sin->sin_addr, addrStr, INET6_ADDRSTRLEN);
+                  [details appendFormat: @"  %s\n", addrStr];
+                }
+              else if (sa->sa_family == AF_INET6)
+                {
+                  struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)sa;
+                  inet_ntop(AF_INET6, &sin6->sin6_addr, addrStr, INET6_ADDRSTRLEN);
+                  [details appendFormat: @"  [%s]\n", addrStr];
+                }
+              else
                 {
                   [details appendFormat: @"  %@\n", addr];
                 }
             }
         }
-      else
-        {
-          [details appendString: @"(No service selected)"];
-        }
 
-      [detailsText setString: details];
-      RELEASE(details);
+      /* Display TXT records */
+      NSData *txtData = [service TXTRecordData];
+      if (txtData)
+        {
+          NSDictionary *txtDict = [NSNetService dictionaryFromTXTRecordData: txtData];
+          if (txtDict && [txtDict count] > 0)
+            {
+              [details appendString: @"\nTXT Records:\n"];
+              for (NSString *key in [txtDict allKeys])
+                {
+                  NSData *valueData = [txtDict objectForKey: key];
+                  NSString *valueStr = [[NSString alloc] initWithData: valueData
+                                                             encoding: NSUTF8StringEncoding];
+                  if (valueStr == nil)
+                    {
+                      valueStr = [[NSString alloc] initWithFormat: @"<binary: %lu bytes>",
+                                           (unsigned long)[valueData length]];
+                    }
+                  [details appendFormat: @"  %@: %@\n", key, valueStr];
+                  RELEASE(valueStr);
+                }
+            }
+        }
     }
+  else
+    {
+      [details appendString: @"(No service selected)"];
+    }
+
+  [detailsText setString: details];
+  RELEASE(details);
+}
+
+/* NSNetServiceDelegate methods */
+
+- (void)netServiceDidResolveAddress:(NSNetService *)sender
+{
+  NSDebugLLog(@"gwcomp", @"Service resolved: %@", [sender name]);
+
+  /* Refresh details if this is the currently selected service */
+  NSInteger selectedRow = [servicesTable selectedRow];
+  if (selectedRow >= 0 && selectedRow < (NSInteger)[services count])
+    {
+      NSNetService *selected = [services objectAtIndex: selectedRow];
+      if ([selected isEqual: sender])
+        {
+          [self updateDetailsForSelectedService];
+        }
+    }
+}
+
+- (void)netService:(NSNetService *)sender didNotResolve:(NSDictionary *)errorDict
+{
+  NSDebugLLog(@"gwcomp", @"Service did not resolve: %@ - %@",
+        [sender name], errorDict);
 }
 
 /* NSNetServiceBrowserDelegate methods */
@@ -287,7 +377,7 @@
     {
       NSDebugLLog(@"gwcomp", @"Found service: %@", [aNetService name]);
       [aNetService setDelegate: self];
-      [aNetService resolve];
+      [aNetService resolveWithTimeout: 5.0];
       for (NSNetService *existing in services)
         {
           if ([[existing name] isEqual: [aNetService name]])
