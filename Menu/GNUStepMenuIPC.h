@@ -13,7 +13,8 @@
 - (oneway void)unregisterWindow:(bycopy NSNumber *)windowId
                        clientName:(bycopy NSString *)clientName;
 // Lightweight: patches only enabled/state on the existing NSMenu without
-// rebuilding it.  Bypasses all throttling so state changes land immediately.
+// rebuilding it. This path is still subject to the short enabled-state
+// throttling gate (currently 50 ms), so updates are not strictly immediate.
 - (oneway void)updateMenuEnabledStatesForWindow:(bycopy NSNumber *)windowId
                                        menuData:(bycopy NSDictionary *)menuData
                                      clientName:(bycopy NSString *)clientName;
