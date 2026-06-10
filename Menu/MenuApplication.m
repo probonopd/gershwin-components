@@ -53,7 +53,8 @@ static void direct_signal_handler(int sig)
 static void alarm_handler(int sig)
 {
     (void)sig;
-    write(STDERR_FILENO, "\nMenu.app: Cleanup timeout - force exiting\n", 42);
+    write(STDERR_FILENO, "\nMenu.app: Cleanup timeout - force exiting\n",
+          sizeof("\nMenu.app: Cleanup timeout - force exiting\n") - 1);
     _exit(EXIT_FAILURE);
 }
 
