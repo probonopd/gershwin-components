@@ -45,7 +45,7 @@ DBUS_LIBS="-ldbus-1"
 
 # Platform-specific library paths
 case "$OS" in
-    FreeBSD)
+    FreeBSD|NextBSD)
         DBUS_LIBS="-L/usr/local/lib -ldbus-1"
         ;;
     *)
@@ -87,8 +87,8 @@ case "$OS" in
             DBUS_CFLAGS="$DBUS_CFLAGS -I/usr/lib/dbus-1.0/include"
         fi
         ;;
-    FreeBSD)
-        # FreeBSD typically uses /usr/local
+    FreeBSD|NextBSD)
+        # FreeBSD/NextBSD typically use /usr/local
         if [ -z "$DBUS_CFLAGS" ]; then
             DBUS_CFLAGS="-I/usr/local/include/dbus-1.0 -I/usr/local/include"
             if [ -d "/usr/local/lib/dbus-1.0/include" ]; then
@@ -115,7 +115,7 @@ else
             echo "  Fedora/RHEL:   sudo dnf install dbus-devel"
             echo "  Arch Linux:    sudo pacman -S dbus"
             ;;
-        FreeBSD)
+        FreeBSD|NextBSD)
             echo "Please install DBUS:"
             echo "  sudo pkg install dbus"
             ;;
