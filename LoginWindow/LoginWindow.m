@@ -13,7 +13,26 @@
 #import <login_cap.h>
 #import <sys/sysctl.h>
 #import <sys/user.h>
+#if defined(__OpenBSD__)
+#import <util.h>
+// OpenBSD's struct kinfo_proc uses p_* field names (and p__pgid, since
+// <sys/proc.h> hijacks p_pgid); FreeBSD uses ki_*.
+#define GW_KP_PID   p_pid
+#define GW_KP_PPID  p_ppid
+#define GW_KP_SID   p_sid
+#define GW_KP_PGID  p__pgid
+#define GW_KP_COMM  p_comm
+// OpenBSD has no login_getpwclass(); look the class up by name from pw_class.
+#define GW_LOGIN_GETPWCLASS(p) login_getclass((p)->pw_class)
+#else
 #import <libutil.h>
+#define GW_KP_PID   ki_pid
+#define GW_KP_PPID  ki_ppid
+#define GW_KP_SID   ki_sid
+#define GW_KP_PGID  ki_pgid
+#define GW_KP_COMM  ki_comm
+#define GW_LOGIN_GETPWCLASS(p) login_getpwclass(p)
+#endif
 #endif
 #import <string.h>
 #import <grp.h>
@@ -1013,7 +1032,11 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Signal handlers reset");
         
         // Set up environment for the session
+#if defined(__OpenBSD__)
+        { extern char **environ; environ = NULL; }  /* OpenBSD has no clearenv() */
+#else
         clearenv();
+#endif
         setenv("USER", user_cstr, 1);
         setenv("LOGNAME", user_cstr, 1);
         setenv("HOME", pwd->pw_dir, 1);
@@ -1033,7 +1056,7 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Skipping BSD login_cap logic on Linux");
 #else
         // Set login class environment variables
-        login_cap_t *lc = login_getpwclass(pwd);
+        login_cap_t *lc = GW_LOGIN_GETPWCLASS(pwd);
         if (lc != NULL) {
             NSDebugLLog(@"gwcomp", @"[DEBUG] Setting login class environment variables");
             
@@ -1077,7 +1100,7 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Skipping BSD login_cap keyboard config on Linux");
 #else
         // Get login capabilities for this user in child process
-        login_cap_t *child_lc = login_getpwclass(pwd);
+        login_cap_t *child_lc = GW_LOGIN_GETPWCLASS(pwd);
         if (child_lc != NULL) {
             kb_layout = login_getcapstr(child_lc, "keyboard.layout", NULL, NULL);
             kb_variant = login_getcapstr(child_lc, "keyboard.variant", NULL, NULL);
@@ -1574,7 +1597,11 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Signal handlers reset for auto-login");
         
         // Set up environment for the session (reuse existing environment setup code)
+#if defined(__OpenBSD__)
+        { extern char **environ; environ = NULL; }  /* OpenBSD has no clearenv() */
+#else
         clearenv();
+#endif
         setenv("USER", user_cstr, 1);
         setenv("LOGNAME", user_cstr, 1);
         setenv("HOME", pwd->pw_dir, 1);
@@ -1591,7 +1618,7 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Skipping BSD login_cap logic for auto-login on Linux");
 #else
         // Set login class environment variables
-        login_cap_t *lc = login_getpwclass(pwd);
+        login_cap_t *lc = GW_LOGIN_GETPWCLASS(pwd);
         if (lc != NULL) {
             NSDebugLLog(@"gwcomp", @"[DEBUG] Setting login class environment variables for auto-login");
             
@@ -1654,7 +1681,7 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Skipping BSD login_cap keyboard config for auto-login on Linux");
 #else
         // Get login capabilities for this user in child process
-        login_cap_t *child_lc = login_getpwclass(pwd);
+        login_cap_t *child_lc = GW_LOGIN_GETPWCLASS(pwd);
         if (child_lc != NULL) {
             kb_layout = login_getcapstr(child_lc, "keyboard.layout", NULL, NULL);
             kb_variant = login_getcapstr(child_lc, "keyboard.variant", NULL, NULL);
@@ -2099,11 +2126,19 @@ static bool isDetachedDaemon(const char *comm)
     closedir(proc_dir);
 
 #else
-    // BSD implementation using sysctl
+    // BSD implementation using sysctl. OpenBSD's KERN_PROC needs a 6-element
+    // mib carrying the struct size and element count; FreeBSD uses 4.
+#if defined(__OpenBSD__)
+    int mib[6] = {CTL_KERN, KERN_PROC, KERN_PROC_UID, (int)uid,
+                  sizeof(struct kinfo_proc), 0};
+    int miblen = 6;
+#else
     int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_UID, uid};
+    int miblen = 4;
+#endif
     size_t size = 0;
 
-    if (sysctl(mib, 4, NULL, &size, NULL, 0) != 0) {
+    if (sysctl(mib, miblen, NULL, &size, NULL, 0) != 0) {
         NSDebugLog(@"Failed to get process list size: %s", strerror(errno));
         return;
     }
@@ -2114,7 +2149,10 @@ static bool isDetachedDaemon(const char *comm)
         return;
     }
 
-    if (sysctl(mib, 4, procs, &size, NULL, 0) != 0) {
+#if defined(__OpenBSD__)
+    mib[5] = (int)(size / sizeof(struct kinfo_proc));
+#endif
+    if (sysctl(mib, miblen, procs, &size, NULL, 0) != 0) {
         NSDebugLog(@"Failed to get process list: %s", strerror(errno));
         free(procs);
         return;
@@ -2122,22 +2160,22 @@ static bool isDetachedDaemon(const char *comm)
 
     int numProcs = size / sizeof(struct kinfo_proc);
     for (int i = 0; i < numProcs; i++) {
-        pid_t pid = procs[i].ki_pid;
+        pid_t pid = procs[i].GW_KP_PID;
         if (pid <= 1 || pid == getpid())
             continue;
 
         bool shouldKill = false;
 
         // Session-related checks
-        if (procs[i].ki_ppid == sessionPid || procs[i].ki_sid == sessionPid ||
-            procs[i].ki_pgid == sessionPid) {
-            NSDebugLog(@"Found session-related process: PID=%d, Command=%s", pid, procs[i].ki_comm);
+        if (procs[i].GW_KP_PPID == sessionPid || procs[i].GW_KP_SID == sessionPid ||
+            procs[i].GW_KP_PGID == sessionPid) {
+            NSDebugLog(@"Found session-related process: PID=%d, Command=%s", pid, procs[i].GW_KP_COMM);
             shouldKill = true;
         }
 
         // Detached daemon check
-        if (!shouldKill && isDetachedDaemon(procs[i].ki_comm)) {
-            NSDebugLog(@"Found detached daemon: PID=%d, Command=%s", pid, procs[i].ki_comm);
+        if (!shouldKill && isDetachedDaemon(procs[i].GW_KP_COMM)) {
+            NSDebugLog(@"Found detached daemon: PID=%d, Command=%s", pid, procs[i].GW_KP_COMM);
             shouldKill = true;
         }
 
@@ -2736,74 +2774,115 @@ static bool isDetachedDaemon(const char *comm)
     closedir(proc_dir);
     
 #else
-    // BSD implementation using sysctl
+    // BSD implementation using sysctl. OpenBSD's KERN_PROC needs a 6-element
+    // mib carrying the struct size and element count; FreeBSD uses 3.
+#if defined(__OpenBSD__)
+    int mib[6] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0,
+                  sizeof(struct kinfo_proc), 0};
+    int miblen = 6;
+#else
     int mib[3] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL};
+    int miblen = 3;
+#endif
     size_t size = 0;
-    
-    if (sysctl(mib, 3, NULL, &size, NULL, 0) != 0) {
+
+    if (sysctl(mib, miblen, NULL, &size, NULL, 0) != 0) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Failed to get process list size: %s", strerror(errno));
         return;
     }
-    
+
     struct kinfo_proc *procs = malloc(size);
     if (!procs) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Failed to allocate memory for process list");
         return;
     }
-    
-    if (sysctl(mib, 3, procs, &size, NULL, 0) != 0) {
+
+#if defined(__OpenBSD__)
+    mib[5] = (int)(size / sizeof(struct kinfo_proc));
+#endif
+    if (sysctl(mib, miblen, procs, &size, NULL, 0) != 0) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Failed to get process list: %s", strerror(errno));
         free(procs);
         return;
     }
-    
+
     int numProcs = size / sizeof(struct kinfo_proc);
     NSDebugLLog(@"gwcomp", @"[DEBUG] Checking %d processes for X server cleanup", numProcs);
-    
+
     for (int i = 0; i < numProcs; i++) {
-        pid_t pid = procs[i].ki_pid;
-        
+        pid_t pid = procs[i].GW_KP_PID;
+
         // Skip kernel processes, init, and our own process
         if (pid <= 1 || pid == getpid()) {
             continue;
         }
-        
-        // Get command arguments for this process
-        int mib_args[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ARGS, pid};
+
+        // Build a searchable command-line string for this process.
+        NSMutableString *cmdlineStr = [NSMutableString string];
+#if defined(__OpenBSD__)
+        // OpenBSD: KERN_PROC_ARGS sits directly under CTL_KERN and, with
+        // KERN_PROC_ARGV, returns an argv pointer array into the buffer.
+        int mib_args[4] = {CTL_KERN, KERN_PROC_ARGS, pid, KERN_PROC_ARGV};
         size_t args_size = 0;
-        
+
         if (sysctl(mib_args, 4, NULL, &args_size, NULL, 0) != 0) {
             continue; // Process might have disappeared
         }
-        
+
+        char **argv = malloc(args_size);
+        if (!argv) {
+            continue;
+        }
+
+        if (sysctl(mib_args, 4, argv, &args_size, NULL, 0) != 0) {
+            free(argv);
+            continue;
+        }
+
+        for (char **ap = argv; *ap != NULL; ap++) {
+            if ([cmdlineStr length] > 0) {
+                [cmdlineStr appendString:@" "];
+            }
+            [cmdlineStr appendString:[NSString stringWithUTF8String:*ap]];
+        }
+
+        free(argv);
+#else
+        // FreeBSD: KERN_PROC_ARGS returns a flat NUL-separated argument buffer.
+        int mib_args[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ARGS, pid};
+        size_t args_size = 0;
+
+        if (sysctl(mib_args, 4, NULL, &args_size, NULL, 0) != 0) {
+            continue; // Process might have disappeared
+        }
+
         char *args = malloc(args_size);
         if (!args) {
             continue;
         }
-        
+
         if (sysctl(mib_args, 4, args, &args_size, NULL, 0) != 0) {
             free(args);
             continue;
         }
-        
-        // Build a searchable string from arguments
-        NSMutableString *cmdlineStr = [NSMutableString string];
+
         char *p = args;
         char *end = args + args_size;
-        
+
         while (p < end) {
             size_t len = strlen(p);
             if (len == 0) break;
-            
+
             if ([cmdlineStr length] > 0) {
                 [cmdlineStr appendString:@" "];
             }
             [cmdlineStr appendString:[NSString stringWithUTF8String:p]];
             p += len + 1;
         }
-        
+
         free(args);
-        
+#endif
+
         // Check if command line matches pattern and display number
         if ([cmdlineStr rangeOfString:pattern].location != NSNotFound &&
             [cmdlineStr rangeOfString:displayNum].location != NSNotFound) {

@@ -568,20 +568,46 @@
         key = [key stringByReplacingOccurrencesOfString:@"<Super>" withString:@"" options:NSCaseInsensitiveSearch range:NSMakeRange(0, [key length])];
     }
     
-    // Convert special keys
-    if ([key isEqualToString:@"Return"]) return @"\r";
-    if ([key isEqualToString:@"Tab"]) return @"\t";
-    if ([key isEqualToString:@"BackSpace"]) return @"\b";
-    if ([key isEqualToString:@"Delete"]) return @"\x7f";
-    if ([key isEqualToString:@"Escape"]) return @"\x1b";
-    if ([key isEqualToString:@"Space"]) return @" ";
+    // Convert special keys - case-insensitive
+    NSString *lowerKey = [key lowercaseString];
+    if ([lowerKey isEqualToString:@"return"] || [lowerKey isEqualToString:@"enter"] ||
+        [lowerKey isEqualToString:@"kp_enter"]) {
+        return @"\r";
+    }
+    if ([lowerKey isEqualToString:@"tab"] || [lowerKey isEqualToString:@"kpad_tab"]) {
+        return @"\t";
+    }
+    if ([lowerKey isEqualToString:@"backspace"] || [lowerKey isEqualToString:@"back_space"] ||
+        [lowerKey isEqualToString:@"back"]) {
+        return @"\b";
+    }
+    if ([lowerKey isEqualToString:@"delete"] || [lowerKey isEqualToString:@"delete_key"]) {
+        return @"\x7f";
+    }
+    if ([lowerKey isEqualToString:@"escape"] || [lowerKey isEqualToString:@"esc"]) {
+        return @"\x1b";
+    }
+    if ([lowerKey isEqualToString:@"space"]) {
+        return @" ";
+    }
     
     // Function keys
-    if ([key hasPrefix:@"F"]) {
-        NSString *fNumber = [key substringFromIndex:1];
-        if ([fNumber intValue] >= 1 && [fNumber intValue] <= 24) {
-            // NSMenuItem uses NSF1FunctionKey, etc. but for simplicity, return empty for now
-            return @"";
+    if ([lowerKey hasPrefix:@"f"] && [lowerKey length] <= 4) {
+        NSString *fNumStr = [lowerKey substringFromIndex:1];
+        if ([fNumStr length] > 0) {
+            BOOL isNumeric = YES;
+            for (NSUInteger i = 0; i < [fNumStr length]; i++) {
+                if (![[NSCharacterSet decimalDigitCharacterSet] characterIsMember:[fNumStr characterAtIndex:i]]) {
+                    isNumeric = NO;
+                    break;
+                }
+            }
+            if (isNumeric) {
+                int fNum = [fNumStr intValue];
+                if (fNum >= 1 && fNum <= 24) {
+                    return lowerKey;
+                }
+            }
         }
     }
     
@@ -605,14 +631,14 @@
         modifiers |= NSControlKeyMask;
     }
     if ([lower containsString:@"<shift>"] || [lower containsString:@"shift+"]) {
-        modifiers |= NSEventModifierFlagShift;
+        modifiers |= NSShiftKeyMask;
     }
     if ([lower containsString:@"<alt>"] || [lower containsString:@"alt+"]) {
-        modifiers |= NSEventModifierFlagOption;
+        modifiers |= NSAlternateKeyMask;
     }
     if ([lower containsString:@"<meta>"] || [lower containsString:@"<super>"] || 
         [lower containsString:@"meta+"] || [lower containsString:@"super+"]) {
-        modifiers |= NSEventModifierFlagCommand;
+        modifiers |= NSCommandKeyMask;
     }
     
     return modifiers;

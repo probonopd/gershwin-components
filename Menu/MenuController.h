@@ -48,9 +48,6 @@
 @property (nonatomic, assign) CGFloat slideInStartY;
 @property (nonatomic, assign) NSTimeInterval lastActiveWindowScanTime;
 @property (nonatomic, strong) NSTimer *windowValidationTimer; // Watchdog timer to hide stale menus
-@property (nonatomic, strong) NSTimer *activeWindowReconcileTimer; // Short delayed follow-up after focus notifications
-@property (nonatomic, assign) unsigned long pendingReconcileWindowId;
-@property (nonatomic, assign) NSUInteger activeWindowReconcileRetryCount;
 #if MENU_PROFILING
 @property (nonatomic, strong) NSTimer *cpuUsageLogTimer;
 @property (nonatomic, assign) NSTimeInterval lastCpuUsageSampleWallTime;

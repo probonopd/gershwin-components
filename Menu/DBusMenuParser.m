@@ -13,6 +13,41 @@
 #import "DBusSubmenuManager.h"
 #import "MenuProfiler.h"
 
+/* ── Shortcut cache ────────────────────────────────────────────────
+ *
+ * Some applications (notably Chromium) omit shortcut properties from
+ * certain window types (incognito, new-tab-page, popups).  We cache
+ * shortcuts seen on one window and replay them onto sibling windows
+ * from the same D-Bus service that are missing them.
+ *
+ * Cache structure:
+ *   _shortcutCache[serviceName][itemId] = @{@"key": ..., @"modifiers": @(...)}
+ */
+static NSMutableDictionary *_shortcutCache = nil;
+
+static NSDictionary *cachedShortcut(NSString *service, NSNumber *itemId)
+{
+    if (!_shortcutCache || !service || !itemId) return nil;
+    NSMutableDictionary *byService = [_shortcutCache objectForKey:service];
+    if (!byService) return nil;
+    return [byService objectForKey:itemId];
+}
+
+static void cacheShortcut(NSString *service, NSNumber *itemId,
+                          NSString *key, NSUInteger modifiers)
+{
+    if (!_shortcutCache) {
+        _shortcutCache = [[NSMutableDictionary alloc] init];
+    }
+    NSMutableDictionary *byService = [_shortcutCache objectForKey:service];
+    if (!byService) {
+        byService = [[NSMutableDictionary alloc] init];
+        [_shortcutCache setObject:byService forKey:service];
+    }
+    [byService setObject:@{@"key": key ?: @"", @"modifiers": @(modifiers)}
+                  forKey:itemId];
+}
+
 @implementation DBusMenuParser
 
 + (void)initialize
@@ -485,6 +520,19 @@
         modifierMask = [[parsedShortcut objectForKey:@"modifiers"] unsignedIntegerValue];
     }
     
+    // ── Shortcut cache fallback ──────────────────────────────────
+    // If the application sent no shortcut for this item, try the cache.
+    // Chromium omits shortcuts from incognito / new-tab-page windows.
+    if ([keyEquivalent length] == 0 && serviceName && itemId) {
+        NSDictionary *cached = cachedShortcut(serviceName, itemId);
+        if (cached) {
+            keyEquivalent = [cached objectForKey:@"key"] ?: @"";
+            modifierMask = [[cached objectForKey:@"modifiers"] unsignedIntegerValue];
+            NSDebugLog(@"DBusMenuParser: Applied cached shortcut for ID %@: '%@' mod=%lu",
+                  itemId, keyEquivalent, (unsigned long)modifierMask);
+        }
+    }
+    
     // Create menu item without keyEquivalent first (to avoid GNUstep auto-setting NSCommandKeyMask)
     NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:label
                                                       action:nil
@@ -529,6 +577,12 @@
         }
         NSDebugLog(@"DBusMenuParser: Set shortcut: key='%@', modifiers=%lu (display=%lu)", 
               keyEquivalent, (unsigned long)modifierMask, (unsigned long)[menuItem keyEquivalentModifierMask]);
+        
+        // Cache this shortcut so sibling windows from the same service
+        // (e.g. incognito / new-tab-page) can inherit it.
+        if (serviceName && itemId) {
+            cacheShortcut(serviceName, itemId, keyEquivalent, modifierMask);
+        }
     }
     
     NSDebugLog(@"DBusMenuParser: ===== CREATED MENU ITEM =====");

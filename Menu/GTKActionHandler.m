@@ -219,16 +219,34 @@ static NSMutableSet *_servicesWithoutDescribeAction = nil;
                 }
                 serviceName = freshBusName;
             }
-            // Prefer the application object path (org.gtk.Actions) over the menubar
-            // object path (org.gtk.Menus) — they implement different D-Bus interfaces.
-            NSString *appPath = [MenuUtils getWindowProperty:activeWindowId
-                                                   atomName:@"_GTK_APPLICATION_OBJECT_PATH"];
-            if (appPath && [appPath length] > 0) {
-                if (![appPath isEqualToString:actionPath]) {
-                    NSDebugLLog(@"gwcomp", @"GTKActionHandler: Action path refreshed from %@ to %@ (_GTK_APPLICATION_OBJECT_PATH)",
-                          actionPath, appPath);
+            // For Unity-style actions (prefixed with "unity."), the actions are
+            // exported on the menu bar object path (_GTK_MENUBAR_OBJECT_PATH),
+            // which also hosts an org.gtk.Actions interface with Unity-style
+            // action names (e.g. "-Quit").  Using _GTK_APPLICATION_OBJECT_PATH
+            // would fail because those action names only exist on the menu path's
+            // org.gtk.Actions interface.
+            if ([actionName hasPrefix:@"unity."]) {
+                NSString *menuPath = [MenuUtils getWindowProperty:activeWindowId
+                                                       atomName:@"_GTK_MENUBAR_OBJECT_PATH"];
+                if (menuPath && [menuPath length] > 0) {
+                    if (![menuPath isEqualToString:actionPath]) {
+                        NSDebugLLog(@"gwcomp", @"GTKActionHandler: Action path refreshed from %@ to %@ (_GTK_MENUBAR_OBJECT_PATH for unity action)",
+                              actionPath, menuPath);
+                    }
+                    actionPath = menuPath;
                 }
-                actionPath = appPath;
+            } else {
+                // Prefer the application object path (org.gtk.Actions) over the menubar
+                // object path (org.gtk.Menus) — they implement different D-Bus interfaces.
+                NSString *appPath = [MenuUtils getWindowProperty:activeWindowId
+                                                       atomName:@"_GTK_APPLICATION_OBJECT_PATH"];
+                if (appPath && [appPath length] > 0) {
+                    if (![appPath isEqualToString:actionPath]) {
+                        NSDebugLLog(@"gwcomp", @"GTKActionHandler: Action path refreshed from %@ to %@ (_GTK_APPLICATION_OBJECT_PATH)",
+                              actionPath, appPath);
+                    }
+                    actionPath = appPath;
+                }
             }
         }
 

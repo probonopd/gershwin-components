@@ -92,7 +92,7 @@ Menu_RESOURCE_FILES = \
 
 
 # Libraries and frameworks - configured by configure script
-Menu_TOOL_LIBS += @DBUS_LIBS@ -lX11
+Menu_TOOL_LIBS += -ldbus-1 -lX11
 Menu_GUI_LIBS += -L/System/Library/Libraries -lgnustep-gui -lgnustep-base -lobjc -ldispatch
 Menu_LDFLAGS += -Wl,--export-dynamic -L/System/Library/Libraries -Wl,-rpath,/System/Library/Libraries -Wl,--no-as-needed
 
@@ -102,26 +102,12 @@ Menu_LDFLAGS += -Wl,--export-dynamic -L/System/Library/Libraries -Wl,-rpath,/Sys
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
 	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_GNU_SOURCE
-	ADDITIONAL_CPPFLAGS = @DBUS_CFLAGS@
+	ADDITIONAL_CPPFLAGS =  -I/usr/include/dbus-1.0 -I/usr/lib/aarch64-linux-gnu/dbus-1.0/include
 endif
 ifeq ($(UNAME_S),FreeBSD)
 	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE
-	ADDITIONAL_CPPFLAGS = @DBUS_CFLAGS@
+	ADDITIONAL_CPPFLAGS =  -I/usr/include/dbus-1.0 -I/usr/lib/aarch64-linux-gnu/dbus-1.0/include
 	Menu_TOOL_LIBS += -lexecinfo
-endif
-ifeq ($(UNAME_S),NextBSD)
-	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE
-	ADDITIONAL_CPPFLAGS = @DBUS_CFLAGS@
-	Menu_TOOL_LIBS += -lexecinfo
-	Menu_GUI_LIBS += -L/usr/lib/system
-	Menu_LDFLAGS += -Wl,-rpath,/usr/lib/system
-endif
-ifeq ($(UNAME_S),OpenBSD)
-	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE
-	ADDITIONAL_CPPFLAGS = @DBUS_CFLAGS@
-	# backtrace()/backtrace_symbols_fd() (used by CrashHandler.m) come from
-	# libexecinfo under /usr/local on OpenBSD, not from libc.
-	Menu_TOOL_LIBS += -L/usr/local/lib -lexecinfo
 endif
 
 # Profiling: build with  make PROFILE=1  to enable CPU instrumentation.

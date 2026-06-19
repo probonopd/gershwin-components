@@ -320,7 +320,7 @@ typedef struct DBusConnection DBusConnectionStruct;
     dbus_error_init(&error);
     
     DBusMessage *reply = dbus_connection_send_with_reply_and_block((DBusConnectionStruct *)self.connection, 
-                                                                  message, 250, &error);
+                                                                  message, 5000, &error);
     dbus_message_unref(message);
     
     if (dbus_error_is_set(&error)) {
@@ -503,7 +503,7 @@ typedef struct DBusConnection DBusConnectionStruct;
     dbus_error_init(&error);
     
     DBusMessage *reply = dbus_connection_send_with_reply_and_block((DBusConnectionStruct *)self.connection, 
-                                                                  message, 250, &error);
+                                                                  message, 5000, &error);
     dbus_message_unref(message);
     
     if (dbus_error_is_set(&error)) {

@@ -7,16 +7,17 @@
 #import <Foundation/Foundation.h>
 
 @protocol GSGNUstepMenuServer
-- (oneway void)updateMenuForWindow:(NSNumber *)windowId
-                          menuData:(NSDictionary *)menuData
-                        clientName:(NSString *)clientName;
-- (oneway void)unregisterWindow:(NSNumber *)windowId
-                       clientName:(NSString *)clientName;
+- (oneway void)updateMenuForWindow:(bycopy NSNumber *)windowId
+                          menuData:(bycopy NSDictionary *)menuData
+                        clientName:(bycopy NSString *)clientName;
+- (oneway void)unregisterWindow:(bycopy NSNumber *)windowId
+                       clientName:(bycopy NSString *)clientName;
 // Lightweight: patches only enabled/state on the existing NSMenu without
-// rebuilding it.  Bypasses all throttling so state changes land immediately.
-- (oneway void)updateMenuEnabledStatesForWindow:(NSNumber *)windowId
-                                       menuData:(NSDictionary *)menuData
-                                     clientName:(NSString *)clientName;
+// rebuilding it. This path is still subject to the short enabled-state
+// throttling gate (currently 50 ms), so updates are not strictly immediate.
+- (oneway void)updateMenuEnabledStatesForWindow:(bycopy NSNumber *)windowId
+                                       menuData:(bycopy NSDictionary *)menuData
+                                     clientName:(bycopy NSString *)clientName;
 @end
 
 @protocol GSGNUstepMenuClient
@@ -33,5 +34,5 @@
 // Menu.app calls this right before opening a submenu so that item states
 // (enabled/disabled, checkmarks) are up-to-date before the user sees them.
 // Must respond promptly (< 300 ms).
-- (bycopy NSDictionary *)validateMenuStateForWindow:(NSNumber *)windowId;
+- (bycopy id)validateMenuStateForWindow:(NSNumber *)windowId;
 @end

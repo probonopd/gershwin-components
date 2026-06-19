@@ -13,8 +13,14 @@ Network_RESOURCE_FILES = Network.png NetworkInfo.plist
 Network_BUNDLE_LIBS = -lPreferencePanes
 Network_PRINCIPAL_CLASS = NetworkPane
 
-# For dlopen() used to load NetworkManager library
+# For dlopen() used to load NetworkManager library. dlopen/dlsym are in libc on
+# OpenBSD (no libdl to link against), so only add -ldl on other platforms.
+NETWORK_UNAME_S := $(shell uname -s)
+ifeq ($(NETWORK_UNAME_S),OpenBSD)
+Network_LDFLAGS =
+else
 Network_LDFLAGS = -ldl
+endif
 
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles
 HELPER_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Tools

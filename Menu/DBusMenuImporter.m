@@ -143,6 +143,16 @@
     }
 
     if ([self.registeredWindows objectForKey:windowKey] != nil) {
+        // If we have a stale "unknown" service name from RegisterWindow,
+        // try to upgrade it from X11 properties.
+        NSString *svc = [self.registeredWindows objectForKey:windowKey];
+        if ([svc isEqualToString:@"unknown"]) {
+            NSString *x11Service = [MenuUtils getWindowMenuService:windowId];
+            NSString *x11Path = [MenuUtils getWindowMenuPath:windowId];
+            if (x11Service && x11Path) {
+                [self registerWindow:windowId serviceName:x11Service objectPath:x11Path];
+            }
+        }
         return YES;
     }
     
@@ -218,9 +228,12 @@
     }
     
     // If we still don't have serviceName/objectPath, check X11 properties as fallback
-    if (!serviceName || !objectPath) {
+    // Also override placeholder "unknown" service names that come from the
+    // Registrar's RegisterWindow handler when the sender's bus name is unavailable.
+    if (!serviceName || !objectPath || [serviceName isEqualToString:@"unknown"]) {
         // Check X11 properties as fallback - applications might have set them
-        // without registering through DBus yet
+        // without registering through DBus yet, or the DBus registration may
+        // have arrived with a placeholder service name.
         NSString *x11Service = [MenuUtils getWindowMenuService:windowId];
         NSString *x11Path = [MenuUtils getWindowMenuPath:windowId];
         
@@ -727,7 +740,20 @@
     NSString *objectPath = [arguments objectAtIndex:1];
     
     // Get the calling service name from DBus context
-    NSString *serviceName = @"unknown"; // In a real implementation, get from DBus message
+    NSString *serviceName = @"unknown";
+    // Try to get the real service from X11 properties — the DBus message's
+    // sender field is not passed through to this handler by our current
+    // DBus framework, so we fall back to the X11 _KDE_NET_WM_APPMENU_*
+    // properties which Chrome sets on its windows.
+    NSString *x11Service = [MenuUtils getWindowMenuService:windowId];
+    if (x11Service) {
+        serviceName = x11Service;
+        NSDebugLog(@"DBusMenuImporter: Using X11 property service name '%@' for window %lu", 
+              serviceName, windowId);
+    } else {
+        NSDebugLog(@"DBusMenuImporter: WARNING: No X11 service name for window %lu, using '%@'", 
+              windowId, serviceName);
+    }
     
     [self registerWindow:windowId serviceName:serviceName objectPath:objectPath];
 }

@@ -1,0 +1,177 @@
+name: Build Gershwin Components
+
+# Build gershwin-components against the real Gershwin stack by reusing
+# gershwin-developer: build the core libraries once ("make corelibs"), then
+# build the checkout under test ("make components"). The sources are provided by
+# this repo's checkout via a symlink, and SKIP_REPOS keeps Checkout.sh from
+# cloning this repo or the sibling apps that are not needed to build corelibs.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # gershwin-systempreferences is NOT skipped: it provides the PreferencePanes
+  # framework that several component prefPanes (Display, Network, Sound, ...)
+  # build against, so it is cloned and built before components.
+  SKIP_REPOS: >-
+    gershwin-components
+    gershwin-workspace
+    gershwin-eau-theme
+    gershwin-terminal
+    gershwin-textedit
+    gershwin-windowmanager
+
+jobs:
+  build-freebsd-14-amd64:
+    name: FreeBSD x86_64
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gershwin-components
+
+      - name: Build components inside FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.3"
+          usesh: true
+          sync: rsync
+          copyback: false
+          cpu: 2
+          mem: 4096
+          prepare: |
+            pkg update
+            pkg install -y git
+          run: |
+            set -e
+            BASE="$(pwd)"
+            git clone --depth 1 https://github.com/gershwin-desktop/gershwin-developer.git
+            cd "$BASE/gershwin-developer"
+            ./Library/Scripts/Bootstrap.sh
+            SKIP_REPOS="${{ env.SKIP_REPOS }}" ./Library/Scripts/Checkout.sh
+            ln -sfn "$BASE/gershwin-components" Library/Sources/gershwin-components
+            make corelibs
+            make systempreferences
+            make components
+
+  build-archlinux-x86_64:
+    name: Arch x86_64
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install git
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git
+
+      - uses: actions/checkout@v4
+        with:
+          path: gershwin-components
+
+      - name: Clone gershwin-developer
+        run: git clone --depth 1 https://github.com/gershwin-desktop/gershwin-developer.git
+
+      - name: Bootstrap
+        working-directory: gershwin-developer
+        run: ./Library/Scripts/Bootstrap.sh
+
+      - name: Checkout sources (skip this repo and sibling apps)
+        working-directory: gershwin-developer
+        run: ./Library/Scripts/Checkout.sh
+
+      - name: Link source under test
+        working-directory: gershwin-developer
+        run: ln -sfn "$GITHUB_WORKSPACE/gershwin-components" Library/Sources/gershwin-components
+
+      - name: Build core libraries
+        working-directory: gershwin-developer
+        run: make corelibs
+
+      - name: Build systempreferences (provides the PreferencePanes framework)
+        working-directory: gershwin-developer
+        run: make systempreferences
+
+      - name: Build components
+        working-directory: gershwin-developer
+        run: make components
+
+  build-debian-x86_64:
+    name: Debian x86_64
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    container:
+      image: debian:bookworm
+    steps:
+      - name: Install git
+        run: |
+          apt-get update
+          apt-get -y install git
+
+      - uses: actions/checkout@v4
+        with:
+          path: gershwin-components
+
+      - name: Clone gershwin-developer
+        run: git clone --depth 1 https://github.com/gershwin-desktop/gershwin-developer.git
+
+      - name: Bootstrap
+        working-directory: gershwin-developer
+        run: ./Library/Scripts/Bootstrap.sh
+
+      - name: Checkout sources (skip this repo and sibling apps)
+        working-directory: gershwin-developer
+        run: ./Library/Scripts/Checkout.sh
+
+      - name: Link source under test
+        working-directory: gershwin-developer
+        run: ln -sfn "$GITHUB_WORKSPACE/gershwin-components" Library/Sources/gershwin-components
+
+      - name: Build core libraries
+        working-directory: gershwin-developer
+        run: make corelibs
+
+      - name: Build systempreferences (provides the PreferencePanes framework)
+        working-directory: gershwin-developer
+        run: make systempreferences
+
+      - name: Build components
+        working-directory: gershwin-developer
+        run: make components
+
+  build-openbsd-78-amd64:
+    name: OpenBSD x86_64
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gershwin-components
+
+      - name: Build components inside OpenBSD VM
+        uses: vmactions/openbsd-vm@v1
+        with:
+          release: "7.8"
+          usesh: true
+          sync: rsync
+          copyback: false
+          cpu: 2
+          mem: 4096
+          prepare: |
+            pkg_add -I git
+          run: |
+            set -e
+            BASE="$(pwd)"
+            git clone --depth 1 https://github.com/gershwin-desktop/gershwin-developer.git
+            cd "$BASE/gershwin-developer"
+            ./Library/Scripts/Bootstrap.sh
+            SKIP_REPOS="${{ env.SKIP_REPOS }}" ./Library/Scripts/Checkout.sh
+            ln -sfn "$BASE/gershwin-components" Library/Sources/gershwin-components
+            make corelibs
+            make systempreferences
+            make components

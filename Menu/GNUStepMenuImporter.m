@@ -12,6 +12,84 @@
 #import <AppKit/NSMenu.h>
 #import <AppKit/NSMenuItem.h>
 #import <dispatch/dispatch.h>
+#import <time.h>
+#import <X11/Xlib.h>
+
+/* Coarse DO-call throttle for full menu rebuilds.
+   GWorkspace can fire updateMenuForWindow: thousands of times per second via DO.
+   Each call serialises a property-list on the receiving thread, consuming
+   significant CPU.  This clock_gettime-based gate drops calls sooner than
+   DO_MENU_UPDATE_MIN_NS apart from the previous accepted call. */
+#define DO_MENU_UPDATE_MIN_NS   100000000LL   /* 100 ms */
+#define DO_STATE_UPDATE_MIN_NS   50000000LL   /*  50 ms */
+static struct timespec _lastMenuUpdateAccepted;
+static struct timespec _lastStateUpdateAccepted;
+
+/* ============================================================
+   PER-WINDOW PROXY MATERIALIZATION CACHE  —  DO NOT REMOVE!
+   ============================================================
+
+   Background:
+   -----------
+   GWorkspace talks to Menu.app via GNUstep Distributed Objects (DO).  A DO
+   server always RECEIVES its parameters as proxies unless the sender explicitly
+   declares the parameters with 'bycopy' AND was compiled with a protocol header
+   that includes that qualifier.  Even when the protocol declares 'bycopy', older
+   GWorkspace builds without the updated header still send proxies.
+
+   Walking a proxy NSDictionary that contains an entire app menu tree (the
+   "menuData" parameter) triggers a synchronous round-trip IPC call for every
+   key access.  For a large app like Workspace or GWorkspace with 100+ items
+   across multiple submenus, this takes ~1 second PER CALL.
+
+   The problem:
+   ------------
+   GWorkspace fires updateMenuForWindow: thousands of times per second during a
+   window switch.  Without a guard, EVERY call would walk the proxy tree, locking
+   the DO receive thread for seconds and spiking the CPU to 100%.
+
+   The solution:
+   -------------
+   On the first updateMenuForWindow: call for a window we materialize the proxy
+   ONCE by serialising it through NSPropertyListSerialization (which walks the
+   proxy tree in one batch, minimising IPC round-trips).  The resulting local
+   NSDictionary is stored in lastMenuDataByWindow.
+
+   All subsequent updateMenuForWindow: calls for the SAME window that arrive with
+   proxy data are dropped immediately (the guard below).  The menu structure does
+   not change while a window is alive; only enabled states change, and those are
+   delivered via updateMenuEnabledStatesForWindow: which has its own cheaper path.
+
+   The cache entry is cleared in unregisterWindow: so that when an app closes
+   and reopens its window, the next updateMenuForWindow: call materializes fresh
+   data instead of skipping it.
+
+   CRITICAL OWNERSHIP RULE:
+   ------------------------
+   _materializationTimeByWindow is written ONLY by updateMenuForWindow:.
+   updateMenuEnabledStatesForWindow: MUST NOT write to it.  If a state-update
+   call arrives before the full menu update (common with Chrome/Chromium and
+   other fast-starting apps), writing to _materializationTimeByWindow from the
+   state-update path would cause updateMenuForWindow: to see the window as
+   "already cached" and skip the full proxy walk — leaving the window with no
+   menu in menusByWindow forever.
+
+   If you ever feel tempted to remove this cache:
+   - CPU will spike to 95–100% every time any GNUstep app gains focus.
+   - All GNUstep app menus will be unusably slow to appear.
+   - The system will feel completely broken to the user.
+   DO NOT REMOVE THIS CACHE. */
+static NSMutableDictionary *_materializationTimeByWindow;
+
+static inline BOOL _shouldThrottleDO(struct timespec *last, long long minNS) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    long long deltaNS = (now.tv_sec - last->tv_sec) * 1000000000LL
+                      + (now.tv_nsec - last->tv_nsec);
+    if (deltaNS < minNS) return YES;
+    *last = now;
+    return NO;
+}
 
 static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServer";
 
@@ -35,6 +113,11 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
         _clientNamesByWindow = [[NSMutableDictionary alloc] init];
         _lastMenuDataByWindow = [[NSMutableDictionary alloc] init];
         _lastMenuUpdateTimeByWindow = [[NSMutableDictionary alloc] init];
+
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            _materializationTimeByWindow = [[NSMutableDictionary alloc] init];
+        });
         
         // Register the GNUstep menu server immediately so apps can connect
         // This must happen early, before any GNUstep apps try to connect
@@ -208,6 +291,53 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
         }
     }
     
+    /* Check whether any of our stored GNUstep windows are children of this
+     * X11 window.  GNUstep's X11 backend creates child windows for its NSWindow
+     * content areas, so the top-level X11 window (returned by _NET_ACTIVE_WINDOW)
+     * is often the PARENT of the window ID that GNUstep's windowDevice: returns.
+     * Menu.app looks up menus by the active X11 window ID, but Eau registers
+     * menus under the child window ID.  This mismatch causes Menu.app to never
+     * find the menu for focused GNUstep windows.
+     *
+     * We fix this by walking the X11 window tree: for each stored GNUstep window,
+     * we climb up to its ancestors.  If any ancestor matches the requested
+     * windowId, we have a match and re-key the cache entries under windowId. */
+    {
+      Display *dpy = [MenuUtils sharedDisplay];
+      if (dpy) {
+        Window root = 0;
+        /* Collect stored IDs in a separate array to avoid mutation during iteration. */
+        NSArray *candidates = [self.menusByWindow allKeys];
+        for (NSNumber *storedKey in candidates) {
+          unsigned long childWin = [storedKey unsignedLongValue];
+          Window w = (Window)childWin;
+          /* Walk up the window tree: w → parent → grandparent → ... */
+          while (w != None) {
+            Window currentRoot, parent;
+            Window *children;
+            unsigned int nchildren;
+            if (XQueryTree(dpy, w, &currentRoot, &parent, &children, &nchildren)) {
+              if (children) XFree(children);
+              root = currentRoot;
+              if (parent == (Window)windowId || parent == root) {
+                /* Found direct parent match (or hit root → no match this branch). */
+                if (parent == (Window)windowId) {
+                  NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Found GNUstep window 0x%lx as child of requested window 0x%lx", childWin, windowId);
+                  self.menusByWindow[key] = self.menusByWindow[storedKey];
+                  self.clientNamesByWindow[key] = self.clientNamesByWindow[storedKey];
+                  return YES;
+                }
+                break; /* hit root, no need to continue */
+              }
+              w = parent;
+            } else {
+              break;
+            }
+          }
+        }
+      }
+    }
+
     // Proactively probe the client for this window if we don't have a menu
     // This handles the case where a new GNUstep app window appears but hasn't pushed its menu yet
     pid_t pid = [MenuUtils getWindowPID:windowId];
@@ -298,6 +428,13 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     [self.clientNamesByWindow removeObjectForKey:windowKey];
     [self.lastMenuDataByWindow removeObjectForKey:windowKey];
     [self.lastMenuUpdateTimeByWindow removeObjectForKey:windowKey];
+
+    /* Clear the materialization cache for this window so that if the window
+       reopens (same or new app instance), the next updateMenuForWindow: call
+       performs a fresh proxy materialization instead of skipping it. */
+    @synchronized (_materializationTimeByWindow) {
+        [_materializationTimeByWindow removeObjectForKey:windowKey];
+    }
 
     if (self.appMenuWidget && self.appMenuWidget.currentWindowId == windowId) {
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Current menu window %lu unregistered - refreshing menu", windowId);
@@ -396,121 +533,90 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
 
 #pragma mark - GNUstep Menu Server
 
-- (oneway void)updateMenuForWindow:(NSNumber *)windowId
-                          menuData:(NSDictionary *)menuData
-                        clientName:(NSString *)clientName
+- (oneway void)updateMenuForWindow:(bycopy NSNumber *)windowId
+                          menuData:(bycopy NSDictionary *)menuData
+                        clientName:(bycopy NSString *)clientName
 {
-    // IMMEDIATE PROTECTION: Wrap entire method in try/catch to handle corrupted DO proxies
-    // The objc_retainAutoreleasedReturnValue crash happens at the runtime level and may not be catchable
-    // as an NSException, so we need to prevent any proxy access that could trigger it
+    /* Early throttle: drop rapid-fire full-menu calls before doing any work. */
+    if (_shouldThrottleDO(&_lastMenuUpdateAccepted, DO_MENU_UPDATE_MIN_NS)) return;
+
     @try {
-        // First check if parameters are distributed objects proxies and validate their connections
-        BOOL hasInvalidProxies = NO;
-        
-        @try {
-            if (windowId && [(id)windowId isProxy]) {
-                NSConnection *conn = [(NSDistantObject *)windowId connectionForProxy];
-                if (!conn || [conn isValid] == NO) {
-                    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: windowId proxy has invalid connection");
-                    hasInvalidProxies = YES;
-                }
-            }
-        } @catch (NSException *e) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception validating windowId proxy: %@", e);
-            hasInvalidProxies = YES;
-        }
-        
-        @try {
-            if (menuData && [(id)menuData isProxy]) {
-                NSConnection *conn = [(NSDistantObject *)menuData connectionForProxy];
-                if (!conn || [conn isValid] == NO) {
-                    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: menuData proxy has invalid connection");
-                    hasInvalidProxies = YES;
-                }
-            }
-        } @catch (NSException *e) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception validating menuData proxy: %@", e);
-            hasInvalidProxies = YES;
-        }
-        
-        @try {
-            if (clientName && [(id)clientName isProxy]) {
-                NSConnection *conn = [(NSDistantObject *)clientName connectionForProxy];
-                if (!conn || [conn isValid] == NO) {
-                    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: clientName proxy has invalid connection");
-                    hasInvalidProxies = YES;
-                }
-            }
-        } @catch (NSException *e) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception validating clientName proxy: %@", e);
-            hasInvalidProxies = YES;
-        }
-        
-        if (hasInvalidProxies) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Rejecting updateMenuForWindow call due to invalid proxy connections");
-            return;
+        if (!windowId || !menuData || !clientName) return;
+
+        /* With bycopy in the protocol, parameters should arrive as local
+           objects.  If the sender (GWorkspace/Eau) was compiled with an
+           older protocol, NSDictionary parameters still arrive as DO proxies.
+           For proxies: materialize via plist serialization (walks the proxy
+           tree once) then work with the local copy.  NSNumber and NSString
+           are always sent by value by GNUstep DO regardless of bycopy. */
+        NSNumber     *safeWindowId;
+        NSString     *safeClientName;
+        NSDictionary *safeMenuData;
+
+        if ([(id)windowId isProxy]) {
+            safeWindowId = [NSNumber numberWithUnsignedLong:
+                            [windowId unsignedLongValue]];
+        } else {
+            safeWindowId = windowId;
         }
 
-        // Defensive checks for remote calls - wrapped in try/catch for DO safety
-        @try {
-            if (!windowId || ![windowId isKindOfClass:[NSNumber class]] ||
-                !menuData || ![menuData isKindOfClass:[NSDictionary class]] ||
-                !clientName || ![clientName isKindOfClass:[NSString class]]) {
-                NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Invalid update payload (types) - windowId:%@ menuData:%@ clientName:%@", windowId, [menuData class], [clientName class]);
+        if ([(id)clientName isProxy]) {
+            safeClientName = [NSString stringWithString:
+                              (NSString *)clientName];
+        } else {
+            safeClientName = clientName;
+        }
+
+        if ([(id)menuData isProxy]) {
+            /* PROXY DEDUPLICATION — see the large comment block near _materializationTimeByWindow
+               at the top of this file for the full explanation of why this guard exists.
+
+               Short version: walking a proxy menu tree takes ~1 s per call; GWorkspace fires
+               thousands of calls per second.  We materialize ONCE and skip all subsequent calls
+               for the same window.  unregisterWindow: clears the entry when the window closes
+               so the next updateMenuForWindow: call (after the window reopens) materializes fresh
+               data.
+
+               OWNERSHIP: only updateMenuForWindow: writes to _materializationTimeByWindow.
+               updateMenuEnabledStatesForWindow: must never write to it (see comments there). */
+            @synchronized (_materializationTimeByWindow) {
+                if (_materializationTimeByWindow[safeWindowId]) {
+                    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Skipping proxy materialization for window %@ (already cached)", safeWindowId);
+                    return;
+                }
+                _materializationTimeByWindow[safeWindowId] = @YES;
+            }
+
+            /* Materialize proxy menuData by serialization. */
+            /* This is the one expensive call we allow per window lifetime. */
+            NSData *data = [NSPropertyListSerialization
+                            dataWithPropertyList:menuData
+                            format:NSPropertyListBinaryFormat_v1_0
+                            options:0
+                            error:NULL];
+            if (data) {
+                safeMenuData = [NSPropertyListSerialization
+                                propertyListWithData:data
+                                options:NSPropertyListImmutable
+                                format:NULL
+                                error:NULL];
+            } else {
+                NSLog(@"GNUStepMenuImporter: Failed to serialize proxy menuData for window %@", windowId);
                 return;
             }
-        } @catch (NSException *e) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception in parameter validation: %@", e);
-            return;
+        } else {
+            safeMenuData = menuData;
         }
 
-        // Make thread-safe, non-proxy copies before hopping threads.
-        NSNumber *safeWindowId = nil;
-        @try {
-            safeWindowId = [windowId copy];
-        } @catch (NSException *e) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception copying windowId: %@", e);
-            return;
-        }
-        
-        NSString *safeClientName = nil;
-        @try {
-            safeClientName = [clientName copy];
-        } @catch (NSException *e) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception copying clientName: %@", e);
-            return;
-        }
-        
-        NSDictionary *safeMenuData = nil;
-        @try {
-            NSError *plistError = nil;
-            NSData *plist = [NSPropertyListSerialization dataWithPropertyList:menuData
-                                                                       format:NSPropertyListBinaryFormat_v1_0
-                                                                      options:0
-                                                                        error:&plistError];
-            if (plist && !plistError) {
-                safeMenuData = [NSPropertyListSerialization propertyListWithData:plist
-                                                                          options:NSPropertyListImmutable
-                                                                           format:nil
-                                                                            error:&plistError];
-            }
-            if (!safeMenuData || plistError) {
-                safeMenuData = [menuData copy];
-            }
-        } @catch (NSException *ex) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Failed to copy menuData safely: %@", ex);
-            @try {
-                safeMenuData = [menuData copy];
-            } @catch (NSException *e2) {
-                NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception copying menuData as fallback: %@", e2);
-                return;
-            }
-        }
+        if (!safeWindowId || !safeMenuData || !safeClientName) return;
 
-        // Bundle payload and dispatch to main thread; AppKit types must be created on main thread
-        NSDictionary *payload = @{ @"windowId": safeWindowId ?: windowId,
-                                   @"menuData": safeMenuData ?: menuData,
-                                   @"clientName": safeClientName ?: clientName };
+        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Materialized menu for window %@ "
+              @"(%lu top items)", safeWindowId,
+              (unsigned long)[[safeMenuData objectForKey:@"items"] count]);
+
+        NSDictionary *payload = @{ @"windowId":   safeWindowId,
+                                   @"menuData":   safeMenuData,
+                                   @"clientName": safeClientName };
         if ([NSThread isMainThread]) {
             [self processMenuUpdateWithPayload:payload];
         } else {
@@ -520,9 +626,7 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
         }
     }
     @catch (NSException *exception) {
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception in updateMenuForWindow:menuData:clientName: - %@", exception);
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: This is likely a distributed objects issue with corrupted proxies");
-        // Don't re-throw - just log and return to prevent crashes
+        NSLog(@"GNUStepMenuImporter: Exception in updateMenuForWindow: %@", exception);
     }
 }
 
@@ -579,7 +683,16 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     self.clientNamesByWindow[windowId] = clientName;
     self.lastMenuDataByWindow[windowId] = [menuData copy];
     self.lastMenuUpdateTimeByWindow[windowId] = @(now);
-    // NSLog(@"GNUStepMenuImporter: Stored menu for window %@ (client: %@)", windowId, clientName);
+
+    // If this window is currently displayed, apply the fresh enabled/state values
+    // directly to the visible menu right now.  loadMenu:forWindow: skips rebuilds
+    // when the top-level structure is unchanged (which is always true for
+    // enabled-state-only changes like Copy/Paste becoming available), so without
+    // this in-place update the user would never see the correct state.
+    AppMenuWidget *widget = self.appMenuWidget;
+    if (widget && widget.currentWindowId == windowValue && widget.currentMenu) {
+        [self applyEnabledStatesFromData:menuData toMenu:widget.currentMenu depth:0];
+    }
 
     if (self.appMenuWidget) {
         NSDictionary *userInfo = @{@"windowId": windowId};
@@ -591,60 +704,18 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     }
 }
 
-- (oneway void)unregisterWindow:(NSNumber *)windowId
-                       clientName:(NSString *)clientName
+- (oneway void)unregisterWindow:(bycopy NSNumber *)windowId
+                       clientName:(bycopy NSString *)clientName
 {
     @try {
-        // Check if parameters are distributed objects proxies and validate their connections
-        BOOL hasInvalidProxies = NO;
-        
-        @try {
-            if (windowId && [(id)windowId isProxy]) {
-                NSConnection *conn = [(NSDistantObject *)windowId connectionForProxy];
-                if (!conn || [conn isValid] == NO) {
-                    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: unregisterWindow windowId proxy has invalid connection");
-                    hasInvalidProxies = YES;
-                }
-            }
-        } @catch (NSException *e) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception validating unregisterWindow windowId proxy: %@", e);
-            hasInvalidProxies = YES;
-        }
-        
-        @try {
-            if (clientName && [(id)clientName isProxy]) {
-                NSConnection *conn = [(NSDistantObject *)clientName connectionForProxy];
-                if (!conn || [conn isValid] == NO) {
-                    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: unregisterWindow clientName proxy has invalid connection");
-                    hasInvalidProxies = YES;
-                }
-            }
-        } @catch (NSException *e) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception validating unregisterWindow clientName proxy: %@", e);
-            hasInvalidProxies = YES;
-        }
-        
-        if (hasInvalidProxies) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Rejecting unregisterWindow call due to invalid proxy connections");
-            return;
-        }
-
-        @try {
-            (void)clientName;
-            if (!windowId) {
-                return;
-            }
-
-            [self unregisterWindow:[windowId unsignedLongValue]];
-        } @catch (NSException *e) {
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception in unregisterWindow parameter processing: %@", e);
-            return;
-        }
+        (void)clientName;
+        if (!windowId) return;
+        NSNumber *safeId = [(id)windowId isProxy] ? [windowId copy] : windowId;
+        if (!safeId) return;
+        [self unregisterWindow:[safeId unsignedLongValue]];
     }
     @catch (NSException *exception) {
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception in unregisterWindow:clientName: - %@", exception);
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: This is likely a distributed objects issue with corrupted proxies");
-        // Don't re-throw - just log and return to prevent crashes
+        NSLog(@"GNUStepMenuImporter: Exception in unregisterWindow: %@", exception);
     }
 }
 
@@ -725,65 +796,127 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     }
 }
 
+// Apply enabled/state from a flat array of @[title, enabled, state] triples.
+// Matches by title so the ⌘ system item at Menu.app index 0 is handled correctly.
+- (void)applyEnabledStatesFromFlatArray:(NSArray *)flatArray
+                                 toMenu:(NSMenu *)menu
+{
+    if (!flatArray || !menu) return;
+    // Build title -> entry map for fast lookup
+    NSMutableDictionary *map = [NSMutableDictionary dictionary];
+    for (id entry in flatArray) {
+        if (![entry isKindOfClass:[NSArray class]] || [entry count] < 3) continue;
+        NSString *title = [entry objectAtIndex:0];
+        if ([title isKindOfClass:[NSString class]] && [title length] > 0) {
+            map[title] = entry;
+        }
+    }
+    // Walk menu tree by title, applying enabled/state
+    [self _applyFlatArrayMap:map toMenu:menu];
+}
+
+- (void)_applyFlatArrayMap:(NSDictionary *)map toMenu:(NSMenu *)menu
+{
+    for (NSMenuItem *item in [menu itemArray]) {
+        if ([item isSeparatorItem]) continue;
+        NSString *title = [item title];
+        if (!title || [title length] == 0) continue;
+        NSArray *entry = map[title];
+        if (entry && [entry count] >= 3) {
+            NSNumber *enabled = [entry objectAtIndex:1];
+            if ([enabled isKindOfClass:[NSNumber class]]) {
+                [item setEnabled:[enabled boolValue]];
+            }
+            NSNumber *state = [entry objectAtIndex:2];
+            if ([state isKindOfClass:[NSNumber class]]) {
+                [item setState:[state integerValue]];
+            }
+        }
+        if ([item hasSubmenu]) {
+            [self _applyFlatArrayMap:map toMenu:[item submenu]];
+        }
+    }
+}
+
 - (BOOL)refreshMenuStateForWindow:(unsigned long)windowId
 {
     NSNumber *key = @(windowId);
     NSString *clientName = [self.clientNamesByWindow objectForKey:key];
     if (!clientName) {
+        NSLog(@"GNUStepMenuImporter: refreshMenuStateForWindow[%lu]: no client in cache (keys=%@)", windowId, [self.clientNamesByWindow allKeys]);
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: refreshMenuStateForWindow: no client for window %lu", windowId);
         return NO;
     }
 
     NSMenu *menu = [self.menusByWindow objectForKey:key];
     if (!menu) {
+        NSLog(@"GNUStepMenuImporter: refreshMenuStateForWindow[%lu]: no menu in cache (keys=%@)", windowId, [self.menusByWindow allKeys]);
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: refreshMenuStateForWindow: no menu for window %lu", windowId);
         return NO;
     }
 
-    // Reuse the cached connection kept by GNUStepMenuActionHandler.
+    /* Make a lightweight DO call to get fresh enabled/state values.
+       validateMenuStateForWindow: now returns a flat NSArray of
+       @[title, enabled, state] triples — no nested dictionaries, so
+       it copies over DO in a single batch instantly regardless of
+       bycopy support.  We match items by TITLE to handle the ⌘
+       system item at index 0. */
+    id rawResult = nil;
+
     NSConnection *connection = [GNUStepMenuActionHandler cachedConnectionForClient:clientName];
-    if (!connection || ![connection isValid]) {
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: refreshMenuStateForWindow: no valid connection for %@", clientName);
-        return NO;
+    if (connection && [connection isValid]) {
+        [connection setRequestTimeout:0.3];
+        id proxy = [connection rootProxy];
+        if (proxy) {
+            [proxy setProtocolForProxy:@protocol(GSGNUstepMenuClient)];
+            @try {
+                rawResult = [(id<GSGNUstepMenuClient>)proxy validateMenuStateForWindow:@(windowId)];
+                /* Materialize proxy in one batch via plist if needed */
+                if (rawResult && [(id)rawResult isProxy]) {
+                    @try {
+                        NSError *err = nil;
+                        NSData *plist = [NSPropertyListSerialization dataWithPropertyList:rawResult format:NSPropertyListBinaryFormat_v1_0 options:0 error:&err];
+                        if (plist && !err) {
+                            rawResult = [NSPropertyListSerialization propertyListWithData:plist options:NSPropertyListImmutable format:nil error:&err];
+                        }
+                    } @catch (NSException *e) {}
+                    if (!rawResult) rawResult = [rawResult copy];
+                }
+            } @catch (NSException *e) {}
+        }
     }
 
-    // Set a short timeout so a slow/hung client does not stall the menu bar.
-    [connection setRequestTimeout:0.3];
+    NSMenu *safeMenu = [self.menusByWindow objectForKey:@(windowId)];
+    if (!safeMenu) safeMenu = menu;
 
-    id proxy = [connection rootProxy];
-    if (!proxy) {
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: refreshMenuStateForWindow: no proxy for %@", clientName);
-        return NO;
+    if ([rawResult isKindOfClass:[NSArray class]]) {
+        [self applyEnabledStatesFromFlatArray:rawResult toMenu:safeMenu];
+        AppMenuWidget *widget = self.appMenuWidget;
+        if (widget && widget.currentWindowId == windowId && widget.currentMenu != nil && widget.currentMenu != safeMenu) {
+            [self applyEnabledStatesFromFlatArray:rawResult toMenu:widget.currentMenu];
+        }
+    } else {
+        [safeMenu update];
     }
-
-    [proxy setProtocolForProxy:@protocol(GSGNUstepMenuClient)];
-
-    NSDictionary *freshData = nil;
-    @try {
-        freshData = [(id<GSGNUstepMenuClient>)proxy validateMenuStateForWindow:@(windowId)];
-    } @catch (NSException *e) {
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: validateMenuStateForWindow: raised %@: %@",
-                    [e name], [e reason]);
-        return NO;
-    }
-
-    if (![freshData isKindOfClass:[NSDictionary class]]) {
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: refreshMenuStateForWindow: invalid response for window %lu", windowId);
-        return NO;
-    }
-
-    [self applyEnabledStatesFromData:freshData toMenu:menu depth:0];
-    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: refreshMenuStateForWindow: applied fresh states for window %lu", windowId);
-    return YES;
 }
 
 // Lightweight oneway push from Eau: applies only enabled/state in-place on the
-// existing NSMenu without rebuilding it and without any throttling.
+// existing NSMenu without rebuilding it.
 // This is the fast path called immediately after every menu action fires in Eau.
-- (oneway void)updateMenuEnabledStatesForWindow:(NSNumber *)windowId
-                                       menuData:(NSDictionary *)menuData
-                                     clientName:(NSString *)clientName
+- (oneway void)updateMenuEnabledStatesForWindow:(bycopy NSNumber *)windowId
+                                       menuData:(bycopy NSDictionary *)menuData
+                                     clientName:(bycopy NSString *)clientName
 {
+    NSLog(@"GNUStepMenuImporter: updateMenuEnabledStatesForWindow called - windowId=%@", windowId);
+
+    /* Throttle to 50 ms: GWorkspace fires this path thousands of times per second.
+       50 ms is imperceptible to the user but cuts CPU by ~98%.  Enabled-state
+       changes (Copy/Paste becoming available after text selection) are visible to
+       the user within one 50 ms window, which is indistinguishable from instant.
+       The on-demand pull path (menuWillOpen: → refreshMenuStateForWindow:) ensures
+       states are always fresh by the time the user actually opens a submenu. */
+    if (_shouldThrottleDO(&_lastStateUpdateAccepted, DO_STATE_UPDATE_MIN_NS)) return;
+
     (void)clientName;
     // Validate parameters — we're on a background DO thread.
     if (![windowId isKindOfClass:[NSNumber class]] ||
@@ -792,22 +925,58 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     }
 
     NSNumber *safeId = [windowId copy];
+
+    /* PROXY HANDLING FOR STATE UPDATES
+       ----------------------------------
+       'menuData' may arrive as a DO proxy when the sender was compiled without
+       the bycopy protocol qualifier.  We must materialize it to access its
+       enabled/state values.
+
+       *** CRITICAL: DO NOT WRITE TO _materializationTimeByWindow HERE. ***
+
+       _materializationTimeByWindow is exclusively owned by updateMenuForWindow:.
+       Its purpose is to deduplicate expensive full-menu proxy walks during the
+       window-switch flood (thousands of calls/second for the same window).
+
+       If a state-update call arrives BEFORE the full menu update — which happens
+       regularly with Chrome, Chromium, and any fast-starting app — writing to
+       _materializationTimeByWindow here would cause updateMenuForWindow: to see
+       the window as "already cached" and skip its proxy walk entirely.  The
+       window would never get an entry in menusByWindow, and the app menu would
+       never appear.
+
+       Why materializing here is safe despite cost:
+       - The 50 ms throttle gate above limits us to at most 20 calls/second.
+       - updateMenuEnabledStatesForWindow: is only sent when menu states actually
+         change (user makes a selection, edits text, etc.) — far fewer calls than
+         the focus-change flood that hits updateMenuForWindow:.
+       - Outside of window-switch floods the DO channel is quiet, so proxy walks
+         complete in < 50 ms rather than the ~1 s seen under heavy congestion.
+
+       DO NOT replace this materialization with lastMenuDataByWindow lookup.
+       lastMenuDataByWindow holds the state at the time the full menu was first
+       built (e.g., Copy=disabled).  Using it for state updates actively overwrites
+       fresh states (e.g., Copy=enabled after Select All) and breaks copy/paste. */
     NSDictionary *safeData = nil;
-    @try {
-        NSError *err = nil;
-        NSData *plist = [NSPropertyListSerialization dataWithPropertyList:menuData
-                                                                   format:NSPropertyListBinaryFormat_v1_0
-                                                                  options:0
-                                                                    error:&err];
-        if (plist && !err) {
-            safeData = [NSPropertyListSerialization propertyListWithData:plist
-                                                                  options:NSPropertyListImmutable
-                                                                   format:nil
-                                                                    error:&err];
-        }
+    if ([(id)menuData isProxy]) {
+        /* Materialize proxy: one batch IPC walk, result stored locally. */
+        @try {
+            NSError *err = nil;
+            NSData *plist = [NSPropertyListSerialization dataWithPropertyList:menuData
+                                                                        format:NSPropertyListBinaryFormat_v1_0
+                                                                       options:0
+                                                                         error:&err];
+            if (plist && !err) {
+                safeData = [NSPropertyListSerialization propertyListWithData:plist
+                                                                      options:NSPropertyListImmutable
+                                                                       format:nil
+                                                                        error:&err];
+            }
+        } @catch (NSException *e) { /* fall through to copy below */ }
         if (!safeData) safeData = [menuData copy];
-    } @catch (NSException *e) {
-        safeData = [menuData copy];
+    } else {
+        /* Non-proxy (bycopy arrived as local copy) — use directly, no expensive walk. */
+        safeData = menuData;
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -817,6 +986,18 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
             return;
         }
         [self applyEnabledStatesFromData:safeData toMenu:menu depth:0];
+        // Also apply to the currently displayed menu if it is a different object.
+        // processMenuUpdateWithPayload: can rebuild the cached menu, making
+        // menusByWindow[windowId] diverge from appMenuWidget.currentMenu until the
+        // 150 ms deferred-check fires.  Updating both here ensures the visible menu
+        // reflects the latest enabled/state values immediately.
+        AppMenuWidget *widget = self.appMenuWidget;
+        if (widget &&
+            widget.currentWindowId == [safeId unsignedLongValue] &&
+            widget.currentMenu != nil &&
+            widget.currentMenu != menu) {
+            [self applyEnabledStatesFromData:safeData toMenu:widget.currentMenu depth:0];
+        }
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: updateMenuEnabledStatesForWindow: applied states for window %@", safeId);
     });
 }

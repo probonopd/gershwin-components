@@ -14,6 +14,9 @@
 #import "ActionSearch.h"
 #import <signal.h>
 #import <unistd.h>
+#import <time.h>
+#import <stdlib.h>
+#import <sys/types.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <dispatch/dispatch.h>
@@ -21,8 +24,39 @@
 // Global reference for cleanup in signal handlers
 static MenuController *g_controller = nil;
 static volatile sig_atomic_t cleanup_in_progress = 0;
+static volatile sig_atomic_t termination_requested = 0;
 static BOOL terminationSignalHandled = NO;
 static BOOL existingInstanceHandled = NO;
+static time_t signal_received_time = 0;
+
+// Direct signal handler (runs in signal context, must be async-signal-safe)
+static void direct_signal_handler(int sig)
+{
+    // If first signal, request termination via dispatch
+    if (!termination_requested) {
+        termination_requested = 1;
+        signal_received_time = time(NULL);
+        // Set a 3-second alarm: if cleanup doesn't finish, SIGALRM will force exit
+        alarm(3);
+        // Note: The dispatch source event will be delivered to the main queue
+        // and handleTerminationSignal will be called
+        return;
+    }
+    
+    // If we get here, it's a repeated signal after termination was already requested
+    // Immediately force exit (don't wait for cleanup to finish)
+    write(STDERR_FILENO, "\nMenu.app: Force-exiting due to repeated signal\n", 48);
+    _exit(128 + sig);
+}
+
+// SIGALRM handler for forced exit on cleanup timeout
+static void alarm_handler(int sig)
+{
+    (void)sig;
+    write(STDERR_FILENO, "\nMenu.app: Cleanup timeout - force exiting\n",
+          sizeof("\nMenu.app: Cleanup timeout - force exiting\n") - 1);
+    _exit(EXIT_FAILURE);
+}
 
 // Global accessor to retrieve the MenuController instance from other modules
 MenuController *MenuControllerGlobal(void) { return g_controller; }
@@ -320,6 +354,13 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
 
 - (void)installGracefulTerminationSignals
 {
+    // Install SIGALRM handler for forced exit on cleanup timeout
+    if (signal(SIGALRM, alarm_handler) == SIG_ERR) {
+        NSDebugLLog(@"gwcomp", @"MenuApplication: Warning: failed to install SIGALRM handler");
+    } else {
+        NSDebugLLog(@"gwcomp", @"MenuApplication: SIGALRM handler installed");
+    }
+    
     terminationSignalSourceCount = 0;
     [self installTerminationSourceForSignal:SIGTERM name:@"SIGTERM"];
     [self installTerminationSourceForSignal:SIGINT name:@"SIGINT"];
@@ -328,11 +369,13 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
 
 - (void)installTerminationSourceForSignal:(int)sig name:(NSString *)name
 {
-    if (signal(sig, SIG_IGN) == SIG_ERR) {
-        NSDebugLLog(@"gwcomp", @"MenuApplication: Warning: failed to ignore %@ for dispatch source", name);
+    // Install direct signal handler that sets termination_requested and alarm timeout
+    if (signal(sig, direct_signal_handler) == SIG_ERR) {
+        NSDebugLLog(@"gwcomp", @"MenuApplication: Warning: failed to install handler for %@", name);
         return;
     }
 
+    // Create dispatch source to handle termination on the main queue
     dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL,
                                                       (uintptr_t)sig,
                                                       0,
@@ -452,6 +495,9 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
 {
     NSDebugLLog(@"gwcomp", @"MenuApplication: Application terminating gracefully");
     
+    // Cancel any pending alarm timeout
+    alarm(0);
+    
     if (cleanup_in_progress) {
         NSDebugLLog(@"gwcomp", @"MenuApplication: Cleanup already in progress, calling super terminate");
         [super terminate:sender];
@@ -470,7 +516,8 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
         NSDebugLLog(@"gwcomp", @"MenuApplication: Exception during graceful termination: %@", exception);
     }
     
-    [super terminate:sender];
+    // Exit explicitly after cleanup completes (allows main loop to exit cleanly)
+    exit(EXIT_SUCCESS);
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
