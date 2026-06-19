@@ -10,7 +10,12 @@ dshelper_HEADER_FILES = \
 	dshelper.h
 
 dshelper_OBJCFLAGS = -fobjc-arc
-dshelper_LDFLAGS = -lcrypt -ldispatch -lBlocksRuntime
+dshelper_LDFLAGS = -ldispatch -lBlocksRuntime
+# crypt(3) is in a separate libcrypt on Linux and FreeBSD, but is part of libc
+# on OpenBSD (there is no libcrypt to link against).
+ifneq ($(findstring openbsd,$(GNUSTEP_HOST_OS)),openbsd)
+dshelper_LDFLAGS += -lcrypt
+endif
 
 # Install to /System/Library/Tools
 GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
