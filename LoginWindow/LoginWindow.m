@@ -22,6 +22,8 @@
 #define GW_KP_SID   p_sid
 #define GW_KP_PGID  p__pgid
 #define GW_KP_COMM  p_comm
+// OpenBSD has no login_getpwclass(); look the class up by name from pw_class.
+#define GW_LOGIN_GETPWCLASS(p) login_getclass((p)->pw_class)
 #else
 #import <libutil.h>
 #define GW_KP_PID   ki_pid
@@ -29,6 +31,7 @@
 #define GW_KP_SID   ki_sid
 #define GW_KP_PGID  ki_pgid
 #define GW_KP_COMM  ki_comm
+#define GW_LOGIN_GETPWCLASS(p) login_getpwclass(p)
 #endif
 #endif
 #import <string.h>
@@ -1029,7 +1032,11 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Signal handlers reset");
         
         // Set up environment for the session
+#if defined(__OpenBSD__)
+        { extern char **environ; environ = NULL; }  /* OpenBSD has no clearenv() */
+#else
         clearenv();
+#endif
         setenv("USER", user_cstr, 1);
         setenv("LOGNAME", user_cstr, 1);
         setenv("HOME", pwd->pw_dir, 1);
@@ -1049,7 +1056,7 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Skipping BSD login_cap logic on Linux");
 #else
         // Set login class environment variables
-        login_cap_t *lc = login_getpwclass(pwd);
+        login_cap_t *lc = GW_LOGIN_GETPWCLASS(pwd);
         if (lc != NULL) {
             NSDebugLLog(@"gwcomp", @"[DEBUG] Setting login class environment variables");
             
@@ -1093,7 +1100,7 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Skipping BSD login_cap keyboard config on Linux");
 #else
         // Get login capabilities for this user in child process
-        login_cap_t *child_lc = login_getpwclass(pwd);
+        login_cap_t *child_lc = GW_LOGIN_GETPWCLASS(pwd);
         if (child_lc != NULL) {
             kb_layout = login_getcapstr(child_lc, "keyboard.layout", NULL, NULL);
             kb_variant = login_getcapstr(child_lc, "keyboard.variant", NULL, NULL);
@@ -1590,7 +1597,11 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Signal handlers reset for auto-login");
         
         // Set up environment for the session (reuse existing environment setup code)
+#if defined(__OpenBSD__)
+        { extern char **environ; environ = NULL; }  /* OpenBSD has no clearenv() */
+#else
         clearenv();
+#endif
         setenv("USER", user_cstr, 1);
         setenv("LOGNAME", user_cstr, 1);
         setenv("HOME", pwd->pw_dir, 1);
@@ -1607,7 +1618,7 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Skipping BSD login_cap logic for auto-login on Linux");
 #else
         // Set login class environment variables
-        login_cap_t *lc = login_getpwclass(pwd);
+        login_cap_t *lc = GW_LOGIN_GETPWCLASS(pwd);
         if (lc != NULL) {
             NSDebugLLog(@"gwcomp", @"[DEBUG] Setting login class environment variables for auto-login");
             
@@ -1670,7 +1681,7 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Skipping BSD login_cap keyboard config for auto-login on Linux");
 #else
         // Get login capabilities for this user in child process
-        login_cap_t *child_lc = login_getpwclass(pwd);
+        login_cap_t *child_lc = GW_LOGIN_GETPWCLASS(pwd);
         if (child_lc != NULL) {
             kb_layout = login_getcapstr(child_lc, "keyboard.layout", NULL, NULL);
             kb_variant = login_getcapstr(child_lc, "keyboard.variant", NULL, NULL);
