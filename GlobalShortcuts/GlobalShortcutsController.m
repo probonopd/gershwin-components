@@ -395,34 +395,53 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
     return result;
     
 #else
-    // BSD implementation using sysctl
+    // BSD implementation using sysctl. OpenBSD's KERN_PROC needs a 6-element
+    // mib carrying the struct size and element count; FreeBSD uses 3. The
+    // command/pid fields are p_* on OpenBSD, ki_* on FreeBSD.
+#if defined(__OpenBSD__)
+    int mib[6] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0,
+                  sizeof(struct kinfo_proc), 0};
+    int miblen = 6;
+#else
     int mib[3] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL};
+    int miblen = 3;
+#endif
     size_t size = 0;
-    
-    if (sysctl(mib, 3, NULL, &size, NULL, 0) != 0) {
+
+    if (sysctl(mib, miblen, NULL, &size, NULL, 0) != 0) {
         return -1;
     }
-    
+
     struct kinfo_proc *procs = malloc(size);
     if (!procs) {
         return -1;
     }
-    
-    if (sysctl(mib, 3, procs, &size, NULL, 0) != 0) {
+
+#if defined(__OpenBSD__)
+    mib[5] = (int)(size / sizeof(struct kinfo_proc));
+#endif
+    if (sysctl(mib, miblen, procs, &size, NULL, 0) != 0) {
         free(procs);
         return -1;
     }
-    
+
     int numProcs = size / sizeof(struct kinfo_proc);
     pid_t result = -1;
-    
+
     for (int i = 0; i < numProcs; i++) {
-        if (strcmp(procs[i].ki_comm, [processName UTF8String]) == 0) {
-            result = procs[i].ki_pid;
+#if defined(__OpenBSD__)
+        const char *pcomm = procs[i].p_comm;
+        pid_t ppid = procs[i].p_pid;
+#else
+        const char *pcomm = procs[i].ki_comm;
+        pid_t ppid = procs[i].ki_pid;
+#endif
+        if (strcmp(pcomm, [processName UTF8String]) == 0) {
+            result = ppid;
             break;
         }
     }
-    
+
     free(procs);
     return result;
 #endif

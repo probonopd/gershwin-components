@@ -11,8 +11,14 @@ Sharing_RESOURCE_FILES = Sharing.png SharingInfo.plist
 Sharing_BUNDLE_LIBS = -lPreferencePanes
 Sharing_PRINCIPAL_CLASS = SharingPane
 
-# For network operations
+# For network operations. dlopen/dlsym are in libc on OpenBSD (no libdl to
+# link against), so only add -ldl on other platforms.
+SHARING_UNAME_S := $(shell uname -s)
+ifeq ($(SHARING_UNAME_S),OpenBSD)
+Sharing_LDFLAGS =
+else
 Sharing_LDFLAGS = -ldl
+endif
 
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles
 HELPER_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Tools
