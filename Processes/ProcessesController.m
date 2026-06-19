@@ -83,7 +83,16 @@ static long getTotalSystemMemoryKB(void) {
     // BSD and other Unix-like systems: prefer sysctlbyname for portability
     uint64_t memsize = 0;
     size_t len = sizeof(memsize);
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
+#if defined(__OpenBSD__)
+    // OpenBSD has no sysctlbyname(); read physical memory via the numeric mib.
+#ifdef HW_PHYSMEM64
+    int mib[2] = {CTL_HW, HW_PHYSMEM64};
+    len = sizeof(memsize);
+    if (sysctl(mib, 2, &memsize, &len, NULL, 0) == 0) {
+        totalMemory = (long)(memsize / 1024);
+    }
+#endif
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
     // Try several common sysctl names across BSDs/macOS
     const char *names[] = { "hw.memsize", "hw.physmem", "hw.realmem", "hw.physmem64", NULL };
     const char **n;
