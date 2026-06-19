@@ -116,6 +116,10 @@ ifeq ($(UNAME_S),NextBSD)
 	Menu_GUI_LIBS += -L/usr/lib/system
 	Menu_LDFLAGS += -Wl,-rpath,/usr/lib/system
 endif
+ifeq ($(UNAME_S),OpenBSD)
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE
+	ADDITIONAL_CPPFLAGS = @DBUS_CFLAGS@
+endif
 
 # Profiling: build with  make PROFILE=1  to enable CPU instrumentation.
 # When enabled, a summary is printed every 10s and on SIGUSR1.
