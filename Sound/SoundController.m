@@ -72,8 +72,9 @@ static const CGFloat kTableRowHeight = 18.0;
             }
         }
 
-#if !defined(__FreeBSD__) && !defined(__DragonFly__)
+#if !defined(__FreeBSD__) && !defined(__DragonFly__) && !defined(__OpenBSD__)
         // On non-BSD systems, also try OSS as fallback (e.g., OSS4 on Linux)
+        // (OpenBSD excluded: no OSS there; sndio backend is a future addition.)
         if (backend == nil) {
             OSSBackend *ossBackend = [[OSSBackend alloc] init];
             if ([ossBackend isAvailable]) {
