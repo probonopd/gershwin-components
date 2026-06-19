@@ -48,6 +48,11 @@ include $(GNUSTEP_MAKEFILES)/application.make
 after-all::
 	@echo "Copying GSAssistantFramework into app bundle..."
 	@mkdir -p $(APP_NAME).app/Frameworks
+	@# after-all runs more than once. On OpenBSD, cp cannot overwrite the
+	@# already-embedded framework's symlinked Versions/Current on the second
+	@# pass, so remove the prior copy first there only. Linux/FreeBSD cp handle
+	@# the re-copy fine, so their behaviour is unchanged.
+	@if [ "$$(uname -s)" = "OpenBSD" ]; then rm -rf $(APP_NAME).app/Frameworks/GSAssistantFramework.framework; fi
 	@cp -R ../AssistantFramework/GSAssistantFramework.framework $(APP_NAME).app/Frameworks/
 	@echo "Framework embedded in $(APP_NAME).app/Frameworks/"
 	@echo "Fixing localized resource structure..."
