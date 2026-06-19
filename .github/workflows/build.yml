@@ -13,10 +13,12 @@ on:
   workflow_dispatch:
 
 env:
+  # gershwin-systempreferences is NOT skipped: it provides the PreferencePanes
+  # framework that several component prefPanes (Display, Network, Sound, ...)
+  # build against, so it is cloned and built before components.
   SKIP_REPOS: >-
     gershwin-components
     gershwin-workspace
-    gershwin-systempreferences
     gershwin-eau-theme
     gershwin-terminal
     gershwin-textedit
@@ -53,6 +55,7 @@ jobs:
             SKIP_REPOS="${{ env.SKIP_REPOS }}" ./Library/Scripts/Checkout.sh
             ln -sfn "$BASE/gershwin-components" Library/Sources/gershwin-components
             make corelibs
+            make systempreferences
             make components
 
   build-archlinux-x86_64:
@@ -89,6 +92,10 @@ jobs:
       - name: Build core libraries
         working-directory: gershwin-developer
         run: make corelibs
+
+      - name: Build systempreferences (provides the PreferencePanes framework)
+        working-directory: gershwin-developer
+        run: make systempreferences
 
       - name: Build components
         working-directory: gershwin-developer
@@ -129,6 +136,10 @@ jobs:
         working-directory: gershwin-developer
         run: make corelibs
 
+      - name: Build systempreferences (provides the PreferencePanes framework)
+        working-directory: gershwin-developer
+        run: make systempreferences
+
       - name: Build components
         working-directory: gershwin-developer
         run: make components
@@ -162,4 +173,5 @@ jobs:
             SKIP_REPOS="${{ env.SKIP_REPOS }}" ./Library/Scripts/Checkout.sh
             ln -sfn "$BASE/gershwin-components" Library/Sources/gershwin-components
             make corelibs
+            make systempreferences
             make components
