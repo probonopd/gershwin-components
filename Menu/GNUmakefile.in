@@ -119,6 +119,9 @@ endif
 ifeq ($(UNAME_S),OpenBSD)
 	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE
 	ADDITIONAL_CPPFLAGS = @DBUS_CFLAGS@
+	# backtrace()/backtrace_symbols_fd() (used by CrashHandler.m) come from
+	# libexecinfo under /usr/local on OpenBSD, not from libc.
+	Menu_TOOL_LIBS += -L/usr/local/lib -lexecinfo
 endif
 
 # Profiling: build with  make PROFILE=1  to enable CPU instrumentation.
