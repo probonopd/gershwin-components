@@ -154,11 +154,7 @@
 }
 
 /* If a non-GNUstep menu was found, check whether the GNUstep handler also
- * has a stub menu for this window (registered by pkgwrap-menu-stub).  If so,
- * prepend the stub items to give bundled apps a standard app-name menu
- * alongside their native DBus menus. */
-/* If a non-GNUstep menu was found, check whether the GNUstep handler also
- * has a stub menu for this window (registered by pkgwrap-menu-stub).  If so,
+ * has a stub menu for this window (registered by a stub-menu helper).  If so,
  * prepend the stub items to give bundled apps a standard app-name menu
  * alongside their native DBus menus.
  *

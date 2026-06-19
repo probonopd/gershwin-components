@@ -14,7 +14,7 @@
 // dictionary under the key "dbusInfo".  NSMenuItem copies retain the
 // representedObject, so the info survives the deep copy performed by
 // MenuProtocolManager.prependGNUstepStubIfNeeded (which merges a GNUstep stub
-// menu with a DBus menu for pkgwrap-bundled apps).  The previous scheme
+// menu with a DBus menu for bundled apps).  The previous scheme
 // keyed a static dict by the item's pointer, which broke as soon as the
 // menu was copied.
 static NSString *const kDBusInfoKey = @"dbusInfo";
