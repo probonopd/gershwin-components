@@ -230,34 +230,51 @@ static BOOL isProcessRunningByName(const char *processName)
     return found;
     
 #else
-    // BSD implementation using sysctl
+    // BSD implementation using sysctl. OpenBSD's KERN_PROC needs a 6-element
+    // mib carrying the struct size and element count; FreeBSD uses 3. The
+    // command field is p_comm on OpenBSD, ki_comm on FreeBSD.
+#if defined(__OpenBSD__)
+    int mib[6] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0,
+                  sizeof(struct kinfo_proc), 0};
+    int miblen = 6;
+#else
     int mib[3] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL};
+    int miblen = 3;
+#endif
     size_t size = 0;
-    
-    if (sysctl(mib, 3, NULL, &size, NULL, 0) != 0) {
+
+    if (sysctl(mib, miblen, NULL, &size, NULL, 0) != 0) {
         return NO;
     }
-    
+
     struct kinfo_proc *procs = malloc(size);
     if (!procs) {
         return NO;
     }
-    
-    if (sysctl(mib, 3, procs, &size, NULL, 0) != 0) {
+
+#if defined(__OpenBSD__)
+    mib[5] = (int)(size / sizeof(struct kinfo_proc));
+#endif
+    if (sysctl(mib, miblen, procs, &size, NULL, 0) != 0) {
         free(procs);
         return NO;
     }
-    
+
     int numProcs = size / sizeof(struct kinfo_proc);
     BOOL found = NO;
-    
+
     for (int i = 0; i < numProcs; i++) {
-        if (strcmp(procs[i].ki_comm, processName) == 0) {
+#if defined(__OpenBSD__)
+        const char *pcomm = procs[i].p_comm;
+#else
+        const char *pcomm = procs[i].ki_comm;
+#endif
+        if (strcmp(pcomm, processName) == 0) {
             found = YES;
             break;
         }
     }
-    
+
     free(procs);
     return found;
 #endif
