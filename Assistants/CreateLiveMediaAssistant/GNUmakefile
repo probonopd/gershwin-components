@@ -36,9 +36,20 @@ CreateLiveMediaAssistant_RESOURCE_FILES = \
 # Required frameworks and libraries - use GNUstep naming (copy from working assistant)
 CreateLiveMediaAssistant_GUI_LIBS += -lgnustep-gui -lgnustep-base
 
+# libcurl + libarchive: prefer pkg-config, but fall back to explicit linkage.
+# On FreeBSD, base libarchive ships no .pc file and curl lives under /usr/local,
+# so `pkg-config --libs` silently expands to nothing (the 2>/dev/null hides the
+# failure) and the curl_*/archive_* symbols end up undefined at link time.
+CLM_DEP_CFLAGS := $(shell pkg-config --cflags libcurl libarchive 2>/dev/null)
+CLM_DEP_LIBS   := $(shell pkg-config --libs libcurl libarchive 2>/dev/null)
+ifeq ($(strip $(CLM_DEP_LIBS)),)
+CLM_DEP_CFLAGS := -I/usr/local/include
+CLM_DEP_LIBS   := -L/usr/local/lib -lcurl -larchive
+endif
+
 # Compiler and linker flags - embed framework in bundle with proper rpath
-CreateLiveMediaAssistant_CPPFLAGS += -Wall -Wextra -fobjc-arc -Werror -Wno-unused-parameter -O2 -I$(shell pwd)/../AssistantFramework/GSAssistantFramework.framework/Versions/1/Headers $(shell pkg-config --cflags libcurl libarchive 2>/dev/null)
-CreateLiveMediaAssistant_LDFLAGS += -L$(shell pwd)/../AssistantFramework/GSAssistantFramework.framework/Versions/1 -lGSAssistantFramework $(shell pkg-config --libs libcurl libarchive 2>/dev/null) -Wl,-rpath,'$$ORIGIN/Frameworks/GSAssistantFramework.framework/Versions/1' -Wl,-rpath,/System/Library/Libraries
+CreateLiveMediaAssistant_CPPFLAGS += -Wall -Wextra -fobjc-arc -Werror -Wno-unused-parameter -O2 -I$(shell pwd)/../AssistantFramework/GSAssistantFramework.framework/Versions/1/Headers $(CLM_DEP_CFLAGS)
+CreateLiveMediaAssistant_LDFLAGS += -L$(shell pwd)/../AssistantFramework/GSAssistantFramework.framework/Versions/1 -lGSAssistantFramework $(CLM_DEP_LIBS) -Wl,-rpath,'$$ORIGIN/Frameworks/GSAssistantFramework.framework/Versions/1' -Wl,-rpath,/System/Library/Libraries
 CreateLiveMediaAssistant_LDFLAGS += -ldispatch
 
 include $(GNUSTEP_MAKEFILES)/application.make

@@ -37,7 +37,7 @@ jobs:
       - name: Build components inside FreeBSD VM
         uses: vmactions/freebsd-vm@v1
         with:
-          release: "14.3"
+          release: "14.4"
           usesh: true
           sync: rsync
           copyback: false
@@ -45,7 +45,7 @@ jobs:
           mem: 4096
           prepare: |
             pkg update
-            pkg install -y git
+            pkg install -y git curl
           run: |
             set -e
             BASE="$(pwd)"
