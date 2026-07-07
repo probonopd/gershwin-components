@@ -78,6 +78,16 @@ endif
 
 ifeq ($(HAVE_DNS_SD_HEADER),yes)
   ifeq ($(HAVE_DNS_SD_LIB),yes)
+    # NextBSD ships the base mDNSResponder client library as
+    # /usr/lib/system/libdns_sd.so. That directory is on Gershwin binaries'
+    # runtime RUNPATH but is NOT a default link-time search dir, so name the
+    # -L explicitly here. Gated on that exact base file existing, so Linux
+    # (/usr/lib, default path) and FreeBSD ports (/usr/local/lib) — where this
+    # file is absent — are completely unaffected.
+    ifneq ($(wildcard /usr/lib/system/libdns_sd.so),)
+      NetworkBrowser_GUI_LIBS += -L/usr/lib/system
+      NetworkBrowserTest_GUI_LIBS += -L/usr/lib/system
+    endif
     NetworkBrowser_GUI_LIBS += -ldns_sd
     NetworkBrowserTest_GUI_LIBS += -ldns_sd
     ADDITIONAL_OBJCFLAGS += -DHAVE_DNS_SD=1
