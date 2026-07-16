@@ -188,6 +188,14 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>SimpleAgenda</string>
+		<key>GitURL</key>
+		<string>https://github.com/poroussel/simpleagenda</string>
+		<key>Description</key>
+		<string>Easy to use agenda and calendar app for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>SystemEmulator</string>
 		<key>GitURL</key>
 		<string>https://github.com/probonopd/SystemEmulator</string>

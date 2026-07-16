@@ -517,8 +517,8 @@ static const CGFloat kSpace16 = 16.0;
         }
     }
 
-    // 2. Run configure if present
-    if ([fm fileExistsAtPath:makefileIn]) {
+    // 2. Run configure if present (checks GNUmakefile.in and other .in files)
+    if ([fm fileExistsAtPath:makefileIn] || [self hasInFiles:directory]) {
         // If GNUmakefile.in exists but no GNUmakefile yet (or .in is newer), run configure
         NSString *makefilePathLocal = [directory stringByAppendingPathComponent:@"GNUmakefile"];
         BOOL needsConfigure = ![fm fileExistsAtPath:makefilePathLocal];
@@ -550,6 +550,17 @@ static const CGFloat kSpace16 = 16.0;
             }
         }
     }
+}
+
+- (BOOL)hasInFiles:(NSString *)directory
+{
+    NSArray *contents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:directory error:NULL];
+    for (NSString *name in contents) {
+        if ([name hasSuffix:@".in"] && ![[name lastPathComponent] hasPrefix:@"."]) {
+            return YES;
+        }
+    }
+    return NO;
 }
 
 - (void)startBuild
