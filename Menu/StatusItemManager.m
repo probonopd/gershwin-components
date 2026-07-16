@@ -13,7 +13,23 @@
 #import <dispatch/dispatch.h>
 #import <AppKit/NSMenuView.h>
 
-#pragma mark - Fixed width for percentage items
+#pragma mark - Width reference helpers
+
+static NSString *WidthRefForIdentifier(NSString *ident, NSString *title)
+{
+    if ([ident rangeOfString:@"battery"].location != NSNotFound) {
+        return @"99%";
+    }
+    if ([ident rangeOfString:@"clock"].location != NSNotFound) {
+        return @"99:99 PM";
+    }
+    if ([title rangeOfString:@"%"].location != NSNotFound) {
+        return @"100%";
+    }
+    return nil;
+}
+
+#pragma mark - Fixed width for status item cells
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wobjc-protocol-method-implementation"
@@ -26,12 +42,13 @@
         [self calcSize];
     }
     NSString *title = [_menuItem title];
-    if ([title rangeOfString:@"%"].location != NSNotFound) {
-        NSFont *f = [self font] ? [self font] : [NSFont menuBarFontOfSize:0];
-        NSSize size = [@"100%" sizeWithAttributes:@{ NSFontAttributeName: f }];
-        return ceil(size.width);
-    }
-    return _titleWidth;
+    if (!title) return _titleWidth;
+    NSString *ident = [_menuItem representedObject];
+    NSString *widthRef = WidthRefForIdentifier(ident, title);
+    if (!widthRef) return _titleWidth;
+    NSFont *f = [self font] ? [self font] : [NSFont menuBarFontOfSize:0];
+    NSSize size = [widthRef sizeWithAttributes:@{ NSFontAttributeName: f }];
+    return ceil(size.width);
 }
 
 @end
@@ -76,12 +93,8 @@
     NSDictionary *attrs = @{ NSFontAttributeName: font };
     NSString *display = [_extra title];
     if (!display) display = @"";
-    NSString *widthRef;
-    if ([display rangeOfString:@"%"].location != NSNotFound) {
-        widthRef = @"100%";
-    } else {
-        widthRef = display;
-    }
+    NSString *widthRef = WidthRefForIdentifier(_identifier, display);
+    if (!widthRef) widthRef = display;
     NSSize size = [widthRef sizeWithAttributes:attrs];
     _cachedWidth = ceil(size.width) + 16.0;
     return _cachedWidth;
@@ -479,12 +492,8 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         }
         NSString *title = [provider title];
         if (!title) title = [provider identifier];
-        NSString *widthRef;
-        if ([title rangeOfString:@"%"].location != NSNotFound) {
-            widthRef = @"100%";
-        } else {
-            widthRef = title;
-        }
+        NSString *widthRef = WidthRefForIdentifier([provider identifier], title);
+        if (!widthRef) widthRef = title;
         NSSize size = [widthRef sizeWithAttributes:attrs];
         itemWidth += ceil(size.width) + 8.0;
         total += itemWidth;
