@@ -222,14 +222,28 @@
 
 - (NSImage *)image
 {
-    return nil;
+    NSString *name;
+    if (!_wlanEnabled) {
+        name = @"wlan-disabled";
+    } else if (_signalStrength >= 75) {
+        name = @"wlan";
+    } else if (_signalStrength >= 50) {
+        name = @"wlan-good";
+    } else if (_signalStrength >= 25) {
+        name = @"wlan-ok";
+    } else if (_connectedSSID) {
+        name = @"wlan-weak";
+    } else {
+        name = @"wlan-disabled";
+    }
+    return [NSImage imageNamed:name];
 }
 
 - (NSString *)title
 {
-    if (!_wlanEnabled) return @"WLAN Off";
-    if (_connectedSSID) return [NSString stringWithFormat:@"WLAN %d%%", _signalStrength];
-    return @"No WLAN";
+    if (!_wlanEnabled) return @"Off";
+    if (_connectedSSID) return [NSString stringWithFormat:@"%d%%", _signalStrength];
+    return @"--";
 }
 
 - (void)menuExtraDidLoad

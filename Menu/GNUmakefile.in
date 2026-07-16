@@ -54,7 +54,8 @@ Menu_OBJC_FILES = \
 	WindowMonitor.m \
 	AppMenuImporter.m \
 	WindowSwitchContext.m \
-	StatusItems/SystemMonitor/SystemMonitorProvider.m \
+	StatusItems/SystemMonitor/CPUProvider.m \
+	StatusItems/SystemMonitor/RAMProvider.m \
 	SysfsBacklightBackend.m \
 	EvdevBrightnessKeySource.m \
 	SoundVolume.m
@@ -100,12 +101,32 @@ Menu_HEADER_FILES = \
 	BrightnessKeySource.h \
 	SysfsBacklightBackend.h \
 	EvdevBrightnessKeySource.h \
-	SoundVolume.h
+	SoundVolume.h \
+	StatusItems/SystemMonitor/CPUProvider.h \
+	StatusItems/SystemMonitor/RAMProvider.h
 
 # Resources
 Menu_RESOURCE_FILES = \
 	Menu.png \
-	Info.plist
+	Info.plist \
+	Resources/Icons/battery.png \
+	Resources/Icons/battery-medium.png \
+	Resources/Icons/battery-low.png \
+	Resources/Icons/battery-charged.png \
+	Resources/Icons/battery-charging.png \
+	Resources/Icons/volume-high.png \
+	Resources/Icons/volume-medium.png \
+	Resources/Icons/volume-low.png \
+	Resources/Icons/volume-muted.png \
+	Resources/Icons/wlan.png \
+	Resources/Icons/wlan-good.png \
+	Resources/Icons/wlan-ok.png \
+	Resources/Icons/wlan-weak.png \
+	Resources/Icons/wlan-disabled.png \
+	Resources/Icons/brightness.png \
+	Resources/Icons/clock.png \
+	Resources/Icons/cpu.png \
+	Resources/Icons/ram.png
 
 
 # Libraries and frameworks - configured by configure script

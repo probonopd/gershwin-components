@@ -52,7 +52,7 @@
 
 - (NSImage *)image
 {
-    return nil;
+    return [NSImage imageNamed:@"clock"];
 }
 
 - (NSString *)title

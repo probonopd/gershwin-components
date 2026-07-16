@@ -79,7 +79,17 @@ static NSString *const SoundVolumeChangedNotification = @"SoundVolumeChanged";
 
 - (NSImage *)image
 {
-    return nil;
+    NSString *name;
+    if (_muted || _volume < 0.01) {
+        name = @"volume-muted";
+    } else if (_volume < 0.33) {
+        name = @"volume-low";
+    } else if (_volume < 0.66) {
+        name = @"volume-medium";
+    } else {
+        name = @"volume-high";
+    }
+    return [NSImage imageNamed:name];
 }
 
 - (NSString *)title
@@ -87,8 +97,7 @@ static NSString *const SoundVolumeChangedNotification = @"SoundVolumeChanged";
     int pct = (int)(_volume * 100.0f);
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
-    if (_muted) return [NSString stringWithFormat:@"Muted %d%%", pct];
-    return [NSString stringWithFormat:@"Vol %d%%", pct];
+    return [NSString stringWithFormat:@"%d%%", pct];
 }
 
 - (void)menuExtraDidLoad

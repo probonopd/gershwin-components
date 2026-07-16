@@ -452,7 +452,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
     CGFloat statusItemsWidth = [self.statusItemManager extrasMenuWidth];
     if (extrasMenuView) {
-        [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth, 0,
+        [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth - 24, 0,
                                             statusItemsWidth, menuBarHeight)];
     }
 
@@ -933,12 +933,12 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     CGFloat statusItemsWidth = [self.statusItemManager extrasMenuWidth];
     NSDebugLLog(@"gwcomp", @"MenuController: Extras menu view width: %.0f", statusItemsWidth);
 
-    // Position extras at the right edge of the menu bar
-    [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth, 0,
+    // Position extras 24px from the right edge of the menu bar
+    [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth - 24, 0,
                                         statusItemsWidth, menuBarHeight)];
 
     // Give the app menu widget the remaining space
-    CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth;
+    CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth - 24;
     self.appMenuWidget = [[AppMenuWidget alloc] initWithFrame:NSMakeRect(0, 0, menuWidgetWidth, menuBarHeight)];
     NSDebugLLog(@"gwcomp", @"MenuController: AppMenuWidget created successfully");
     

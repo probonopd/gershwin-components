@@ -174,7 +174,18 @@
 
 - (NSImage *)image
 {
-    return nil;
+    if (_percent < 0) return nil;
+    NSString *name;
+    if ([_status isEqualToString:@"Charging"]) {
+        name = @"battery-charging";
+    } else if (_percent >= 90) {
+        name = @"battery";
+    } else if (_percent >= 40) {
+        name = @"battery-medium";
+    } else {
+        name = @"battery-low";
+    }
+    return [NSImage imageNamed:name];
 }
 
 - (NSString *)title

@@ -13,6 +13,31 @@
 #import <dispatch/dispatch.h>
 #import <AppKit/NSMenuView.h>
 
+#pragma mark - Fixed width for percentage items
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wobjc-protocol-method-implementation"
+
+@implementation NSMenuItemCell (FixedWidthExtras)
+
+- (CGFloat)titleWidth
+{
+    if (_needs_sizing) {
+        [self calcSize];
+    }
+    NSString *title = [_menuItem title];
+    if ([title rangeOfString:@"%"].location != NSNotFound) {
+        NSFont *f = [self font] ? [self font] : [NSFont menuBarFontOfSize:0];
+        NSSize size = [@"100%" sizeWithAttributes:@{ NSFontAttributeName: f }];
+        return ceil(size.width);
+    }
+    return _titleWidth;
+}
+
+@end
+
+#pragma clang diagnostic pop
+
 #pragma mark - GSMenuExtraAdapter
 
 @interface GSMenuExtraAdapter : NSObject <StatusItemProvider>
@@ -51,7 +76,13 @@
     NSDictionary *attrs = @{ NSFontAttributeName: font };
     NSString *display = [_extra title];
     if (!display) display = @"";
-    NSSize size = [display sizeWithAttributes:attrs];
+    NSString *widthRef;
+    if ([display rangeOfString:@"%"].location != NSNotFound) {
+        widthRef = @"100%";
+    } else {
+        widthRef = display;
+    }
+    NSSize size = [widthRef sizeWithAttributes:attrs];
     _cachedWidth = ceil(size.width) + 16.0;
     return _cachedWidth;
 }
@@ -237,7 +268,8 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
             @"org.gnustep.menuextra.sound":      @"SoundExtra",
             @"org.gnustep.menuextra.brightness": @"BrightnessExtra",
             @"org.gershwin.menu.statusitem.time":       @"TimeDisplayProvider",
-            @"org.gershwin.menu.statusitem.systemmonitor": @"SystemMonitorProvider",
+            @"org.gershwin.menu.statusitem.cpu":       @"CPUProvider",
+            @"org.gershwin.menu.statusitem.ram":       @"RAMProvider",
         };
     });
 
@@ -342,7 +374,8 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         @"org.gnustep.menuextra.wlan",
         @"org.gnustep.menuextra.sound",
         @"org.gnustep.menuextra.brightness",
-        @"org.gershwin.menu.statusitem.systemmonitor"
+        @"org.gershwin.menu.statusitem.cpu",
+        @"org.gershwin.menu.statusitem.ram"
     ];
     for (NSString *ident in builtinIds) {
         if ([loadedIdentifiers containsObject:ident]) continue;
@@ -408,8 +441,15 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         NSString *title = [provider title] ? [provider title] : ident;
 
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title
-                                                      action:NULL
-                                               keyEquivalent:@""];
+                                                       action:NULL
+                                                keyEquivalent:@""];
+        if ([provider respondsToSelector:@selector(icon)]) {
+            NSImage *icon = [provider icon];
+            if (icon) {
+                [icon setSize:NSMakeSize(16, 16)];
+                [item setImage:icon];
+            }
+        }
         if ([provider respondsToSelector:@selector(menu)]) {
             [item setSubmenu:[provider menu]];
         }
@@ -417,7 +457,6 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         [_extrasMenu addItem:item];
         [_extrasMenuItems setObject:item forKey:ident];
     }
-
     CGFloat width = [self extrasMenuWidth];
     _extrasMenuView = [[NSMenuView alloc] initWithFrame:NSMakeRect(0, 0, width, _menuBarHeight)];
     [_extrasMenuView setHorizontal:YES];
@@ -432,11 +471,23 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     NSFont *font = [NSFont menuBarFontOfSize:0];
     NSDictionary *attrs = @{ NSFontAttributeName: font };
     CGFloat total = 0;
+    CGFloat iconWidth = 18.0;
     for (id<StatusItemProvider> provider in _statusItems) {
+        CGFloat itemWidth = 8.0;
+        if ([provider respondsToSelector:@selector(icon)] && [provider icon]) {
+            itemWidth += iconWidth;
+        }
         NSString *title = [provider title];
         if (!title) title = [provider identifier];
-        NSSize size = [title sizeWithAttributes:attrs];
-        total += ceil(size.width) + 20.0;
+        NSString *widthRef;
+        if ([title rangeOfString:@"%"].location != NSNotFound) {
+            widthRef = @"100%";
+        } else {
+            widthRef = title;
+        }
+        NSSize size = [widthRef sizeWithAttributes:attrs];
+        itemWidth += ceil(size.width) + 8.0;
+        total += itemWidth;
     }
     return total;
 }
@@ -682,6 +733,8 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 - (void)unloadAllStatusItems
 {
     [self stopUpdateTimers];
+
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 
     if (_fsMonitorSource) {
         dispatch_source_cancel(_fsMonitorSource);

@@ -65,12 +65,12 @@
 
 - (NSImage *)image
 {
-    return nil;
+    return [NSImage imageNamed:@"brightness"];
 }
 
 - (NSString *)title
 {
-    return [NSString stringWithFormat:@"Br %d%%", [self percent]];
+    return [NSString stringWithFormat:@"%d%%", [self percent]];
 }
 
 - (void)brightnessChanged:(NSNotification *)n
