@@ -46,6 +46,7 @@
     BOOL isRefreshing; // Guards against concurrent refreshDisplays: calls
     NSButton *saveButton;
     NSString *savedStateSnapshot; // Snapshot of display state at last save/load
+    NSString *lastDisplaySnapshot; // Snapshot from last view rebuild
     NSUInteger previousDisplayCount; // Track display count to detect hot-plug
 }
 

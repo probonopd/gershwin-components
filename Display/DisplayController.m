@@ -74,6 +74,7 @@ static NSMutableDictionary *activeDialogsByID = nil;
     [x11 release];
     [saveButton release];
     [savedStateSnapshot release];
+    [lastDisplaySnapshot release];
     [super dealloc];
 }
 
@@ -236,9 +237,14 @@ static NSMutableDictionary *activeDialogsByID = nil;
         [previouslySelectedOutput release];
     }
 
-    // Update the display view with new data
+    // Only rebuild views if configuration actually changed
     if (displayView) {
-        [displayView updateDisplayRects];
+        NSString *currentSnap = [self currentStateSnapshot];
+        if (![currentSnap isEqualToString:lastDisplaySnapshot]) {
+            [lastDisplaySnapshot release];
+            lastDisplaySnapshot = [currentSnap copy];
+            [displayView updateDisplayRects];
+        }
         [displayView setNeedsDisplay:YES];
     }
 
@@ -278,9 +284,18 @@ static NSMutableDictionary *activeDialogsByID = nil;
                     [displayView setNeedsDisplay:YES];
                 }
                 [self updateResolutionPopup];
-                [self applyDisplayConfiguration];
+                // Apply positions to X server directly without triggering a
+                // full refresh cycle (which would cascade back into this method)
+                NSMutableDictionary *placements = [NSMutableDictionary dictionary];
+                for (DisplayInfo *display in displays) {
+                    [placements setObject:[NSValue valueWithPoint:[display frame].origin]
+                                  forKey:[display output]];
+                }
+                [x11 applyPositions:placements];
+                [lastDisplaySnapshot release];
+                lastDisplaySnapshot = [[self currentStateSnapshot] copy];
                 [savedStateSnapshot release];
-                savedStateSnapshot = [[self currentStateSnapshot] copy];
+                savedStateSnapshot = [lastDisplaySnapshot copy];
                 [self updateSaveButtonState];
                 return;
             }

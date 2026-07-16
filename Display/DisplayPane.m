@@ -28,7 +28,7 @@
 - (void)startRefreshTimer
 {
     if (!refreshTimer) {
-        refreshTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 
+        refreshTimer = [NSTimer scheduledTimerWithTimeInterval:10.0 
                                                         target:displayController 
                                                       selector:@selector(refreshDisplays:) 
                                                       userInfo:nil 
