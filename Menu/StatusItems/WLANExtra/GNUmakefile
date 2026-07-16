@@ -1,0 +1,12 @@
+include $(GNUSTEP_MAKEFILES)/common.make
+
+BUNDLE_NAME = WLAN
+BUNDLE_EXTENSION = .gsmenuextra
+
+WLAN_PRINCIPAL_CLASS = WLANExtra
+WLAN_OBJC_FILES = WLANExtra.m
+WLAN_RESOURCE_FILES = Info.plist
+
+ADDITIONAL_OBJCFLAGS += -I../..
+
+include $(GNUSTEP_MAKEFILES)/bundle.make

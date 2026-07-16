@@ -5,9 +5,127 @@
  */
 
 #import "StatusItemManager.h"
-#import "StatusItemView.h"
-#import "StatusItemsView.h"
+#import "GSMenuExtra.h"
+#import "GSMenuExtraContext.h"
+#import "GSMenuExtraBundle.h"
+#import "GSMenuExtraInstance.h"
+#import "MenuExtrasPrefPanel.h"
 #import <dispatch/dispatch.h>
+#import <AppKit/NSMenuView.h>
+
+#pragma mark - GSMenuExtraAdapter
+
+@interface GSMenuExtraAdapter : NSObject <StatusItemProvider>
+{
+    id<GSMenuExtra> _extra;
+    NSString *_identifier;
+    CGFloat _cachedWidth;
+    GSMenuExtraContext *_context;
+}
+@end
+
+@implementation GSMenuExtraAdapter
+
+- (instancetype)initWithGSMenuExtra:(id<GSMenuExtra>)extra
+                         identifier:(NSString *)identifier
+                            context:(GSMenuExtraContext *)context
+{
+    self = [super init];
+    if (self) {
+        _extra = extra;
+        _identifier = [identifier copy];
+        _context = context;
+        _cachedWidth = 0;
+    }
+    return self;
+}
+
+- (NSString *)identifier { return _identifier; }
+
+- (NSString *)title { return [_extra title]; }
+
+- (CGFloat)width
+{
+    if (_cachedWidth > 0) return _cachedWidth;
+    NSFont *font = [NSFont menuBarFontOfSize:0];
+    NSDictionary *attrs = @{ NSFontAttributeName: font };
+    NSString *display = [_extra title];
+    if (!display) display = @"";
+    NSSize size = [display sizeWithAttributes:attrs];
+    _cachedWidth = ceil(size.width) + 16.0;
+    return _cachedWidth;
+}
+
+- (void)loadWithManager:(StatusItemManager *)manager
+{
+    if ([_extra respondsToSelector:@selector(menuExtraDidLoad)]) {
+        [_extra menuExtraDidLoad];
+    }
+}
+
+- (void)update { _cachedWidth = 0; }
+- (void)handleClick {}
+- (NSMenu *)menu { return [_extra menu]; }
+- (NSImage *)icon { return [_extra image]; }
+- (NSTimeInterval)updateInterval { return 1.0; }
+
+- (void)unload
+{
+    if ([_extra respondsToSelector:@selector(menuExtraWillUnload)]) {
+        [_extra menuExtraWillUnload];
+    }
+    _extra = nil;
+}
+
+- (NSInteger)displayPriority
+{
+    static NSDictionary *priorityMap = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        priorityMap = @{
+            @"org.gnustep.menuextra.clock":      @50,
+            @"org.gnustep.menuextra.battery":    @40,
+            @"org.gnustep.menuextra.wlan":       @30,
+            @"org.gnustep.menuextra.sound":      @20,
+            @"org.gnustep.menuextra.brightness": @10,
+        };
+    });
+    NSNumber *p = [priorityMap objectForKey:_identifier];
+    return p ? [p integerValue] : 0;
+}
+
+- (void)menuWillOpen
+{
+    if ([_extra respondsToSelector:@selector(menuExtraWillOpenMenu)]) {
+        [_extra menuExtraWillOpenMenu];
+    }
+}
+
+- (void)menuDidClose
+{
+    if ([_extra respondsToSelector:@selector(menuExtraDidCloseMenu)]) {
+        [_extra menuExtraDidCloseMenu];
+    }
+}
+
+@end
+
+#pragma mark - StatusItemManager
+
+static NSString *const GSMenuExtraEnabledKey = @"GSMenuExtraEnabled";
+static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
+
+@interface StatusItemManager ()
+{
+    MenuExtrasPrefPanel *_prefPanel;
+    NSMutableDictionary<NSString *, GSMenuExtraInstance *> *_instances;
+    dispatch_source_t _fsMonitorSource;
+    NSMutableSet<NSString *> *_knownBundlePaths;
+    NSMenu *_extrasMenu;
+    NSMenuView *_extrasMenuView;
+    NSMutableDictionary *_extrasMenuItems;
+}
+@end
 
 @implementation StatusItemManager
 
@@ -20,10 +138,9 @@
         _menuBarHeight = height;
         _statusItems = [NSMutableArray array];
         _updateTimers = [NSMutableDictionary dictionary];
-        _itemViews = [NSMutableDictionary dictionary];
-
-        NSDebugLLog(@"gwcomp", @"StatusItemManager: Initialized with screen width %.0f, height %.0f",
-              width, height);
+        _extrasMenuItems = [NSMutableDictionary dictionary];
+        _instances = [NSMutableDictionary dictionary];
+        _knownBundlePaths = [NSMutableSet set];
     }
     return self;
 }
@@ -33,79 +150,240 @@
     [self unloadAllStatusItems];
 }
 
+#pragma mark - Bundle discovery
+
++ (NSArray<NSString *> *)searchPaths
+{
+    static NSArray *paths = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableArray *result = [NSMutableArray array];
+
+        [result addObject:[[[[NSBundle mainBundle] bundlePath] stringByDeletingLastPathComponent]
+            stringByAppendingPathComponent:@"StatusItems"]];
+
+        NSSearchPathDomainMask domains[] = {
+            NSSystemDomainMask,
+            NSLocalDomainMask,
+            NSUserDomainMask
+        };
+        for (int i = 0; i < 3; i++) {
+            NSString *libDir = [NSSearchPathForDirectoriesInDomains(
+                NSLibraryDirectory, domains[i], YES) firstObject];
+            if (libDir) {
+                [result addObject:[libDir stringByAppendingPathComponent:@"MenuExtras"]];
+                [result addObject:[libDir stringByAppendingPathComponent:@"Menu/StatusItems"]];
+            }
+        }
+
+        [result addObject:[[[NSBundle mainBundle] resourcePath]
+            stringByAppendingPathComponent:@"StatusItems"]];
+
+        paths = [result copy];
+    });
+    return paths;
+}
+
+- (void)collectBundlesInDirectory:(NSString *)dirPath
+                           result:(NSMutableDictionary *)bundlesById
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSError *error = nil;
+    NSArray *contents = [fm contentsOfDirectoryAtPath:dirPath error:&error];
+    if (error || !contents) return;
+
+    for (NSString *item in contents) {
+        NSString *fullPath = [dirPath stringByAppendingPathComponent:item];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:fullPath isDirectory:&isDir] || !isDir) continue;
+
+        NSString *ext = [[fullPath pathExtension] lowercaseString];
+        if ([ext isEqualToString:@"bundle"] || [ext isEqualToString:@"gsmenuextra"]) {
+            GSMenuExtraBundle *bundle = [[GSMenuExtraBundle alloc] initWithURL:[NSURL fileURLWithPath:fullPath]];
+            NSString *ident = [bundle identifier];
+            GSMenuExtraBundle *existing = [bundlesById objectForKey:ident];
+            if (!existing) {
+                [bundlesById setObject:bundle forKey:ident];
+                [_knownBundlePaths addObject:fullPath];
+                NSLog(@"GSMenuExtra: discovered %@ at %@", ident, fullPath);
+            }
+        } else {
+            [self collectBundlesInDirectory:fullPath result:bundlesById];
+        }
+    }
+}
+
+- (NSArray<GSMenuExtraBundle *> *)discoverBundles
+{
+    NSMutableDictionary *bundlesById = [NSMutableDictionary dictionary];
+
+    for (NSString *searchPath in [[self class] searchPaths]) {
+        [self collectBundlesInDirectory:searchPath result:bundlesById];
+    }
+
+    NSLog(@"GSMenuExtra: discovered %lu bundles total", (unsigned long)[bundlesById count]);
+    return [bundlesById allValues];
+}
+
+- (id<StatusItemProvider>)loadCompiledInProviderForIdentifier:(NSString *)identifier
+{
+    static NSDictionary *map = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        map = @{
+            @"org.gnustep.menuextra.clock":      @"ClockExtra",
+            @"org.gnustep.menuextra.battery":    @"BatteryExtra",
+            @"org.gnustep.menuextra.wlan":       @"WLANExtra",
+            @"org.gnustep.menuextra.sound":      @"SoundExtra",
+            @"org.gnustep.menuextra.brightness": @"BrightnessExtra",
+            @"org.gershwin.menu.statusitem.time":       @"TimeDisplayProvider",
+            @"org.gershwin.menu.statusitem.systemmonitor": @"SystemMonitorProvider",
+        };
+    });
+
+    NSString *className = [map objectForKey:identifier];
+    if (!className) return nil;
+
+    Class cls = NSClassFromString(className);
+    if (!cls) return nil;
+
+    NSLog(@"GSMenuExtra: trying compiled-in class %@ for identifier %@", className, identifier);
+
+    if ([cls conformsToProtocol:@protocol(GSMenuExtra)]) {
+        id<GSMenuExtra> extra = [[cls alloc] init];
+        if (!extra) return nil;
+        GSMenuExtraContext *ctx = [[GSMenuExtraContext alloc] initWithManager:self identifier:identifier];
+        return [[GSMenuExtraAdapter alloc] initWithGSMenuExtra:extra identifier:identifier context:ctx];
+    }
+
+    if ([cls conformsToProtocol:@protocol(StatusItemProvider)]) {
+        id<StatusItemProvider> provider = [[cls alloc] init];
+        if (!provider) return nil;
+        [provider loadWithManager:self];
+        return provider;
+    }
+
+    return nil;
+}
+
 #pragma mark - Bundle loading
+
+- (id<StatusItemProvider>)loadProviderFromBundle:(GSMenuExtraBundle *)bundle
+{
+    NSBundle *nsBundle = [bundle bundle];
+
+    @try {
+        if (![nsBundle isLoaded]) {
+            NSError *error = nil;
+            if (![nsBundle loadAndReturnError:&error]) return nil;
+        }
+
+        Class principalClass = [nsBundle principalClass];
+        if (!principalClass) return nil;
+
+        if ([bundle isGSMenuExtra]) {
+            if (![principalClass conformsToProtocol:@protocol(GSMenuExtra)]) return nil;
+
+            id<GSMenuExtra> extra = [[principalClass alloc] init];
+            if (!extra) return nil;
+
+            GSMenuExtraContext *context =
+                [[GSMenuExtraContext alloc] initWithManager:self
+                                                 identifier:[bundle identifier]];
+
+            return [[GSMenuExtraAdapter alloc] initWithGSMenuExtra:extra
+                                                        identifier:[bundle identifier]
+                                                           context:context];
+        }
+
+        if (![principalClass conformsToProtocol:@protocol(StatusItemProvider)]) return nil;
+
+        id<StatusItemProvider> provider = [[principalClass alloc] init];
+        if (!provider) return nil;
+
+        [provider loadWithManager:self];
+        return provider;
+    } @catch (NSException *exception) {
+        return nil;
+    }
+}
+
+#pragma mark - Main loading
 
 - (void)loadStatusItems
 {
-    NSDebugLLog(@"gwcomp", @"StatusItemManager: Loading status item bundles...");
-
-    NSMutableArray *searchPaths = [NSMutableArray array];
-
-    /* 1. Development location (next to Menu.app) */
-    NSString *devPath = [[NSBundle mainBundle] bundlePath];
-    NSString *devStatusItemsPath =
-        [[devPath stringByDeletingLastPathComponent]
-            stringByAppendingPathComponent:@"StatusItems"];
-    [searchPaths addObject:devStatusItemsPath];
-
-    /* 2. System location */
-    [searchPaths addObject:@"/System/Library/Menu/StatusItems"];
-
-    /* 3. User location */
-    NSString *userPath =
-        [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Menu/StatusItems"];
-    [searchPaths addObject:userPath];
-
-    /* 4. Bundle resources */
-    NSString *resourcePath = [[NSBundle mainBundle] resourcePath];
-    NSString *bundlePath =
-        [resourcePath stringByAppendingPathComponent:@"StatusItems"];
-    [searchPaths addObject:bundlePath];
-
-    NSFileManager *fm = [NSFileManager defaultManager];
     NSMutableSet *loadedIdentifiers = [NSMutableSet set];
+    NSMutableArray *allProviders = [NSMutableArray array];
 
-    for (NSString *searchPath in searchPaths) {
-        NSDebugLLog(@"gwcomp", @"StatusItemManager: Searching for bundles in: %@", searchPath);
+    NSArray *bundles = [self discoverBundles];
 
-        if (![fm fileExistsAtPath:searchPath]) {
-            NSDebugLLog(@"gwcomp", @"StatusItemManager: Path does not exist: %@", searchPath);
-            continue;
+    for (GSMenuExtraBundle *bundle in bundles) {
+        NSString *ident = [bundle identifier];
+        if ([loadedIdentifiers containsObject:ident]) continue;
+
+        NSLog(@"GSMenuExtra: loading bundle %@", ident);
+        id<StatusItemProvider> provider = [self loadProviderFromBundle:bundle];
+        if (provider) {
+            [loadedIdentifiers addObject:ident];
+            [allProviders addObject:provider];
+            GSMenuExtraInstance *instance = [[GSMenuExtraInstance alloc] initWithProvider:provider view:nil];
+            [_instances setObject:instance forKey:ident];
+            NSLog(@"GSMenuExtra: loaded bundle %@", ident);
+        } else {
+            NSLog(@"GSMenuExtra: FAILED to load bundle %@", ident);
         }
+    }
 
-        NSError *error = nil;
-        NSArray *contents = [fm contentsOfDirectoryAtPath:searchPath error:&error];
-        if (error) {
-            NSDebugLLog(@"gwcomp", @"StatusItemManager: Error reading directory %@: %@", searchPath, error);
-            continue;
+    /* Fallback: try compiled-in classes for any extras not found as bundles */
+    NSLog(@"GSMenuExtra: trying compiled-in fallback...");
+    NSArray *builtinIds = @[
+        @"org.gnustep.menuextra.clock",
+        @"org.gnustep.menuextra.battery",
+        @"org.gnustep.menuextra.wlan",
+        @"org.gnustep.menuextra.sound",
+        @"org.gnustep.menuextra.brightness",
+        @"org.gershwin.menu.statusitem.systemmonitor"
+    ];
+    for (NSString *ident in builtinIds) {
+        if ([loadedIdentifiers containsObject:ident]) continue;
+        id<StatusItemProvider> provider = [self loadCompiledInProviderForIdentifier:ident];
+        if (provider) {
+            [provider loadWithManager:self];
+            [loadedIdentifiers addObject:ident];
+            [allProviders addObject:provider];
+            GSMenuExtraInstance *instance = [[GSMenuExtraInstance alloc] initWithProvider:provider view:nil];
+            [_instances setObject:instance forKey:ident];
+            NSLog(@"GSMenuExtra: loaded compiled-in %@", ident);
         }
+    }
 
-        for (NSString *item in contents) {
-            if ([item hasSuffix:@".bundle"]) {
-                NSString *bp = [searchPath stringByAppendingPathComponent:item];
-                [self loadStatusItemFromBundle:[NSBundle bundleWithPath:bp]
-                            loadedIdentifiers:loadedIdentifiers];
-            } else {
-                /* Check subdirectories for bundles */
-                NSString *itemPath = [searchPath stringByAppendingPathComponent:item];
-                NSError *subError = nil;
-                NSArray *subContents =
-                    [fm contentsOfDirectoryAtPath:itemPath error:&subError];
-                if (!subError) {
-                    for (NSString *subItem in subContents) {
-                        if ([subItem hasSuffix:@".bundle"]) {
-                            NSString *bp =
-                                [itemPath stringByAppendingPathComponent:subItem];
-                            [self loadStatusItemFromBundle:[NSBundle bundleWithPath:bp]
-                                        loadedIdentifiers:loadedIdentifiers];
-                        }
-                    }
-                }
+    NSArray *savedOrder = [self loadOrderPreference];
+    NSSet *enabledSet = [self loadEnabledPreference];
+    NSMutableArray *ordered = [NSMutableArray arrayWithCapacity:[allProviders count]];
+
+    NSMutableDictionary *providersById = [NSMutableDictionary dictionary];
+    for (id<StatusItemProvider> p in allProviders) {
+        [providersById setObject:p forKey:[p identifier]];
+    }
+
+    for (NSString *ident in savedOrder) {
+        id<StatusItemProvider> p = [providersById objectForKey:ident];
+        if (p && (!enabledSet || [enabledSet containsObject:ident])) {
+            [ordered addObject:p];
+            [providersById removeObjectForKey:ident];
+        }
+    }
+
+    for (id<StatusItemProvider> p in allProviders) {
+        if ([providersById objectForKey:[p identifier]]) {
+            if (!enabledSet || [enabledSet containsObject:[p identifier]]) {
+                [ordered addObject:p];
             }
         }
     }
 
-    /* Sort by ascending displayPriority so highest-priority ends up rightmost */
+    _statusItems = ordered;
+
     [_statusItems sortUsingComparator:
         ^NSComparisonResult(id<StatusItemProvider> a, id<StatusItemProvider> b) {
             NSInteger pa = 100, pb = 100;
@@ -116,100 +394,51 @@
             return NSOrderedSame;
         }];
 
-    NSDebugLLog(@"gwcomp", @"StatusItemManager: Loaded %lu status items",
-          (unsigned long)[_statusItems count]);
-}
-
-- (BOOL)loadStatusItemFromBundle:(NSBundle *)bundle
-               loadedIdentifiers:(NSMutableSet *)loadedIdentifiers
-{
-    if (!bundle) {
-        NSDebugLLog(@"gwcomp", @"StatusItemManager: Bundle is nil");
-        return NO;
-    }
-
-    NSDebugLLog(@"gwcomp", @"StatusItemManager: Loading bundle: %@", [bundle bundlePath]);
-
-    Class principalClass = [bundle principalClass];
-    if (!principalClass) {
-        NSError *error = nil;
-        if (![bundle loadAndReturnError:&error]) {
-            NSDebugLLog(@"gwcomp", @"StatusItemManager: Failed to load bundle: %@",
-                  error ? (id)error : @"unknown error");
-            return NO;
-        }
-        principalClass = [bundle principalClass];
-    }
-
-    if (!principalClass) {
-        NSDebugLLog(@"gwcomp", @"StatusItemManager: No principal class in bundle: %@",
-              [bundle bundlePath]);
-        return NO;
-    }
-
-    id instance = [[principalClass alloc] init];
-    if (!instance) {
-        NSDebugLLog(@"gwcomp", @"StatusItemManager: Failed to instantiate: %@", principalClass);
-        return NO;
-    }
-
-    if (![instance conformsToProtocol:@protocol(StatusItemProvider)]) {
-        NSDebugLLog(@"gwcomp", @"StatusItemManager: %@ does not conform to StatusItemProvider",
-              instance);
-        return NO;
-    }
-
-    id<StatusItemProvider> provider = (id<StatusItemProvider>)instance;
-    NSString *identifier = [provider identifier];
-
-    if ([loadedIdentifiers containsObject:identifier]) {
-        return NO;
-    }
-
-    [loadedIdentifiers addObject:identifier];
-    [provider loadWithManager:self];
-    [_statusItems addObject:provider];
-
-    NSDebugLLog(@"gwcomp", @"StatusItemManager: Loaded provider '%@' (priority %ld, width %.0f)",
-          identifier,
-          (long)([provider respondsToSelector:@selector(displayPriority)]
-                     ? [provider displayPriority] : 100),
-          [provider width]);
-
-    return YES;
+    [self startFileSystemMonitoring];
 }
 
 #pragma mark - View creation
 
-- (StatusItemsView *)createStatusItemsView
+- (NSView *)createExtrasMenuView
 {
-    StatusItemsView *container =
-        [[StatusItemsView alloc] initWithFrame:NSMakeRect(0, 0, 1, _menuBarHeight)];
+    _extrasMenu = [[NSMenu alloc] initWithTitle:@"Extras"];
 
     for (id<StatusItemProvider> provider in _statusItems) {
-        CGFloat fixedWidth = [provider width];
+        NSString *ident = [provider identifier];
+        NSString *title = [provider title] ? [provider title] : ident;
 
-        StatusItemView *view =
-            [[StatusItemView alloc] initWithProvider:provider
-                                          fixedWidth:fixedWidth
-                                              height:_menuBarHeight];
-        view.manager = self;
-
-        [container addItemView:view];
-        [_itemViews setObject:view forKey:[provider identifier]];
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title
+                                                      action:NULL
+                                               keyEquivalent:@""];
+        if ([provider respondsToSelector:@selector(menu)]) {
+            [item setSubmenu:[provider menu]];
+        }
+        [item setRepresentedObject:ident];
+        [_extrasMenu addItem:item];
+        [_extrasMenuItems setObject:item forKey:ident];
     }
 
-    /* Size container to fit all items and lay them out */
-    CGFloat totalWidth = [container totalRequiredWidth];
-    [container setFrame:NSMakeRect(0, 0, totalWidth, _menuBarHeight)];
-    [container layoutItemViews];
+    CGFloat width = [self extrasMenuWidth];
+    _extrasMenuView = [[NSMenuView alloc] initWithFrame:NSMakeRect(0, 0, width, _menuBarHeight)];
+    [_extrasMenuView setHorizontal:YES];
+    [_extrasMenuView setMenu:_extrasMenu];
 
-    _statusItemsView = container;
+    return _extrasMenuView;
+}
 
-    NSDebugLLog(@"gwcomp", @"StatusItemManager: Created StatusItemsView (%.0f x %.0f) with %lu items",
-          totalWidth, _menuBarHeight, (unsigned long)[_statusItems count]);
-
-    return container;
+- (CGFloat)extrasMenuWidth
+{
+    if ([_extrasMenuItems count] == 0) return 0;
+    NSFont *font = [NSFont menuBarFontOfSize:0];
+    NSDictionary *attrs = @{ NSFontAttributeName: font };
+    CGFloat total = 0;
+    for (id<StatusItemProvider> provider in _statusItems) {
+        NSString *title = [provider title];
+        if (!title) title = [provider identifier];
+        NSSize size = [title sizeWithAttributes:attrs];
+        total += ceil(size.width) + 20.0;
+    }
+    return total;
 }
 
 #pragma mark - Update timers
@@ -223,6 +452,7 @@
         if ([item respondsToSelector:@selector(updateInterval)]) {
             interval = [item updateInterval];
         }
+        if (interval <= 0) continue;
         if (interval < 0.5) interval = 0.5;
 
         NSNumber *key = @(interval);
@@ -245,8 +475,6 @@
                                            userInfo:items
                                             repeats:YES];
         [_updateTimers setObject:timer forKey:intervalKey];
-
-        /* Fire once immediately for initial display */
         [self updateTimerFired:timer];
     }
 }
@@ -254,59 +482,225 @@
 - (void)updateTimerFired:(NSTimer *)timer
 {
     NSArray *items = [timer userInfo];
-
     for (id<StatusItemProvider> item in items) {
         @try {
-            [item update];
-
+            if ([item respondsToSelector:@selector(update)]) {
+                [item update];
+            }
             NSString *title = [item title];
             if (!title) {
                 title = [NSString stringWithFormat:@"[%@]", [item identifier]];
             }
-
-            StatusItemView *view = [_itemViews objectForKey:[item identifier]];
-            if (view) {
-                [view updateTitle:title];
-            }
-        }
-        @catch (NSException *exception) {
-            NSDebugLLog(@"gwcomp", @"StatusItemManager: Exception updating %@: %@",
-                  [item identifier], exception);
-        }
+            NSMenuItem *menuItem = [_extrasMenuItems objectForKey:[item identifier]];
+            if (menuItem) [menuItem setTitle:title];
+        } @catch (NSException *exception) {}
     }
 }
 
 - (void)stopUpdateTimers
 {
-    NSDebugLLog(@"gwcomp", @"StatusItemManager: Stopping all update timers");
     for (NSTimer *timer in [_updateTimers allValues]) {
         [timer invalidate];
     }
     [_updateTimers removeAllObjects];
 }
 
+#pragma mark - Presentation invalidation
+
+- (void)refreshExtraWithIdentifier:(NSString *)identifier
+{
+    NSMenuItem *menuItem = [_extrasMenuItems objectForKey:identifier];
+    if (!menuItem) return;
+
+    for (id<StatusItemProvider> provider in _statusItems) {
+        if ([[provider identifier] isEqualToString:identifier]) {
+            NSString *title = [provider title];
+            if (title) [menuItem setTitle:title];
+            break;
+        }
+    }
+}
+
+#pragma mark - Preferences
+
+- (void)savePreferences
+{
+    NSMutableArray *order = [NSMutableArray arrayWithCapacity:[_statusItems count]];
+    for (id<StatusItemProvider> item in _statusItems) {
+        [order addObject:[item identifier]];
+    }
+    [[NSUserDefaults standardUserDefaults] setObject:order forKey:GSMenuExtraOrderKey];
+
+    NSMutableArray *enabled = [NSMutableArray arrayWithCapacity:[_statusItems count]];
+    for (id<StatusItemProvider> item in _statusItems) {
+        [enabled addObject:[item identifier]];
+    }
+    [[NSUserDefaults standardUserDefaults] setObject:enabled forKey:GSMenuExtraEnabledKey];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
+- (NSArray<NSString *> *)loadOrderPreference
+{
+    NSArray *saved = [[NSUserDefaults standardUserDefaults] arrayForKey:GSMenuExtraOrderKey];
+    if ([saved isKindOfClass:[NSArray class]]) return saved;
+    return @[];
+}
+
+- (NSSet *)loadEnabledPreference
+{
+    NSArray *saved = [[NSUserDefaults standardUserDefaults] arrayForKey:GSMenuExtraEnabledKey];
+    if ([saved isKindOfClass:[NSArray class]]) return [NSSet setWithArray:saved];
+    return nil;
+}
+
+#pragma mark - Configuration panel
+
+- (void)showPreferencesPanel
+{
+    if (!_prefPanel) {
+        _prefPanel = [[MenuExtrasPrefPanel alloc] initWithManager:self];
+    }
+    [_prefPanel showWindow:nil];
+    [[_prefPanel window] makeKeyAndOrderFront:nil];
+}
+
+#pragma mark - File system monitoring
+
+- (void)startFileSystemMonitoring
+{
+#if !defined(__linux__) && !defined(__FreeBSD__) && !defined(__OpenBSD__)
+    dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+    int fd = open([[[[self class] searchPaths] firstObject] fileSystemRepresentation], O_EVTONLY);
+    if (fd < 0) return;
+
+    _fsMonitorSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_VNODE, fd,
+        DISPATCH_VNODE_WRITE | DISPATCH_VNODE_DELETE | DISPATCH_VNODE_RENAME, queue);
+
+    dispatch_source_set_event_handler(_fsMonitorSource, ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self rescanBundles];
+        });
+    });
+
+    dispatch_source_set_cancel_handler(_fsMonitorSource, ^{
+        close(fd);
+    });
+
+    dispatch_resume(_fsMonitorSource);
+#else
+    /* Poll-based fallback: rescan every 10 seconds */
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSTimer scheduledTimerWithTimeInterval:10.0
+                                         target:self
+                                       selector:@selector(rescanBundles)
+                                       userInfo:nil
+                                        repeats:YES];
+    });
+#endif
+}
+
+- (void)rescanBundles
+{
+    [self rescanBundlesNow];
+}
+
+- (void)rescanBundlesNow
+{
+    NSMutableSet *currentPaths = [NSMutableSet set];
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    for (NSString *searchPath in [[self class] searchPaths]) {
+        if (![fm fileExistsAtPath:searchPath]) continue;
+        NSError *error = nil;
+        NSArray *contents = [fm contentsOfDirectoryAtPath:searchPath error:&error];
+        if (!contents) continue;
+
+        for (NSString *item in contents) {
+            NSString *fullPath = [searchPath stringByAppendingPathComponent:item];
+            BOOL isDir = NO;
+            if (![fm fileExistsAtPath:fullPath isDirectory:&isDir] || !isDir) continue;
+            NSString *ext = [[fullPath pathExtension] lowercaseString];
+            if (![ext isEqualToString:@"bundle"] && ![ext isEqualToString:@"gsmenuextra"]) continue;
+            [currentPaths addObject:fullPath];
+        }
+    }
+
+    NSMutableSet *added = [NSMutableSet setWithSet:currentPaths];
+    [added minusSet:_knownBundlePaths];
+
+    NSMutableSet *removed = [NSMutableSet setWithSet:_knownBundlePaths];
+    [removed minusSet:currentPaths];
+
+    for (NSString *path in removed) {
+        NSString *name = [[path lastPathComponent] stringByDeletingPathExtension];
+        id<StatusItemProvider> toRemove = nil;
+        for (id<StatusItemProvider> p in _statusItems) {
+            if ([[p identifier] isEqualToString:name] || [[p identifier] isEqualToString:path]) {
+                toRemove = p;
+                break;
+            }
+        }
+        if (toRemove) {
+            if ([toRemove respondsToSelector:@selector(unload)]) [toRemove unload];
+            [_statusItems removeObject:toRemove];
+            NSString *ident = [toRemove identifier];
+            [_extrasMenuItems removeObjectForKey:ident];
+            [_instances removeObjectForKey:ident];
+        }
+        [_knownBundlePaths removeObject:path];
+    }
+
+    for (NSString *path in added) {
+        NSURL *url = [NSURL fileURLWithPath:path];
+        GSMenuExtraBundle *bundle = [[GSMenuExtraBundle alloc] initWithURL:url];
+
+        NSString *ident = [bundle identifier];
+        if (ident && ![_instances objectForKey:ident]) {
+            id<StatusItemProvider> provider = [self loadProviderFromBundle:bundle];
+            if (provider) {
+                [provider loadWithManager:self];
+                [_statusItems addObject:provider];
+                [_knownBundlePaths addObject:path];
+
+                GSMenuExtraInstance *inst = [[GSMenuExtraInstance alloc] initWithProvider:provider view:nil];
+                [_instances setObject:inst forKey:ident];
+            }
+        }
+    }
+
+    if ([added count] > 0 || [removed count] > 0) {
+        [self savePreferences];
+        if (_extrasMenuView) {
+            CGFloat w = [self extrasMenuWidth];
+            [_extrasMenuView setFrameSize:NSMakeSize(w, NSHeight([_extrasMenuView frame]))];
+        }
+    }
+}
+
 #pragma mark - Cleanup
 
 - (void)unloadAllStatusItems
 {
-    NSDebugLLog(@"gwcomp", @"StatusItemManager: Unloading all status items");
-
     [self stopUpdateTimers];
+
+    if (_fsMonitorSource) {
+        dispatch_source_cancel(_fsMonitorSource);
+        _fsMonitorSource = nil;
+    }
+
+    [self savePreferences];
 
     for (id<StatusItemProvider> item in _statusItems) {
         @try {
-            if ([item respondsToSelector:@selector(unload)]) {
-                [item unload];
-            }
-        }
-        @catch (NSException *exception) {
-            NSDebugLLog(@"gwcomp", @"StatusItemManager: Exception unloading %@: %@",
-                  [item identifier], exception);
-        }
+            if ([item respondsToSelector:@selector(unload)]) [item unload];
+        } @catch (NSException *exception) {}
     }
 
-    [_itemViews removeAllObjects];
+    [_extrasMenuItems removeAllObjects];
+    _extrasMenu = nil;
+    _extrasMenuView = nil;
     [_statusItems removeAllObjects];
+    [_instances removeAllObjects];
 }
 
 @end

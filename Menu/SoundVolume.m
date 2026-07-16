@@ -214,6 +214,7 @@ static float _parseAmixerVolume(NSString *output) { return 0.0f; }
     vol += 0.05f;
     if (vol > 1.0f) vol = 1.0f;
     [self setOutputVolume:vol];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SoundVolumeChanged" object:nil];
 }
 
 + (void)decreaseVolume
@@ -222,6 +223,7 @@ static float _parseAmixerVolume(NSString *output) { return 0.0f; }
     vol -= 0.05f;
     if (vol < 0.0f) vol = 0.0f;
     [self setOutputVolume:vol];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SoundVolumeChanged" object:nil];
 }
 
 + (void)toggleMute
@@ -248,6 +250,26 @@ static float _parseAmixerVolume(NSString *output) { return 0.0f; }
         }
 #endif
     }
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SoundVolumeChanged" object:nil];
+}
+
++ (BOOL)isMuted
+{
+    _ensureBackend();
+    if (_backend == VolumeBackendALSA) {
+        NSString *output = _runAmixer(@[@"-c", [NSString stringWithFormat:@"%d", _alsaCard],
+                                         @"sget", _alsaControl]);
+        return (output && [output rangeOfString:@"[off]"].location != NSNotFound);
+#ifndef __OpenBSD__
+    } else if (_backend == VolumeBackendOSS) {
+        int vol = -1;
+        if (ioctl(_ossMixerFd, MIXER_READ(SOUND_MIXER_PCM), &vol) < 0) {
+            ioctl(_ossMixerFd, MIXER_READ(SOUND_MIXER_VOLUME), &vol);
+        }
+        return ((vol & 0xFF) == 0);
+#endif
+    }
+    return NO;
 }
 
 + (void)toggleMicMute

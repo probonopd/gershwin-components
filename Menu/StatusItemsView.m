@@ -6,6 +6,7 @@
 
 #import "StatusItemsView.h"
 #import "StatusItemView.h"
+#import "StatusItemManager.h"
 
 @implementation StatusItemsView
 
@@ -23,9 +24,7 @@
 
 - (void)addItemView:(StatusItemView *)itemView
 {
-    if (!itemView) {
-        return;
-    }
+    if (!itemView) return;
     [_itemViews addObject:itemView];
     [self addSubview:itemView];
 }
@@ -35,10 +34,6 @@
     NSRect bounds = [self bounds];
     CGFloat x = bounds.size.width - _rightInset;
 
-    /*
-     * Layout right-to-left: the LAST item in the array has the highest
-     * displayPriority and is placed at the rightmost position.
-     */
     for (NSInteger i = (NSInteger)[_itemViews count] - 1; i >= 0; i--) {
         StatusItemView *view = [_itemViews objectAtIndex:(NSUInteger)i];
         CGFloat w = view.fixedWidth;
@@ -73,7 +68,6 @@
 
 - (void)drawRect:(NSRect)dirtyRect
 {
-    /* Transparent — the MenuBarView background shows through */
     (void)dirtyRect;
     [[NSColor clearColor] set];
     NSRectFill([self bounds]);
@@ -82,6 +76,37 @@
 - (BOOL)isOpaque
 {
     return NO;
+}
+
+#pragma mark - Drag reordering
+
+- (void)moveItemView:(StatusItemView *)view toIndex:(NSInteger)newIndex
+{
+    NSUInteger oldIndex = [_itemViews indexOfObject:view];
+    if (oldIndex == NSNotFound || oldIndex == (NSUInteger)newIndex) return;
+
+    [_itemViews removeObjectAtIndex:oldIndex];
+    [_itemViews insertObject:view atIndex:(newIndex > (NSInteger)oldIndex ? (NSUInteger)newIndex : (NSUInteger)newIndex)];
+
+    [self layoutItemViews];
+    [_manager savePreferences];
+}
+
+- (NSInteger)indexOfItemViewAtPoint:(NSPoint)point
+{
+    for (NSUInteger i = 0; i < [_itemViews count]; i++) {
+        StatusItemView *v = [_itemViews objectAtIndex:i];
+        if (NSPointInRect(point, [v frame])) {
+            return (NSInteger)i;
+        }
+    }
+    return -1;
+}
+
+#pragma mark - Mouse tracking for drag
+
+- (void)mouseDown:(NSEvent *)event
+{
 }
 
 @end

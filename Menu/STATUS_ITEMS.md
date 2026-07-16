@@ -256,7 +256,7 @@ Potential status items to add:
 - Battery level and charging status (laptops)
 - Volume control with slider
 - Bluetooth status
-- Wi-Fi connection info
+- WLAN connection info
 - Notifications indicator
 - Weather information
 - Calendar events

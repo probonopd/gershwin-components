@@ -13,6 +13,7 @@
 + (void)increaseVolume;
 + (void)decreaseVolume;
 + (void)toggleMute;
++ (BOOL)isMuted;
 + (void)toggleMicMute;
 
 @end

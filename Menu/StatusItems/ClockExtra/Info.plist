@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//GNUstep//DTD plist 0.9//EN"
+ "http://www.gnustep.org/plist-0_9.xml">
+
+<plist version="0.9">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>org.gnustep.menuextra.clock</string>
+    <key>CFBundleName</key>
+    <string>Clock</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>GSPrincipalClass</key>
+    <string>ClockExtra</string>
+</dict>
+</plist>

@@ -17,8 +17,6 @@
 #import "ActionSearch.h"
 #import "MenuUtils.h"
 #import "StatusItemManager.h"
-#import "StatusItemsView.h"
-#import "StatusItemView.h"
 #import "WindowMonitor.h"
 #import "AppMenuImporter.h"
 #import "MenuProfiler.h"
@@ -444,19 +442,18 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     [self.menuBarView setFrame:NSMakeRect(0, 0, self.screenSize.width, menuBarHeight)];
 
     // Reposition status items at the right edge
-    StatusItemsView *statusItemsView = nil;
+    NSView *extrasMenuView = nil;
     for (NSView *subview in [self.menuBarView subviews]) {
-        if ([subview isKindOfClass:NSClassFromString(@"StatusItemsView")]) {
-            statusItemsView = (StatusItemsView *)subview;
+        if ([subview isKindOfClass:[NSMenuView class]]) {
+            extrasMenuView = subview;
             break;
         }
     }
 
-    CGFloat statusItemsWidth = 0;
-    if (statusItemsView) {
-        statusItemsWidth = [statusItemsView totalRequiredWidth];
-        [statusItemsView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth, 0,
-                                              statusItemsWidth, menuBarHeight)];
+    CGFloat statusItemsWidth = [self.statusItemManager extrasMenuWidth];
+    if (extrasMenuView) {
+        [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth, 0,
+                                            statusItemsWidth, menuBarHeight)];
     }
 
     // Resize app menu widget to fill remaining space
@@ -656,6 +653,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         if (next > max) next = max;
 
         [backend set:next];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"BrightnessChanged" object:nil];
     }];
 
     // Also register XF86 brightness keys so volume-like XF86 handling works.
@@ -697,6 +695,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     if (next > max) next = max;
 
     [backend set:next];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"BrightnessChanged" object:nil];
 }
 
 #pragma mark - Mic mute (evdev, to preserve hardware LED)
@@ -929,14 +928,14 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     [self.statusItemManager loadStatusItems];
     NSDebugLLog(@"gwcomp", @"MenuController: StatusItemManager items loaded");
 
-    // Create the status items view (fixed-width cells, laid out right-to-left)
-    StatusItemsView *statusItemsView = [self.statusItemManager createStatusItemsView];
-    CGFloat statusItemsWidth = [statusItemsView totalRequiredWidth];
-    NSDebugLLog(@"gwcomp", @"MenuController: StatusItemsView total width: %.0f", statusItemsWidth);
+    // Create the extras menu view (horizontal NSMenuView)
+    NSView *extrasMenuView = [self.statusItemManager createExtrasMenuView];
+    CGFloat statusItemsWidth = [self.statusItemManager extrasMenuWidth];
+    NSDebugLLog(@"gwcomp", @"MenuController: Extras menu view width: %.0f", statusItemsWidth);
 
-    // Position status items at the right edge of the menu bar
-    [statusItemsView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth, 0,
-                                          statusItemsWidth, menuBarHeight)];
+    // Position extras at the right edge of the menu bar
+    [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth, 0,
+                                        statusItemsWidth, menuBarHeight)];
 
     // Give the app menu widget the remaining space
     CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth;
@@ -972,13 +971,13 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     // Add MenuBarView as the background (spans full width)
     [[self.menuBar contentView] addSubview:self.menuBarView];
     
-    // Add AppMenuWidget and StatusItemsView as children of MenuBarView (on top of the background)
+    // Add AppMenuWidget and extras menu view as children of MenuBarView (on top of the background)
     [self.menuBarView addSubview:self.appMenuWidget];
     
-    // Add the status items view and start update timers
-    [self.menuBarView addSubview:statusItemsView];
+    // Add the extras menu view and start update timers
+    [self.menuBarView addSubview:extrasMenuView];
     [self.statusItemManager startUpdateTimers];
-    NSDebugLLog(@"gwcomp", @"MenuController: Added StatusItemsView as child of MenuBarView");
+    NSDebugLLog(@"gwcomp", @"MenuController: Added extras menu view as child of MenuBarView");
     
     // Finally add rounded corners on top of everything
     [[self.menuBar contentView] addSubview:self.roundedCornersView];

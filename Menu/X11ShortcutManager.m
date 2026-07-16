@@ -465,6 +465,10 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                                  @"action": NSStringFromSelector(action)};
     [_xf86Actions setObject:actionDict forKey:ksNum];
 
+    // Store in _grabbedKeys so suspend/resumeKeyGrabs can re-grab them
+    NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", keycode, AnyModifier];
+    [_grabbedKeys setObject:[ksNum stringValue] forKey:keycodeModifierKey];
+
     // Start event monitoring if this is the first XF86 key
     if (!_eventMonitorThread) {
         [self startX11EventMonitoring];
