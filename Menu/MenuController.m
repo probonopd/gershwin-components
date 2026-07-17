@@ -24,7 +24,52 @@
 #import "BrightnessKeySource.h"
 #import "SysfsBacklightBackend.h"
 #import "EvdevBrightnessKeySource.h"
-#import "SoundVolume.h"
+#import "ALSABackend.h"
+
+@interface GSVolumeControl : NSObject
++ (void)increaseVolume;
++ (void)decreaseVolume;
++ (void)toggleMute;
++ (void)toggleMicMute;
+@end
+
+@implementation GSVolumeControl
++ (ALSABackend *)sharedBackend
+{
+    static ALSABackend *b = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        b = [[ALSABackend alloc] init];
+    });
+    return b;
+}
++ (void)increaseVolume
+{
+    ALSABackend *b = [self sharedBackend];
+    float vol = [b outputVolume];
+    vol += 0.05f;
+    if (vol > 1.0f) vol = 1.0f;
+    [b setOutputVolume:vol];
+}
++ (void)decreaseVolume
+{
+    ALSABackend *b = [self sharedBackend];
+    float vol = [b outputVolume];
+    vol -= 0.05f;
+    if (vol < 0.0f) vol = 0.0f;
+    [b setOutputVolume:vol];
+}
++ (void)toggleMute
+{
+    ALSABackend *b = [self sharedBackend];
+    [b setOutputMuted:![b isOutputMuted]];
+}
++ (void)toggleMicMute
+{
+    ALSABackend *b = [self sharedBackend];
+    [b setInputMuted:![b isInputMuted]];
+}
+@end
 #import "GNUstepGUI/GSTheme.h"
 #import <X11/Xlib.h>
 #import <X11/XF86keysym.h>
@@ -791,7 +836,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
                     while (read(fds[i].fd, &ev, sizeof(ev)) == sizeof(ev)) {
                         if (ev.type == EV_KEY && ev.code == KEY_MICMUTE && ev.value == 1) {
                             dispatch_async(dispatch_get_main_queue(), ^{
-                                [SoundVolume toggleMicMute];
+                                [GSVolumeControl toggleMicMute];
                             });
                         }
                     }
@@ -1030,9 +1075,9 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     // Register XF86Audio volume keys for hardware volume control.
     X11ShortcutManager *volMgr = [X11ShortcutManager sharedManager];
     if (volMgr) {
-        [volMgr registerXF86Key:XF86XK_AudioRaiseVolume target:[SoundVolume class] action:@selector(increaseVolume)];
-        [volMgr registerXF86Key:XF86XK_AudioLowerVolume target:[SoundVolume class] action:@selector(decreaseVolume)];
-        [volMgr registerXF86Key:XF86XK_AudioMute target:[SoundVolume class] action:@selector(toggleMute)];
+        [volMgr registerXF86Key:XF86XK_AudioRaiseVolume target:[GSVolumeControl class] action:@selector(increaseVolume)];
+        [volMgr registerXF86Key:XF86XK_AudioLowerVolume target:[GSVolumeControl class] action:@selector(decreaseVolume)];
+        [volMgr registerXF86Key:XF86XK_AudioMute target:[GSVolumeControl class] action:@selector(toggleMute)];
         NSDebugLLog(@"gwcomp", @"MenuController: Registered XF86Audio volume keys");
     }
 

@@ -58,7 +58,6 @@ Menu_OBJC_FILES = \
 	StatusItems/SystemMonitor/RAMProvider.m \
 	SysfsBacklightBackend.m \
 	EvdevBrightnessKeySource.m \
-	SoundVolume.m \
 	TintedMenuItemCell.m
 
 # Header files
@@ -125,6 +124,7 @@ Menu_RESOURCE_FILES = \
 	Resources/Icons/wlan-ok.png \
 	Resources/Icons/wlan-weak.png \
 	Resources/Icons/wlan-disabled.png \
+	Resources/Icons/wlan-off.png \
 	Resources/Icons/brightness.png \
 	Resources/Icons/clock.png \
 	Resources/Icons/cpu.png \
@@ -139,7 +139,7 @@ Resources/Icons/%.png: Resources/Icons/%.svg
 
 # Libraries and frameworks - configured by configure script
 Menu_TOOL_LIBS += -ldbus-1 -lX11
-Menu_GUI_LIBS += -L/System/Library/Libraries -lgnustep-gui -lgnustep-base -lobjc -ldispatch
+Menu_GUI_LIBS += -L/System/Library/Libraries -lgnustep-gui -lgnustep-base -lobjc -ldispatch -lSoundBackend -lNetworkBackend
 Menu_LDFLAGS += -Wl,--export-dynamic -L/System/Library/Libraries -Wl,-rpath,/System/Library/Libraries -Wl,--no-as-needed
 
 # Compiler flags - Force use of /System GNUstep and objc2 with ARC
@@ -148,19 +148,21 @@ Menu_LDFLAGS += -Wl,--export-dynamic -L/System/Library/Libraries -Wl,-rpath,/Sys
 UNAME_S := $(shell uname -s)
 DBUS_CFLAGS := $(shell pkg-config --cflags dbus-1 2>/dev/null || echo "-I/usr/include/dbus-1.0 -I/usr/lib/dbus-1.0/include")
 ifeq ($(UNAME_S),Linux)
-	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_GNU_SOURCE
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_GNU_SOURCE -I.
 	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
 endif
 ifeq ($(UNAME_S),FreeBSD)
-	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE -I.
 	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
 	Menu_TOOL_LIBS += -lexecinfo
 endif
 ifeq ($(UNAME_S),OpenBSD)
-	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -I.
 	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
 	Menu_TOOL_LIBS += -lexecinfo
 endif
+
+ADDITIONAL_OBJCFLAGS += -I/System/Library/Headers/SoundBackend -I/System/Library/Headers/NetworkBackend
 
 # Profiling: build with  make PROFILE=1  to enable CPU instrumentation.
 # When enabled, a summary is printed every 10s and on SIGUSR1.
@@ -179,8 +181,9 @@ after-Menu-all::
 	@(cd StatusItems/ClockExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (ClockExtra skipped)")
 	@(cd StatusItems/BatteryExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (BatteryExtra skipped)")
 	@(cd StatusItems/WLANExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (WLANExtra skipped)")
+	@(cd StatusItems/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (wlanauth skipped)")
+	@cp StatusItems/WLANExtra/wlanauth/obj/wlanauth Resources/ 2>/dev/null || true
 	@(cd StatusItems/SoundExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (SoundExtra skipped)")
-	@(cd StatusItems/BrightnessExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (BrightnessExtra skipped)")
 	@echo "Done building bundles."
 
 # Custom install target that completely overrides built-in behavior
@@ -194,8 +197,11 @@ custom-install: $(APP_NAME).app
 	@(cd StatusItems/ClockExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
 	@(cd StatusItems/BatteryExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
 	@(cd StatusItems/WLANExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
+	@(cd StatusItems/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
+	@if [ -f StatusItems/WLANExtra/wlanauth/obj/wlanauth ]; then \
+		cp StatusItems/WLANExtra/wlanauth/obj/wlanauth $(APP_NAME).app/Resources/; \
+	fi
 	@(cd StatusItems/SoundExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
-	@(cd StatusItems/BrightnessExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
 	@echo "Status item bundles built successfully"
 	@if [ -n "$(DESTDIR)" ]; then \
 		echo "Installing $(APP_NAME) to $(DESTDIR)$(INSTALL_APPS_DIR)"; \

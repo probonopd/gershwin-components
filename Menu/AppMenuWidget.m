@@ -980,6 +980,11 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     [self populateSystemMenu];
 }
 
+- (void)menuWillOpen:(NSMenu *)menu
+{
+    (void)menu;
+}
+
 /* Called via NSMenuDidBeginTrackingNotification for the main menu.
    GNUstep's NSMenuView does not call the menuWillOpen: delegate method and
    does not post NSMenuDidBeginTrackingNotification for submenus (they use

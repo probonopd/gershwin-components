@@ -118,6 +118,7 @@
     }
 
     if ([prov respondsToSelector:@selector(menu)]) {
+        NSLog(@"StatusItemView: LAZY LOAD — fetching menu from provider %@", [prov identifier]);
         NSMenu *menu = [prov menu];
         if (menu) {
             if ([prov respondsToSelector:@selector(menuWillOpen)]) {

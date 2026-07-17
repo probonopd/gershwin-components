@@ -371,6 +371,24 @@ enum {
 {
     NSTask *task = [[NSTask alloc] init];
     if (sudoPath) {
+        // Ensure SSH_ASKPASS is set for sudo -A
+        NSString *askpass = [[[NSProcessInfo processInfo] environment] objectForKey:@"SSH_ASKPASS"];
+        if (!askpass || [askpass length] == 0) {
+            NSFileManager *fm = [NSFileManager defaultManager];
+            NSArray *paths = @[@"/System/Library/Tools/SudoAskPass",
+                               @"/Library/Tools/SudoAskPass",
+                               @"/Local/Library/Tools/SudoAskPass",
+                               @"/usr/bin/SudoAskPass",
+                               @"/usr/local/bin/SudoAskPass"];
+            for (NSString *p in paths) {
+                if ([fm isExecutableFileAtPath:p]) {
+                    setenv("SSH_ASKPASS", [p UTF8String], 1);
+                    NSLog(@"NMBackend: set SSH_ASKPASS=%s", getenv("SSH_ASKPASS"));
+                    break;
+                }
+            }
+        }
+        NSLog(@"NMBackend: running sudo -A -E %@ %@", path, args);
         [task setLaunchPath:sudoPath];
         NSMutableArray *sudoArgs = [NSMutableArray arrayWithObjects:@"-A", @"-E", path, nil];
         if (args) {
@@ -402,8 +420,9 @@ enum {
             *error = data ? [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease] : nil;
         }
     } @catch (NSException *e) {
-        NSDebugLLog(@"gwcomp", @"[Network] Exception running privileged command %@: %@", path, e);
+        NSLog(@"NMBackend: Exception running privileged command %@ %@: %@", path, args, e);
     }
+    NSLog(@"NMBackend: command exit status=%d", status);
     [task release];
     return status;
 }
@@ -855,19 +874,23 @@ enum {
 - (BOOL)disableInterface:(NetworkInterface *)interface
 {
     if (!nmAvailable || !interface) {
+        NSLog(@"NMBackend: disableInterface — backend unavailable or nil interface");
         [self reportErrorWithMessage:@"Cannot disable interface: backend unavailable or no interface specified"];
         return NO;
     }
     
     NSString *ifaceName = [interface name];
     if (!ifaceName) {
+        NSLog(@"NMBackend: disableInterface — interface name is nil");
         [self reportErrorWithMessage:@"Cannot disable interface: interface name is nil"];
         return NO;
     }
     
+    NSLog(@"NMBackend: disableInterface — running nmcli device disconnect %@", ifaceName);
     NSString *errStr = nil;
     int exitStatus = [self runPrivilegedCommand:nmcliPath arguments:@[@"device", @"disconnect", ifaceName] output:NULL error:&errStr];
     BOOL success = (exitStatus == 0);
+    NSLog(@"NMBackend: disableInterface — exitStatus=%d success=%d errStr=%@", exitStatus, success, errStr);
     
     if (!success) {
         NSDebugLLog(@"gwcomp", @"[Network] disableInterface: nmcli failed with: %@", errStr);
@@ -1069,7 +1092,9 @@ enum {
     if (!nmAvailable) return NO;
     
     NSString *output = nil;
-    [self runPrivilegedCommand:nmcliPath arguments:@[@"radio", @"wifi"] output:&output error:NULL];
+    NSString *errStr = nil;
+    int status = [self runCommand:nmcliPath arguments:@[@"radio", @"wifi"] output:&output error:&errStr];
+    NSLog(@"NMBackend: isWLANEnabled — status=%d output=%@ err=%@", status, output, errStr);
     
     if (output) {
         output = [output stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -1083,13 +1108,16 @@ enum {
 - (BOOL)setWLANEnabled:(BOOL)enabled
 {
     if (!nmAvailable) {
+        NSLog(@"NMBackend: setWLANEnabled:%d — backend unavailable", enabled);
         [self reportErrorWithMessage:@"Cannot change WLAN state: backend unavailable"];
         return NO;
     }
     
+    NSLog(@"NMBackend: setWLANEnabled:%d — running nmcli radio wifi %@", enabled, enabled ? @"on" : @"off");
     NSString *errStr = nil;
     int status = [self runPrivilegedCommand:nmcliPath arguments:@[@"radio", @"wifi", enabled ? @"on" : @"off"] output:NULL error:&errStr];
     BOOL success = (status == 0);
+    NSLog(@"NMBackend: setWLANEnabled:%d — status=%d success=%d errStr=%@", enabled, status, success, errStr);
     
     if (!success) {
         errStr = [errStr stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -1125,8 +1153,10 @@ enum {
 }
 - (NSArray *)scanForWLANs
 {
+    NSLog(@"NMBackend: scanForWLANs called");
     // Build networks list into a local array, then update cache safely
     NSMutableArray *networks = [self buildWLANsList];
+    NSLog(@"NMBackend: scanForWLANs — got %lu networks", (unsigned long)[networks count]);
     
     // Update cache on main thread
     if ([NSThread isMainThread]) {
@@ -1152,6 +1182,35 @@ enum {
     // This avoids duplicate calls to wifiScanCompleted
 }
 
+- (int)runCommand:(NSString *)path arguments:(NSArray *)args output:(NSString **)output error:(NSString **)error
+{
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:path];
+    if (args) [task setArguments:args];
+    NSPipe *outPipe = [NSPipe pipe];
+    NSPipe *errPipe = [NSPipe pipe];
+    [task setStandardOutput:outPipe];
+    [task setStandardError:errPipe];
+    int status = -1;
+    @try {
+        [task launch];
+        [task waitUntilExit];
+        status = [task terminationStatus];
+        if (output) {
+            NSData *data = [[outPipe fileHandleForReading] readDataToEndOfFile];
+            *output = data ? [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease] : nil;
+        }
+        if (error) {
+            NSData *data = [[errPipe fileHandleForReading] readDataToEndOfFile];
+            *error = data ? [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease] : nil;
+        }
+    } @catch (NSException *e) {
+        NSDebugLLog(@"gwcomp", @"[Network] Exception running command %@: %@", path, e);
+    }
+    [task release];
+    return status;
+}
+
 - (NSMutableArray *)buildWLANsList
 {
     NSMutableArray *networks = [NSMutableArray array];
@@ -1160,15 +1219,9 @@ enum {
         return networks;
     }
     
-    // Trigger a rescan first
-    [self runPrivilegedCommand:nmcliPath arguments:@[@"device", @"wifi", @"rescan"] output:NULL error:NULL];
-    
-    // Small delay to allow scan to complete
-    [NSThread sleepForTimeInterval:0.5];
-    
-    // Get WiFi list
+    // Get WiFi list (non-privileged)
     NSString *output = nil;
-    [self runPrivilegedCommand:nmcliPath arguments:@[@"-t", @"-f", @"SSID,BSSID,SIGNAL,SECURITY,IN-USE,FREQ,CHAN", @"device", @"wifi", @"list"] output:&output error:NULL];
+    [self runCommand:nmcliPath arguments:@[@"-t", @"-f", @"SSID,BSSID,SIGNAL,SECURITY,IN-USE,FREQ,CHAN", @"device", @"wifi", @"list"] output:&output error:NULL];
     
     if (output) {
         NSArray *lines = [output componentsSeparatedByString:@"\n"];
@@ -1248,6 +1301,10 @@ enum {
             if ([a signalStrength] < [b signalStrength]) return NSOrderedDescending;
             return NSOrderedSame;
         }];
+    }
+    
+    for (WLAN *n in networks) {
+        NSLog(@"NMBackend: buildWLANsList — network ssid=%@ connected=%d signal=%d", [n ssid], [n isConnected], [n signalStrength]);
     }
     
     return networks;
@@ -1466,22 +1523,27 @@ enum {
 
 - (BOOL)disconnectFromWLAN
 {
-    NSDebugLLog(@"gwcomp", @"[Network] disconnectFromWLAN: called");
+    NSLog(@"NMBackend: disconnectFromWLAN called, nmAvailable=%d cachedInterfaces=%lu", nmAvailable, (unsigned long)[cachedInterfaces count]);
     
     if (!nmAvailable) {
-        NSDebugLLog(@"gwcomp", @"[Network] disconnectFromWLAN: backend not available");
+        NSLog(@"NMBackend: disconnectFromWLAN — backend not available");
         return NO;
     }
     
+    // Refresh interface list
+    [self getInterfacesViaNmcli];
+    NSLog(@"NMBackend: disconnectFromWLAN — after refresh, %lu interfaces", (unsigned long)[cachedInterfaces count]);
+    
     // Find WiFi device and disconnect it
     for (NetworkInterface *iface in cachedInterfaces) {
+        NSLog(@"NMBackend: disconnectFromWLAN — checking iface %@ type=%ld active=%d", [iface name], (long)[iface type], [iface isActive]);
         if ([iface type] == NetworkInterfaceTypeWLAN && [iface isActive]) {
-            NSDebugLLog(@"gwcomp", @"[Network] disconnectFromWLAN: disconnecting interface '%@'", [iface name]);
+            NSLog(@"NMBackend: disconnectFromWLAN — disconnecting '%@'", [iface name]);
             return [self disableInterface:iface];
         }
     }
     
-    NSDebugLLog(@"gwcomp", @"[Network] disconnectFromWLAN: no active WiFi interface found");
+    NSLog(@"NMBackend: disconnectFromWLAN — no active WiFi interface found");
     return NO;
 }
 
@@ -1489,9 +1551,11 @@ enum {
 {
     for (WLAN *network in cachedWLANs) {
         if ([network isConnected]) {
+            NSLog(@"NMBackend: connectedWLAN = %@ (signal=%d)", [network ssid], [network signalStrength]);
             return network;
         }
     }
+    NSLog(@"NMBackend: connectedWLAN = nil (no connected WLAN in cache, %lu cached)", (unsigned long)[cachedWLANs count]);
     return nil;
 }
 

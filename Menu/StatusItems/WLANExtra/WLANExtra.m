@@ -5,25 +5,40 @@
  */
 
 #import "WLANExtra.h"
-#import <stdio.h>
-#import <stdlib.h>
-#import <string.h>
-
-#ifdef __linux__
-#define NMCLI_PATH @"/usr/bin/nmcli"
-#else
-#define NMCLI_PATH @"/usr/local/bin/nmcli"
-#endif
+#import "NMBackend.h"
+#import "GSMenuExtraContext.h"
+#import "AppearanceMetrics.h"
 
 static const BOOL kShowTextInMenuBar = NO;
 
+@interface WLANExtra ()
+@end
+
 @implementation WLANExtra
 {
-    NSTimer *_timer;
+    NMBackend *_backend;
     BOOL _wlanEnabled;
-    NSString *_connectedSSID;
+    WLAN *_connectedWLAN;
     int _signalStrength;
-    NSMutableArray *_networkList;
+    NSArray<WLAN *> *_networkList;
+    GSMenuExtraContext *_context;
+}
+
+static NSString *findTool(NSString *name)
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *bundleDir = [[NSBundle mainBundle] resourcePath];
+    NSString *candidate = [bundleDir stringByAppendingPathComponent:name];
+    if ([fm isExecutableFileAtPath:candidate]) return candidate;
+    candidate = [[NSBundle mainBundle] pathForAuxiliaryExecutable:name];
+    if ([fm isExecutableFileAtPath:candidate]) return candidate;
+    NSArray *dirs = @[@"/usr/local/bin", @"/usr/bin", @"/bin",
+                       @"/usr/local/sbin", @"/usr/sbin", @"/sbin"];
+    for (NSString *dir in dirs) {
+        candidate = [dir stringByAppendingPathComponent:name];
+        if ([fm isExecutableFileAtPath:candidate]) return candidate;
+    }
+    return nil;
 }
 
 - (void)dealloc
@@ -31,15 +46,80 @@ static const BOOL kShowTextInMenuBar = NO;
     [self menuExtraWillUnload];
 }
 
-#pragma mark - nmcli helpers (reuse from NMBackend)
-
-- (NSString *)runCommand:(NSString *)cmd args:(NSArray *)args
+- (void)setContext:(GSMenuExtraContext *)context
 {
+    _context = context;
+}
+
+- (void)updateState
+{
+    if (![_backend isAvailable]) {
+        _wlanEnabled = NO;
+        _connectedWLAN = nil;
+        _signalStrength = 0;
+        _networkList = @[];
+        [_context invalidatePresentation];
+        return;
+    }
+
+    BOOL wasEnabled = _wlanEnabled;
+    WLAN *oldConnected = _connectedWLAN;
+
+    _wlanEnabled = [_backend isWLANEnabled];
+    if (!_wlanEnabled) {
+        _connectedWLAN = nil;
+        _signalStrength = 0;
+        _networkList = @[];
+    } else {
+        _networkList = [_backend scanForWLANs];
+        _connectedWLAN = [_backend connectedWLAN];
+        _signalStrength = _connectedWLAN ? [_connectedWLAN signalStrength] : 0;
+    }
+
+    if (wasEnabled != _wlanEnabled ||
+        (!oldConnected && _connectedWLAN) ||
+        (oldConnected && !_connectedWLAN) ||
+        (oldConnected && _connectedWLAN && ![[oldConnected ssid] isEqualToString:[_connectedWLAN ssid]])) {
+        [_context invalidatePresentation];
+    }
+}
+
+#pragma mark - Actions
+
+- (void)turnWLANOn:(id)sender
+{
+    (void)sender;
+    NSLog(@"WLANExtra: turnWLANOn sender=%@ backend=%@", sender, _backend);
+    [_backend setWLANEnabled:YES];
+    [self updateState];
+}
+
+- (void)turnWLANOff:(id)sender
+{
+    (void)sender;
+    NSLog(@"WLANExtra: turnWLANOff sender=%@ backend=%@", sender, _backend);
+    [_backend setWLANEnabled:NO];
+    [self updateState];
+}
+
+- (void)disconnectNetwork:(id)sender
+{
+    (void)sender;
+    NSLog(@"WLANExtra: disconnectNetwork sender=%@ backend=%@", sender, _backend);
+    [_backend disconnectFromWLAN];
+    [self updateState];
+}
+
+- (NSString *)runPasswordPanelForSSID:(NSString *)ssid
+{
+    NSString *toolPath = findTool(@"wlanauth");
+    if (!toolPath) return nil;
+
     NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:cmd];
-    if (args) [task setArguments:args];
-    NSPipe *pipe = [NSPipe pipe];
-    [task setStandardOutput:pipe];
+    [task setLaunchPath:toolPath];
+    [task setArguments:@[ssid]];
+    NSPipe *outPipe = [NSPipe pipe];
+    [task setStandardOutput:outPipe];
     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
     @try {
         [task launch];
@@ -47,116 +127,71 @@ static const BOOL kShowTextInMenuBar = NO;
     } @catch (NSException *e) {
         return nil;
     }
-    NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
-    NSString *s = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    return [s stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-}
-
-- (void)updateWLAN
-{
-    _wlanEnabled = NO;
-    _connectedSSID = nil;
-    _signalStrength = 0;
-
-    NSString *radio = [self runCommand:NMCLI_PATH args:@[@"radio", @"wifi"]];
-    _wlanEnabled = [radio isEqualToString:@"enabled"];
-    if (!_wlanEnabled) return;
-
-    NSString *devStatus = [self runCommand:NMCLI_PATH
-                                      args:@[@"-t", @"-f", @"DEVICE,TYPE,STATE",
-                                             @"device", @"status"]];
-    NSString *wifiDev = nil;
-    for (NSString *line in [devStatus componentsSeparatedByString:@"\n"]) {
-        NSArray *parts = [line componentsSeparatedByString:@":"];
-        if ([parts count] >= 3 && [[parts objectAtIndex:1] isEqualToString:@"wifi"]) {
-            wifiDev = [parts objectAtIndex:0];
-            break;
-        }
-    }
-    if (!wifiDev) return;
-
-    NSString *conn = [self runCommand:NMCLI_PATH
-                                 args:@[@"-t", @"-f", @"NAME,DEVICE",
-                                        @"connection", @"show", @"--active"]];
-    for (NSString *line in [conn componentsSeparatedByString:@"\n"]) {
-        NSArray *parts = [line componentsSeparatedByString:@":"];
-        if ([parts count] >= 2 && [[parts objectAtIndex:1] isEqualToString:wifiDev]) {
-            _connectedSSID = [parts objectAtIndex:0];
-            break;
-        }
-    }
-
-    NSString *sig = [self runCommand:NMCLI_PATH
-                                args:@[@"-t", @"-f", @"IN-USE,SSID,SIGNAL",
-                                       @"device", @"wifi", @"list"]];
-    for (NSString *line in [sig componentsSeparatedByString:@"\n"]) {
-        if ([line hasPrefix:@"*:"]) {
-            NSArray *parts = [line componentsSeparatedByString:@":"];
-            if ([parts count] >= 3) {
-                _signalStrength = [[parts objectAtIndex:2] intValue];
-            }
-            break;
-        }
-    }
-
-    NSString *scan = [self runCommand:NMCLI_PATH
-                                 args:@[@"-t", @"-f", @"SSID,SIGNAL,SECURITY",
-                                        @"device", @"wifi", @"list"]];
-    _networkList = [NSMutableArray array];
-    for (NSString *line in [scan componentsSeparatedByString:@"\n"]) {
-        if ([line length] > 0) {
-            [_networkList addObject:line];
-        }
-    }
-}
-
-- (void)turnWLANOn:(id)sender
-{
-    (void)sender;
-    [self runCommand:NMCLI_PATH args:@[@"radio", @"wifi", @"on"]];
-    [self updateWLAN];
-}
-
-- (void)turnWLANOff:(id)sender
-{
-    (void)sender;
-    [self runCommand:NMCLI_PATH args:@[@"radio", @"wifi", @"off"]];
-    [self updateWLAN];
+    if ([task terminationStatus] != 0) return nil;
+    NSData *data = [[outPipe fileHandleForReading] readDataToEndOfFile];
+    NSString *password = [[NSString alloc] initWithData:data
+                                               encoding:NSUTF8StringEncoding];
+    password = [password stringByTrimmingCharactersInSet:
+                [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    return ([password length] > 0) ? password : nil;
 }
 
 - (void)connectToNetwork:(id)sender
 {
     NSString *ssid = [sender representedObject];
-    if ([ssid length] > 0) {
-        [self runCommand:NMCLI_PATH args:@[@"device", @"wifi", @"connect", ssid]];
-        [self updateWLAN];
-    }
-}
+    NSString *security = [sender toolTip];
+    if ([ssid length] == 0) return;
 
-- (void)disconnectNetwork:(id)sender
-{
-    (void)sender;
-    NSString *ssid = _connectedSSID;
-    if ([ssid length] > 0) {
-        [self runCommand:NMCLI_PATH args:@[@"connection", @"down", @"id", ssid]];
-        [self updateWLAN];
+    WLAN *target = nil;
+    for (WLAN *net in _networkList) {
+        if ([[net ssid] isEqualToString:ssid]) {
+            target = net;
+            break;
+        }
     }
+    if (!target) return;
+
+    NSString *password = nil;
+    if ([security length] > 0) {
+        password = [self runPasswordPanelForSSID:ssid];
+        if (!password) return;
+    }
+
+    [_backend connectToWLAN:target withPassword:password];
+    [self updateState];
 }
 
 #pragma mark - GSMenuExtra
 
 - (NSMenu *)menu
 {
+    NSLog(@"WLANExtra: LAZY LOAD — reading fresh state from backend");
+    BOOL wlanOn = [_backend isWLANEnabled];
+    NSArray *nets = wlanOn ? [_backend scanForWLANs] : @[];
+    WLAN *connected = wlanOn ? [_backend connectedWLAN] : nil;
+    int signal = [connected signalStrength];
+    NSString *connectedSSID = [connected ssid];
+    NSLog(@"WLANExtra: menu building — wlanOn=%d connected=%@ signal=%d nets=%lu",
+          wlanOn, connectedSSID, signal, (unsigned long)[nets count]);
     NSMenu *m = [[NSMenu alloc] initWithTitle:@"WLAN"];
 
-    if (!_wlanEnabled) {
+    if (![_backend isAvailable]) {
+        NSMenuItem *na = [[NSMenuItem alloc] initWithTitle:@"WLAN: Unavailable"
+                                                     action:NULL
+                                              keyEquivalent:@""];
+        [na setEnabled:NO];
+        [m addItem:na];
+        return m;
+    }
+
+    if (!wlanOn) {
         NSMenuItem *off = [[NSMenuItem alloc] initWithTitle:@"WLAN: Off"
                                                      action:NULL
                                               keyEquivalent:@""];
         [off setEnabled:NO];
         [m addItem:off];
         [m addItem:[NSMenuItem separatorItem]];
-        NSMenuItem *on = [[NSMenuItem alloc] initWithTitle:@"Turn WLAN On…"
+        NSMenuItem *on = [[NSMenuItem alloc] initWithTitle:@"Turn WLAN On"
                                                     action:@selector(turnWLANOn:)
                                              keyEquivalent:@""];
         [on setTarget:self];
@@ -164,16 +199,15 @@ static const BOOL kShowTextInMenuBar = NO;
         return m;
     }
 
-    if (_connectedSSID) {
-        NSString *connLabel = [NSString stringWithFormat:@"Connected: %@", _connectedSSID];
-        NSMenuItem *conn = [[NSMenuItem alloc] initWithTitle:connLabel
-                                                      action:NULL
-                                               keyEquivalent:@""];
+    if (connectedSSID) {
+        NSString *label = [NSString stringWithFormat:@"Connected: %@", connectedSSID];
+        NSMenuItem *conn = [[NSMenuItem alloc] initWithTitle:label
+                                                       action:NULL
+                                                keyEquivalent:@""];
         [conn setEnabled:NO];
-        [conn setState:NSOnState];
         [m addItem:conn];
 
-        NSString *sigLabel = [NSString stringWithFormat:@"Signal: %d%%", _signalStrength];
+        NSString *sigLabel = [NSString stringWithFormat:@"Signal: %d dBm", signal];
         NSMenuItem *sig = [[NSMenuItem alloc] initWithTitle:sigLabel
                                                      action:NULL
                                               keyEquivalent:@""];
@@ -198,17 +232,35 @@ static const BOOL kShowTextInMenuBar = NO;
     [m addItem:[NSMenuItem separatorItem]];
 
     int count = 0;
-    for (NSString *net in _networkList) {
-        if (count++ >= 15) break;
-        NSArray *parts = [net componentsSeparatedByString:@":"];
-        NSString *ssid = [parts count] > 0 ? [parts objectAtIndex:0] : net;
+    for (WLAN *net in nets) {
+        if (count++ >= 20) break;
+        NSString *ssid = [net ssid];
         if ([ssid length] == 0) continue;
 
-        NSMenuItem *netItem = [[NSMenuItem alloc] initWithTitle:ssid
+        WLANSecurityType secType = [net security];
+        BOOL isSecure = (secType != WLANSecurityNone);
+        int signal = [net signalStrength];
+        int bars;
+        if (signal >= -50) bars = 4;
+        else if (signal >= -60) bars = 3;
+        else if (signal >= -70) bars = 2;
+        else if (signal >= -80) bars = 1;
+        else bars = 0;
+
+        NSString *indicator = [@"\u25A0\u25A0\u25A0\u25A0" substringToIndex:bars];
+        NSString *secSuffix = isSecure ? @" \u26BF" : @"";
+        NSString *title = [NSString stringWithFormat:@"%@%@  %@", indicator, secSuffix, ssid];
+
+        NSMenuItem *netItem = [[NSMenuItem alloc] initWithTitle:title
                                                          action:@selector(connectToNetwork:)
                                                   keyEquivalent:@""];
         [netItem setTarget:self];
         [netItem setRepresentedObject:ssid];
+        [netItem setToolTip:isSecure ? @"WPA" : @""];
+        if ([ssid isEqualToString:connectedSSID]) {
+            [netItem setState:NSOnState];
+        }
+
         [m addItem:netItem];
     }
 
@@ -225,44 +277,59 @@ static const BOOL kShowTextInMenuBar = NO;
 - (NSImage *)image
 {
     NSString *name;
-    if (!_wlanEnabled) {
+    if (![_backend isAvailable]) {
         name = @"wlan-disabled";
-    } else if (_signalStrength >= 75) {
+    } else if (!_wlanEnabled) {
+        name = @"wlan-off";
+    } else if (_signalStrength >= -50) {
         name = @"wlan";
-    } else if (_signalStrength >= 50) {
+    } else if (_signalStrength >= -60) {
         name = @"wlan-good";
-    } else if (_signalStrength >= 25) {
+    } else if (_signalStrength >= -70) {
         name = @"wlan-ok";
-    } else if (_connectedSSID) {
+    } else if (_connectedWLAN) {
         name = @"wlan-weak";
     } else {
         name = @"wlan-disabled";
     }
-    return [NSImage imageNamed:name];
+    NSImage *img = [NSImage imageNamed:name];
+    if (!img) img = [NSImage imageNamed:@"wlan-disabled"];
+    return img;
 }
 
 - (NSString *)title
 {
     if (!kShowTextInMenuBar) return @"";
+    if (![_backend isAvailable]) return @"--";
     if (!_wlanEnabled) return @"Off";
-    if (_connectedSSID) return [NSString stringWithFormat:@"%d%%", _signalStrength];
+    if (_connectedWLAN) return [NSString stringWithFormat:@"%d", _signalStrength];
     return @"--";
 }
 
 - (void)menuExtraDidLoad
 {
-    [self updateWLAN];
-    _timer = [NSTimer scheduledTimerWithTimeInterval:15.0
-                                              target:self
-                                            selector:@selector(updateWLAN)
-                                            userInfo:nil
-                                             repeats:YES];
+    _backend = [[NMBackend alloc] init];
+    [self updateState];
+}
+
+- (void)menuExtraWillOpenMenu
+{
+    [self updateState];
+}
+
+- (void)refreshMenuItems:(NSMenu *)submenu
+{
+    NSString *connectedSSID = [[_backend connectedWLAN] ssid];
+    for (NSMenuItem *item in [submenu itemArray]) {
+        NSString *ssid = [item representedObject];
+        if ([ssid isKindOfClass:[NSString class]]) {
+            [item setState:[ssid isEqualToString:connectedSSID] ? NSOnState : NSOffState];
+        }
+    }
 }
 
 - (void)menuExtraWillUnload
 {
-    [_timer invalidate];
-    _timer = nil;
 }
 
 @end

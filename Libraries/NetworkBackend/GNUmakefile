@@ -1,0 +1,26 @@
+include $(GNUSTEP_MAKEFILES)/common.make
+
+LIBRARY_NAME = libNetworkBackend
+VERSION = 1.0
+
+UNAME_S := $(shell uname -s)
+libNetworkBackend_OBJC_FILES = \
+	../../Network/NetworkModels.m \
+	../../Network/NMBackend.m
+ifneq ($(UNAME_S),Linux)
+libNetworkBackend_OBJC_FILES += ../../Network/BSDBackend.m
+endif
+
+libNetworkBackend_HEADER_FILES = \
+	../../Network/NetworkBackend.h \
+	../../Network/NMBackend.h \
+	../../Network/BSDBackend.h
+
+libNetworkBackend_INSTALL_HEADERS_DIR = /NetworkBackend
+libNetworkBackend_FRAMEWORKS_DEPEND_UPON = AppKit Foundation
+
+include $(GNUSTEP_MAKEFILES)/library.make
+
+after-install::
+	@rm -f $(GNUSTEP_SYSTEM_HEADERS)/NetworkBackend/NetworkController.h 2>/dev/null || true
+	@rm -f $(GNUSTEP_SYSTEM_HEADERS)/NetworkBackend/NetworkPane.h 2>/dev/null || true

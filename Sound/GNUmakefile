@@ -4,19 +4,11 @@ BUNDLE_NAME = Sound
 
 Sound_OBJC_FILES = \
 	SoundPane.m \
-	SoundController.m \
-	SoundModels.m \
-	ALSABackend.m
-
-# OSSBackend uses <sys/soundcard.h> (OSS), which OpenBSD does not provide
-# (OpenBSD uses sndio). Build it everywhere except OpenBSD.
-SOUND_UNAME_S := $(shell uname -s)
-ifneq ($(SOUND_UNAME_S),OpenBSD)
-Sound_OBJC_FILES += OSSBackend.m
-endif
+	SoundController.m
 
 Sound_RESOURCE_FILES = Sound.png SoundInfo.plist
-Sound_BUNDLE_LIBS = -lPreferencePanes
+Sound_BUNDLE_LIBS = -lPreferencePanes -lSoundBackend
+ADDITIONAL_OBJCFLAGS += -I/System/Library/Headers/SoundBackend
 Sound_PRINCIPAL_CLASS = SoundPane
 
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles

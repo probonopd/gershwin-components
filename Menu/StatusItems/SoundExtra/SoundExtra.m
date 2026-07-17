@@ -5,17 +5,17 @@
  */
 
 #import "SoundExtra.h"
-#import "SoundVolume.h"
+#import "ALSABackend.h"
 #import "GSMenuExtraContext.h"
 
 static const BOOL kShowTextInMenuBar = NO;
 
 @implementation SoundExtra
 {
-    NSTimer *_timer;
     float _volume;
     BOOL _muted;
     GSMenuExtraContext *_context;
+    ALSABackend *_backend;
 }
 
 - (void)dealloc
@@ -32,19 +32,12 @@ static const BOOL kShowTextInMenuBar = NO;
 {
     float oldVolume = _volume;
     BOOL oldMuted = _muted;
-    _volume = [SoundVolume outputVolume];
-    _muted = [SoundVolume isMuted];
+    _volume = [_backend outputVolume];
+    _muted = [_backend isOutputMuted];
+    NSLog(@"SoundExtra: updateState volume=%.2f muted=%d", _volume, _muted);
     if (oldVolume != _volume || oldMuted != _muted) {
         [_context invalidatePresentation];
     }
-}
-
-static NSString *const SoundVolumeChangedNotification = @"SoundVolumeChanged";
-
-- (void)volumeChanged:(NSNotification *)n
-{
-    (void)n;
-    [self updateState];
 }
 
 - (NSString *)volumeLabel
@@ -59,33 +52,43 @@ static NSString *const SoundVolumeChangedNotification = @"SoundVolumeChanged";
 
 - (NSMenu *)menu
 {
+    NSLog(@"SoundExtra: LAZY LOAD — reading fresh state from backend");
+    BOOL muted = [_backend isOutputMuted];
+    float vol = [_backend outputVolume];
+    NSLog(@"SoundExtra: menu building — backend muted=%d vol=%.2f cached muted=%d vol=%.2f", muted, vol, _muted, _volume);
+    int pct = (int)(vol * 100.0f);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    NSLog(@"SoundExtra: menu muted=%d volume=%d%%", muted, pct);
     NSMenu *m = [[NSMenu alloc] initWithTitle:@"Sound"];
 
-    NSMenuItem *volItem = [[NSMenuItem alloc] initWithTitle:[self volumeLabel]
-                                                      action:NULL
-                                               keyEquivalent:@""];
+    NSMenuItem *volItem = [[NSMenuItem alloc] initWithTitle:[NSString stringWithFormat:@"Volume %d%%", pct]
+                                                       action:NULL
+                                                keyEquivalent:@""];
     [volItem setEnabled:NO];
     [m addItem:volItem];
 
     [m addItem:[NSMenuItem separatorItem]];
 
-    NSMenuItem *muteItem = [[NSMenuItem alloc] initWithTitle:(_muted ? @"Unmute" : @"Mute")
+    NSMenuItem *muteItem = [[NSMenuItem alloc] initWithTitle:@"Mute"
                                                        action:@selector(toggleMute:)
                                                 keyEquivalent:@""];
     [muteItem setTarget:self];
-    [muteItem setState:_muted ? NSOnState : NSOffState];
+    [muteItem setState:muted ? NSOnState : NSOffState];
     [m addItem:muteItem];
 
     NSMenuItem *up = [[NSMenuItem alloc] initWithTitle:@"Volume Up"
-                                                action:@selector(volUp:)
-                                         keyEquivalent:@""];
+                                                 action:@selector(volUp:)
+                                          keyEquivalent:@""];
     [up setTarget:self];
+    if (muted) [up setEnabled:NO];
     [m addItem:up];
 
     NSMenuItem *down = [[NSMenuItem alloc] initWithTitle:@"Volume Down"
-                                                  action:@selector(volDown:)
-                                           keyEquivalent:@""];
+                                                   action:@selector(volDown:)
+                                            keyEquivalent:@""];
     [down setTarget:self];
+    if (muted) [down setEnabled:NO];
     [m addItem:down];
 
     return m;
@@ -117,23 +120,30 @@ static NSString *const SoundVolumeChangedNotification = @"SoundVolumeChanged";
 
 - (void)menuExtraDidLoad
 {
+    _backend = [[ALSABackend alloc] init];
     [self updateState];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(volumeChanged:)
-                                                 name:SoundVolumeChangedNotification
-                                               object:nil];
-    _timer = [NSTimer scheduledTimerWithTimeInterval:2.0
-                                              target:self
-                                            selector:@selector(updateState)
-                                            userInfo:nil
-                                             repeats:YES];
+}
+
+- (void)menuExtraWillOpenMenu
+{
+    [self updateState];
+}
+
+- (void)refreshMenuItems:(NSMenu *)submenu
+{
+    BOOL muted = [_backend isOutputMuted];
+    for (NSMenuItem *item in [submenu itemArray]) {
+        NSString *title = [item title];
+        if ([title isEqualToString:@"Mute"]) {
+            [item setState:muted ? NSOnState : NSOffState];
+        } else if ([title isEqualToString:@"Volume Up"] || [title isEqualToString:@"Volume Down"]) {
+            [item setEnabled:!muted];
+        }
+    }
 }
 
 - (void)menuExtraWillUnload
 {
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [_timer invalidate];
-    _timer = nil;
 }
 
 #pragma mark - Actions
@@ -141,21 +151,30 @@ static NSString *const SoundVolumeChangedNotification = @"SoundVolumeChanged";
 - (void)toggleMute:(id)sender
 {
     (void)sender;
-    [SoundVolume toggleMute];
+    NSLog(@"SoundExtra: toggleMute");
+    [_backend setOutputMuted:![_backend isOutputMuted]];
     [self updateState];
 }
 
 - (void)volUp:(id)sender
 {
     (void)sender;
-    [SoundVolume increaseVolume];
+    NSLog(@"SoundExtra: volUp");
+    float vol = [_backend outputVolume];
+    vol += 0.05f;
+    if (vol > 1.0f) vol = 1.0f;
+    [_backend setOutputVolume:vol];
     [self updateState];
 }
 
 - (void)volDown:(id)sender
 {
     (void)sender;
-    [SoundVolume decreaseVolume];
+    NSLog(@"SoundExtra: volDown");
+    float vol = [_backend outputVolume];
+    vol -= 0.05f;
+    if (vol < 0.0f) vol = 0.0f;
+    [_backend setOutputVolume:vol];
     [self updateState];
 }
 

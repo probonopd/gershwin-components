@@ -39,4 +39,11 @@
  */
 - (void)menuDidClose;
 
+/**
+ * Update menu item states (checkmarks, enabled) in-place.
+ * Called when the cached submenu needs to reflect current state
+ * without replacing the entire NSMenu object.
+ */
+- (void)refreshMenuItems:(NSMenu *)submenu;
+
 @end

@@ -139,8 +139,14 @@ static char kWidthIndexKey;
 }
 - (void)handleClick {}
 - (NSMenu *)menu { return [_extra menu]; }
+- (void)refreshMenuItems:(NSMenu *)submenu
+{
+    if ([_extra respondsToSelector:@selector(refreshMenuItems:)]) {
+        [(id)_extra refreshMenuItems:submenu];
+    }
+}
 - (NSImage *)icon { return [_extra image]; }
-- (NSTimeInterval)updateInterval { return 1.0; }
+- (NSTimeInterval)updateInterval { return 0; }
 
 - (void)unload
 {
@@ -615,6 +621,12 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
                     [menuItem setImage:icon];
                 } else {
                     [menuItem setImage:nil];
+                }
+            }
+            if ([provider respondsToSelector:@selector(refreshMenuItems:)]) {
+                NSMenu *sub = [menuItem submenu];
+                if (sub) {
+                    [provider refreshMenuItems:sub];
                 }
             }
             break;

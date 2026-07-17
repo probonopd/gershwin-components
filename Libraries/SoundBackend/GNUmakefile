@@ -1,0 +1,28 @@
+include $(GNUSTEP_MAKEFILES)/common.make
+
+LIBRARY_NAME = libSoundBackend
+VERSION = 1.0
+
+UNAME_S := $(shell uname -s)
+libSoundBackend_OBJC_FILES = \
+	../../Sound/SoundModels.m \
+	../../Sound/ALSABackend.m
+ifneq ($(UNAME_S),OpenBSD)
+ifneq ($(UNAME_S),Linux)
+libSoundBackend_OBJC_FILES += ../../Sound/OSSBackend.m
+endif
+endif
+
+libSoundBackend_HEADER_FILES = \
+	../../Sound/SoundBackend.h \
+	../../Sound/ALSABackend.h \
+	../../Sound/OSSBackend.h
+
+libSoundBackend_INSTALL_HEADERS_DIR = /SoundBackend
+libSoundBackend_FRAMEWORKS_DEPEND_UPON = AppKit Foundation
+
+include $(GNUSTEP_MAKEFILES)/library.make
+
+after-install::
+	@rm -f $(GNUSTEP_SYSTEM_HEADERS)/SoundBackend/SoundController.h 2>/dev/null || true
+	@rm -f $(GNUSTEP_SYSTEM_HEADERS)/SoundBackend/SoundPane.h 2>/dev/null || true

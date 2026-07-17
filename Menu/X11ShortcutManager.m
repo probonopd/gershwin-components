@@ -11,6 +11,7 @@
 #import "MenuUtils.h"
 #import <Foundation/Foundation.h>
 #import <X11/Xlib.h>
+#import <X11/XKBlib.h>
 #import <X11/keysym.h>
 #import <X11/XF86keysym.h>
 #import <dispatch/dispatch.h>
@@ -1076,7 +1077,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                             unsigned int filteredState = keyEvent->state;
                             filteredState &= ~(_numlock_mask | _capslock_mask | _scrolllock_mask);
                             
-                            KeySym ks = XKeycodeToKeysym(_display, keyEvent->keycode, 0);
+                            KeySym ks = XkbKeycodeToKeysym(_display, keyEvent->keycode, 0, 0);
                             const char *ksname = ks != NoSymbol ? XKeysymToString(ks) : "(none)";
                             NSLog(@"X11ShortcutManager: KeyPress event - keycode=%d, keysym=%s, state=%u (filtered from %u), window=%lu", 
                                   keyEvent->keycode, ksname, filteredState, keyEvent->state, keyEvent->window);
@@ -1336,7 +1337,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                 _scrolllock_mask = mask;
             else if (kc != 0) {
                 // Try to detect Alt and Super by looking up keysym for the keycode
-                KeySym ks = XKeycodeToKeysym(_display, kc, 0);
+                KeySym ks = XkbKeycodeToKeysym(_display, kc, 0, 0);
                 if (ks == XK_Alt_L || ks == XK_Alt_R) {
                     _alt_mask = mask;
                 } else if (ks == XK_Super_L || ks == XK_Super_R) {

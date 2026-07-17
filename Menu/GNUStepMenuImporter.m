@@ -903,6 +903,7 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     } else {
         [safeMenu update];
     }
+    return YES;
 }
 
 // Lightweight oneway push from Eau: applies only enabled/state in-place on the
