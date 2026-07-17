@@ -11,8 +11,8 @@ PACKAGE_MANAGER_SRC = ..
 BUNDLED_PM_SRC = _pmsrc
 
 # Copy PackageManager .m files into local _pmsrc/ at make parse time
-# (cp -n to avoid overwriting local modifications; clean removes the dir)
-_BUNDLED := $(shell mkdir -p $(BUNDLED_PM_SRC) && cp -n $(PACKAGE_MANAGER_SRC)/GW*.m $(BUNDLED_PM_SRC)/ 2>/dev/null)
+# (clean removes the dir to force fresh copy on next build)
+_BUNDLED := $(shell mkdir -p $(BUNDLED_PM_SRC) && cp $(PACKAGE_MANAGER_SRC)/GW*.m $(BUNDLED_PM_SRC)/ 2>/dev/null)
 
 # Source files
 OnDemand_OBJC_FILES = \
