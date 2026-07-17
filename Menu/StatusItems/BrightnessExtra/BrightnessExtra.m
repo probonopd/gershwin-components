@@ -5,6 +5,7 @@
  */
 
 #import "BrightnessExtra.h"
+#import "GSMenuExtraContext.h"
 #import "SysfsBacklightBackend.h"
 
 static const BOOL kShowTextInMenuBar = NO;
@@ -15,6 +16,7 @@ static const BOOL kShowTextInMenuBar = NO;
     SysfsBacklightBackend *_backend;
     int _current;
     int _maximum;
+    GSMenuExtraContext *_context;
 }
 
 - (void)dealloc
@@ -26,6 +28,17 @@ static const BOOL kShowTextInMenuBar = NO;
 {
     _current = [_backend current];
     _maximum = [_backend maximum];
+}
+
+- (void)refreshBrightnessPresentation
+{
+    int oldCurrent = _current;
+    int oldMaximum = _maximum;
+
+    [self updateBrightness];
+    if (oldCurrent != _current || oldMaximum != _maximum) {
+        [_context invalidatePresentation];
+    }
 }
 
 - (int)percent
@@ -76,25 +89,35 @@ static const BOOL kShowTextInMenuBar = NO;
     return [NSString stringWithFormat:@"%d%%", [self percent]];
 }
 
+- (void)setContext:(GSMenuExtraContext *)context
+{
+    _context = context;
+}
+
 - (void)brightnessChanged:(NSNotification *)n
 {
     (void)n;
-    [self updateBrightness];
+    [self refreshBrightnessPresentation];
 }
 
 - (void)menuExtraDidLoad
 {
     _backend = [[SysfsBacklightBackend alloc] init];
-    [self updateBrightness];
+    [self refreshBrightnessPresentation];
     [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(brightnessChanged:)
+                                            selector:@selector(brightnessChanged:)
                                                  name:@"BrightnessChanged"
                                                object:nil];
     _timer = [NSTimer scheduledTimerWithTimeInterval:5.0
-                                              target:self
-                                            selector:@selector(updateBrightness)
+                                             target:self
+                                            selector:@selector(refreshTimerFired:)
                                             userInfo:nil
-                                             repeats:YES];
+                                            repeats:YES];
+}
+
+- (void)menuExtraWillOpenMenu
+{
+    [self refreshBrightnessPresentation];
 }
 
 - (void)menuExtraWillUnload
@@ -105,6 +128,20 @@ static const BOOL kShowTextInMenuBar = NO;
     _backend = nil;
 }
 
+- (void)refreshTimerFired:(NSTimer *)timer
+{
+    (void)timer;
+    [self refreshBrightnessPresentation];
+}
+
+- (void)refreshMenuItems:(NSMenu *)submenu
+{
+    if ([submenu numberOfItems] > 0) {
+        NSMenuItem *item = [submenu itemAtIndex:0];
+        [item setTitle:[NSString stringWithFormat:@"Brightness %d%%", [self percent]]];
+    }
+}
+
 #pragma mark - Actions
 
 - (void)brightnessUp:(id)sender
@@ -112,7 +149,7 @@ static const BOOL kShowTextInMenuBar = NO;
     (void)sender;
     int step = (_maximum > 20) ? (_maximum / 20) : 1;
     [_backend set:(_current + step)];
-    [self updateBrightness];
+    [self refreshBrightnessPresentation];
 }
 
 - (void)brightnessDown:(id)sender
@@ -120,7 +157,7 @@ static const BOOL kShowTextInMenuBar = NO;
     (void)sender;
     int step = (_maximum > 20) ? (_maximum / 20) : 1;
     [_backend set:(_current - step)];
-    [self updateBrightness];
+    [self refreshBrightnessPresentation];
 }
 
 @end

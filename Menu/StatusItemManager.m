@@ -33,6 +33,7 @@ static NSString *WidthRefForIdentifier(NSString *ident, NSString *title)
 
 static char kExtrasMenuViewTag;
 static char kWidthIndexKey;
+static char kExtrasSubmenuIdentifierKey;
 
 #pragma mark - GSTheme hook (horizontal menus only, never vertical dropdowns)
 
@@ -203,6 +204,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     NSMenu *_extrasMenu;
     NSMenuView *_extrasMenuView;
     NSMutableDictionary *_extrasMenuItems;
+    NSMutableArray<id<StatusItemProvider>> *_allStatusItems;
 }
 @end
 
@@ -216,6 +218,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         _screenWidth = width;
         _menuBarHeight = height;
         _statusItems = [NSMutableArray array];
+        _allStatusItems = [NSMutableArray array];
         _updateTimers = [NSMutableDictionary dictionary];
         _extrasMenuItems = [NSMutableDictionary dictionary];
         _instances = [NSMutableDictionary dictionary];
@@ -440,7 +443,8 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 
     NSArray *savedOrder = [self loadOrderPreference];
     NSSet *enabledSet = [self loadEnabledPreference];
-    NSMutableArray *ordered = [NSMutableArray arrayWithCapacity:[allProviders count]];
+    NSMutableArray *orderedAll = [NSMutableArray arrayWithCapacity:[allProviders count]];
+    NSMutableArray *orderedEnabled = [NSMutableArray arrayWithCapacity:[allProviders count]];
 
     NSMutableDictionary *providersById = [NSMutableDictionary dictionary];
     for (id<StatusItemProvider> p in allProviders) {
@@ -449,23 +453,25 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 
     for (NSString *ident in savedOrder) {
         id<StatusItemProvider> p = [providersById objectForKey:ident];
-        if (p && (!enabledSet || [enabledSet containsObject:ident])) {
-            [ordered addObject:p];
+        if (p) {
+            [orderedAll addObject:p];
+            if (!enabledSet || [enabledSet containsObject:ident]) {
+                [orderedEnabled addObject:p];
+            }
             [providersById removeObjectForKey:ident];
         }
     }
 
     for (id<StatusItemProvider> p in allProviders) {
         if ([providersById objectForKey:[p identifier]]) {
+            [orderedAll addObject:p];
             if (!enabledSet || [enabledSet containsObject:[p identifier]]) {
-                [ordered addObject:p];
+                [orderedEnabled addObject:p];
             }
         }
     }
 
-    _statusItems = ordered;
-
-    [_statusItems sortUsingComparator:
+    NSComparisonResult (^providerComparator)(id<StatusItemProvider>, id<StatusItemProvider>) =
         ^NSComparisonResult(id<StatusItemProvider> a, id<StatusItemProvider> b) {
             NSInteger pa = 100, pb = 100;
             if ([a respondsToSelector:@selector(displayPriority)]) pa = [a displayPriority];
@@ -473,9 +479,55 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
             if (pa < pb) return NSOrderedAscending;
             if (pa > pb) return NSOrderedDescending;
             return NSOrderedSame;
-        }];
+        };
+
+    _allStatusItems = orderedAll;
+    _statusItems = orderedEnabled;
+
+    [_allStatusItems sortUsingComparator:providerComparator];
+    [_statusItems sortUsingComparator:providerComparator];
 
     [self startFileSystemMonitoring];
+}
+
+- (NSArray<id<StatusItemProvider>> *)allStatusItems
+{
+    return _allStatusItems;
+}
+
+- (id<StatusItemProvider>)providerForIdentifier:(NSString *)identifier
+{
+    if (!identifier) return nil;
+
+    for (id<StatusItemProvider> provider in _allStatusItems) {
+        if ([[provider identifier] isEqualToString:identifier]) {
+            return provider;
+        }
+    }
+    return nil;
+}
+
+- (void)configureSubmenu:(NSMenu *)submenu forIdentifier:(NSString *)identifier
+{
+    if (!submenu || !identifier) return;
+
+    objc_setAssociatedObject(submenu, &kExtrasSubmenuIdentifierKey, identifier, OBJC_ASSOCIATION_RETAIN);
+    [submenu setDelegate:(id<NSMenuDelegate>)self];
+    [submenu setAutoenablesItems:NO];
+}
+
+- (void)replaceMenu:(NSMenu *)target withMenu:(NSMenu *)source
+{
+    if (!target || !source || target == source) return;
+
+    while ([target numberOfItems] > 0) {
+        [target removeItemAtIndex:0];
+    }
+    while ([source numberOfItems] > 0) {
+        NSMenuItem *item = [source itemAtIndex:0];
+        [source removeItemAtIndex:0];
+        [target addItem:item];
+    }
 }
 
 #pragma mark - View creation
@@ -500,7 +552,11 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
             }
         }
         if ([provider respondsToSelector:@selector(menu)]) {
-            [item setSubmenu:[provider menu]];
+            NSMenu *submenu = [provider menu];
+            if (submenu) {
+                [self configureSubmenu:submenu forIdentifier:ident];
+                [item setSubmenu:submenu];
+            }
         }
         [item setRepresentedObject:ident];
         [_extrasMenu addItem:item];
@@ -623,14 +679,58 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
                     [menuItem setImage:nil];
                 }
             }
-            if ([provider respondsToSelector:@selector(refreshMenuItems:)]) {
-                NSMenu *sub = [menuItem submenu];
-                if (sub) {
-                    [provider refreshMenuItems:sub];
+            if ([provider respondsToSelector:@selector(menu)]) {
+                NSMenu *freshSubmenu = [provider menu];
+                if (freshSubmenu) {
+                    NSMenu *existingSubmenu = [menuItem submenu];
+                    if (existingSubmenu) {
+                        [self configureSubmenu:existingSubmenu forIdentifier:identifier];
+                        [self replaceMenu:existingSubmenu withMenu:freshSubmenu];
+                    } else {
+                        [self configureSubmenu:freshSubmenu forIdentifier:identifier];
+                        [menuItem setSubmenu:freshSubmenu];
+                    }
                 }
+            } else if ([provider respondsToSelector:@selector(refreshMenuItems:)]) {
+                NSMenu *sub = [menuItem submenu];
+                if (sub) [provider refreshMenuItems:sub];
             }
             break;
         }
+    }
+}
+
+- (void)menuNeedsUpdate:(NSMenu *)menu
+{
+    NSString *identifier = objc_getAssociatedObject(menu, &kExtrasSubmenuIdentifierKey);
+    id<StatusItemProvider> provider = [self providerForIdentifier:identifier];
+    if (!provider) return;
+
+    if ([provider respondsToSelector:@selector(menuWillOpen)]) {
+        [provider menuWillOpen];
+    }
+    if ([provider respondsToSelector:@selector(menu)]) {
+        NSMenu *freshMenu = [provider menu];
+        if (freshMenu && freshMenu != menu) {
+            [self replaceMenu:menu withMenu:freshMenu];
+        }
+    }
+    if ([provider respondsToSelector:@selector(refreshMenuItems:)]) {
+        [provider refreshMenuItems:menu];
+    }
+}
+
+- (void)menuWillOpen:(NSMenu *)menu
+{
+    [self menuNeedsUpdate:menu];
+}
+
+- (void)menuDidClose:(NSMenu *)menu
+{
+    NSString *identifier = objc_getAssociatedObject(menu, &kExtrasSubmenuIdentifierKey);
+    id<StatusItemProvider> provider = [self providerForIdentifier:identifier];
+    if ([provider respondsToSelector:@selector(menuDidClose)]) {
+        [provider menuDidClose];
     }
 }
 
