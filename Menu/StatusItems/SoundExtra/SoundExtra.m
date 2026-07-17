@@ -7,6 +7,8 @@
 #import "SoundExtra.h"
 #import "SoundVolume.h"
 
+static const BOOL kShowTextInMenuBar = NO;
+
 @implementation SoundExtra
 {
     NSTimer *_timer;
@@ -94,6 +96,7 @@ static NSString *const SoundVolumeChangedNotification = @"SoundVolumeChanged";
 
 - (NSString *)title
 {
+    if (!kShowTextInMenuBar) return @"";
     int pct = (int)(_volume * 100.0f);
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;

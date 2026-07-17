@@ -15,6 +15,8 @@
 #define NMCLI_PATH @"/usr/local/bin/nmcli"
 #endif
 
+static const BOOL kShowTextInMenuBar = NO;
+
 @implementation WLANExtra
 {
     NSTimer *_timer;
@@ -241,6 +243,7 @@
 
 - (NSString *)title
 {
+    if (!kShowTextInMenuBar) return @"";
     if (!_wlanEnabled) return @"Off";
     if (_connectedSSID) return [NSString stringWithFormat:@"%d%%", _signalStrength];
     return @"--";

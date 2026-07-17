@@ -7,6 +7,8 @@
 #import "BrightnessExtra.h"
 #import "SysfsBacklightBackend.h"
 
+static const BOOL kShowTextInMenuBar = NO;
+
 @implementation BrightnessExtra
 {
     NSTimer *_timer;
@@ -70,6 +72,7 @@
 
 - (NSString *)title
 {
+    if (!kShowTextInMenuBar) return @"";
     return [NSString stringWithFormat:@"%d%%", [self percent]];
 }
 

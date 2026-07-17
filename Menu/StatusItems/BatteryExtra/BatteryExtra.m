@@ -9,6 +9,8 @@
 #import <stdlib.h>
 #import <string.h>
 
+static const BOOL kShowTextInMenuBar = NO;
+
 @implementation BatteryExtra
 {
     NSTimer *_timer;
@@ -190,6 +192,7 @@
 
 - (NSString *)title
 {
+    if (!kShowTextInMenuBar) return @"";
     if (_percent < 0) return @"--%";
     return [NSString stringWithFormat:@"%d%%", _percent];
 }
