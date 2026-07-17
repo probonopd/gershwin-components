@@ -131,6 +131,12 @@ Menu_RESOURCE_FILES = \
 	Resources/Icons/ram.png
 
 
+# SVG-to-PNG conversion rules
+before-build:: $(patsubst %.svg,%.png,$(wildcard Resources/Icons/*.svg))
+
+Resources/Icons/%.png: Resources/Icons/%.svg
+	convert -background none -size 20x20 $< $@
+
 # Libraries and frameworks - configured by configure script
 Menu_TOOL_LIBS += @DBUS_LIBS@ -lX11
 Menu_GUI_LIBS += -L/System/Library/Libraries -lgnustep-gui -lgnustep-base -lobjc -ldispatch
