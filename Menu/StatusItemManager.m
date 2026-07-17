@@ -497,43 +497,33 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         [_extrasMenu addItem:item];
         [_extrasMenuItems setObject:item forKey:ident];
     }
-    CGFloat width = [self extrasMenuWidth];
-    _extrasMenuView = [[NSMenuView alloc] initWithFrame:NSMakeRect(0, 0, width, _menuBarHeight)];
+    _extrasMenuView = [[NSMenuView alloc] initWithFrame:NSMakeRect(0, 0, 0, _menuBarHeight)];
     [_extrasMenuView setHorizontal:YES];
     objc_setAssociatedObject(_extrasMenuView, &kExtrasMenuViewTag, @YES, OBJC_ASSOCIATION_RETAIN);
     objc_setAssociatedObject(_extrasMenuView, &kWidthIndexKey, @0, OBJC_ASSOCIATION_RETAIN);
     [_extrasMenuView setMenu:_extrasMenu];
+
+    CGFloat width = [self extrasMenuWidth];
+    [_extrasMenuView setFrameSize:NSMakeSize(width, _menuBarHeight)];
 
     return _extrasMenuView;
 }
 
 - (CGFloat)extrasMenuWidth
 {
-    if ([_extrasMenuItems count] == 0) return 0;
-    NSFont *font = [NSFont menuBarFontOfSize:0];
-    NSDictionary *attrs = @{ NSFontAttributeName: font };
-    CGFloat total = 0;
-    CGFloat iconWidth = _menuBarHeight - 4.0;
-    for (id<StatusItemProvider> provider in _statusItems) {
-        CGFloat itemWidth = 8.0;
-        NSImage *icon = ([provider respondsToSelector:@selector(icon)])
-            ? [provider icon] : nil;
-        NSString *title = [provider title];
-        if (!title) title = [provider identifier];
-        if (icon && [title length] == 0) {
-            itemWidth += iconWidth + 8.0;
-        } else {
-            if (icon) {
-                itemWidth += iconWidth;
-            }
-            NSString *widthRef = WidthRefForIdentifier([provider identifier], title);
-            if (!widthRef) widthRef = title;
-            NSSize size = [widthRef sizeWithAttributes:attrs];
-            itemWidth += ceil(size.width) + 8.0;
-        }
-        total += itemWidth;
-    }
-    return total;
+    if ([_extrasMenuItems count] == 0 || !_extrasMenuView) return 0;
+
+    [_extrasMenuView sizeToFit];
+
+    __block CGFloat maxX = 0;
+    [[_extrasMenu itemArray] enumerateObjectsUsingBlock:
+        ^(NSMenuItem *item, NSUInteger idx, BOOL *stop) {
+            NSRect r = [_extrasMenuView rectOfItemAtIndex: idx];
+            CGFloat right = NSMaxX(r);
+            if (right > maxX) maxX = right;
+        }];
+
+    return maxX;
 }
 
 #pragma mark - Update timers
