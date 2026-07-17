@@ -196,12 +196,12 @@ static id<SoundBackend> CreateSoundBackend(void)
     BOOL muted = _muted;
     for (NSMenuItem *item in [submenu itemArray]) {
         NSString *title = [item title];
-        if ([title hasPrefix:@"Volume "]) {
+        if ([title isEqualToString:@"Volume Up"] || [title isEqualToString:@"Volume Down"]) {
+            [item setEnabled:!muted];
+        } else if ([title hasPrefix:@"Volume "]) {
             [item setTitle:[NSString stringWithFormat:@"Volume %d%%", pct]];
         } else if ([title isEqualToString:@"Mute"]) {
             [item setState:muted ? NSOnState : NSOffState];
-        } else if ([title isEqualToString:@"Volume Up"] || [title isEqualToString:@"Volume Down"]) {
-            [item setEnabled:!muted];
         }
     }
 }
