@@ -1249,6 +1249,11 @@ enum {
             // Check if we've already seen this network (keep the one with better signal)
             WLAN *existing = [seenNetworks objectForKey:ssid];
             if (existing && [existing signalStrength] >= signal) {
+                // Preserve connected status when the existing entry is the connected one
+                if ([existing isConnected] && !inUse) {
+                    [existing setFrequency:freq];
+                    [existing setChannel:chan];
+                }
                 continue;
             }
             
@@ -1289,6 +1294,10 @@ enum {
             
             if (existing) {
                 [networks removeObject:existing];
+            }
+            // Carry over connected status when a non-connected entry wins by signal
+            if (existing && [existing isConnected] && !inUse) {
+                [network setIsConnected:YES];
             }
             [seenNetworks setObject:network forKey:ssid];
             [networks addObject:network];
@@ -1551,7 +1560,6 @@ enum {
             return network;
         }
     }
-    NSLog(@"NMBackend: connectedWLAN = nil (no connected WLAN in cache, %lu cached)", (unsigned long)[cachedWLANs count]);
     return nil;
 }
 
