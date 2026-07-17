@@ -8,9 +8,7 @@ libSoundBackend_OBJC_FILES = \
 	../../Sound/SoundModels.m \
 	../../Sound/ALSABackend.m
 ifneq ($(UNAME_S),OpenBSD)
-ifneq ($(UNAME_S),Linux)
 libSoundBackend_OBJC_FILES += ../../Sound/OSSBackend.m
-endif
 endif
 
 libSoundBackend_HEADER_FILES = \
