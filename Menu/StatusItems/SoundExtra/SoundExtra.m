@@ -78,7 +78,6 @@ static id<SoundBackend> CreateSoundBackend(void)
     }
     _volume = [_backend outputVolume];
     _muted = [_backend isOutputMuted];
-    NSLog(@"SoundExtra: updateState volume=%.2f muted=%d", _volume, _muted);
     if (oldVolume != _volume || oldMuted != _muted) {
         [_context invalidatePresentation];
     }
@@ -173,7 +172,7 @@ static id<SoundBackend> CreateSoundBackend(void)
 {
     _backend = CreateSoundBackend();
     [self updateState];
-    _timer = [NSTimer scheduledTimerWithTimeInterval:2.0
+    _timer = [NSTimer scheduledTimerWithTimeInterval:10.0
                                               target:self
                                             selector:@selector(refreshTimerFired:)
                                             userInfo:nil
@@ -225,7 +224,6 @@ static id<SoundBackend> CreateSoundBackend(void)
 - (void)toggleMute:(id)sender
 {
     (void)sender;
-    NSLog(@"SoundExtra: toggleMute");
     [_backend setOutputMuted:![_backend isOutputMuted]];
     [self updateState];
 }
@@ -233,7 +231,6 @@ static id<SoundBackend> CreateSoundBackend(void)
 - (void)volUp:(id)sender
 {
     (void)sender;
-    NSLog(@"SoundExtra: volUp");
     float vol = [_backend outputVolume];
     vol += 0.05f;
     if (vol > 1.0f) vol = 1.0f;
@@ -244,7 +241,6 @@ static id<SoundBackend> CreateSoundBackend(void)
 - (void)volDown:(id)sender
 {
     (void)sender;
-    NSLog(@"SoundExtra: volDown");
     float vol = [_backend outputVolume];
     vol -= 0.05f;
     if (vol < 0.0f) vol = 0.0f;
