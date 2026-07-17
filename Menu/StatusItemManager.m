@@ -516,13 +516,14 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     CGFloat iconWidth = _menuBarHeight - 4.0;
     for (id<StatusItemProvider> provider in _statusItems) {
         CGFloat itemWidth = 8.0;
-        BOOL hasIconProvider = [provider respondsToSelector:@selector(icon)];
+        NSImage *icon = ([provider respondsToSelector:@selector(icon)])
+            ? [provider icon] : nil;
         NSString *title = [provider title];
         if (!title) title = [provider identifier];
-        if (hasIconProvider && [title length] == 0) {
+        if (icon && [title length] == 0) {
             itemWidth += iconWidth + 8.0;
         } else {
-            if (hasIconProvider) {
+            if (icon) {
                 itemWidth += iconWidth;
             }
             NSString *widthRef = WidthRefForIdentifier([provider identifier], title);
