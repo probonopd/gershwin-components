@@ -1303,10 +1303,6 @@ enum {
         }];
     }
     
-    for (WLAN *n in networks) {
-        NSLog(@"NMBackend: buildWLANsList — network ssid=%@ connected=%d signal=%d", [n ssid], [n isConnected], [n signalStrength]);
-    }
-    
     return networks;
 }
 
