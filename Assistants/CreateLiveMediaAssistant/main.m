@@ -69,6 +69,26 @@ int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) 
         // Initialize application
         NSApplication *app = [NSApplication sharedApplication];
         
+        // Set application icon from bundle.
+        // mainBundle may fail when re-executed via sudo; fall back to argv[0] path.
+        NSImage *appIcon = nil;
+        NSString *iconPath = [[NSBundle mainBundle] pathForResource:@"Create_Live_Media"
+                                                             ofType:@"png"];
+        if (!iconPath && argv[0]) {
+            NSString *exeDir = [[NSString stringWithUTF8String:argv[0]]
+                stringByDeletingLastPathComponent];
+            if ([exeDir length] > 0) {
+                iconPath = [exeDir stringByAppendingPathComponent:
+                    @"Resources/Create_Live_Media.png"];
+            }
+        }
+        if (iconPath) {
+            appIcon = [[NSImage alloc] initWithContentsOfFile:iconPath];
+        }
+        if (appIcon) {
+            [app setApplicationIconImage:appIcon];
+        }
+        
         // Set up application delegate to ensure proper termination
         CLMApplicationDelegate *appDelegate = [[CLMApplicationDelegate alloc] init];
         [app setDelegate:appDelegate];

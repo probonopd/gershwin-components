@@ -179,6 +179,11 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         _windowHeight = windowHeight;
         _assistantTitle = [title copy];
         _assistantIcon = icon;
+
+        // Set window icon for Dock/taskbar
+        if (icon) {
+            [window setMiniwindowImage:icon];
+        }
         _stepsArray = [[NSMutableArray alloc] initWithArray:steps];
         _currentIndex = 0;
         _showsProgressBar = (layoutStyle == GSAssistantLayoutStyleDefault);

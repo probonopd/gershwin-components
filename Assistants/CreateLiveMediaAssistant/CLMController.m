@@ -75,7 +75,11 @@
     // Build the assistant using the builder
     GSAssistantBuilder *builder = [GSAssistantBuilder builder];
     [builder withTitle:NSLocalizedString(@"Create Live Media", @"Application title")];
-    [builder withIcon:[NSImage imageNamed:@"Create_Live_Media"]];
+    NSImage *icon = [NSApp applicationIconImage];
+    if (!icon) {
+        icon = [NSImage imageNamed:@"Create_Live_Media"];
+    }
+    [builder withIcon:icon];
     
     // Add configuration steps directly (not wrapped)
     [builder addStep:_imageSelectionStep];
