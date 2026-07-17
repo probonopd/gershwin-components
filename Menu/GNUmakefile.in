@@ -175,7 +175,7 @@ ifeq ($(PROFILE),1)
 ADDITIONAL_OBJCFLAGS += -DMENU_PROFILING=1
 endif
 
-ADDITIONAL_OBJCFLAGS += -I/System/Library/Headers/SoundBackend -I/System/Library/Headers/NetworkBackend
+ADDITIONAL_OBJCFLAGS += -I../Sound -I../Network -I/System/Library/Headers/SoundBackend -I/System/Library/Headers/NetworkBackend
 
 # Canonical install location for Menu.app
 INSTALL_APPS_DIR = /System/Library/CoreServices/Applications
