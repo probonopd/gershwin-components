@@ -5,6 +5,7 @@
  */
 
 #import "ClockExtra.h"
+#import "GSMenuExtraContext.h"
 
 @implementation ClockExtra
 {
@@ -12,6 +13,7 @@
     NSDateFormatter *_timeFormatter;
     NSDateFormatter *_dateFormatter;
     NSMenuItem *_dateItem;
+    GSMenuExtraContext *_context;
 }
 
 - (void)dealloc
@@ -39,6 +41,11 @@
 - (NSString *)title
 {
     return [_timeFormatter stringFromDate:[NSDate date]];
+}
+
+- (void)setContext:(GSMenuExtraContext *)context
+{
+    _context = context;
 }
 
 - (void)menuExtraWillOpenMenu
@@ -72,6 +79,15 @@
 - (void)refresh:(NSTimer *)timer
 {
     (void)timer;
+    [_context invalidatePresentation];
+}
+
+- (void)refreshMenuItems:(NSMenu *)submenu
+{
+    if ([submenu numberOfItems] > 0) {
+        NSMenuItem *item = [submenu itemAtIndex:0];
+        [item setTitle:[_dateFormatter stringFromDate:[NSDate date]]];
+    }
 }
 
 @end

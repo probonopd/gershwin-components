@@ -6,22 +6,75 @@
 
 #import "WLANExtra.h"
 #import "NMBackend.h"
+#import "BSDBackend.h"
+#import "NetworkBackend.h"
 #import "GSMenuExtraContext.h"
 #import "AppearanceMetrics.h"
+#include <sys/utsname.h>
+#include <string.h>
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+#include <sys/sysctl.h>
+#endif
 
 static const BOOL kShowTextInMenuBar = NO;
+
+static BOOL ShouldUseBSDNetworkBackend(void)
+{
+#if defined(__OpenBSD__) || defined(__NetBSD__)
+    return YES;
+#elif defined(__FreeBSD__) || defined(__DragonFly__)
+    BOOL isBSD = NO;
+    {
+        char ostype[64] = {0};
+        size_t len = sizeof(ostype) - 1;
+        if (sysctlbyname("kern.ostype", ostype, &len, NULL, 0) == 0) {
+            if (strcmp(ostype, "FreeBSD") == 0 ||
+                strcmp(ostype, "DragonFly") == 0) {
+                isBSD = YES;
+            }
+        }
+    }
+    if (!isBSD) {
+        NSFileManager *fm = [NSFileManager defaultManager];
+        if ([fm isExecutableFileAtPath:@"/usr/sbin/sysrc"]) {
+            isBSD = YES;
+        }
+    }
+    if (!isBSD) {
+        struct utsname uts;
+        if (uname(&uts) == 0 &&
+            (strcmp(uts.sysname, "FreeBSD") == 0 ||
+             strcmp(uts.sysname, "DragonFly") == 0)) {
+            isBSD = YES;
+        }
+    }
+    return isBSD;
+#else
+    return NO;
+#endif
+}
+
+static id<NetworkBackend> CreateNetworkBackend(void)
+{
+    if (ShouldUseBSDNetworkBackend()) {
+        return [[BSDBackend alloc] init];
+    }
+    return [[NMBackend alloc] init];
+}
 
 @interface WLANExtra ()
 @end
 
 @implementation WLANExtra
 {
-    NMBackend *_backend;
+    id<NetworkBackend> _backend;
+    BOOL _backendAvailable;
     BOOL _wlanEnabled;
     WLAN *_connectedWLAN;
     int _signalStrength;
     NSArray<WLAN *> *_networkList;
     GSMenuExtraContext *_context;
+    NSTimer *_timer;
 }
 
 static NSString *findTool(NSString *name)
@@ -53,17 +106,23 @@ static NSString *findTool(NSString *name)
 
 - (void)updateState
 {
-    if (![_backend isAvailable]) {
+    BOOL wasEnabled = _wlanEnabled;
+    BOOL wasAvailable = _backendAvailable;
+    WLAN *oldConnected = _connectedWLAN;
+    int oldSignalStrength = _signalStrength;
+    NSUInteger oldNetworkCount = [_networkList count];
+
+    _backendAvailable = [_backend isAvailable];
+    if (!_backendAvailable) {
         _wlanEnabled = NO;
         _connectedWLAN = nil;
         _signalStrength = 0;
         _networkList = @[];
-        [_context invalidatePresentation];
+        if (wasAvailable || wasEnabled || oldConnected || oldSignalStrength != 0 || oldNetworkCount != 0) {
+            [_context invalidatePresentation];
+        }
         return;
     }
-
-    BOOL wasEnabled = _wlanEnabled;
-    WLAN *oldConnected = _connectedWLAN;
 
     _wlanEnabled = [_backend isWLANEnabled];
     if (!_wlanEnabled) {
@@ -77,6 +136,8 @@ static NSString *findTool(NSString *name)
     }
 
     if (wasEnabled != _wlanEnabled ||
+        oldSignalStrength != _signalStrength ||
+        oldNetworkCount != [_networkList count] ||
         (!oldConnected && _connectedWLAN) ||
         (oldConnected && !_connectedWLAN) ||
         (oldConnected && _connectedWLAN && ![[oldConnected ssid] isEqualToString:[_connectedWLAN ssid]])) {
@@ -175,7 +236,7 @@ static NSString *findTool(NSString *name)
           wlanOn, connectedSSID, signal, (unsigned long)[nets count]);
     NSMenu *m = [[NSMenu alloc] initWithTitle:@"WLAN"];
 
-    if (![_backend isAvailable]) {
+    if (!_backendAvailable) {
         NSMenuItem *na = [[NSMenuItem alloc] initWithTitle:@"WLAN: Unavailable"
                                                      action:NULL
                                               keyEquivalent:@""];
@@ -277,7 +338,7 @@ static NSString *findTool(NSString *name)
 - (NSImage *)image
 {
     NSString *name;
-    if (![_backend isAvailable]) {
+    if (!_backendAvailable) {
         name = @"wlan-disabled";
     } else if (!_wlanEnabled) {
         name = @"wlan-off";
@@ -300,7 +361,7 @@ static NSString *findTool(NSString *name)
 - (NSString *)title
 {
     if (!kShowTextInMenuBar) return @"";
-    if (![_backend isAvailable]) return @"--";
+    if (!_backendAvailable) return @"--";
     if (!_wlanEnabled) return @"Off";
     if (_connectedWLAN) return [NSString stringWithFormat:@"%d", _signalStrength];
     return @"--";
@@ -308,8 +369,13 @@ static NSString *findTool(NSString *name)
 
 - (void)menuExtraDidLoad
 {
-    _backend = [[NMBackend alloc] init];
+    _backend = CreateNetworkBackend();
     [self updateState];
+    _timer = [NSTimer scheduledTimerWithTimeInterval:5.0
+                                              target:self
+                                            selector:@selector(refreshTimerFired:)
+                                            userInfo:nil
+                                             repeats:YES];
 }
 
 - (void)menuExtraWillOpenMenu
@@ -330,6 +396,15 @@ static NSString *findTool(NSString *name)
 
 - (void)menuExtraWillUnload
 {
+    [_timer invalidate];
+    _timer = nil;
+    _backend = nil;
+}
+
+- (void)refreshTimerFired:(NSTimer *)timer
+{
+    (void)timer;
+    [self updateState];
 }
 
 @end

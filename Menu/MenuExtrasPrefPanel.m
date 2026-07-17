@@ -9,6 +9,7 @@
 
 @interface MenuExtrasPrefPanel () <NSTableViewDataSource, NSTableViewDelegate>
 {
+    NSArray<id<StatusItemProvider>> *_allItems;
     StatusItemManager *_manager;
     NSMutableSet<NSString *> *_enabledIdentifiers;
     NSTableView *_tableView;
@@ -38,10 +39,16 @@
     self = [super initWithWindow:window];
     if (self) {
         _manager = manager;
+        _allItems = [[_manager allStatusItems] copy];
         _enabledIdentifiers = [NSMutableSet set];
 
-        for (id<StatusItemProvider> p in [_manager statusItems]) {
-            [_enabledIdentifiers addObject:[p identifier]];
+        NSArray *savedEnabled = [[NSUserDefaults standardUserDefaults] arrayForKey:@"GSMenuExtraEnabled"];
+        if ([savedEnabled isKindOfClass:[NSArray class]] && [savedEnabled count] > 0) {
+            [_enabledIdentifiers addObjectsFromArray:savedEnabled];
+        } else {
+            for (id<StatusItemProvider> p in _allItems) {
+                [_enabledIdentifiers addObject:[p identifier]];
+            }
         }
 
         [self setupUI];
@@ -102,7 +109,7 @@
     (void)sender;
 
     NSMutableArray *enabledArray = [NSMutableArray array];
-    for (id<StatusItemProvider> p in [_manager statusItems]) {
+    for (id<StatusItemProvider> p in _allItems) {
         if ([_enabledIdentifiers containsObject:[p identifier]]) {
             [enabledArray addObject:[p identifier]];
         }
@@ -118,17 +125,16 @@
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
 {
     (void)tableView;
-    return [[_manager statusItems] count];
+    return [_allItems count];
 }
 
 - (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)tableColumn
             row:(NSInteger)row
 {
     (void)tableView;
-    NSArray *items = [_manager statusItems];
-    if (row < 0 || row >= (NSInteger)[items count]) return @"";
+    if (row < 0 || row >= (NSInteger)[_allItems count]) return @"";
 
-    id<StatusItemProvider> p = [items objectAtIndex:(NSUInteger)row];
+    id<StatusItemProvider> p = [_allItems objectAtIndex:(NSUInteger)row];
     NSString *colId = [tableColumn identifier];
 
     if ([colId isEqualToString:@"enabled"]) {
@@ -147,10 +153,9 @@
     (void)tableView;
     (void)tableColumn;
 
-    NSArray *items = [_manager statusItems];
-    if (row < 0 || row >= (NSInteger)[items count]) return;
+    if (row < 0 || row >= (NSInteger)[_allItems count]) return;
 
-    id<StatusItemProvider> p = [items objectAtIndex:(NSUInteger)row];
+    id<StatusItemProvider> p = [_allItems objectAtIndex:(NSUInteger)row];
     BOOL enabled = [object boolValue];
     if (enabled) {
         [_enabledIdentifiers addObject:[p identifier]];

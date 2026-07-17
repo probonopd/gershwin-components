@@ -29,6 +29,7 @@
 
 - (void)refreshExtraWithIdentifier:(NSString *)identifier;
 - (void)savePreferences;
+- (NSArray<id<StatusItemProvider>> *)allStatusItems;
 
 - (void)showPreferencesPanel;
 

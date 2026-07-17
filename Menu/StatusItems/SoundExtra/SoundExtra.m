@@ -6,16 +6,50 @@
 
 #import "SoundExtra.h"
 #import "ALSABackend.h"
+#import "OSSBackend.h"
+#import "SoundBackend.h"
 #import "GSMenuExtraContext.h"
 
 static const BOOL kShowTextInMenuBar = NO;
+
+static id<SoundBackend> CreateSoundBackend(void)
+{
+    id<SoundBackend> backend = nil;
+
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+    OSSBackend *ossBackend = [[OSSBackend alloc] init];
+    if ([ossBackend isAvailable]) {
+        backend = ossBackend;
+    }
+#endif
+
+    if (backend == nil) {
+        ALSABackend *alsaBackend = [[ALSABackend alloc] init];
+        if ([alsaBackend isAvailable]) {
+            backend = alsaBackend;
+        }
+    }
+
+#if !defined(__FreeBSD__) && !defined(__DragonFly__) && !defined(__OpenBSD__)
+    if (backend == nil) {
+        OSSBackend *ossBackend = [[OSSBackend alloc] init];
+        if ([ossBackend isAvailable]) {
+            backend = ossBackend;
+        }
+    }
+#endif
+
+    return backend;
+}
 
 @implementation SoundExtra
 {
     float _volume;
     BOOL _muted;
+    BOOL _backendAvailable;
     GSMenuExtraContext *_context;
-    ALSABackend *_backend;
+    NSTimer *_timer;
+    id<SoundBackend> _backend;
 }
 
 - (void)dealloc
@@ -32,9 +66,18 @@ static const BOOL kShowTextInMenuBar = NO;
 {
     float oldVolume = _volume;
     BOOL oldMuted = _muted;
+    BOOL wasAvailable = _backendAvailable;
+    _backendAvailable = [_backend isAvailable];
+    if (!_backendAvailable) {
+        _volume = 0.0f;
+        _muted = NO;
+        if (wasAvailable || oldVolume != _volume || oldMuted != _muted) {
+            [_context invalidatePresentation];
+        }
+        return;
+    }
     _volume = [_backend outputVolume];
     _muted = [_backend isOutputMuted];
-    NSLog(@"SoundExtra: updateState volume=%.2f muted=%d", _volume, _muted);
     if (oldVolume != _volume || oldMuted != _muted) {
         [_context invalidatePresentation];
     }
@@ -52,14 +95,20 @@ static const BOOL kShowTextInMenuBar = NO;
 
 - (NSMenu *)menu
 {
-    NSLog(@"SoundExtra: LAZY LOAD — reading fresh state from backend");
-    BOOL muted = [_backend isOutputMuted];
-    float vol = [_backend outputVolume];
-    NSLog(@"SoundExtra: menu building — backend muted=%d vol=%.2f cached muted=%d vol=%.2f", muted, vol, _muted, _volume);
-    int pct = (int)(vol * 100.0f);
+    if (!_backendAvailable) {
+        NSMenu *m = [[NSMenu alloc] initWithTitle:@"Sound"];
+        NSMenuItem *na = [[NSMenuItem alloc] initWithTitle:@"Sound: Unavailable"
+                                                    action:NULL
+                                             keyEquivalent:@""];
+        [na setEnabled:NO];
+        [m addItem:na];
+        return m;
+    }
+
+    BOOL muted = _muted;
+    int pct = (int)(_volume * 100.0f);
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
-    NSLog(@"SoundExtra: menu muted=%d volume=%d%%", muted, pct);
     NSMenu *m = [[NSMenu alloc] initWithTitle:@"Sound"];
 
     NSMenuItem *volItem = [[NSMenuItem alloc] initWithTitle:[NSString stringWithFormat:@"Volume %d%%", pct]
@@ -112,6 +161,7 @@ static const BOOL kShowTextInMenuBar = NO;
 - (NSString *)title
 {
     if (!kShowTextInMenuBar) return @"";
+    if (!_backendAvailable) return @"--";
     int pct = (int)(_volume * 100.0f);
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
@@ -120,30 +170,53 @@ static const BOOL kShowTextInMenuBar = NO;
 
 - (void)menuExtraDidLoad
 {
-    _backend = [[ALSABackend alloc] init];
+    _backend = CreateSoundBackend();
     [self updateState];
+    _timer = [NSTimer scheduledTimerWithTimeInterval:10.0
+                                              target:self
+                                            selector:@selector(refreshTimerFired:)
+                                            userInfo:nil
+                                             repeats:YES];
 }
 
 - (void)menuExtraWillOpenMenu
 {
-    [self updateState];
+    _backendAvailable = [_backend isAvailable];
+    if (_backendAvailable) {
+        _volume = [_backend outputVolume];
+        _muted = [_backend isOutputMuted];
+    }
 }
 
 - (void)refreshMenuItems:(NSMenu *)submenu
 {
-    BOOL muted = [_backend isOutputMuted];
+    int pct = (int)(_volume * 100.0f);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    BOOL muted = _muted;
     for (NSMenuItem *item in [submenu itemArray]) {
         NSString *title = [item title];
-        if ([title isEqualToString:@"Mute"]) {
-            [item setState:muted ? NSOnState : NSOffState];
-        } else if ([title isEqualToString:@"Volume Up"] || [title isEqualToString:@"Volume Down"]) {
+        if ([title isEqualToString:@"Volume Up"] || [title isEqualToString:@"Volume Down"]) {
             [item setEnabled:!muted];
+        } else if ([title hasPrefix:@"Volume "]) {
+            [item setTitle:[NSString stringWithFormat:@"Volume %d%%", pct]];
+        } else if ([title isEqualToString:@"Mute"]) {
+            [item setState:muted ? NSOnState : NSOffState];
         }
     }
 }
 
 - (void)menuExtraWillUnload
 {
+    [_timer invalidate];
+    _timer = nil;
+    _backend = nil;
+}
+
+- (void)refreshTimerFired:(NSTimer *)timer
+{
+    (void)timer;
+    [self updateState];
 }
 
 #pragma mark - Actions
@@ -151,7 +224,6 @@ static const BOOL kShowTextInMenuBar = NO;
 - (void)toggleMute:(id)sender
 {
     (void)sender;
-    NSLog(@"SoundExtra: toggleMute");
     [_backend setOutputMuted:![_backend isOutputMuted]];
     [self updateState];
 }
@@ -159,7 +231,6 @@ static const BOOL kShowTextInMenuBar = NO;
 - (void)volUp:(id)sender
 {
     (void)sender;
-    NSLog(@"SoundExtra: volUp");
     float vol = [_backend outputVolume];
     vol += 0.05f;
     if (vol > 1.0f) vol = 1.0f;
@@ -170,7 +241,6 @@ static const BOOL kShowTextInMenuBar = NO;
 - (void)volDown:(id)sender
 {
     (void)sender;
-    NSLog(@"SoundExtra: volDown");
     float vol = [_backend outputVolume];
     vol -= 0.05f;
     if (vol < 0.0f) vol = 0.0f;

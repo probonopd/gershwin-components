@@ -156,19 +156,26 @@ ifeq ($(UNAME_S),FreeBSD)
 	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
 	Menu_TOOL_LIBS += -lexecinfo
 endif
-ifeq ($(UNAME_S),OpenBSD)
-	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -I.
+ifeq ($(UNAME_S),NextBSD)
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE -I.
 	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
 	Menu_TOOL_LIBS += -lexecinfo
+	Menu_GUI_LIBS += -L/usr/lib/system
+	Menu_LDFLAGS += -Wl,-rpath,/usr/lib/system
 endif
-
-ADDITIONAL_OBJCFLAGS += -I/System/Library/Headers/SoundBackend -I/System/Library/Headers/NetworkBackend
+ifeq ($(UNAME_S),OpenBSD)
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE -I.
+	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
+	Menu_TOOL_LIBS += -L/usr/local/lib -lexecinfo
+endif
 
 # Profiling: build with  make PROFILE=1  to enable CPU instrumentation.
 # When enabled, a summary is printed every 10s and on SIGUSR1.
 ifeq ($(PROFILE),1)
 ADDITIONAL_OBJCFLAGS += -DMENU_PROFILING=1
 endif
+
+ADDITIONAL_OBJCFLAGS += -I../Sound -I../Network -I/System/Library/Headers/SoundBackend -I/System/Library/Headers/NetworkBackend
 
 # Canonical install location for Menu.app
 INSTALL_APPS_DIR = /System/Library/CoreServices/Applications
@@ -184,6 +191,7 @@ after-Menu-all::
 	@(cd StatusItems/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (wlanauth skipped)")
 	@cp StatusItems/WLANExtra/wlanauth/obj/wlanauth Resources/ 2>/dev/null || true
 	@(cd StatusItems/SoundExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (SoundExtra skipped)")
+	@(cd StatusItems/BrightnessExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (BrightnessExtra skipped)")
 	@echo "Done building bundles."
 
 # Custom install target that completely overrides built-in behavior
@@ -202,6 +210,7 @@ custom-install: $(APP_NAME).app
 		cp StatusItems/WLANExtra/wlanauth/obj/wlanauth $(APP_NAME).app/Resources/; \
 	fi
 	@(cd StatusItems/SoundExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
+	@(cd StatusItems/BrightnessExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
 	@echo "Status item bundles built successfully"
 	@if [ -n "$(DESTDIR)" ]; then \
 		echo "Installing $(APP_NAME) to $(DESTDIR)$(INSTALL_APPS_DIR)"; \
