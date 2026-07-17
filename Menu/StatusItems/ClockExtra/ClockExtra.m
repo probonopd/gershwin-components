@@ -11,17 +11,7 @@
     NSTimer *_timer;
     NSDateFormatter *_timeFormatter;
     NSDateFormatter *_dateFormatter;
-    BOOL _showDate;
-}
-
-+ (void)initialize
-{
-    if (self == [ClockExtra class]) {
-        // Show date + time by default
-        [[NSUserDefaults standardUserDefaults] registerDefaults:@{
-            @"ClockExtraShowDate": @YES
-        }];
-    }
+    NSMenuItem *_dateItem;
 }
 
 - (void)dealloc
@@ -29,23 +19,14 @@
     [self menuExtraWillUnload];
 }
 
-- (void)toggleShowDate:(id)sender
-{
-    (void)sender;
-    _showDate = !_showDate;
-    [[NSUserDefaults standardUserDefaults] setBool:_showDate forKey:@"ClockExtraShowDate"];
-}
-
 - (NSMenu *)menu
 {
     NSMenu *m = [[NSMenu alloc] initWithTitle:@"Clock"];
 
-    NSMenuItem *dateItem = [[NSMenuItem alloc] initWithTitle:@"Show Date"
-                                                       action:@selector(toggleShowDate:)
-                                                keyEquivalent:@""];
-    [dateItem setTarget:self];
-    [dateItem setState:_showDate ? NSOnState : NSOffState];
-    [m addItem:dateItem];
+    _dateItem = [[NSMenuItem alloc] initWithTitle:[_dateFormatter stringFromDate:[NSDate date]]
+                                           action:nil keyEquivalent:@""];
+    [_dateItem setEnabled:NO];
+    [m addItem:_dateItem];
 
     return m;
 }
@@ -57,28 +38,16 @@
 
 - (NSString *)title
 {
-    if (!_timeFormatter) {
-        _timeFormatter = [[NSDateFormatter alloc] init];
-        [_timeFormatter setTimeStyle:NSDateFormatterShortStyle];
-        [_timeFormatter setDateStyle:NSDateFormatterNoStyle];
-    }
-    if (!_dateFormatter) {
-        _dateFormatter = [[NSDateFormatter alloc] init];
-        [_dateFormatter setTimeStyle:NSDateFormatterNoStyle];
-        [_dateFormatter setDateStyle:NSDateFormatterShortStyle];
-    }
-    if (_showDate) {
-        return [NSString stringWithFormat:@"%@ %@",
-                [_dateFormatter stringFromDate:[NSDate date]],
-                [_timeFormatter stringFromDate:[NSDate date]]];
-    }
     return [_timeFormatter stringFromDate:[NSDate date]];
+}
+
+- (void)menuExtraWillOpenMenu
+{
+    [_dateItem setTitle:[_dateFormatter stringFromDate:[NSDate date]]];
 }
 
 - (void)menuExtraDidLoad
 {
-    _showDate = [[NSUserDefaults standardUserDefaults] boolForKey:@"ClockExtraShowDate"];
-
     _timeFormatter = [[NSDateFormatter alloc] init];
     [_timeFormatter setTimeStyle:NSDateFormatterShortStyle];
     [_timeFormatter setDateStyle:NSDateFormatterNoStyle];
