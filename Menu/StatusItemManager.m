@@ -471,7 +471,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         if ([provider respondsToSelector:@selector(icon)]) {
             NSImage *icon = [provider icon];
             if (icon) {
-                CGFloat iconSize = _menuBarHeight - 2.0;
+                CGFloat iconSize = _menuBarHeight - 4.0;
                 [icon setSize:NSMakeSize(iconSize, iconSize)];
                 [item setImage:icon];
             }
@@ -499,7 +499,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     NSFont *font = [NSFont menuBarFontOfSize:0];
     NSDictionary *attrs = @{ NSFontAttributeName: font };
     CGFloat total = 0;
-    CGFloat iconWidth = _menuBarHeight - 2.0;
+    CGFloat iconWidth = _menuBarHeight - 4.0;
     for (id<StatusItemProvider> provider in _statusItems) {
         CGFloat itemWidth = 8.0;
         if ([provider respondsToSelector:@selector(icon)] && [provider icon]) {
