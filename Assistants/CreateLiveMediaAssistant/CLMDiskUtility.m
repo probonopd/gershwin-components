@@ -44,7 +44,24 @@
 
 + (BOOL)unmountPartitionsForDisk:(NSString *)deviceName
 {
-    return [GSDiskUtilities unmountPartitionsForDisk:deviceName];
+    NSString *helperPath = [[NSBundle mainBundle] pathForResource:@"clm-helper" ofType:nil];
+    if (!helperPath) {
+        NSLog(@"CLMDiskUtility: clm-helper not found in bundle");
+        return NO;
+    }
+
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/usr/bin/sudo"];
+    [task setArguments:@[@"-A", @"-E", helperPath, @"unmount", deviceName]];
+
+    @try {
+        [task launch];
+        [task waitUntilExit];
+        return [task terminationStatus] == 0;
+    } @catch (NSException *exception) {
+        NSLog(@"CLMDiskUtility: Failed to run clm-helper unmount: %@", [exception reason]);
+        return NO;
+    }
 }
 
 + (NSString *)formatSize:(long long)sizeInBytes
