@@ -23,7 +23,7 @@ static NSString *WidthRefForIdentifier(NSString *ident, NSString *title)
         return @"99%";
     }
     if ([ident rangeOfString:@"clock"].location != NSNotFound) {
-        return @"99:99 PM";
+        return @"99:99:99 PM";
     }
     if ([title rangeOfString:@"%"].location != NSNotFound) {
         return @"100%";
