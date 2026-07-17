@@ -29,7 +29,9 @@ static NSString *WidthRefForIdentifier(NSString *ident, NSString *title)
     return nil;
 }
 
-#pragma mark - Fixed width for status item cells
+static char kExtrasMenuViewTag;
+
+#pragma mark - Fixed width for extras bar cells only
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wobjc-protocol-method-implementation"
@@ -40,6 +42,9 @@ static NSString *WidthRefForIdentifier(NSString *ident, NSString *title)
 {
     if (_needs_sizing) {
         [self calcSize];
+    }
+    if (!_menuView || !objc_getAssociatedObject(_menuView, &kExtrasMenuViewTag)) {
+        return _titleWidth;
     }
     NSString *title = [_menuItem title];
     if (!title) return _titleWidth;
@@ -473,6 +478,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     CGFloat width = [self extrasMenuWidth];
     _extrasMenuView = [[NSMenuView alloc] initWithFrame:NSMakeRect(0, 0, width, _menuBarHeight)];
     [_extrasMenuView setHorizontal:YES];
+    objc_setAssociatedObject(_extrasMenuView, &kExtrasMenuViewTag, @YES, OBJC_ASSOCIATION_RETAIN);
     [_extrasMenuView setMenu:_extrasMenu];
 
     return _extrasMenuView;
