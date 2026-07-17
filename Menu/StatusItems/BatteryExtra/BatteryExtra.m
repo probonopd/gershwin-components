@@ -178,8 +178,9 @@ static const BOOL kShowTextInMenuBar = NO;
 {
     if (_percent < 0) return nil;
     NSString *name;
-    if ([_status isEqualToString:@"Charging"]) {
-        name = @"battery-charging";
+    if ([_source isEqualToString:@"AC"]) {
+        name = [_status isEqualToString:@"Charging"]
+            ? @"battery-charging" : @"battery-charged";
     } else if (_percent >= 90) {
         name = @"battery";
     } else if (_percent >= 40) {
