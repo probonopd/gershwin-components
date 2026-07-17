@@ -106,14 +106,10 @@ static id<SoundBackend> CreateSoundBackend(void)
         return m;
     }
 
-    NSLog(@"SoundExtra: LAZY LOAD — reading fresh state from backend");
-    BOOL muted = [_backend isOutputMuted];
-    float vol = [_backend outputVolume];
-    NSLog(@"SoundExtra: menu building — backend muted=%d vol=%.2f cached muted=%d vol=%.2f", muted, vol, _muted, _volume);
-    int pct = (int)(vol * 100.0f);
+    BOOL muted = _muted;
+    int pct = (int)(_volume * 100.0f);
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
-    NSLog(@"SoundExtra: menu muted=%d volume=%d%%", muted, pct);
     NSMenu *m = [[NSMenu alloc] initWithTitle:@"Sound"];
 
     NSMenuItem *volItem = [[NSMenuItem alloc] initWithTitle:[NSString stringWithFormat:@"Volume %d%%", pct]
@@ -186,15 +182,19 @@ static id<SoundBackend> CreateSoundBackend(void)
 
 - (void)menuExtraWillOpenMenu
 {
-    [self updateState];
+    _backendAvailable = [_backend isAvailable];
+    if (_backendAvailable) {
+        _volume = [_backend outputVolume];
+        _muted = [_backend isOutputMuted];
+    }
 }
 
 - (void)refreshMenuItems:(NSMenu *)submenu
 {
-    BOOL muted = [_backend isOutputMuted];
-    int pct = (int)([_backend outputVolume] * 100.0f);
+    int pct = (int)(_volume * 100.0f);
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
+    BOOL muted = _muted;
     for (NSMenuItem *item in [submenu itemArray]) {
         NSString *title = [item title];
         if ([title hasPrefix:@"Volume "]) {

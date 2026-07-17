@@ -205,6 +205,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     NSMenuView *_extrasMenuView;
     NSMutableDictionary *_extrasMenuItems;
     NSMutableArray<id<StatusItemProvider>> *_allStatusItems;
+    BOOL _needsUpdateGuard;
 }
 @end
 
@@ -702,9 +703,12 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 
 - (void)menuNeedsUpdate:(NSMenu *)menu
 {
+    if (_needsUpdateGuard) return;
+    _needsUpdateGuard = YES;
+
     NSString *identifier = objc_getAssociatedObject(menu, &kExtrasSubmenuIdentifierKey);
     id<StatusItemProvider> provider = [self providerForIdentifier:identifier];
-    if (!provider) return;
+    if (!provider) { _needsUpdateGuard = NO; return; }
 
     if ([provider respondsToSelector:@selector(menuWillOpen)]) {
         [provider menuWillOpen];
@@ -718,6 +722,8 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     if ([provider respondsToSelector:@selector(refreshMenuItems:)]) {
         [provider refreshMenuItems:menu];
     }
+
+    _needsUpdateGuard = NO;
 }
 
 - (void)menuWillOpen:(NSMenu *)menu
