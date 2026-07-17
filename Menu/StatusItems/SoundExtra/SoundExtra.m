@@ -6,6 +6,7 @@
 
 #import "SoundExtra.h"
 #import "SoundVolume.h"
+#import "GSMenuExtraContext.h"
 
 static const BOOL kShowTextInMenuBar = NO;
 
@@ -14,6 +15,7 @@ static const BOOL kShowTextInMenuBar = NO;
     NSTimer *_timer;
     float _volume;
     BOOL _muted;
+    GSMenuExtraContext *_context;
 }
 
 - (void)dealloc
@@ -21,10 +23,20 @@ static const BOOL kShowTextInMenuBar = NO;
     [self menuExtraWillUnload];
 }
 
+- (void)setContext:(GSMenuExtraContext *)context
+{
+    _context = context;
+}
+
 - (void)updateState
 {
+    float oldVolume = _volume;
+    BOOL oldMuted = _muted;
     _volume = [SoundVolume outputVolume];
     _muted = [SoundVolume isMuted];
+    if (oldVolume != _volume || oldMuted != _muted) {
+        [_context invalidatePresentation];
+    }
 }
 
 static NSString *const SoundVolumeChangedNotification = @"SoundVolumeChanged";
@@ -130,7 +142,7 @@ static NSString *const SoundVolumeChangedNotification = @"SoundVolumeChanged";
 {
     (void)sender;
     [SoundVolume toggleMute];
-    _muted = !_muted;
+    [self updateState];
 }
 
 - (void)volUp:(id)sender

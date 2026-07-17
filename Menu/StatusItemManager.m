@@ -13,6 +13,7 @@
 #import <dispatch/dispatch.h>
 #import <AppKit/NSMenuView.h>
 #import <GNUstepGUI/GSTheme.h>
+#import "TintedMenuItemCell.h"
 
 #pragma mark - Width reference helpers
 
@@ -57,12 +58,16 @@ static char kWidthIndexKey;
     NSMenuItem *item = [items objectAtIndex:index];
     NSString *ident = [item representedObject];
     NSString *title = [item title];
-    NSString *widthRef = WidthRefForIdentifier(ident, title);
-    if (!widthRef) return proposedWidth;
-
-    NSFont *font = [aMenuView font] ? [aMenuView font] : [NSFont menuBarFontOfSize:0];
-    NSSize size = [widthRef sizeWithAttributes:@{ NSFontAttributeName: font }];
-    return ceil(size.width);
+    CGFloat result = proposedWidth;
+    if ([title length] > 0) {
+        NSString *widthRef = WidthRefForIdentifier(ident, title);
+        if (widthRef) {
+            NSFont *font = [aMenuView font] ? [aMenuView font] : [NSFont menuBarFontOfSize:0];
+            NSSize size = [widthRef sizeWithAttributes:@{ NSFontAttributeName: font }];
+            result = ceil(size.width);
+        }
+    }
+    return result;
 }
 
 @end
@@ -82,7 +87,7 @@ static char kWidthIndexKey;
 
 - (instancetype)initWithGSMenuExtra:(id<GSMenuExtra>)extra
                          identifier:(NSString *)identifier
-                            context:(GSMenuExtraContext *)context
+                             context:(GSMenuExtraContext *)context
 {
     self = [super init];
     if (self) {
@@ -90,6 +95,9 @@ static char kWidthIndexKey;
         _identifier = [identifier copy];
         _context = context;
         _cachedWidth = 0;
+        if ([_extra respondsToSelector:@selector(setContext:)]) {
+            [(id)_extra setContext:context];
+        }
     }
     return self;
 }
@@ -105,7 +113,10 @@ static char kWidthIndexKey;
     NSDictionary *attrs = @{ NSFontAttributeName: font };
     NSString *display = [_extra title];
     if (!display) display = @"";
-    NSString *widthRef = WidthRefForIdentifier(_identifier, display);
+    NSString *widthRef = nil;
+    if ([display length] > 0) {
+        widthRef = WidthRefForIdentifier(_identifier, display);
+    }
     if (!widthRef) widthRef = display;
     NSSize size = [widthRef sizeWithAttributes:attrs];
     _cachedWidth = ceil(size.width) + 16.0;
@@ -119,7 +130,10 @@ static char kWidthIndexKey;
     }
 }
 
-- (void)update { _cachedWidth = 0; }
+- (void)update {
+    _cachedWidth = 0;
+    [_context invalidatePresentation];
+}
 - (void)handleClick {}
 - (NSMenu *)menu { return [_extra menu]; }
 - (NSImage *)icon { return [_extra image]; }
@@ -502,15 +516,20 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     CGFloat iconWidth = _menuBarHeight - 4.0;
     for (id<StatusItemProvider> provider in _statusItems) {
         CGFloat itemWidth = 8.0;
-        if ([provider respondsToSelector:@selector(icon)] && [provider icon]) {
-            itemWidth += iconWidth;
-        }
+        BOOL hasIconProvider = [provider respondsToSelector:@selector(icon)];
         NSString *title = [provider title];
         if (!title) title = [provider identifier];
-        NSString *widthRef = WidthRefForIdentifier([provider identifier], title);
-        if (!widthRef) widthRef = title;
-        NSSize size = [widthRef sizeWithAttributes:attrs];
-        itemWidth += ceil(size.width) + 8.0;
+        if (hasIconProvider && [title length] == 0) {
+            itemWidth += iconWidth + 8.0;
+        } else {
+            if (hasIconProvider) {
+                itemWidth += iconWidth;
+            }
+            NSString *widthRef = WidthRefForIdentifier([provider identifier], title);
+            if (!widthRef) widthRef = title;
+            NSSize size = [widthRef sizeWithAttributes:attrs];
+            itemWidth += ceil(size.width) + 8.0;
+        }
         total += itemWidth;
     }
     return total;
@@ -592,6 +611,17 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         if ([[provider identifier] isEqualToString:identifier]) {
             NSString *title = [provider title];
             if (title) [menuItem setTitle:title];
+
+            if ([provider respondsToSelector:@selector(icon)]) {
+                NSImage *icon = [provider icon];
+                if (icon) {
+                    CGFloat iconSize = _menuBarHeight - 4.0;
+                    [icon setSize:NSMakeSize(iconSize, iconSize)];
+                    [menuItem setImage:icon];
+                } else {
+                    [menuItem setImage:nil];
+                }
+            }
             break;
         }
     }

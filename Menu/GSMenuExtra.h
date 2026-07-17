@@ -24,5 +24,6 @@
 - (void)menuExtraWillUnload;
 - (void)menuExtraWillOpenMenu;
 - (void)menuExtraDidCloseMenu;
+- (void)setContext:(GSMenuExtraContext *)context;
 
 @end

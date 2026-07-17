@@ -58,7 +58,8 @@ Menu_OBJC_FILES = \
 	StatusItems/SystemMonitor/RAMProvider.m \
 	SysfsBacklightBackend.m \
 	EvdevBrightnessKeySource.m \
-	SoundVolume.m
+	SoundVolume.m \
+	TintedMenuItemCell.m
 
 # Header files
 Menu_HEADER_FILES = \
@@ -103,7 +104,8 @@ Menu_HEADER_FILES = \
 	EvdevBrightnessKeySource.h \
 	SoundVolume.h \
 	StatusItems/SystemMonitor/CPUProvider.h \
-	StatusItems/SystemMonitor/RAMProvider.h
+	StatusItems/SystemMonitor/RAMProvider.h \
+	TintedMenuItemCell.h
 
 # Resources
 Menu_RESOURCE_FILES = \
