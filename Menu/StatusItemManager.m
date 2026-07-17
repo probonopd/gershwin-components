@@ -12,6 +12,7 @@
 #import "MenuExtrasPrefPanel.h"
 #import <dispatch/dispatch.h>
 #import <AppKit/NSMenuView.h>
+#import <GNUstepGUI/GSTheme.h>
 
 #pragma mark - Width reference helpers
 
@@ -30,35 +31,41 @@ static NSString *WidthRefForIdentifier(NSString *ident, NSString *title)
 }
 
 static char kExtrasMenuViewTag;
+static char kWidthIndexKey;
 
-#pragma mark - Fixed width for extras bar cells only
+#pragma mark - GSTheme hook (horizontal menus only, never vertical dropdowns)
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wobjc-protocol-method-implementation"
+@interface GSTheme (FixedWidthExtras)
+@end
 
-@implementation NSMenuItemCell (FixedWidthExtras)
+@implementation GSTheme (FixedWidthExtras)
 
-- (CGFloat)titleWidth
+- (CGFloat)proposedTitleWidth:(CGFloat)proposedWidth forMenuView:(NSMenuView *)aMenuView
 {
-    if (_needs_sizing) {
-        [self calcSize];
+    if (!objc_getAssociatedObject(aMenuView, &kExtrasMenuViewTag)) {
+        return proposedWidth;
     }
-    if (!_menuView || !objc_getAssociatedObject(_menuView, &kExtrasMenuViewTag)) {
-        return _titleWidth;
-    }
-    NSString *title = [_menuItem title];
-    if (!title) return _titleWidth;
-    NSString *ident = [_menuItem representedObject];
+
+    NSNumber *idx = objc_getAssociatedObject(aMenuView, &kWidthIndexKey);
+    NSUInteger index = [idx unsignedIntegerValue];
+    objc_setAssociatedObject(aMenuView, &kWidthIndexKey, @(index + 1), OBJC_ASSOCIATION_RETAIN);
+
+    NSMenu *menu = [aMenuView menu];
+    NSArray *items = [menu itemArray];
+    if (index >= [items count]) return proposedWidth;
+
+    NSMenuItem *item = [items objectAtIndex:index];
+    NSString *ident = [item representedObject];
+    NSString *title = [item title];
     NSString *widthRef = WidthRefForIdentifier(ident, title);
-    if (!widthRef) return _titleWidth;
-    NSFont *f = [self font] ? [self font] : [NSFont menuBarFontOfSize:0];
-    NSSize size = [widthRef sizeWithAttributes:@{ NSFontAttributeName: f }];
+    if (!widthRef) return proposedWidth;
+
+    NSFont *font = [aMenuView font] ? [aMenuView font] : [NSFont menuBarFontOfSize:0];
+    NSSize size = [widthRef sizeWithAttributes:@{ NSFontAttributeName: font }];
     return ceil(size.width);
 }
 
 @end
-
-#pragma clang diagnostic pop
 
 #pragma mark - GSMenuExtraAdapter
 
@@ -479,6 +486,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     _extrasMenuView = [[NSMenuView alloc] initWithFrame:NSMakeRect(0, 0, width, _menuBarHeight)];
     [_extrasMenuView setHorizontal:YES];
     objc_setAssociatedObject(_extrasMenuView, &kExtrasMenuViewTag, @YES, OBJC_ASSOCIATION_RETAIN);
+    objc_setAssociatedObject(_extrasMenuView, &kWidthIndexKey, @0, OBJC_ASSOCIATION_RETAIN);
     [_extrasMenuView setMenu:_extrasMenu];
 
     return _extrasMenuView;
@@ -547,6 +555,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 
 - (void)updateTimerFired:(NSTimer *)timer
 {
+    objc_setAssociatedObject(_extrasMenuView, &kWidthIndexKey, @0, OBJC_ASSOCIATION_RETAIN);
     NSArray *items = [timer userInfo];
     for (id<StatusItemProvider> item in items) {
         @try {
