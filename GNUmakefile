@@ -14,6 +14,13 @@ SUBDIRS := $(sort $(shell for d in *; do \
 
 all: build
 
+# Components that link against the shared backend libraries must wait until the
+# Libraries aggregate target has built and installed those dependencies.
+ifneq ($(filter Libraries,$(SUBDIRS)),)
+LIBRARY_CONSUMERS := $(filter Menu Network Sound,$(SUBDIRS))
+$(LIBRARY_CONSUMERS): Libraries
+endif
+
 # Build each subdirectory
 build: $(SUBDIRS)
 	@echo "Build completed for all components."
