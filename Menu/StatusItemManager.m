@@ -49,11 +49,14 @@ static char kWidthIndexKey;
 
     NSNumber *idx = objc_getAssociatedObject(aMenuView, &kWidthIndexKey);
     NSUInteger index = [idx unsignedIntegerValue];
-    objc_setAssociatedObject(aMenuView, &kWidthIndexKey, @(index + 1), OBJC_ASSOCIATION_RETAIN);
-
     NSMenu *menu = [aMenuView menu];
     NSArray *items = [menu itemArray];
-    if (index >= [items count]) return proposedWidth;
+    if (index >= [items count]) {
+        index = 0;
+        objc_setAssociatedObject(aMenuView, &kWidthIndexKey, @1, OBJC_ASSOCIATION_RETAIN);
+    } else {
+        objc_setAssociatedObject(aMenuView, &kWidthIndexKey, @(index + 1), OBJC_ASSOCIATION_RETAIN);
+    }
 
     NSMenuItem *item = [items objectAtIndex:index];
     NSString *ident = [item representedObject];
@@ -513,6 +516,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 {
     if ([_extrasMenuItems count] == 0 || !_extrasMenuView) return 0;
 
+    objc_setAssociatedObject(_extrasMenuView, &kWidthIndexKey, @0, OBJC_ASSOCIATION_RETAIN);
     [_extrasMenuView sizeToFit];
 
     __block CGFloat maxX = 0;
