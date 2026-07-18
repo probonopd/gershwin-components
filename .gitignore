@@ -50,3 +50,8 @@ Processes/tools/safe_proc_scan
 *.pid
 network-helper
 core.*
+Menu/Resources/wlanauth
+Menu/StatusItems/BatteryExtra/Battery.gsmenuextra/Battery
+Menu/StatusItems/BrightnessExtra/Brightness.gsmenuextra/Brightness
+Menu/StatusItems/SoundExtra/Sound.gsmenuextra/Sound
+Menu/StatusItems/WLANExtra/WLAN.gsmenuextra/WLAN
