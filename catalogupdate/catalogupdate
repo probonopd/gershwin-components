@@ -259,10 +259,7 @@ def main(argv: list[str]) -> int:
     token: Optional[str] = os.environ.get("GITHUB_TOKEN")
     catalog_path: Optional[str] = None
 
-    i = 0
-    raw_opts = list(opts)
-    skip = set()
-    for idx, (opt, val) in enumerate(raw_opts):
+    for opt, val in opts:
         if opt in ("-h", "--help"):
             print_usage()
             return 0
