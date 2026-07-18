@@ -122,17 +122,107 @@ static BOOL detectKeyboardFromUSB(const char **layout,
     }
     KbdLog(@"    %d USB device(s) scanned, no RPI keyboard found\n", dev_count);
     closedir(usb_dir);
-#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    KbdLog(@"    Scanning USB devices via system command...\n");
-    const char *cmd = NULL;
-#if defined(__FreeBSD__)
-    cmd = "usbconfig list";
-#elif defined(__OpenBSD__) || defined(__NetBSD__)
-    cmd = "usbdevs -v";
-#endif
-    FILE *usb_fp = popen(cmd, "r");
+#elif defined(__FreeBSD__)
+    KbdLog(@"    Scanning USB devices via usbconfig...\n");
+    FILE *usb_fp = popen("usbconfig list", "r");
     if (!usb_fp) {
-        KbdLog(@"    ✗ cannot run '%s'\n", cmd);
+        KbdLog(@"    ✗ cannot run 'usbconfig list'\n");
+        (void)layout; (void)variant; (void)options;
+        return NO;
+    }
+    char line[512];
+    BOOL found = NO;
+    while (fgets(line, sizeof(line), usb_fp)) {
+        char *nl = strchr(line, '\n');
+        if (nl) *nl = '\0';
+        char *colon = strchr(line, ':');
+        if (!colon) continue;
+        size_t ugen_len = colon - line;
+        if (ugen_len < 3 || ugen_len >= 32) continue;
+        char ugen[32];
+        memcpy(ugen, line, ugen_len);
+        ugen[ugen_len] = '\0';
+        char desc_cmd[128];
+        snprintf(desc_cmd, sizeof(desc_cmd),
+                 "usbconfig -d %s dump_device_desc 2>/dev/null", ugen);
+        FILE *desc_fp = popen(desc_cmd, "r");
+        if (!desc_fp) continue;
+        char vendor[16] = "", id_product[16] = "", prod_str[256] = "";
+        char dl[256];
+        while (fgets(dl, sizeof(dl), desc_fp)) {
+            char *v;
+            if ((v = strstr(dl, "idVendor = "))) {
+                char *p = v + 11;
+                while (*p == ' ') p++;
+                if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+                    unsigned long val = strtoul(p + 2, NULL, 16);
+                    snprintf(vendor, sizeof(vendor), "%04lx", val);
+                }
+            } else if ((v = strstr(dl, "idProduct = "))) {
+                char *p = v + 12;
+                while (*p == ' ') p++;
+                if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+                    unsigned long val = strtoul(p + 2, NULL, 16);
+                    snprintf(id_product, sizeof(id_product), "%04lx", val);
+                }
+            } else if ((v = strstr(dl, "iProduct"))) {
+                char *start = strchr(dl, '<');
+                char *end = strchr(dl, '>');
+                if (start && end && end > start + 1) {
+                    size_t len = end - start - 1;
+                    if (len < sizeof(prod_str)) {
+                        memcpy(prod_str, start + 1, len);
+                        prod_str[len] = '\0';
+                    }
+                }
+            }
+        }
+        pclose(desc_fp);
+        if (!vendor[0] && !prod_str[0]) continue;
+        BOOL known = NO;
+        for (int i = 0; rpiKeyboardVIDs[i] && rpiKeyboardPIDs[i]; i++) {
+            if (strcmp(vendor, rpiKeyboardVIDs[i]) == 0
+                && strcmp(id_product, rpiKeyboardPIDs[i]) == 0) {
+                known = YES;
+                break;
+            }
+        }
+        if (!known && prod_str[0]) {
+            known = (strstr(prod_str, "RPI") != NULL
+                     || strstr(prod_str, "Raspberry") != NULL
+                     || strstr(prod_str, "raspberry") != NULL
+                     || strstr(prod_str, "Pi ") != NULL);
+        }
+        if (!known) continue;
+        KbdLog(@"    USB device: %s:%s product=\"%s\"\n", vendor, id_product, prod_str);
+        const char *last_space = strrchr(prod_str, ' ');
+        int idx = 0;
+        if (last_space) {
+            const char *tok = last_space + 1;
+            if (*tok >= '0' && *tok <= '9') {
+                idx = atoi(tok);
+            } else {
+                KbdLog(@"      no trailing index, deferring\n");
+                continue;
+            }
+        }
+        if (idx < 0 || idx > 14) idx = 0;
+        *layout = rpiKeyboardLayout(idx);
+        *variant = "";
+        *options = "";
+        KbdLog(@"      RPI keyboard index %d → layout=\"%s\"\n", idx, *layout);
+        found = YES;
+        break;
+    }
+    pclose(usb_fp);
+    if (!found) KbdLog(@"    No RPI keyboard found\n");
+    if (!found) { (void)layout; (void)variant; (void)options; }
+    return found;
+#elif defined(__OpenBSD__) || defined(__NetBSD__)
+    KbdLog(@"    Scanning USB devices via usbdevs...\n");
+    FILE *usb_fp = popen("usbdevs -v", "r");
+    if (!usb_fp) {
+        KbdLog(@"    ✗ cannot run 'usbdevs -v'\n");
         (void)layout; (void)variant; (void)options;
         return NO;
     }
@@ -584,6 +674,7 @@ static const char *findEfivar(void)
         "/usr/local/bin/efivar",
         "/usr/bin/efivar",
         "/bin/efivar",
+        "/usr/sbin/efivar",
         NULL
     };
     for (int i = 0; paths[i]; i++) {
@@ -615,29 +706,8 @@ static void ensureEfivarfsMounted(void)
         KbdLog(@"    efivarfs mount failed (not UEFI or no kernel support)\n");
     }
 #elif defined(__FreeBSD__)
-    struct stat st;
-    if (stat("/sys/firmware/efi/efivars", &st) != 0 || !S_ISDIR(st.st_mode)) {
-        if (mkdir("/sys/firmware/efi/efivars", 0755) != 0 && errno != EEXIST) {
-            KbdLog(@"    efivarfs: cannot create mountpoint\n");
-            return;
-        }
-    }
-    DIR *d = opendir("/sys/firmware/efi/efivars");
-    if (!d) return;
-    int count = 0;
-    struct dirent *e;
-    while ((e = readdir(d)) != NULL) {
-        if (e->d_name[0] != '.') { count++; break; }
-    }
-    closedir(d);
-    if (count > 0) return;
-    KbdLog(@"    efivarfs directory empty, loading module and mounting...\n");
-    system("kldload efivarfs 2>/dev/null");
-    if (system("mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null") == 0) {
-        KbdLog(@"    efivarfs mounted successfully\n");
-    } else {
-        KbdLog(@"    efivarfs mount failed\n");
-    }
+    // FreeBSD uses /dev/efi + efivar(8) — no efivarfs
+    (void)0;
 #endif
 }
 
