@@ -17,6 +17,62 @@
 #import "OnDemandController.h"
 #import "../GWSystemCommandExecutor.h"
 
+#import <sys/types.h>
+#import <sys/socket.h>
+#import <netdb.h>
+#import <unistd.h>
+#import <fcntl.h>
+
+#pragma mark - Connectivity Check (BSD sockets, same as GSNetworkUtilities)
+
+static BOOL _ODCheckInternetConnectivity(void)
+{
+  struct addrinfo hints, *res;
+  memset(&hints, 0, sizeof hints);
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+
+  int gai = getaddrinfo("github.com", "443", &hints, &res);
+  if (gai != 0 || !res)
+    return NO;
+
+  BOOL connected = NO;
+  for (struct addrinfo *p = res; p; p = p->ai_next)
+    {
+      int fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+      if (fd < 0) continue;
+
+      int flags = fcntl(fd, F_GETFL, 0);
+      fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+      (void)connect(fd, p->ai_addr, p->ai_addrlen);
+
+      struct timeval tv;
+      tv.tv_sec = 5;
+      tv.tv_usec = 0;
+
+      fd_set wset;
+      FD_ZERO(&wset);
+      FD_SET(fd, &wset);
+
+      int rc = select(fd + 1, NULL, &wset, NULL, &tv);
+      if (rc > 0)
+        {
+          int err = 0;
+          socklen_t elen = sizeof err;
+          getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen);
+          if (err == 0)
+            connected = YES;
+        }
+
+      close(fd);
+      if (connected) break;
+    }
+
+  freeaddrinfo(res);
+  return connected;
+}
+
 #pragma mark - Constants (derived from AppearanceMetrics.h)
 
 // HIG metrics (see AppearanceMetrics.h)
@@ -382,6 +438,17 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
 - (void)installClicked:(id)sender
 {
   NSLog(@"OnDemand -> installClicked: user confirmed download");
+
+  if (!_ODCheckInternetConnectivity())
+    {
+      NSLog(@"OnDemand -> installClicked: no internet connectivity");
+      NSAlert *alert = [[NSAlert alloc] init];
+      [alert setMessageText:@"No Internet Connection"];
+      [alert setInformativeText:@"An internet connection is required to download this application. Please connect to the internet and try again."];
+      [alert addButtonWithTitle:@"OK"];
+      [alert runModal];
+      return;
+    }
 
   // Reset progress tracking counters
   _totalDownloadBytes = 0.0;
