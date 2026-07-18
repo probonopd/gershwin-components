@@ -12,11 +12,43 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>Battery</string>
+		<key>GitURL</key>
+		<string>https://github.com/schik/battery</string>
+		<key>Description</key>
+		<string>Battery status monitor for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Billiards</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Billiards</string>
+		<key>Description</key>
+		<string>A simple billiards game for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Breakout</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Breakout</string>
+		<key>Description</key>
+		<string>Breakout game for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>Brutus</string>
 		<key>GitURL</key>
 		<string>https://github.com/neoncortex/Brutus</string>
 		<key>Description</key>
 		<string>A brutish text editor for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Burn</string>
+		<key>GitURL</key>
+		<string>https://github.com/schik/burn</string>
+		<key>Description</key>
+		<string>CD burning application for GNUstep</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -44,6 +76,14 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>CDPlayer</string>
+		<key>GitURL</key>
+		<string>https://github.com/schik/cdplayer</string>
+		<key>Description</key>
+		<string>CD Audio Player for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>CellConnect</string>
 		<key>GitURL</key>
 		<string>https://github.com/eukara/CellConnect.app</string>
@@ -68,11 +108,35 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>DataBasin</string>
+		<key>GitURL</key>
+		<string>https://github.com/rmottola/DataBasin</string>
+		<key>Description</key>
+		<string>GUI data access tool for Salesforce.com for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Dictionary</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Dictionary</string>
+		<key>Description</key>
+		<string>Dictionary app for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>EasyDiff</string>
 		<key>GitURL</key>
 		<string>https://github.com/gnustep/apps-easydiff</string>
 		<key>Description</key>
 		<string>Diff/merge tool for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>FontBook</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-fontbook</string>
+		<key>Description</key>
+		<string>Font viewer and manager for GNUstep</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -92,6 +156,14 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>Gemas</string>
+		<key>GitURL</key>
+		<string>https://github.com/jasaldivara/Gemas</string>
+		<key>Description</key>
+		<string>Code editor with syntax highlighting for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>Ggtd</string>
 		<key>GitURL</key>
 		<string>https://github.com/routoure/GGTD</string>
@@ -105,6 +177,38 @@
 		<string>https://github.com/gomoku/Gomoku.app-GNUstep</string>
 		<key>Description</key>
 		<string>Extended TicTacToe game for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Gorm</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-gorm</string>
+		<key>Description</key>
+		<string>Interface Builder clone for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Grab</string>
+		<key>GitURL</key>
+		<string>https://github.com/armm77/Grab</string>
+		<key>Description</key>
+		<string>Screen capture application for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Gridlock</string>
+		<key>GitURL</key>
+		<string>https://github.com/alexmyczko/Gridlock.app</string>
+		<key>Description</key>
+		<string>Collection of grid-based board games for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>GWorkspace</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-gworkspace</string>
+		<key>Description</key>
+		<string>Workspace Manager and File Manager for GNUstep</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -124,6 +228,14 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>Memory</string>
+		<key>GitURL</key>
+		<string>https://github.com/pcardona34/memory</string>
+		<key>Description</key>
+		<string>Simple memory monitor for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>ModPlugPlay</string>
 		<key>GitURL</key>
 		<string>https://github.com/alexmyczko/ModPlugPlay.app</string>
@@ -137,6 +249,22 @@
 		<string>https://github.com/eukara/MPlayer.app</string>
 		<key>Description</key>
 		<string>MPlayer front-end for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>NFSManager</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-nfsmanager</string>
+		<key>Description</key>
+		<string>NFS share manager for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>NoteBook</string>
+		<key>GitURL</key>
+		<string>https://github.com/pcardona34/gnustep-notebook</string>
+		<key>Description</key>
+		<string>Note taking app for GNUstep</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -156,6 +284,54 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>NX_Void</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/NX_Void</string>
+		<key>Description</key>
+		<string>Clone of the NX_Void game from NeXTSTEP for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>ProjectCenter</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-projectcenter</string>
+		<key>Description</key>
+		<string>Integrated Development Environment for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>SimpleAgenda</string>
+		<key>GitURL</key>
+		<string>https://github.com/poroussel/simpleagenda</string>
+		<key>Description</key>
+		<string>Easy to use agenda and calendar app for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>SmallBarcoder</string>
+		<key>GitURL</key>
+		<string>https://github.com/hsnamr/SmallBarcoder</string>
+		<key>Description</key>
+		<string>Barcode encoder and decoder for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>SmallClipboard</string>
+		<key>GitURL</key>
+		<string>https://github.com/hsnamr/SmallClipboard</string>
+		<key>Description</key>
+		<string>Clipboard utility for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>SmallColourSync</string>
+		<key>GitURL</key>
+		<string>https://github.com/hsnamr/SmallColourSync</string>
+		<key>Description</key>
+		<string>ICC colour profile viewer and editor for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>SmallNote</string>
 		<key>GitURL</key>
 		<string>https://github.com/hsnamr/SmallNote</string>
@@ -164,11 +340,59 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>SmallPaint</string>
+		<key>GitURL</key>
+		<string>https://github.com/hsnamr/SmallPaint</string>
+		<key>Description</key>
+		<string>Simple pixel editor for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>SmallPlayer</string>
+		<key>GitURL</key>
+		<string>https://github.com/hsnamr/SmallPlayer</string>
+		<key>Description</key>
+		<string>FFmpeg/MPlayer/mpv frontend for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>SmallReSiever</string>
+		<key>GitURL</key>
+		<string>https://github.com/hsnamr/SmallReSiever</string>
+		<key>Description</key>
+		<string>RSS feed reader for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>SmallScreenshot</string>
+		<key>GitURL</key>
+		<string>https://github.com/hsnamr/SmallScreenshot</string>
+		<key>Description</key>
+		<string>Screenshot utility for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Snapshot</string>
+		<key>GitURL</key>
+		<string>https://github.com/schik/snapshot</string>
+		<key>Description</key>
+		<string>Preview and download photos from digital cameras for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>StepBill</string>
 		<key>GitURL</key>
 		<string>https://github.com/alexmyczko/StepBill.app</string>
 		<key>Description</key>
 		<string>Port of MacBill/xbill to GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>StepDown</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/stepdown</string>
+		<key>Description</key>
+		<string>Markdown viewer/editor for GNUstep</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -188,19 +412,19 @@
 	</dict>
 	<dict>
 		<key>Name</key>
-		<string>SimpleAgenda</string>
-		<key>GitURL</key>
-		<string>https://github.com/poroussel/simpleagenda</string>
-		<key>Description</key>
-		<string>Easy to use agenda and calendar app for GNUstep</string>
-	</dict>
-	<dict>
-		<key>Name</key>
 		<string>SystemEmulator</string>
 		<key>GitURL</key>
 		<string>https://github.com/probonopd/SystemEmulator</string>
 		<key>Description</key>
 		<string>A GNUstep desktop frontend for QEMU</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>TalkSoup</string>
+		<key>GitURL</key>
+		<string>https://github.com/onflapp/gs-talksoup</string>
+		<key>Description</key>
+		<string>IRC and SILC client for GNUstep Desktop</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -254,11 +478,35 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>VideoPlayer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-videoplayer</string>
+		<key>Description</key>
+		<string>Video player for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Vindaloo</string>
+		<key>GitURL</key>
+		<string>https://github.com/jasaldivara/Vindaloo</string>
+		<key>Description</key>
+		<string>PDF viewer for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>VolumeControl</string>
 		<key>GitURL</key>
 		<string>https://github.com/alexmyczko/VolumeControl.app</string>
 		<key>Description</key>
 		<string>Volume control app for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>VolumeManager</string>
+		<key>GitURL</key>
+		<string>https://github.com/schik/volumemanager</string>
+		<key>Description</key>
+		<string>Volume manager and automounter for GNUstep</string>
 	</dict>
 	<dict>
 		<key>Name</key>

@@ -1,0 +1,374 @@
+#!/usr/bin/env python3
+# catalogupdate - Search GitHub for GNUstep apps and update Catalog.plist
+# Copyright (C) 2026 Free Software Foundation, Inc.
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation; either version 3 of the License, or (at your option)
+# any later version.
+
+"""catalogupdate - Update Build/Resources/Catalog.plist with GNUstep apps.
+
+Usage:
+  catalogupdate [OPTIONS] [CATALOG_FILE]
+
+Options:
+  -h, --help            Show this help message and exit
+  -v, --version         Show version and exit
+  -s, --search          Search GitHub for GNUstep apps not yet in catalog
+  -a URL NAME DESC      Add a single entry (URL, display name, description)
+  -l, --list            List all entries in the catalog
+  -c, --check           Check whether each catalogued repo still exists on GitHub
+  -q QUERY              Extra GitHub search query string (used with --search)
+  -t TOKEN              GitHub personal access token (or set GITHUB_TOKEN env var)
+  --dry-run             Print changes without writing to disk
+
+If CATALOG_FILE is omitted the script looks for
+  ../Build/Resources/Catalog.plist  relative to its own directory, then
+  ./Build/Resources/Catalog.plist  relative to the current directory.
+"""
+
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+from typing import Optional
+
+VERSION = "1.0.0"
+
+BUILTIN_QUERIES = [
+    "GNUstep in:description language:objective-c",
+    "topic:gnustep language:objective-c",
+    "GNUstep .app language:objective-c",
+    "org:gnustep apps-",
+]
+
+# ── plist helpers ──────────────────────────────────────────────────────────────
+
+def _plist_string(node: ET.Element) -> str:
+    """Return text of a <string> element."""
+    return (node.text or "").strip()
+
+
+def read_catalog(path: str) -> list[dict]:
+    """Parse an XML plist array-of-dicts and return a list of plain dicts."""
+    tree = ET.parse(path)
+    root = tree.getroot()
+    array = root.find("array")
+    if array is None:
+        return []
+    entries = []
+    for d in array.findall("dict"):
+        children = list(d)
+        entry: dict = {}
+        i = 0
+        while i < len(children) - 1:
+            if children[i].tag == "key":
+                key = _plist_string(children[i])
+                val = _plist_string(children[i + 1])
+                entry[key] = val
+                i += 2
+            else:
+                i += 1
+        if entry:
+            entries.append(entry)
+    return entries
+
+
+def write_catalog(path: str, entries: list[dict]) -> None:
+    """Write a list of dicts back to an XML plist file."""
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"'
+        ' "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+        '<plist version="1.0">',
+        '<array>',
+    ]
+    for entry in sorted(entries, key=lambda e: e.get("Name", "").lower()):
+        lines.append("\t<dict>")
+        for key in ["Name", "GitURL", "Description", "MakefilePath"]:
+            if key in entry:
+                val = entry[key].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                lines.append(f"\t\t<key>{key}</key>")
+                lines.append(f"\t\t<string>{val}</string>")
+        lines.append("\t</dict>")
+    lines += ["</array>", "</plist>", ""]
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines))
+
+
+# ── GitHub API helpers ─────────────────────────────────────────────────────────
+
+def _gh_request(url: str, token: Optional[str]) -> dict:
+    """Perform a GitHub API GET request and return parsed JSON."""
+    req = urllib.request.Request(url)
+    req.add_header("Accept", "application/vnd.github+json")
+    req.add_header("User-Agent", f"catalogupdate/{VERSION}")
+    if token:
+        req.add_header("Authorization", f"token {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        sys.stderr.write(f"GitHub API error {exc.code}: {url}\n")
+        return {}
+    except Exception as exc:
+        sys.stderr.write(f"Request failed: {exc}\n")
+        return {}
+
+
+def search_github(query: str, token: Optional[str], max_results: int = 200) -> list[dict]:
+    """Return a list of repository items matching *query*."""
+    results = []
+    page = 1
+    while len(results) < max_results:
+        params = urllib.parse.urlencode({
+            "q": query,
+            "per_page": 100,
+            "page": page,
+        })
+        data = _gh_request(
+            f"https://api.github.com/search/repositories?{params}", token
+        )
+        items = data.get("items", [])
+        if not items:
+            break
+        results.extend(items)
+        if len(items) < 100 or len(results) >= data.get("total_count", 0):
+            break
+        page += 1
+    return results
+
+
+def repo_exists(github_url: str, token: Optional[str]) -> bool:
+    """Return True if the GitHub repository at *github_url* still exists."""
+    m = re.match(r"https://github\.com/([^/]+/[^/]+?)(?:\.git)?$", github_url.rstrip("/"))
+    if not m:
+        return True  # not a github URL - assume OK
+    api_url = f"https://api.github.com/repos/{m.group(1)}"
+    req = urllib.request.Request(api_url)
+    req.add_header("Accept", "application/vnd.github+json")
+    req.add_header("User-Agent", f"catalogupdate/{VERSION}")
+    if token:
+        req.add_header("Authorization", f"token {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return resp.status == 200
+    except urllib.error.HTTPError as exc:
+        return exc.code != 404
+    except Exception:
+        return True  # network error - do not flag as missing
+
+
+# ── catalog operations ─────────────────────────────────────────────────────────
+
+def _existing_urls(entries: list[dict]) -> set[str]:
+    return {e.get("GitURL", "").rstrip("/").lower() for e in entries}
+
+
+def _repo_to_entry(repo: dict) -> dict:
+    """Convert a GitHub API repository dict to a catalog entry dict."""
+    name = repo.get("name", "")
+    # Strip common suffixes to get a cleaner display name
+    for suffix in (".app", ".App", "-app", "-App", ".gnustep"):
+        if name.lower().endswith(suffix.lower()):
+            name = name[: -len(suffix)]
+            break
+    # Replace hyphens/underscores with spaces for readability, then title-case
+    name = name.replace("-", " ").replace("_", " ")
+    description = repo.get("description") or f"GNUstep application: {repo['name']}"
+    return {
+        "Name": name,
+        "GitURL": repo["html_url"],
+        "Description": description,
+    }
+
+
+def search_and_propose(
+    entries: list[dict],
+    token: Optional[str],
+    extra_query: Optional[str],
+) -> list[dict]:
+    """Search GitHub and return new entries not already in the catalog."""
+    existing = _existing_urls(entries)
+    found: dict[str, dict] = {}  # url -> repo dict
+
+    queries = list(BUILTIN_QUERIES)
+    if extra_query:
+        queries.append(extra_query)
+
+    for q in queries:
+        sys.stderr.write(f"Searching: {q!r}\n")
+        for repo in search_github(q, token):
+            url = repo.get("html_url", "").rstrip("/").lower()
+            if url and url not in existing and url not in found:
+                # Basic filter: must have Objective-C or be in gnustep org
+                lang = (repo.get("language") or "").lower()
+                owner = (repo.get("owner", {}).get("login") or "").lower()
+                if lang in ("objective-c",) or owner == "gnustep":
+                    found[url] = repo
+
+    new_entries = [_repo_to_entry(r) for r in found.values()]
+    return new_entries
+
+
+# ── CLI ────────────────────────────────────────────────────────────────────────
+
+def find_catalog() -> Optional[str]:
+    """Locate Catalog.plist relative to the script or cwd."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(script_dir, "..", "Build", "Resources", "Catalog.plist"),
+        os.path.join(os.getcwd(), "Build", "Resources", "Catalog.plist"),
+        os.path.join(os.getcwd(), "Catalog.plist"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return os.path.normpath(c)
+    return None
+
+
+def print_usage() -> None:
+    print(__doc__.strip())
+
+
+def main(argv: list[str]) -> int:
+    import getopt
+
+    try:
+        opts, args = getopt.gnu_getopt(
+            argv[1:],
+            "hvslcq:t:a:",
+            ["help", "version", "search", "list", "check", "dry-run"],
+        )
+    except getopt.GetoptError as exc:
+        sys.stderr.write(f"Error: {exc}\n")
+        print_usage()
+        return 1
+
+    do_search = False
+    do_list = False
+    do_check = False
+    dry_run = False
+    add_entry: Optional[tuple] = None
+    extra_query: Optional[str] = None
+    token: Optional[str] = os.environ.get("GITHUB_TOKEN")
+    catalog_path: Optional[str] = None
+
+    i = 0
+    raw_opts = list(opts)
+    skip = set()
+    for idx, (opt, val) in enumerate(raw_opts):
+        if opt in ("-h", "--help"):
+            print_usage()
+            return 0
+        elif opt in ("-v", "--version"):
+            print(f"catalogupdate {VERSION}")
+            return 0
+        elif opt in ("-s", "--search"):
+            do_search = True
+        elif opt in ("-l", "--list"):
+            do_list = True
+        elif opt in ("-c", "--check"):
+            do_check = True
+        elif opt == "--dry-run":
+            dry_run = True
+        elif opt == "-q":
+            extra_query = val
+        elif opt == "-t":
+            token = val
+        elif opt == "-a":
+            # -a URL NAME DESC  → three consecutive values
+            # val holds URL, next two positional args hold name and description
+            if len(args) < 2:
+                sys.stderr.write(
+                    "Error: -a requires three arguments: URL NAME DESCRIPTION\n"
+                )
+                return 1
+            add_entry = (val, args[0], args[1])
+            args = args[2:]
+
+    if args:
+        catalog_path = args[0]
+
+    if catalog_path is None:
+        catalog_path = find_catalog()
+    if catalog_path is None:
+        sys.stderr.write(
+            "Error: Cannot find Catalog.plist. "
+            "Pass the path explicitly or run from the repository root.\n"
+        )
+        return 1
+
+    entries = read_catalog(catalog_path)
+
+    # ── list ──
+    if do_list:
+        for e in sorted(entries, key=lambda x: x.get("Name", "").lower()):
+            print(f"{e.get('Name', '?'):30s}  {e.get('GitURL', '')}")
+        return 0
+
+    # ── check ──
+    if do_check:
+        any_missing = False
+        for e in entries:
+            url = e.get("GitURL", "")
+            if not repo_exists(url, token):
+                print(f"MISSING  {e.get('Name', '?')}: {url}")
+                any_missing = True
+            else:
+                print(f"OK       {e.get('Name', '?')}")
+        return 1 if any_missing else 0
+
+    # ── add single entry ──
+    if add_entry:
+        url, name, desc = add_entry
+        existing = _existing_urls(entries)
+        if url.rstrip("/").lower() in existing:
+            print(f"Already in catalog: {url}")
+        else:
+            new_e = {"Name": name, "GitURL": url, "Description": desc}
+            entries.append(new_e)
+            print(f"Adding: {name}")
+            if not dry_run:
+                write_catalog(catalog_path, entries)
+                print(f"Written to {catalog_path}")
+            else:
+                print("(dry-run: not written)")
+        return 0
+
+    # ── search ──
+    if do_search:
+        new_entries = search_and_propose(entries, token, extra_query)
+        if not new_entries:
+            print("No new apps found.")
+            return 0
+        print(f"\nFound {len(new_entries)} potential new app(s):\n")
+        for e in sorted(new_entries, key=lambda x: x.get("Name", "").lower()):
+            print(f"  [{e.get('Name')}]")
+            print(f"    URL:  {e.get('GitURL')}")
+            print(f"    Desc: {e.get('Description')}")
+            print()
+        if dry_run:
+            print("(dry-run: not written)")
+            return 0
+        answer = input(f"Add all {len(new_entries)} entries to catalog? [y/N] ")
+        if answer.strip().lower() == "y":
+            entries.extend(new_entries)
+            write_catalog(catalog_path, entries)
+            print(f"Written to {catalog_path}")
+        else:
+            print("Aborted.")
+        return 0
+
+    # Default: show help if no action was given
+    print_usage()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,148 @@
+.TH CATALOGUPDATE 1 "2026" "Gershwin Desktop" "User Commands"
+.SH NAME
+catalogupdate \- update the GNUstep application catalog
+.SH SYNOPSIS
+.B catalogupdate
+.RI [ OPTIONS ]
+.RI [ CATALOG_FILE ]
+.SH DESCRIPTION
+.B catalogupdate
+is a Python script that helps maintain
+.I Build/Resources/Catalog.plist
+\(em the list of GNUstep applications available in the Gershwin PackageManager.
+It can search GitHub for new GNUstep applications, add individual entries,
+list existing entries, and check whether catalogued repositories still exist.
+.PP
+If
+.I CATALOG_FILE
+is omitted the script searches for
+.I Catalog.plist
+in
+.I ../Build/Resources/
+relative to the script\(aqs own location, then in
+.I Build/Resources/
+relative to the current directory.
+.SH OPTIONS
+.TP
+.B \-h, \-\-help
+Print a usage summary and exit.
+.TP
+.B \-v, \-\-version
+Print the version string and exit.
+.TP
+.B \-l, \-\-list
+List all entries currently in the catalog (name and URL), sorted
+alphabetically.
+.TP
+.B \-s, \-\-search
+Search GitHub for GNUstep Objective-C repositories not yet catalogued.
+Runs several built-in search queries and presents the candidates.
+Unless
+.B \-\-dry\-run
+is given the user is asked whether to add all found entries.
+.TP
+.BI \-q " QUERY"
+Append an extra GitHub search query string that is used in addition
+to the built-in queries when
+.B \-\-search
+is active.
+.TP
+.BI \-a " URL NAME DESCRIPTION"
+Add a single entry with the given GitHub
+.I URL
+(e.g.,
+.IR https://github.com/owner/repo ),
+display
+.IR NAME ,
+and
+.IR DESCRIPTION .
+The entry is silently skipped when the URL is already catalogued.
+.TP
+.B \-c, \-\-check
+Check every catalogued repository against the GitHub API and report
+any that no longer exist (HTTP\~404).
+Exits with status\~1 if any missing repository is found.
+.TP
+.BI \-t " TOKEN"
+GitHub personal access token.
+Increases the API rate limit from 60 to 5000 requests/hour.
+The environment variable
+.B GITHUB_TOKEN
+is used if this option is not supplied.
+.TP
+.B \-\-dry\-run
+Print what would be written without actually modifying the catalog file.
+.SH EXIT STATUS
+.TP
+.B 0
+Success (or no missing repositories when
+.B \-\-check
+is used).
+.TP
+.B 1
+An error occurred, or at least one repository was found missing
+during
+.BR \-\-check .
+.SH EXAMPLES
+List all currently catalogued applications:
+.PP
+.RS
+.nf
+catalogupdate --list
+.fi
+.RE
+.PP
+Search GitHub for new apps and optionally add them:
+.PP
+.RS
+.nf
+catalogupdate --search
+.fi
+.RE
+.PP
+Search with an additional query:
+.PP
+.RS
+.nf
+catalogupdate --search -q "user:myorg gnustep"
+.fi
+.RE
+.PP
+Add a single new application:
+.PP
+.RS
+.nf
+catalogupdate -a https://github.com/owner/MyApp.app MyApp "My new app"
+.fi
+.RE
+.PP
+Check all entries are still live (useful in CI):
+.PP
+.RS
+.nf
+catalogupdate --check
+.fi
+.RE
+.PP
+Preview what a search would add without writing anything:
+.PP
+.RS
+.nf
+catalogupdate --search --dry-run
+.fi
+.RE
+.SH ENVIRONMENT
+.TP
+.B GITHUB_TOKEN
+GitHub personal access token.  See
+.BI \-t " TOKEN"
+above.
+.SH FILES
+.TP
+.I Build/Resources/Catalog.plist
+The catalog file maintained by this tool.
+.SH SEE ALSO
+.BR plistupdate (1),
+.BR python3 (1)
+.SH AUTHORS
+Gershwin Project Contributors.
