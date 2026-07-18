@@ -388,6 +388,8 @@ static void writeKeyboardConfigFile(const char *layout,
     if (n > 0 && n < (int)sizeof(buf))
         writeFileIfAbsent("/etc/vconsole.conf", buf);
 #elif defined(__FreeBSD__)
+    if (mkdir("/etc/rc.conf.d", 0755) != 0 && errno != EEXIST)
+        NSLog(@"KeyboardManager: WARNING: cannot create /etc/rc.conf.d: %s", strerror(errno));
     char buf[1024];
     int n = snprintf(buf, sizeof(buf),
         "keymap=\"%s.kbd\"\n",
@@ -430,6 +432,20 @@ static const char *findSetxkbmap(void)
     }
     return NULL;
 }
+static const char *findXkbcomp(void)
+{
+    static const char *paths[] = {
+        "/usr/local/bin/xkbcomp",
+        "/usr/bin/xkbcomp",
+        "/bin/xkbcomp",
+        NULL
+    };
+    for (int i = 0; paths[i]; i++) {
+        if (access(paths[i], X_OK) == 0)
+            return paths[i];
+    }
+    return NULL;
+}
 static BOOL isConfigFileNewerThanParent(const char *path)
 {
     struct stat fs, ds;
@@ -461,25 +477,47 @@ static BOOL applyKeyboardToXServer(const char *layout,
                                    const char *options)
 {
     const char *setxkbmap = findSetxkbmap();
-    if (!setxkbmap) {
-        NSLog(@"KeyboardManager: ERROR: setxkbmap not found in any standard path");
+    if (setxkbmap) {
+        char xkb_cmd[512];
+        int n = snprintf(xkb_cmd, sizeof(xkb_cmd),
+                         "%s -option '' 2>/dev/null;"
+                         "%s %s%s%s%s%s%s 2>/dev/null",
+                         setxkbmap, setxkbmap,
+                         layout ? layout : "us",
+                         (variant && variant[0]) ? " -variant " : "",
+                         (variant && variant[0]) ? variant : "",
+                         (options && options[0]) ? " -option " : "",
+                         (options && options[0]) ? options : "",
+                         "");
+        if (n <= 0 || n >= (int)sizeof(xkb_cmd)) return NO;
+        int rc = system(xkb_cmd);
+        if (rc != 0)
+            NSLog(@"KeyboardManager: WARNING: setxkbmap exited with status %d", rc);
+        return (rc == 0);
+    }
+    const char *xkbcomp = findXkbcomp();
+    if (!xkbcomp) {
+        NSLog(@"KeyboardManager: ERROR: no keyboard layout tool (setxkbmap/xkbcomp) found");
         return NO;
     }
-    char xkb_cmd[512];
+    char xkb_cmd[1024];
     int n = snprintf(xkb_cmd, sizeof(xkb_cmd),
-                     "%s -option '' 2>/dev/null;"
-                     "%s %s%s%s%s%s%s 2>/dev/null",
-                     setxkbmap, setxkbmap,
-                     layout ? layout : "us",
-                     (variant && variant[0]) ? " -variant " : "",
-                     (variant && variant[0]) ? variant : "",
-                     (options && options[0]) ? " -option " : "",
-                     (options && options[0]) ? options : "",
-                     "");
+        "echo 'xkb_keymap {"
+        "xkb_keycodes { include \"evdev+aliases(qwerty)\" };"
+        "xkb_types { include \"complete\" };"
+        "xkb_compat { include \"complete\" };"
+        "xkb_symbols { include \"pc+%s%s%s%s+inet(evdev)\" };"
+        "xkb_geometry { include \"pc(pc105)\" };"
+        "};' | %s -w 0 - $DISPLAY 2>/dev/null",
+        layout ? layout : "us",
+        (variant && variant[0]) ? "(" : "",
+        (variant && variant[0]) ? variant : "",
+        (variant && variant[0]) ? ")" : "",
+        xkbcomp);
     if (n <= 0 || n >= (int)sizeof(xkb_cmd)) return NO;
     int rc = system(xkb_cmd);
     if (rc != 0)
-        NSLog(@"KeyboardManager: WARNING: setxkbmap exited with status %d", rc);
+        NSLog(@"KeyboardManager: WARNING: xkbcomp exited with status %d", rc);
     return (rc == 0);
 }
 static BOOL parseRcConfKeymap(const char **layout, const char **variant)
