@@ -222,40 +222,40 @@ custom-install: $(APP_NAME).app
 		mkdir -p $(DESTDIR)$(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources; \
 		cp Menu.png $(DESTDIR)$(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources/; \
 		echo "Installing status item bundles..."; \
-		mkdir -p $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems; \
-		mkdir -p $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras; \
-		cp -R StatusItems/SystemMonitor/SystemMonitor.bundle $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/ClockExtra/Clock.gsmenuextra $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/ClockExtra/Clock.gsmenuextra $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras/ || true; \
-		cp -R StatusItems/BatteryExtra/Battery.gsmenuextra $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/BatteryExtra/Battery.gsmenuextra $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras/ || true; \
-		cp -R StatusItems/WLANExtra/WLAN.gsmenuextra $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/WLANExtra/WLAN.gsmenuextra $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras/ || true; \
-		cp -R StatusItems/SoundExtra/Sound.gsmenuextra $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/SoundExtra/Sound.gsmenuextra $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras/ || true; \
-		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)$(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras/ || true; \
+		mkdir -p $(DESTDIR)/System/Library/Menu/StatusItems; \
+		mkdir -p $(DESTDIR)/System/Library/MenuExtras; \
+		cp -R StatusItems/SystemMonitor/SystemMonitor.bundle $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
+		cp -R StatusItems/ClockExtra/Clock.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
+		cp -R StatusItems/ClockExtra/Clock.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R StatusItems/BatteryExtra/Battery.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
+		cp -R StatusItems/BatteryExtra/Battery.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R StatusItems/WLANExtra/WLAN.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
+		cp -R StatusItems/WLANExtra/WLAN.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R StatusItems/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
+		cp -R StatusItems/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
+		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
 	else \
 		echo "Installing $(APP_NAME) to $(INSTALL_APPS_DIR)"; \
-		rm -rf $(GNUSTEP_SYSTEM_APPS)/$(APP_NAME).app || true; \
+		rm -rf /System/Applications/$(APP_NAME).app || true; \
 		mkdir -p $(INSTALL_APPS_DIR); \
 		cp -R $(APP_NAME).app $(INSTALL_APPS_DIR)/; \
 		mkdir -p $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources; \
 		cp Menu.png $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources/; \
 			echo "Installing status item bundles..."; \
-			mkdir -p $(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras; \
-			mkdir -p $(GNUSTEP_LOCAL_ROOT)/Library/MenuExtras; \
-			cp -R StatusItems/SystemMonitor/SystemMonitor.bundle $(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/ClockExtra/Clock.gsmenuextra $(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/ClockExtra/Clock.gsmenuextra $(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras/ || true; \
-			cp -R StatusItems/BatteryExtra/Battery.gsmenuextra $(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/BatteryExtra/Battery.gsmenuextra $(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras/ || true; \
-			cp -R StatusItems/WLANExtra/WLAN.gsmenuextra $(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/WLANExtra/WLAN.gsmenuextra $(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras/ || true; \
-			cp -R StatusItems/SoundExtra/Sound.gsmenuextra $(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/SoundExtra/Sound.gsmenuextra $(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras/ || true; \
-			cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(GNUSTEP_SYSTEM_ROOT)/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(GNUSTEP_SYSTEM_ROOT)/Library/MenuExtras/ || true; \
+			mkdir -p /System/Library/MenuExtras; \
+			mkdir -p /Local/Library/MenuExtras; \
+			cp -R StatusItems/SystemMonitor/SystemMonitor.bundle /System/Library/Menu/StatusItems/ || true; \
+			cp -R StatusItems/ClockExtra/Clock.gsmenuextra /System/Library/Menu/StatusItems/ || true; \
+			cp -R StatusItems/ClockExtra/Clock.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R StatusItems/BatteryExtra/Battery.gsmenuextra /System/Library/Menu/StatusItems/ || true; \
+			cp -R StatusItems/BatteryExtra/Battery.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R StatusItems/WLANExtra/WLAN.gsmenuextra /System/Library/Menu/StatusItems/ || true; \
+			cp -R StatusItems/WLANExtra/WLAN.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R StatusItems/SoundExtra/Sound.gsmenuextra /System/Library/Menu/StatusItems/ || true; \
+			cp -R StatusItems/SoundExtra/Sound.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra /System/Library/Menu/StatusItems/ || true; \
+			cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra /System/Library/MenuExtras/ || true; \
 	fi
 # Override uninstall target to properly support DESTDIR and PREFIX
 uninstall:: custom-uninstall

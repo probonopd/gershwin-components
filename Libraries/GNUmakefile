@@ -1,5 +1,5 @@
 # Top-level GNUmakefile for Libraries
-# Builds and installs shared backend libraries so dependent components can
+# Builds shared backend libraries so dependent components can
 # link against headers and libraries from the canonical system locations.
 
 SUBDIRS := $(sort $(shell for d in *; do \
@@ -12,12 +12,12 @@ SUBDIRS := $(sort $(shell for d in *; do \
 all: build
 
 $(SUBDIRS):
-	@echo "Building and installing $@..."
-	$(MAKE) -C $@ install
+	@echo "Building $@..."
+	$(MAKE) -C $@ all
 	@echo "$@ done."
 
 build: $(SUBDIRS)
-	@echo "All libraries built and installed."
+	@echo "All libraries built."
 
 clean:
 	@for d in $(SUBDIRS); do \
@@ -34,4 +34,8 @@ distclean: clean
 	done
 
 install: build
+	@for d in $(SUBDIRS); do \
+		echo "Installing $${d}..."; \
+		$(MAKE) -C $${d} install; \
+	done
 	@echo "All libraries installed."

@@ -27,7 +27,7 @@ INSTALL_APPS_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/CoreServices/Applications
 include $(GNUSTEP_MAKEFILES)/application.make
 
 # Install target
-install:: all
+install::
 	@echo "Installing LoginWindow.app..."
 	@if [ -n "$(DESTDIR)" ]; then \
 		echo "Installing to $(DESTDIR)$(INSTALL_APPS_DIR)"; \
