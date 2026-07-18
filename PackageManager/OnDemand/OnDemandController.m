@@ -120,6 +120,53 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
 
 @end
 
+#pragma mark - ODBlockHolder (dispatch replacement)
+
+@interface ODBlockHolder : NSObject
+{
+  void (^_block)(void);
+}
++ (instancetype)holderWithBlock:(void (^)(void))block;
++ (void)performOnMainThread:(void (^)(void))block;
++ (void)performInBackground:(void (^)(void))block;
++ (void)performOnMainThread:(void (^)(void))block afterDelay:(NSTimeInterval)delay;
+- (void)execute;
+@end
+
+@implementation ODBlockHolder
+
++ (instancetype)holderWithBlock:(void (^)(void))block
+{
+  ODBlockHolder *h = [[self alloc] init];
+  h->_block = [block copy];
+  return h;
+}
+
+- (void)execute
+{
+  if (_block) _block();
+}
+
++ (void)performOnMainThread:(void (^)(void))block
+{
+  ODBlockHolder *h = [self holderWithBlock:block];
+  [h performSelectorOnMainThread:@selector(execute) withObject:nil waitUntilDone:NO];
+}
+
++ (void)performInBackground:(void (^)(void))block
+{
+  ODBlockHolder *h = [self holderWithBlock:block];
+  [NSThread detachNewThreadSelector:@selector(execute) toTarget:h withObject:nil];
+}
+
++ (void)performOnMainThread:(void (^)(void))block afterDelay:(NSTimeInterval)delay
+{
+  ODBlockHolder *h = [self holderWithBlock:block];
+  [h performSelector:@selector(execute) withObject:nil afterDelay:delay];
+}
+
+@end
+
 #pragma mark - OnDemandController
 
 @implementation OnDemandController
@@ -290,10 +337,7 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
   [_window setTitle:_appName];
   [_window center];
 
-  // Defer display to next run loop iteration to avoid window system crashes
-  dispatch_async(dispatch_get_main_queue(), ^{
-    [_window orderFront:nil];
-  });
+  [_window orderFront:nil];
 }
 
 #pragma mark - Progress Handler
@@ -301,7 +345,7 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
 - (void)installDidProgress:(float)progress message:(NSString *)message
 {
   NSLog(@"OnDemand -> installDidProgress: %.0f%% — %@", progress * 100, message);
-  dispatch_async(dispatch_get_main_queue(), ^{
+  [ODBlockHolder performOnMainThread:^{
     [_statusField setStringValue:message ?: @""];
 
     // Switch to indeterminate during long operations (no real progress info)
@@ -322,7 +366,7 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
       }
 
     [_progressBar displayIfNeeded];
-  });
+  }];
 }
 
 #pragma mark - Actions
@@ -542,14 +586,13 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
 {
   NSLog(@"OnDemand [FAIL] Download FAILED: %@", message);
   [self _showError:message];
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-                 dispatch_get_main_queue(), ^{
+  [ODBlockHolder performOnMainThread:^{
     if (!_isTerminating)
       {
         _isTerminating = YES;
         [NSApp terminate:nil];
       }
-  });
+  } afterDelay:1.0];
 }
 
 /// Post-install launch step — called on the main thread after a successful install.
@@ -566,11 +609,11 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
   if (command)
     {
       NSLog(@"OnDemand -> [Step 2/2] Executing command: %@", command);
-      dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+      [ODBlockHolder performInBackground:^{
         int status = [self _executeCommand:command arguments:commandArgs];
         NSLog(@"OnDemand [OK] [Step 2/2] Execution finished (status %d), exiting", status);
         exit(status >= 0 ? status : 1);
-      });
+      }];
     }
   else
     {
@@ -591,14 +634,14 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
 
   // Run the blocking install on a background thread so the UI stays responsive
   // and the progress bar updates in real time
-  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+  [ODBlockHolder performInBackground:^{
     NSError *error = nil;
     BOOL success = [_pm installPackages:packages
                          localFilePaths:localFiles
                               progress:self
                                  error:&error];
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    [ODBlockHolder performOnMainThread:^{
       if (!success)
         {
           NSString *captured = [_pm capturedErrorOutput];
@@ -611,7 +654,7 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
               NSLog(@"OnDemand: dpkg was interrupted, running --configure -a and retrying...");
               [_statusField setStringValue:@"Recovering from interrupted package configuration…"];
 
-              dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+              [ODBlockHolder performInBackground:^{
                 // Fix the interrupted dpkg state
                 [self _executeCommand:@"/usr/bin/sudo"
                            arguments:@[@"dpkg", @"--configure", @"-a"]];
@@ -623,7 +666,7 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
                                                progress:self
                                                   error:&retryError];
 
-                dispatch_async(dispatch_get_main_queue(), ^{
+                [ODBlockHolder performOnMainThread:^{
                   if (retrySuccess)
                     {
                       NSLog(@"OnDemand: dpkg recovery succeeded, continuing...");
@@ -639,8 +682,8 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
                                                                                 appName:_appName];
                       [self _showInstallError:retryCaptured];
                     }
-                });
-              });
+                }];
+              }];
               return;
             }
 
@@ -657,8 +700,8 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
 
       NSLog(@"OnDemand [OK] [Step 1/2] Download succeeded");
       [self _launchAfterInstall];
-    });
-  });
+    }];
+  }];
 }
 
 #pragma mark - Error Display
@@ -689,7 +732,10 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
   if ([NSThread isMainThread])
     showBlock();
   else
-    dispatch_sync(dispatch_get_main_queue(), showBlock);
+    {
+      ODBlockHolder *h = [ODBlockHolder holderWithBlock:showBlock];
+      [h performSelectorOnMainThread:@selector(execute) withObject:nil waitUntilDone:YES];
+    }
 }
 
 - (void)quitClicked:(id)sender
@@ -759,81 +805,52 @@ static double _parseSizeBefore(NSString *line, NSString *marker)
   return 0.0;
 }
 
-- (void)installDidOutputLine:(NSString *)line
+- (void)_processOutputLine:(NSString *)line
 {
-  if (!line) return;
-  dispatch_async(dispatch_get_main_queue(), ^{
-    if (_logController)
-      [_logController appendLog:[line stringByAppendingString:@"\n"]];
+  if (_logController)
+    [_logController appendLog:[line stringByAppendingString:@"\n"]];
 
-    // ═══════════════════════════════════════════════════════════
-    // 1. Total download size (first match across all backends)
-    // ═══════════════════════════════════════════════════════════
-    if (_totalDownloadBytes == 0.0)
-      {
-        // apt:   "Need to get X MB/kB of archives"
-        double sz = _parseSizeAfter(line, @"Need to get ");
-        if (sz == 0.0)
-          // pacman: "Total Download Size:  X.XX MB"
-          sz = _parseSizeAfter(line, @"Total Download Size: ");
-        if (sz == 0.0)
-          // pkg:   "X MB/kB to be downloaded."
-          sz = _parseSizeBefore(line, @" to be downloaded.");
-        if (sz > 0.0)
-          _totalDownloadBytes = sz;
-      }
-
-    // ═══════════════════════════════════════════════════════════
-    // 2. Download-phase progress
-    // ═══════════════════════════════════════════════════════════
-
-    // 2a. apt: parse "Get:N ... [X MB/kB]" → _downloadedBytes
-    if (_totalDownloadBytes > 0.0)
-      {
-        NSRange r = [line rangeOfString:@"["];
-        if (r.location != NSNotFound)
-          {
-            NSString *rest = [line substringFromIndex:r.location + 1];
-            NSRange end = [rest rangeOfString:@"]"];
-            if (end.location != NSNotFound)
-              {
-                NSString *sizeStr = [rest substringToIndex:end.location];
-                NSScanner *scanner = [NSScanner scannerWithString:sizeStr];
-                double val;
-                if ([scanner scanDouble:&val])
-                  {
-                    double bytes = _sizeSuffixToBytes(sizeStr, val);
-                    if (bytes > 0.0)
-                      {
-                        _downloadedBytes += bytes;
-                        CGFloat p = MIN(_downloadedBytes / _totalDownloadBytes, 1.0);
-                        [_progressBar setIndeterminate:NO];
-                        [_progressBar setDoubleValue:0.05 + p * 0.7];
-                        [_progressBar displayIfNeeded];
-                      }
-                  }
-              }
-          }
-      }
-
-    // 2b. pacman 6+: total progress bar "Total ( n/m)  ... [####] XX%"
+  // ═══════════════════════════════════════════════════════════
+  // 1. Total download size (first match across all backends)
+  // ═══════════════════════════════════════════════════════════
+  if (_totalDownloadBytes == 0.0)
     {
-      NSRange r = [line rangeOfString:@"Total ("];
+      // apt:   "Need to get X MB/kB of archives"
+      double sz = _parseSizeAfter(line, @"Need to get ");
+      if (sz == 0.0)
+        // pacman: "Total Download Size:  X.XX MB"
+        sz = _parseSizeAfter(line, @"Total Download Size: ");
+      if (sz == 0.0)
+        // pkg:   "X MB/kB to be downloaded."
+        sz = _parseSizeBefore(line, @" to be downloaded.");
+      if (sz > 0.0)
+        _totalDownloadBytes = sz;
+    }
+
+  // ═══════════════════════════════════════════════════════════
+  // 2. Download-phase progress
+  // ═══════════════════════════════════════════════════════════
+
+  // 2a. apt: parse "Get:N ... [X MB/kB]" → _downloadedBytes
+  if (_totalDownloadBytes > 0.0)
+    {
+      NSRange r = [line rangeOfString:@"["];
       if (r.location != NSNotFound)
         {
-          // Find the last "%" in the line
-          NSRange pct = [line rangeOfString:@"%" options:NSBackwardsSearch];
-          if (pct.location != NSNotFound && pct.location > 2)
+          NSString *rest = [line substringFromIndex:r.location + 1];
+          NSRange end = [rest rangeOfString:@"]"];
+          if (end.location != NSNotFound)
             {
-              NSUInteger start = pct.location;
-              while (start > 0 && isdigit([line characterAtIndex:start - 1]))
-                start--;
-              if (start < pct.location)
+              NSString *sizeStr = [rest substringToIndex:end.location];
+              NSScanner *scanner = [NSScanner scannerWithString:sizeStr];
+              double val;
+              if ([scanner scanDouble:&val])
                 {
-                  CGFloat p = [[line substringWithRange:
-                    NSMakeRange(start, pct.location - start)] floatValue] / 100.0;
-                  if (p >= 0.0 && p <= 1.0)
+                  double bytes = _sizeSuffixToBytes(sizeStr, val);
+                  if (bytes > 0.0)
                     {
+                      _downloadedBytes += bytes;
+                      CGFloat p = MIN(_downloadedBytes / _totalDownloadBytes, 1.0);
                       [_progressBar setIndeterminate:NO];
                       [_progressBar setDoubleValue:0.05 + p * 0.7];
                       [_progressBar displayIfNeeded];
@@ -843,129 +860,161 @@ static double _parseSizeBefore(NSString *line, NSString *marker)
         }
     }
 
-    // 2c. FreeBSD pkg: "Fetching <pkg>: XX%" — track each file's completion
-    {
-      NSString *fetchPrefix = @"Fetching ";
-      if ([line hasPrefix:fetchPrefix])
-        {
-          NSRange pct = [line rangeOfString:@"%" options:NSBackwardsSearch];
-          if (pct.location != NSNotFound && pct.location > 2)
-            {
-              NSUInteger start = pct.location;
-              while (start > 0 && isdigit([line characterAtIndex:start - 1]))
-                start--;
-              if (start < pct.location)
-                {
-                  CGFloat filePct = [[line substringWithRange:
-                    NSMakeRange(start, pct.location - start)] floatValue] / 100.0;
-                  // When percentage drops, a new file started
-                  if (_lastFetchPct >= 0.99 && filePct < 0.1)
-                    _completedFetchFiles++;
-                  _lastFetchPct = filePct;
-                }
-            }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // 3. Install-phase progress  (dpkg, pacman, pkg)
-    // ═══════════════════════════════════════════════════════════
-
-    // 3a. dpkg: "(Reading database ... 45%)"
-    {
-      NSRange r = [line rangeOfString:@"%"];
-      if (r.location != NSNotFound && r.location > 0)
-        {
-          NSUInteger start = r.location;
-          while (start > 0 && isdigit([line characterAtIndex:start - 1]))
-            start--;
-          if (start < r.location)
-            {
-              CGFloat pct = [[line substringWithRange:
-                NSMakeRange(start, r.location - start)] floatValue] / 100.0;
-              if (pct >= 0.0 && pct <= 1.0)
-                {
-                  [_progressBar setIndeterminate:NO];
-                  [_progressBar setDoubleValue:0.75 + pct * 0.25];
-                  [_progressBar displayIfNeeded];
-                }
-            }
-        }
-    }
-
-    // 3b. pacman install: "(n/m) installing/checking..." and
-    //     pkg install:     "[n/m] Installing/Extracting..."
-    {
-      // Try parentheses first: pacman "(n/m)"
-      NSRange open = [line rangeOfString:@"("];
-      NSRange close = [line rangeOfString:@")"];
-      if (open.location != NSNotFound && close.location != NSNotFound &&
-          close.location > open.location)
-        {
-          NSString *inner = [line substringWithRange:
-            NSMakeRange(open.location + 1,
-                        close.location - open.location - 1)];
-          NSArray *parts = [inner componentsSeparatedByString:@"/"];
-          if ([parts count] == 2)
-            {
-            CGFloat n = [parts[0] floatValue];
-            CGFloat m = [parts[1] floatValue];
-            if (n >= 1.0 && m >= n)
-              {
-                [_progressBar setIndeterminate:NO];
-                [_progressBar setDoubleValue:0.75 + (n / m) * 0.25];
-                [_progressBar displayIfNeeded];
-              }
-            }
-        }
-
-      // Try brackets: pkg "[n/m]"
-      NSRange ob = [line rangeOfString:@"["];
-      NSRange cb = [line rangeOfString:@"]"];
-      if (ob.location != NSNotFound && cb.location != NSNotFound &&
-          cb.location > ob.location)
-        {
-          NSString *inner = [line substringWithRange:
-            NSMakeRange(ob.location + 1,
-                        cb.location - ob.location - 1)];
-          NSArray *parts = [inner componentsSeparatedByString:@"/"];
-          if ([parts count] == 2)
-            {
-            CGFloat n = [parts[0] floatValue];
-            CGFloat m = [parts[1] floatValue];
-            if (n >= 1.0 && m >= n)
-              {
-                [_progressBar setIndeterminate:NO];
-                [_progressBar setDoubleValue:0.75 + (n / m) * 0.25];
-                [_progressBar displayIfNeeded];
-              }
-            }
-        }
-
-      // OpenBSD pkg_add -V: line containing "n/m" (bare fraction)
+  // 2b. pacman 6+: total progress bar "Total ( n/m)  ... [####] XX%"
+  {
+    NSRange r = [line rangeOfString:@"Total ("];
+    if (r.location != NSNotFound)
       {
-        NSString *trimmed = [line stringByTrimmingCharactersInSet:
-          [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        NSArray *toks = [trimmed componentsSeparatedByCharactersInSet:
-          [NSCharacterSet characterSetWithCharactersInString:@" :"]];
-        for (NSString *tok in toks)
+        // Find the last "%" in the line
+        NSRange pct = [line rangeOfString:@"%" options:NSBackwardsSearch];
+        if (pct.location != NSNotFound && pct.location > 2)
           {
-            NSArray *parts = [tok componentsSeparatedByString:@"/"];
-            if ([parts count] == 2)
+            NSUInteger start = pct.location;
+            while (start > 0 && isdigit([line characterAtIndex:start - 1]))
+              start--;
+            if (start < pct.location)
               {
-                CGFloat n = [parts[0] floatValue];
-                CGFloat m = [parts[1] floatValue];
-                if (n >= 1.0 && m >= n && m <= 999)
+                CGFloat p = [[line substringWithRange:
+                  NSMakeRange(start, pct.location - start)] floatValue] / 100.0;
+                if (p >= 0.0 && p <= 1.0)
                   {
                     [_progressBar setIndeterminate:NO];
-                    [_progressBar setDoubleValue:0.75 + (n / m) * 0.25];
+                    [_progressBar setDoubleValue:0.05 + p * 0.7];
                     [_progressBar displayIfNeeded];
                   }
               }
           }
       }
+  }
+
+  // 2c. FreeBSD pkg: "Fetching <pkg>: XX%" — track each file's completion
+  {
+    NSString *fetchPrefix = @"Fetching ";
+    if ([line hasPrefix:fetchPrefix])
+      {
+        NSRange pct = [line rangeOfString:@"%" options:NSBackwardsSearch];
+        if (pct.location != NSNotFound && pct.location > 2)
+          {
+            NSUInteger start = pct.location;
+            while (start > 0 && isdigit([line characterAtIndex:start - 1]))
+              start--;
+            if (start < pct.location)
+              {
+                CGFloat filePct = [[line substringWithRange:
+                  NSMakeRange(start, pct.location - start)] floatValue] / 100.0;
+                // When percentage drops, a new file started
+                if (_lastFetchPct >= 0.99 && filePct < 0.1)
+                  _completedFetchFiles++;
+                _lastFetchPct = filePct;
+              }
+          }
+      }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 3. Install-phase progress  (dpkg, pacman, pkg)
+  // ═══════════════════════════════════════════════════════════
+
+  // 3a. dpkg: "(Reading database ... 45%)"
+  {
+    NSRange r = [line rangeOfString:@"%"];
+    if (r.location != NSNotFound && r.location > 0)
+      {
+        NSUInteger start = r.location;
+        while (start > 0 && isdigit([line characterAtIndex:start - 1]))
+          start--;
+        if (start < r.location)
+          {
+            CGFloat pct = [[line substringWithRange:
+              NSMakeRange(start, r.location - start)] floatValue] / 100.0;
+            if (pct >= 0.0 && pct <= 1.0)
+              {
+                [_progressBar setIndeterminate:NO];
+                [_progressBar setDoubleValue:0.75 + pct * 0.25];
+                [_progressBar displayIfNeeded];
+              }
+          }
+      }
+  }
+
+  // 3b. pacman install: "(n/m) installing/checking..." and
+  //     pkg install:     "[n/m] Installing/Extracting..."
+  {
+    // Try parentheses first: pacman "(n/m)"
+    NSRange open = [line rangeOfString:@"("];
+    NSRange close = [line rangeOfString:@")"];
+    if (open.location != NSNotFound && close.location != NSNotFound &&
+        close.location > open.location)
+      {
+        NSString *inner = [line substringWithRange:
+          NSMakeRange(open.location + 1,
+                      close.location - open.location - 1)];
+        NSArray *parts = [inner componentsSeparatedByString:@"/"];
+        if ([parts count] == 2)
+          {
+          CGFloat n = [parts[0] floatValue];
+          CGFloat m = [parts[1] floatValue];
+          if (n >= 1.0 && m >= n)
+            {
+              [_progressBar setIndeterminate:NO];
+              [_progressBar setDoubleValue:0.75 + (n / m) * 0.25];
+              [_progressBar displayIfNeeded];
+            }
+          }
+      }
+
+    // Try brackets: pkg "[n/m]"
+    NSRange ob = [line rangeOfString:@"["];
+    NSRange cb = [line rangeOfString:@"]"];
+    if (ob.location != NSNotFound && cb.location != NSNotFound &&
+        cb.location > ob.location)
+      {
+        NSString *inner = [line substringWithRange:
+          NSMakeRange(ob.location + 1,
+                      cb.location - ob.location - 1)];
+        NSArray *parts = [inner componentsSeparatedByString:@"/"];
+        if ([parts count] == 2)
+          {
+          CGFloat n = [parts[0] floatValue];
+          CGFloat m = [parts[1] floatValue];
+          if (n >= 1.0 && m >= n)
+            {
+              [_progressBar setIndeterminate:NO];
+              [_progressBar setDoubleValue:0.75 + (n / m) * 0.25];
+              [_progressBar displayIfNeeded];
+            }
+          }
+      }
+
+    // OpenBSD pkg_add -V: line containing "n/m" (bare fraction)
+    {
+      NSString *trimmed = [line stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+      NSArray *toks = [trimmed componentsSeparatedByCharactersInSet:
+        [NSCharacterSet characterSetWithCharactersInString:@" :"]];
+      for (NSString *tok in toks)
+        {
+          NSArray *parts = [tok componentsSeparatedByString:@"/"];
+          if ([parts count] == 2)
+            {
+              CGFloat n = [parts[0] floatValue];
+              CGFloat m = [parts[1] floatValue];
+              if (n >= 1.0 && m >= n && m <= 999)
+                {
+                  [_progressBar setIndeterminate:NO];
+                  [_progressBar setDoubleValue:0.75 + (n / m) * 0.25];
+                  [_progressBar displayIfNeeded];
+                }
+            }
+        }
     }
-  });
+  }
+}
+
+- (void)installDidOutputLine:(NSString *)line
+{
+  if (!line) return;
+  [self performSelectorOnMainThread:@selector(_processOutputLine:) withObject:line waitUntilDone:NO];
 }
 
 #pragma mark - Installer Log
