@@ -497,12 +497,12 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
     CGFloat statusItemsWidth = [self.statusItemManager extrasMenuWidth];
     if (extrasMenuView) {
-        [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth - 24, 0,
+        [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth - 8, 0,
                                             statusItemsWidth, menuBarHeight)];
     }
 
     // Resize app menu widget to fill remaining space
-    CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth;
+    CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth - 8;
     [self.appMenuWidget setFrame:NSMakeRect(0, 0, menuWidgetWidth, menuBarHeight)];
 
     // Resize rounded corners view
@@ -978,12 +978,12 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     CGFloat statusItemsWidth = [self.statusItemManager extrasMenuWidth];
     NSDebugLLog(@"gwcomp", @"MenuController: Extras menu view width: %.0f", statusItemsWidth);
 
-    // Position extras 24px from the right edge of the menu bar
-    [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth - 24, 0,
+    // Position extras 8px from the right edge of the menu bar
+    [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth - 8, 0,
                                         statusItemsWidth, menuBarHeight)];
 
     // Give the app menu widget the remaining space
-    CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth - 24;
+    CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth - 8;
     self.appMenuWidget = [[AppMenuWidget alloc] initWithFrame:NSMakeRect(0, 0, menuWidgetWidth, menuBarHeight)];
     NSDebugLLog(@"gwcomp", @"MenuController: AppMenuWidget created successfully");
     
