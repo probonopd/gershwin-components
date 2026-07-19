@@ -501,19 +501,28 @@ static BOOL applyKeyboardToXServer(const char *layout,
         return NO;
     }
     char xkb_cmd[1024];
-    int n = snprintf(xkb_cmd, sizeof(xkb_cmd),
-        "echo 'xkb_keymap {"
-        "xkb_keycodes { include \"evdev+aliases(qwerty)\" };"
-        "xkb_types { include \"complete\" };"
-        "xkb_compat { include \"complete\" };"
-        "xkb_symbols { include \"pc+%s%s%s%s+inet(evdev)\" };"
-        "xkb_geometry { include \"pc(pc105)\" };"
-        "};' | %s -w 0 - $DISPLAY 2>/dev/null",
-        layout ? layout : "us",
-        (variant && variant[0]) ? "(" : "",
-        (variant && variant[0]) ? variant : "",
-        (variant && variant[0]) ? ")" : "",
-        xkbcomp);
+    int n;
+    if (variant && variant[0]) {
+        n = snprintf(xkb_cmd, sizeof(xkb_cmd),
+            "echo 'xkb_keymap {"
+            "xkb_keycodes { include \"evdev+aliases(qwerty)\" };"
+            "xkb_types { include \"complete\" };"
+            "xkb_compat { include \"complete\" };"
+            "xkb_symbols { include \"pc+%s(%s)+inet(evdev)\" };"
+            "xkb_geometry { include \"pc(pc105)\" };"
+            "};' | %s -w 0 - $DISPLAY 2>/dev/null",
+            layout ? layout : "us", variant, xkbcomp);
+    } else {
+        n = snprintf(xkb_cmd, sizeof(xkb_cmd),
+            "echo 'xkb_keymap {"
+            "xkb_keycodes { include \"evdev+aliases(qwerty)\" };"
+            "xkb_types { include \"complete\" };"
+            "xkb_compat { include \"complete\" };"
+            "xkb_symbols { include \"pc+%s+inet(evdev)\" };"
+            "xkb_geometry { include \"pc(pc105)\" };"
+            "};' | %s -w 0 - $DISPLAY 2>/dev/null",
+            layout ? layout : "us", xkbcomp);
+    }
     if (n <= 0 || n >= (int)sizeof(xkb_cmd)) return NO;
     int rc = system(xkb_cmd);
     if (rc != 0)
