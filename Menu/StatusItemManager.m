@@ -14,6 +14,30 @@
 #import <AppKit/NSMenuView.h>
 #import <GNUstepGUI/GSTheme.h>
 #import "TintedMenuItemCell.h"
+#import <sys/stat.h>
+#if defined(__FreeBSD__) || defined(__NetBSD__)
+#import <sys/sysctl.h>
+#endif
+
+static BOOL HasBattery(void)
+{
+#if defined(__linux__)
+    struct stat sb;
+    return (stat("/sys/class/power_supply/BAT0", &sb) == 0 && S_ISDIR(sb.st_mode)) ||
+           (stat("/sys/class/power_supply/BAT1", &sb) == 0 && S_ISDIR(sb.st_mode));
+#elif defined(__FreeBSD__) || defined(__NetBSD__)
+    int val = 0;
+    size_t len = sizeof(val);
+    if (sysctlbyname("hw.acpi.battery.life", &val, &len, NULL, 0) == 0)
+        return YES;
+    return NO;
+#elif defined(__OpenBSD__)
+    struct stat sb;
+    return (stat("/usr/sbin/apm", &sb) == 0);
+#else
+    return NO;
+#endif
+}
 
 #pragma mark - Width reference helpers
 
@@ -350,6 +374,11 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 
     NSString *className = [map objectForKey:identifier];
     if (!className) return nil;
+
+    if ([identifier isEqualToString:@"org.gnustep.menuextra.battery"] && !HasBattery()) {
+        NSLog(@"GSMenuExtra: no battery detected, skipping %@", identifier);
+        return nil;
+    }
 
     Class cls = NSClassFromString(className);
     if (!cls) return nil;
