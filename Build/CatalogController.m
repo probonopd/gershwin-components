@@ -16,7 +16,9 @@ static const CGFloat kBtnHeight = 20.0;
 static const CGFloat kBtnWide = 100.0;
 static const CGFloat kBtnHSpace = 10.0;
 static const CGFloat kSpace16 = 16.0;
+static const CGFloat kSpace8 = 8.0;
 static const CGFloat kRowHeight = 20.0;
+static const CGFloat kSearchFieldHeight = 22.0;
 
 static const CGFloat kWinWidth = 420.0;
 static const CGFloat kWinHeight = 260.0;
@@ -28,6 +30,7 @@ static const CGFloat kWinHeight = 260.0;
     self = [super init];
     if (self) {
         _entries = [[CatalogEntry loadCatalog] retain];
+        _filteredEntries = [_entries retain];
     }
     return self;
 }
@@ -35,8 +38,11 @@ static const CGFloat kWinHeight = 260.0;
 - (void)dealloc
 {
     [_entries release];
+    [_filteredEntries release];
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_window release];
     [_tableView release];
+    [_searchField release];
     [_buildButton release];
     [super dealloc];
 }
@@ -52,11 +58,8 @@ static const CGFloat kWinHeight = 260.0;
     CGFloat right = kSideMargin;
     CGFloat contentW = kWinWidth - left - right;
     CGFloat bottom = kBottomMargin;
-    CGFloat top = kTopMargin;
     CGFloat btnW = kBtnWide;
     CGFloat btnH = kBtnHeight;
-
-    CGFloat listH = kWinHeight - top - kSpace16 - btnH - bottom;
 
     _window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, kWinWidth, kWinHeight)
                                           styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
@@ -91,6 +94,8 @@ static const CGFloat kWinHeight = 260.0;
     y += btnH + kSpace16;
 
     /* Table view */
+    CGFloat tableTop = kWinHeight - kTopMargin - kSpace8 - kSearchFieldHeight;
+    CGFloat listH = tableTop - y;
     NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(left, y, contentW, listH)];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:NO];
@@ -118,7 +123,37 @@ static const CGFloat kWinHeight = 260.0;
     [scrollView setDocumentView:_tableView];
     [contentView addSubview:scrollView];
 
-    if ([_entries count] > 0) {
+    y = tableTop + kSpace8;
+
+    /* Search field — use NSSearchField if the theme supports it (Eau's
+     * NSSearchFieldCell+Eau provides rounded bezel, search icon, clear button);
+     * fall back to a plain rounded NSTextField if no theme is active. */
+    BOOL themeSearch = [NSSearchFieldCell instancesRespondToSelector:@selector(EAUsearchButtonRectForBounds:)];
+    if (themeSearch)
+      {
+        _searchField = [[NSSearchField alloc] initWithFrame: NSMakeRect(left, y, contentW, kSearchFieldHeight)];
+      }
+    else
+      {
+        NSTextField *tf = [[NSTextField alloc] initWithFrame: NSMakeRect(left, y, contentW, kSearchFieldHeight)];
+        [tf setBezeled: YES];
+        [tf setBezelStyle: NSTextFieldRoundedBezel];
+        [tf setEditable: YES];
+        [tf setSelectable: YES];
+        _searchField = (NSSearchField *)tf;
+      }
+    [_searchField setPlaceholderString:@"Filter\u2026"];
+    [_searchField setTarget:self];
+    [_searchField setAction:@selector(filterContent:)];
+    [_searchField setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(filterContent:)
+                                                 name:NSControlTextDidChangeNotification
+                                               object:_searchField];
+    [contentView addSubview:_searchField];
+
+    if ([_filteredEntries count] > 0) {
         [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
         [_buildButton setEnabled:YES];
     }
@@ -139,17 +174,49 @@ static const CGFloat kWinHeight = 260.0;
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
 {
-    return [_entries count];
+    return [_filteredEntries count];
 }
 
 - (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
-    if (row < 0 || row >= (NSInteger)[_entries count]) return nil;
-    CatalogEntry *entry = [_entries objectAtIndex:row];
+    if (row < 0 || row >= (NSInteger)[_filteredEntries count]) return nil;
+    CatalogEntry *entry = [_filteredEntries objectAtIndex:row];
     if (entry.desc) {
         return [NSString stringWithFormat:@"%@ \u2014 %@", entry.name, entry.desc];
     }
     return entry.name;
+}
+
+#pragma mark - Search
+
+- (void)filterContent:(id)sender
+{
+    NSString *searchString = [_searchField stringValue];
+
+    if ([searchString length] == 0) {
+        [_filteredEntries release];
+        _filteredEntries = [_entries retain];
+    } else {
+        NSMutableArray *filtered = [NSMutableArray array];
+        for (CatalogEntry *entry in _entries) {
+            NSString *lowerSearch = [searchString lowercaseString];
+            if ([[entry.name lowercaseString] rangeOfString:lowerSearch].location != NSNotFound ||
+                [[entry.desc lowercaseString] rangeOfString:lowerSearch].location != NSNotFound) {
+                [filtered addObject:entry];
+            }
+        }
+        [_filteredEntries release];
+        _filteredEntries = [filtered retain];
+    }
+
+    [_tableView reloadData];
+
+    if ([_filteredEntries count] > 0) {
+        [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+        [_buildButton setEnabled:YES];
+    } else {
+        [_buildButton setEnabled:NO];
+    }
 }
 
 #pragma mark - Actions
@@ -157,9 +224,9 @@ static const CGFloat kWinHeight = 260.0;
 - (void)buildClicked:(id)sender
 {
     NSInteger row = [_tableView selectedRow];
-    if (row < 0 || row >= (NSInteger)[_entries count]) return;
+    if (row < 0 || row >= (NSInteger)[_filteredEntries count]) return;
 
-    CatalogEntry *entry = [_entries objectAtIndex:row];
+    CatalogEntry *entry = [_filteredEntries objectAtIndex:row];
 
     NSString *template = [NSString stringWithFormat:@"/tmp/Build-catalog-%@-XXXXXXXX",
                           [entry.name stringByReplacingOccurrencesOfString:@" " withString:@"_"]];

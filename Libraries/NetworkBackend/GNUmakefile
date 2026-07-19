@@ -3,13 +3,10 @@ include $(GNUSTEP_MAKEFILES)/common.make
 LIBRARY_NAME = libNetworkBackend
 VERSION = 1.0
 
-UNAME_S := $(shell uname -s)
 libNetworkBackend_OBJC_FILES = \
 	../../Network/NetworkModels.m \
-	../../Network/NMBackend.m
-ifneq ($(UNAME_S),Linux)
-libNetworkBackend_OBJC_FILES += ../../Network/BSDBackend.m
-endif
+	../../Network/NMBackend.m \
+	../../Network/BSDBackend.m
 
 libNetworkBackend_HEADER_FILES = \
 	../../Network/NetworkBackend.h \

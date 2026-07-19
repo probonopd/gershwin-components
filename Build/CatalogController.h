@@ -10,8 +10,10 @@
 {
     NSWindow *_window;
     NSTableView *_tableView;
+    NSSearchField *_searchField;
     NSButton *_buildButton;
     NSArray *_entries;
+    NSArray *_filteredEntries;
 }
 
 - (void)showWindow;
