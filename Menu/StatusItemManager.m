@@ -123,7 +123,8 @@ static char kExtrasSubmenuIdentifierKey;
     }
     if (!widthRef) widthRef = display;
     NSSize size = [widthRef sizeWithAttributes:attrs];
-    _cachedWidth = ceil(size.width) + 16.0;
+    CGFloat padding = ([_extra respondsToSelector:@selector(image)] && [_extra image]) ? 16.0 : 4.0;
+    _cachedWidth = ceil(size.width) + padding;
     return _cachedWidth;
 }
 
