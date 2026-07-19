@@ -17,13 +17,32 @@
 
 #pragma mark - Width reference helpers
 
+static CGFloat ClockReferenceWidth(NSFont *font)
+{
+    static CGFloat cached = 0;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+        [fmt setTimeStyle:NSDateFormatterShortStyle];
+        [fmt setDateStyle:NSDateFormatterNoStyle];
+        CGFloat maxW = 0;
+        for (int mins = 0; mins < 1440; mins += 15) {
+            NSDate *d = [NSDate dateWithTimeIntervalSince1970:mins * 60];
+            NSString *s = [fmt stringFromDate:d];
+            if (s) {
+                NSSize sz = [s sizeWithAttributes:@{ NSFontAttributeName: font }];
+                if (sz.width > maxW) maxW = sz.width;
+            }
+        }
+        cached = ceil(maxW) + 4.0;
+    });
+    return cached;
+}
+
 static NSString *WidthRefForIdentifier(NSString *ident, NSString *title)
 {
     if ([ident rangeOfString:@"battery"].location != NSNotFound) {
         return @"99%";
-    }
-    if ([ident rangeOfString:@"clock"].location != NSNotFound) {
-        return @"99:99:99 PM";
     }
     if ([title rangeOfString:@"%"].location != NSNotFound) {
         return @"100%";
@@ -64,11 +83,15 @@ static char kExtrasSubmenuIdentifierKey;
     NSString *title = [item title];
     CGFloat result = proposedWidth;
     if ([title length] > 0) {
-        NSString *widthRef = WidthRefForIdentifier(ident, title);
-        if (widthRef) {
-            NSFont *font = [aMenuView font] ? [aMenuView font] : [NSFont menuBarFontOfSize:0];
-            NSSize size = [widthRef sizeWithAttributes:@{ NSFontAttributeName: font }];
-            result = ceil(size.width);
+        NSFont *font = [aMenuView font] ? [aMenuView font] : [NSFont menuBarFontOfSize:0];
+        if ([ident rangeOfString:@"clock"].location != NSNotFound) {
+            result = ClockReferenceWidth(font);
+        } else {
+            NSString *widthRef = WidthRefForIdentifier(ident, title);
+            if (widthRef) {
+                NSSize size = [widthRef sizeWithAttributes:@{ NSFontAttributeName: font }];
+                result = ceil(size.width);
+            }
         }
     }
     return result;
