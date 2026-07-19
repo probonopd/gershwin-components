@@ -61,7 +61,7 @@
 
     _dateFormatter = [[NSDateFormatter alloc] init];
     [_dateFormatter setTimeStyle:NSDateFormatterNoStyle];
-    [_dateFormatter setDateStyle:NSDateFormatterShortStyle];
+    [_dateFormatter setDateStyle:NSDateFormatterFullStyle];
 
     _timer = [NSTimer scheduledTimerWithTimeInterval:60.0
                                               target:self
