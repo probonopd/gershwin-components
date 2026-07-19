@@ -42,6 +42,7 @@
 #import <limits.h>
 #import <stdlib.h>
 #import <X11/Xlib.h>
+#import <X11/Xutil.h>
 #import <X11/Xauth.h>
 #import <X11/cursorfont.h>
 #import <X11/Xatom.h>
@@ -205,15 +206,13 @@ static Display* safeXOpenDisplay(const char *display_name, int timeout_seconds) 
 
 // Signal handler for cleanup on termination
 void signalHandler(int sig) {
-    NSDebugLLog(@"gwcomp", @"[DEBUG] Received signal %d, performing cleanup", sig);
-    // We can't safely call Objective-C methods from a signal handler,
-    // but we can at least try to kill processes using the global variables
-    // Note: This is not the safest approach, but it's better than nothing
-    if (sig == SIGTERM || sig == SIGINT) {
-        exit(0); // This will trigger applicationWillTerminate
-    } else if (sig == SIGCHLD) {
+    // NSDebugLLog/NSLog is NOT async-signal-safe — do not call from here
+    if (sig == SIGCHLD) {
         // Child process died - we'll handle this in the main event loop
-        // Don't do complex operations in signal handler
+        return;
+    }
+    if (sig == SIGTERM || sig == SIGINT) {
+        _exit(0); // _exit is async-signal-safe
     }
 }
 
@@ -271,18 +270,18 @@ void signalHandler(int sig) {
     
     [self createLogWindow];
     [self createLoginWindow];
-    
+
     // Validate LoginWindow.plist security BEFORE anything accesses it
     if (![self validateLoginWindowPreferencesFile]) {
-        NSDebugLLog(@"gwcomp", @"[WARNING] LoginWindow.plist validation failed, skipping auto-login");
+        NSDebugLLog(@"gwcomp", @"[DEBUG] LoginWindow.plist validation failed, skipping auto-login");
     } else {
         // Check for auto-login user after window is created but before showing it
         [self checkAutoLogin];
     }
-    
-    // Set X11 background to mid grey BEFORE showing the window
-    [self setX11BackgroundMidGrey];
-    
+
+    // Load desktop background (image or solid color) and set X11 root window background
+    [self loadDesktopBackground];
+
     [loginWindow makeKeyAndOrderFront:self];
     [NSApp activateIgnoringOtherApps:YES];
 
@@ -312,83 +311,260 @@ void signalHandler(int sig) {
     }
 }
 
-- (void)setX11BackgroundMidGrey
+- (void)loadDesktopBackground
 {
-    NSDebugLLog(@"gwcomp", @"[DEBUG] Setting X11 background to mid grey with persistent pixmap and cursor");
-    
-    Display *display = safeXOpenDisplay(NULL, 5);  // 5 second timeout
+    //Read desktop background preferences (mirrors gershwin-windowmanager's approach)
+    NSString *prefsPath = [@"~/Library/Preferences/org.gnustep.Workspace.plist"
+        stringByExpandingTildeInPath];
+    NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:prefsPath];
+    NSDictionary *dskinfo = [prefs objectForKey:@"desktopinfo"];
+
+    // Default: light grey (GNUstep workspace default)
+    double bgRed   = 0.95;
+    double bgGreen = 0.95;
+    double bgBlue  = 0.95;
+    BOOL haveImage = NO;
+    BOOL imageWasSet = NO;
+    NSString *imagePath = nil;
+
+    if (!prefs) {
+        NSLog(@"[LoginWindow] Desktop background: no preferences file at %@, "
+              @"using default grey", prefsPath);
+    } else if (!dskinfo) {
+        NSLog(@"[LoginWindow] Desktop background: no desktopinfo in preferences, "
+              @"using default grey");
+    } else {
+        NSDictionary *backcolor = [dskinfo objectForKey:@"backcolor"];
+        if (backcolor) {
+            bgRed   = [[backcolor objectForKey:@"red"]   doubleValue];
+            bgGreen = [[backcolor objectForKey:@"green"] doubleValue];
+            bgBlue  = [[backcolor objectForKey:@"blue"]  doubleValue];
+            bgRed   = MAX(0.0, MIN(1.0, bgRed));
+            bgGreen = MAX(0.0, MIN(1.0, bgGreen));
+            bgBlue  = MAX(0.0, MIN(1.0, bgBlue));
+            NSLog(@"[LoginWindow] Desktop background: loaded backcolor "
+                  @"(%.3f, %.3f, %.3f)", bgRed, bgGreen, bgBlue);
+        } else {
+            NSLog(@"[LoginWindow] Desktop background: no backcolor in preferences, "
+                  @"using default grey");
+        }
+
+        if ([[dskinfo objectForKey:@"usebackimage"] boolValue]) {
+            imagePath = [dskinfo objectForKey:@"imagepath"];
+            if (imagePath) {
+                haveImage = YES;
+                NSLog(@"[LoginWindow] Desktop background: image configured: %@",
+                      imagePath);
+            } else {
+                NSLog(@"[LoginWindow] Desktop background: usebackimage is YES "
+                      @"but no imagepath set, using solid color");
+            }
+        } else {
+            NSLog(@"[LoginWindow] Desktop background: usebackimage not set, "
+                  @"using solid color");
+        }
+    }
+
+    // Open X display for all X11 operations
+    Display *display = safeXOpenDisplay(NULL, 5);
     if (!display) {
-        NSDebugLLog(@"gwcomp", @"[WARNING] Could not open X display");
+        NSLog(@"[LoginWindow] Desktop background: could not open X display, "
+              @"skipping background setup");
         return;
     }
 
-    // Set close down mode to RetainPermanent so resources persist after disconnect
     XSetCloseDownMode(display, RetainPermanent);
-    
-    int screen_count = ScreenCount(display);
-    NSDebugLLog(@"gwcomp", @"[DEBUG] Found %d X11 screen(s)", screen_count);
-    
-    for (int i = 0; i < screen_count; i++) {
-        int screen = i;
-        Window root = RootWindow(display, screen);
-        Colormap colormap = DefaultColormap(display, screen);
-        
-        // Mid grey: RGB(128, 128, 128) = 0x808080
-        XColor color;
-        color.red = 0x8080;
-        color.green = 0x8080;
-        color.blue = 0x8080;
-        color.flags = DoRed | DoGreen | DoBlue;
-        
-        if (!XAllocColor(display, colormap, &color)) {
-            NSDebugLLog(@"gwcomp", @"[WARNING] Could not allocate mid grey color on screen %d", i);
-            continue;
-        }
-        
-        NSDebugLLog(@"gwcomp", @"[DEBUG] Allocated color pixel: 0x%lx on screen %d", color.pixel, i);
-        
-        // Create a 1x1 pixmap with the mid-grey color
-        unsigned int depth = DefaultDepth(display, screen);
-        Pixmap pixmap = XCreatePixmap(display, root, 1, 1, depth);
-        
-        if (!pixmap) {
-            NSDebugLLog(@"gwcomp", @"[WARNING] Could not create pixmap on screen %d", i);
-            continue;
-        }
-        
-        NSDebugLLog(@"gwcomp", @"[DEBUG] Created pixmap 0x%lx on screen %d", pixmap, i);
-        
-        // Fill the pixmap with the mid-grey color
-        GC gc = XCreateGC(display, pixmap, 0, NULL);
-        XSetForeground(display, gc, color.pixel);
-        XFillRectangle(display, pixmap, gc, 0, 0, 1, 1);
-        XFreeGC(display, gc);
-        
-        // Set the root window's background to use this pixmap
-        XSetWindowBackgroundPixmap(display, root, pixmap);
-        XClearWindow(display, root);
-        
-        // Free the pixmap (it will persist due to RetainPermanent mode)
-        XFreePixmap(display, pixmap);
-        
-        NSDebugLLog(@"gwcomp", @"[DEBUG] Screen %d root window background set with persistent pixmap", i);
+    int screenCount = ScreenCount(display);
+    NSLog(@"[LoginWindow] Desktop background: opened display, %d screen(s)",
+          screenCount);
 
-        // Set the standard arrow cursor (XC_left_ptr) on the root window
-        Cursor cursor = XCreateFontCursor(display, XC_left_ptr);
-        if (cursor) {
-            XDefineCursor(display, root, cursor);
-            XFreeCursor(display, cursor);
-            NSDebugLLog(@"gwcomp", @"[DEBUG] Standard arrow cursor set on screen %d root window", i);
-        } else {
-            NSDebugLLog(@"gwcomp", @"[WARNING] Could not create standard arrow cursor on screen %d", i);
+    if (haveImage) {
+        // Try to load and set the desktop image on the root window
+        @autoreleasepool {
+            NSImage *image = [[NSImage alloc] initWithContentsOfFile:imagePath];
+            if (!image) {
+                NSLog(@"[LoginWindow] Desktop background: failed to load image "
+                      @"at %@, falling back to solid color", imagePath);
+                haveImage = NO;
+            } else {
+                NSSize srcSize = [image size];
+                if (srcSize.width < 1.0 || srcSize.height < 1.0) {
+                    NSLog(@"[LoginWindow] Desktop background: image has invalid "
+                          @"size (%.0fx%.0f), falling back to solid color",
+                          srcSize.width, srcSize.height);
+                    [image release];
+                    image = nil;
+                    haveImage = NO;
+                } else {
+                    // Scale to screen size
+                    uint16_t outW = 0, outH = 0;
+                    NSScreen *mainScreen = [NSScreen mainScreen];
+                    if (mainScreen) {
+                        NSSize scrSize = [mainScreen frame].size;
+                        outW = (uint16_t)scrSize.width;
+                        outH = (uint16_t)scrSize.height;
+                    }
+                    if (outW < 1 || outH < 1) {
+                        // Fallback: use first X11 screen size
+                        outW = (uint16_t)DisplayWidth(display, 0);
+                        outH = (uint16_t)DisplayHeight(display, 0);
+                    }
+                    if (outW < 1 || outH < 1) {
+                        NSLog(@"[LoginWindow] Desktop background: could not "
+                              @"determine screen size, falling back to solid color");
+                        [image release];
+                        image = nil;
+                        haveImage = NO;
+                    } else {
+                        // Scale image to screen dimensions
+                        NSImage *scaled = [[NSImage alloc] initWithSize:
+                            NSMakeSize(outW, outH)];
+                        [scaled lockFocus];
+                        [image drawInRect:NSMakeRect(0, 0, outW, outH)
+                                fromRect:NSZeroRect
+                               operation:NSCompositeCopy
+                                fraction:1.0];
+                        [scaled unlockFocus];
+                        [image release];
+
+                        // Convert to bitmap pixel data
+                        NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc]
+                            initWithData:[scaled TIFFRepresentation]];
+                        [scaled release];
+                        if (!bitmap) {
+                            NSLog(@"[LoginWindow] Desktop background: bitmap "
+                                  @"conversion failed, falling back to solid color");
+                            haveImage = NO;
+                        } else {
+                            int srcW = (int)[bitmap pixelsWide];
+                            int srcH = (int)[bitmap pixelsHigh];
+                            int bpl = outW * 4;
+                            char *imgData = malloc((size_t)outH * (size_t)bpl);
+                            if (!imgData) {
+                                NSLog(@"[LoginWindow] Desktop background: malloc "
+                                      @"failed, falling back to solid color");
+                                [bitmap release];
+                                haveImage = NO;
+                            } else {
+                                // Copy pixels: BGRx format for X
+                                NSUInteger pixel[4];
+                                for (int y = 0; y < outH && y < srcH; y++) {
+                                    for (int x = 0; x < outW && x < srcW; x++) {
+                                        [bitmap getPixel:pixel atX:x y:y];
+                                        int off = y * bpl + x * 4;
+                                        imgData[off + 0] = (char)pixel[2]; // B
+                                        imgData[off + 1] = (char)pixel[1]; // G
+                                        imgData[off + 2] = (char)pixel[0]; // R
+                                        imgData[off + 3] = 0;             // pad
+                                    }
+                                }
+                                [bitmap release];
+
+                                // Upload image to each X11 screen
+                                unsigned int depth = 24;
+                                XImage *ximg = XCreateImage(display,
+                                    DefaultVisual(display, 0), depth, ZPixmap,
+                                    0, imgData, outW, outH, 32, bpl);
+                                if (ximg) {
+                                    for (int s = 0; s < screenCount; s++) {
+                                        Window root = RootWindow(display, s);
+                                        Pixmap pm = XCreatePixmap(display,
+                                            root, outW, outH, depth);
+                                        if (pm) {
+                                            GC gc = XCreateGC(display, pm,
+                                                0, NULL);
+                                            XPutImage(display, pm, gc, ximg,
+                                                0, 0, 0, 0, outW, outH);
+                                            XFreeGC(display, gc);
+                                            XSetWindowBackgroundPixmap(display,
+                                                root, pm);
+                                            XClearWindow(display, root);
+                                            XFreePixmap(display, pm);
+                                        } else {
+                                            NSLog(@"[LoginWindow] Desktop "
+                                                  @"background: could not "
+                                                  @"create pixmap on screen %d",
+                                                  s);
+                                        }
+                                        // Set cursor on each screen
+                                        Cursor cursor = XCreateFontCursor(
+                                            display, XC_left_ptr);
+                                        if (cursor) {
+                                            XDefineCursor(display, root,
+                                                cursor);
+                                            XFreeCursor(display, cursor);
+                                        }
+                                    }
+                                    imgData = NULL; // XImage owns it
+                                    haveImage = NO; // mark as handled
+                                    imageWasSet = YES;
+                                    NSLog(@"[LoginWindow] Desktop background: "
+                                          @"set image %@ (%dx%d -> %dx%d)",
+                                          imagePath, (int)srcSize.width,
+                                          (int)srcSize.height, outW, outH);
+                                } else {
+                                    free(imgData);
+                                    imgData = NULL;
+                                    NSLog(@"[LoginWindow] Desktop background: "
+                                          @"XCreateImage failed, falling back "
+                                          @"to solid color");
+                                }
+                                haveImage = NO; // done, will skip solid color
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
-    
+
+    if (!imageWasSet) {
+        // Fallback: solid color on root window
+        int screensProcessed = 0;
+        for (int s = 0; s < screenCount; s++) {
+            Window root = RootWindow(display, s);
+            Colormap cmap = DefaultColormap(display, s);
+            XColor xc;
+            xc.red   = (unsigned short)(bgRed   * 0xFFFF);
+            xc.green = (unsigned short)(bgGreen * 0xFFFF);
+            xc.blue  = (unsigned short)(bgBlue  * 0xFFFF);
+            xc.flags = DoRed | DoGreen | DoBlue;
+            if (XAllocColor(display, cmap, &xc)) {
+                unsigned int depth = DefaultDepth(display, s);
+                Pixmap pm = XCreatePixmap(display, root, 1, 1, depth);
+                if (pm) {
+                    GC gc = XCreateGC(display, pm, 0, NULL);
+                    XSetForeground(display, gc, xc.pixel);
+                    XFillRectangle(display, pm, gc, 0, 0, 1, 1);
+                    XFreeGC(display, gc);
+                    XSetWindowBackgroundPixmap(display, root, pm);
+                    XClearWindow(display, root);
+                    XFreePixmap(display, pm);
+                    screensProcessed++;
+                } else {
+                    NSLog(@"[LoginWindow] Desktop background: could not "
+                          @"create pixmap on screen %d", s);
+                }
+            } else {
+                NSLog(@"[LoginWindow] Desktop background: could not allocate "
+                      @"color on screen %d", s);
+            }
+            // Set cursor even if color allocation failed
+            Cursor cursor = XCreateFontCursor(display, XC_left_ptr);
+            if (cursor) {
+                XDefineCursor(display, root, cursor);
+                XFreeCursor(display, cursor);
+            }
+        }
+        NSLog(@"[LoginWindow] Desktop background: set solid color "
+              @"(%.3f, %.3f, %.3f) on %d/%d screen(s)",
+              bgRed, bgGreen, bgBlue, screensProcessed, screenCount);
+    }
+
     XFlush(display);
     XSync(display, False);
     XCloseDisplay(display);
-    
-    NSDebugLLog(@"gwcomp", @"[DEBUG] X11 background set to mid grey with persistent pixmap");
+    NSLog(@"[LoginWindow] Desktop background: done");
 }
 
 - (void)dealloc
