@@ -98,6 +98,13 @@ typedef NS_ENUM(NSInteger, BTOperation) {
     NSPipe *errPipe = [NSPipe pipe];
     [task setStandardOutput:outPipe];
     [task setStandardError:errPipe];
+
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     [task launch];
 
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);

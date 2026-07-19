@@ -643,6 +643,9 @@ static int run_command(char *const args[], char *error_buf, size_t error_buf_siz
         dup2(pipefd[1], STDERR_FILENO);
         close(pipefd[1]);
         
+        /* Force C locale for consistent error message matching */
+        setenv("LC_ALL", "C", 1);
+        
         /* Execute command */
         execv(args[0], args);
         

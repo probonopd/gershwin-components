@@ -446,9 +446,9 @@
 {
 	NSMutableArray *a = [NSMutableArray array];
 #if defined(__linux__)
-	FILE *fp = popen("df -h -T 2>/dev/null", "r");
+	FILE *fp = popen("LC_ALL=C df -h -T 2>/dev/null", "r");
 #elif defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-	FILE *fp = popen("df -h 2>/dev/null", "r");
+	FILE *fp = popen("LC_ALL=C df -h 2>/dev/null", "r");
 #else
 	FILE *fp = NULL;
 #endif
@@ -621,7 +621,7 @@
 	/* Build a pci address -> GPU name map from lspci */
 	NSMutableDictionary *gpuNames = [NSMutableDictionary dictionary];
 	NSMutableDictionary *gpuDrivers = [NSMutableDictionary dictionary];
-	FILE *fp = popen("lspci -k 2>/dev/null", "r");
+	FILE *fp = popen("LC_ALL=C lspci -k 2>/dev/null", "r");
 	if (fp) {
 		char line[512];
 		NSString *currentAddr = nil;
@@ -778,8 +778,8 @@
 	}
 
 	/* Append OpenGL / acceleration info from glxinfo */
-	FILE *glfp = popen("glxinfo -B 2>/dev/null", "r");
-	if (!glfp) glfp = popen("DISPLAY=:0 glxinfo -B 2>/dev/null", "r");
+	FILE *glfp = popen("LC_ALL=C glxinfo -B 2>/dev/null", "r");
+	if (!glfp) glfp = popen("LC_ALL=C DISPLAY=:0 glxinfo -B 2>/dev/null", "r");
 	if (glfp) {
 		[pairs addObject:@[@"", @""]];
 		[pairs addObject:@[@"OpenGL:", @""]];

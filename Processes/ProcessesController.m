@@ -462,7 +462,7 @@ static ProcessesController *sharedController = nil;
             // If both /proc and sysctl fail to yield processes, fallback to parsing `ps aux`
             if ([newProcesses count] == 0) {
                 PC_INFO(@"Falling back to parsing `ps aux`");
-                FILE *ps = popen("ps aux", "r");
+                FILE *ps = popen("LC_ALL=C ps aux", "r");
                 if (ps) {
                     char line[2048];
                     // Skip header

@@ -206,6 +206,12 @@ static NSArray *ethernetPrefixes(void)
     [task setStandardOutput:outPipe];
     [task setStandardError:[NSPipe pipe]];
 
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     int status = -1;
     @try {
         [task launch];

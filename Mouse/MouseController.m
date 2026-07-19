@@ -112,6 +112,13 @@ static NSString *const kMouseDomain = @"MousePreferences";
     [task setArguments:[NSArray arrayWithObjects:@"list", @"--name-only", nil]];
     NSPipe *pipe = [NSPipe pipe];
     [task setStandardOutput:pipe];
+
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     [task launch];
     NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
     [task waitUntilExit];
@@ -184,6 +191,13 @@ static NSString *const kMouseDomain = @"MousePreferences";
     [task setArguments:[NSArray arrayWithObjects:@"list-props", device, nil]];
     NSPipe *pipe = [NSPipe pipe];
     [task setStandardOutput:pipe];
+
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     [task launch];
     NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
     [task waitUntilExit];

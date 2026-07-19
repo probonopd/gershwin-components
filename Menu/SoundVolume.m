@@ -35,6 +35,13 @@ static BOOL _detectALSA(void)
     NSPipe *pipe = [NSPipe pipe];
     [task setStandardOutput:pipe];
     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     @try {
         [task launch];
         [task waitUntilExit];
@@ -67,6 +74,13 @@ static BOOL _detectALSA(void)
     pipe = [NSPipe pipe];
     [task setStandardOutput:pipe];
     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+
+    // Force C locale for consistent tool output
+    env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     @try {
         [task launch];
         [task waitUntilExit];
@@ -132,6 +146,13 @@ static NSString *_runAmixer(NSArray *args)
     NSPipe *pipe = [NSPipe pipe];
     [task setStandardOutput:pipe];
     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     @try {
         [task launch];
         [task waitUntilExit];
