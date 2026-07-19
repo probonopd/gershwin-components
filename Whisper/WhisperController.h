@@ -32,6 +32,7 @@ typedef NS_ENUM(NSInteger, WhisperState) {
     NSButton *recordButton;
     NSButton *stopButton;
     NSTextField *recordStatusLabel;
+    NSProgressIndicator *recordSpinner;
 
     // Labels (needed for layout)
     NSTextField *modelLabel;

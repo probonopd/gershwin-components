@@ -778,8 +778,14 @@ static const unsigned long long modelMinSizes[] = {
         wparams.language = [langCode UTF8String];
         wparams.detect_language = false;
     } else {
-        wparams.language = NULL;
-        wparams.detect_language = true;
+        wparams.detect_language = false;
+        whisper_pcm_to_mel(whisperCtx, samples, n_samples, wparams.n_threads);
+        int lang_id = whisper_lang_auto_detect(whisperCtx, 0, wparams.n_threads, NULL);
+        if (lang_id >= 0) {
+            wparams.language = whisper_lang_str(lang_id);
+        } else {
+            wparams.language = "en";
+        }
     }
 
     wparams.translate = [translateCheckbox state] == NSOnState ? true : false;
@@ -882,6 +888,12 @@ static const unsigned long long modelMinSizes[] = {
                       state == WhisperStateTranscribing);
     BOOL isRecording = (state == WhisperStateRecording);
 
+    if (isRecording) {
+        [recordSpinner startAnimation:nil];
+    } else {
+        [recordSpinner stopAnimation:nil];
+    }
+
     // Check whether a model file is available (even if not yet loaded)
     BOOL modelAvailable = NO;
     NSString *selModel = [[modelPopup selectedItem] representedObject];
@@ -953,7 +965,18 @@ static const unsigned long long modelMinSizes[] = {
             NSLog(@"recordAudio: model '%@' not downloaded", selectedName);
             wcapture_cancel(captureHandle);
             captureHandle = NULL;
-            [statusLabel setStringValue:@"Model not downloaded. Click Download first."];
+
+            NSAlert *alert = [[NSAlert alloc] init];
+            [alert setMessageText:@"Model not downloaded"];
+            [alert setInformativeText:[NSString stringWithFormat:
+                @"The model \"%@\" needs to be downloaded first.\n\n"
+                @"Download it now?", selectedName]];
+            [alert addButtonWithTitle:@"Download"];
+            [alert addButtonWithTitle:@"Cancel"];
+            if ([alert runModal] == NSAlertFirstButtonReturn) {
+                [self downloadModelWithName:selectedName];
+            }
+            [alert release];
             return;
         }
         [self loadModel:modelPath];
@@ -1139,9 +1162,15 @@ static const unsigned long long modelMinSizes[] = {
         wparams.detect_language = false;
         NSLog(@"transcribeStreamingChunk: language=%@", langCode);
     } else {
-        wparams.language = NULL;
-        wparams.detect_language = true;
-        NSLog(@"transcribeStreamingChunk: auto-detect language");
+        wparams.detect_language = false;
+        whisper_pcm_to_mel(whisperCtx, samples, n, wparams.n_threads);
+        int lang_id = whisper_lang_auto_detect(whisperCtx, 0, wparams.n_threads, NULL);
+        if (lang_id >= 0) {
+            wparams.language = whisper_lang_str(lang_id);
+        } else {
+            wparams.language = "en";
+        }
+        NSLog(@"transcribeStreamingChunk: auto-detected language=%s", wparams.language);
     }
 
     wparams.translate = [translateCheckbox state] == NSOnState ? true : false;
@@ -1171,22 +1200,30 @@ static const unsigned long long modelMinSizes[] = {
     NSLog(@"appendStreamingResult: %lu new segments",
           (unsigned long)[newSegs count]);
 
-    // Replace or append each incoming segment.
+    // Remove existing segments that overlap in time with incoming
+    // segments, then add the new ones.  Whisper may shift timestamps
+    // on each pass, so exact-t0 matching causes duplicates.
     for (NSDictionary *seg in newSegs) {
-        int64_t t0 = [[seg objectForKey:@"t0"] longLongValue];
-        BOOL replaced = NO;
-        for (NSUInteger i = 0; i < [segments count]; i++) {
+        int64_t newT0 = [[seg objectForKey:@"t0"] longLongValue];
+        int64_t newT1 = [[seg objectForKey:@"t1"] longLongValue];
+        for (NSInteger i = [segments count] - 1; i >= 0; i--) {
             NSDictionary *existing = [segments objectAtIndex:i];
-            if ([[existing objectForKey:@"t0"] longLongValue] == t0) {
-                [segments replaceObjectAtIndex:i withObject:seg];
-                replaced = YES;
-                break;
+            int64_t exT0 = [[existing objectForKey:@"t0"] longLongValue];
+            int64_t exT1 = [[existing objectForKey:@"t1"] longLongValue];
+            if (newT0 < exT1 && newT1 > exT0) {
+                [segments removeObjectAtIndex:i];
             }
         }
-        if (!replaced) {
-            [segments addObject:seg];
-        }
+        [segments addObject:seg];
     }
+
+    [segments sortUsingComparator:^(id a, id b) {
+        int64_t t0a = [[(NSDictionary *)a objectForKey:@"t0"] longLongValue];
+        int64_t t0b = [[(NSDictionary *)b objectForKey:@"t0"] longLongValue];
+        if (t0a < t0b) return NSOrderedAscending;
+        if (t0a > t0b) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
 
     // Rebuild the entire text view from the cleaned-up segments array.
     if (resultTextView) {
@@ -1488,6 +1525,14 @@ static const unsigned long long modelMinSizes[] = {
     [recordStatusLabel setStringValue:@""];
     [contentView addSubview:recordStatusLabel];
 
+    recordSpinner = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
+    [recordSpinner setStyle:NSProgressIndicatorSpinningStyle];
+    [recordSpinner setIndeterminate:YES];
+    [recordSpinner setControlSize:NSSmallControlSize];
+    [recordSpinner sizeToFit];
+    [recordSpinner setDisplayedWhenStopped:NO];
+    [contentView addSubview:recordSpinner];
+
     openButton = [[NSButton alloc] initWithFrame:NSZeroRect];
     [openButton setTitle:@"Open File..."];
     [openButton setTarget:self];
@@ -1711,11 +1756,15 @@ static const unsigned long long modelMinSizes[] = {
     [stopButton setFrame:NSMakeRect(mx + recSize.width + s8, y - bh,
                                     stopSize.width, bh)];
 
-    CGFloat statusX   = mx + recSize.width + s8 + stopSize.width + s8;
-    CGFloat statusW   = w - (recSize.width + s8 + stopSize.width + s8 +
-                             openSize.width + s8);
+    CGFloat spinnerW = [recordSpinner frame].size.width;
+    CGFloat statusX  = mx + recSize.width + s8 + stopSize.width + s8;
+    [recordSpinner setFrame:NSMakeRect(statusX, y - bh + (bh - spinnerW) / 2,
+                                       spinnerW, spinnerW)];
+    CGFloat statusW  = w - (recSize.width + s8 + stopSize.width + s8 +
+                            spinnerW + s8 + openSize.width + s8);
     if (statusW < 20) statusW = 20;
-    [recordStatusLabel setFrame:NSMakeRect(statusX, y - bh, statusW, bh)];
+    [recordStatusLabel setFrame:NSMakeRect(statusX + spinnerW + s8,
+                                           y - bh, statusW, bh)];
     [openButton setFrame:NSMakeRect(statusX + statusW + s8, y - bh,
                                     openSize.width, bh)];
     y -= bh + s8;
