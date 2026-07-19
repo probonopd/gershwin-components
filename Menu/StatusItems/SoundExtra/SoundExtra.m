@@ -55,6 +55,9 @@ static id<SoundBackend> CreateSoundBackend(void)
 - (void)dealloc
 {
     [self menuExtraWillUnload];
+#if !__has_feature(objc_arc)
+    [super dealloc];
+#endif
 }
 
 - (void)setContext:(GSMenuExtraContext *)context
@@ -146,7 +149,7 @@ static id<SoundBackend> CreateSoundBackend(void)
 - (NSImage *)image
 {
     NSString *name;
-    if (_muted || _volume < 0.01) {
+    if (_muted) {
         name = @"volume-muted";
     } else if (_volume < 0.33) {
         name = @"volume-low";
@@ -216,7 +219,20 @@ static id<SoundBackend> CreateSoundBackend(void)
 - (void)refreshTimerFired:(NSTimer *)timer
 {
     (void)timer;
-    [self updateState];
+    BOOL wasAvailable = _backendAvailable;
+    _backendAvailable = [_backend isAvailable];
+    if (!_backendAvailable) {
+        _volume = 0.0f;
+        if (wasAvailable) {
+            [_context invalidatePresentation];
+        }
+        return;
+    }
+    float newVolume = [_backend outputVolume];
+    if (newVolume != _volume) {
+        _volume = newVolume;
+        [_context invalidatePresentation];
+    }
 }
 
 #pragma mark - Actions

@@ -23,6 +23,9 @@ static const BOOL kShowTextInMenuBar = NO;
 - (void)dealloc
 {
     [self menuExtraWillUnload];
+#if !__has_feature(objc_arc)
+    [super dealloc];
+#endif
 }
 
 #pragma mark - Battery info (reused from EnergyController)

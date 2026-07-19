@@ -15,8 +15,11 @@
 #import <GNUstepGUI/GSTheme.h>
 #import "TintedMenuItemCell.h"
 #import <sys/stat.h>
-#if defined(__FreeBSD__) || defined(__NetBSD__)
+#if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
 #import <sys/sysctl.h>
+#endif
+#if defined(__linux__)
+#import <dirent.h>
 #endif
 
 static BOOL HasBattery(void)
@@ -34,6 +37,35 @@ static BOOL HasBattery(void)
 #elif defined(__OpenBSD__)
     struct stat sb;
     return (stat("/usr/sbin/apm", &sb) == 0);
+#else
+    return NO;
+#endif
+}
+
+static BOOL HasBrightnessControl(void)
+{
+#if defined(__linux__)
+    DIR *d = opendir("/sys/class/backlight");
+    if (!d) return NO;
+    struct dirent *entry;
+    BOOL found = NO;
+    while ((entry = readdir(d)) != NULL) {
+        if (entry->d_name[0] != '.') {
+            found = YES;
+            break;
+        }
+    }
+    closedir(d);
+    return found;
+#elif defined(__FreeBSD__) || defined(__NetBSD__)
+    int val = 0;
+    size_t len = sizeof(val);
+    if (sysctlbyname("hw.acpi.video.lcd0.brightness", &val, &len, NULL, 0) == 0)
+        return YES;
+    return NO;
+#elif defined(__OpenBSD__)
+    struct stat sb;
+    return (stat("/usr/sbin/wsconsctl", &sb) == 0);
 #else
     return NO;
 #endif
@@ -377,6 +409,11 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 
     if ([identifier isEqualToString:@"org.gnustep.menuextra.battery"] && !HasBattery()) {
         NSLog(@"GSMenuExtra: no battery detected, skipping %@", identifier);
+        return nil;
+    }
+
+    if ([identifier isEqualToString:@"org.gnustep.menuextra.brightness"] && !HasBrightnessControl()) {
+        NSLog(@"GSMenuExtra: no brightness control detected, skipping %@", identifier);
         return nil;
     }
 
@@ -730,6 +767,11 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
                     [menuItem setImage:icon];
                 } else {
                     [menuItem setImage:nil];
+                }
+                if (_extrasMenuView) {
+                    [_extrasMenuView performSelector:@selector(display)
+                                         withObject:nil
+                                         afterDelay:0];
                 }
             }
             if ([provider respondsToSelector:@selector(menu)]) {

@@ -10,6 +10,29 @@
 
 static NSMutableDictionary *_tintCache = nil;
 static const char kOriginalImageKey;
+static BOOL _swizzleAttempted = NO;
+
+static void _ensureSwizzle(void)
+{
+    if (_swizzleAttempted) return;
+    _swizzleAttempted = YES;
+
+    Class cls = objc_getClass("NSMenuItemCell");
+    if (!cls) return;
+
+    SEL sel = sel_registerName("setHighlighted:");
+    SEL tintedSel = sel_registerName("tinted_setHighlighted:");
+
+    Method origMethod = class_getInstanceMethod(cls, sel);
+    Method tintedMethod = class_getInstanceMethod(cls, tintedSel);
+    if (!origMethod || !tintedMethod) return;
+
+    IMP origIMP = method_getImplementation(origMethod);
+    IMP tintedIMP = method_getImplementation(tintedMethod);
+    if (origIMP == tintedIMP) return;
+
+    method_exchangeImplementations(origMethod, tintedMethod);
+}
 
 static NSImage *_tintedImage(NSImage *image)
 {
@@ -43,6 +66,7 @@ static NSImage *_tintedImage(NSImage *image)
         withFrame:(NSRect)cellFrame
            inView:(NSView *)controlView
 {
+    _ensureSwizzle();
     if (image && [self isHighlighted]) {
         image = _tintedImage(image);
     }
@@ -75,23 +99,3 @@ static NSImage *_tintedImage(NSImage *image)
 }
 
 @end
-
-__attribute__((constructor))
-static void initTintedMenuSwizzling(void)
-{
-    Class cls = objc_getClass("NSMenuItemCell");
-    if (!cls) return;
-
-    SEL sel = sel_registerName("setHighlighted:");
-    SEL tintedSel = sel_registerName("tinted_setHighlighted:");
-
-    Method origMethod = class_getInstanceMethod(cls, sel);
-    Method tintedMethod = class_getInstanceMethod(cls, tintedSel);
-    if (!origMethod || !tintedMethod) return;
-
-    IMP origIMP = method_getImplementation(origMethod);
-    IMP tintedIMP = method_getImplementation(tintedMethod);
-    if (origIMP == tintedIMP) return;
-
-    method_exchangeImplementations(origMethod, tintedMethod);
-}

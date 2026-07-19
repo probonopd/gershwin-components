@@ -404,7 +404,28 @@ static NSString *findTool(NSString *name)
 - (void)refreshTimerFired:(NSTimer *)timer
 {
     (void)timer;
-    [self updateState];
+    BOOL wasAvailable = _backendAvailable;
+    _backendAvailable = [_backend isAvailable];
+    if (!_backendAvailable) {
+        _signalStrength = 0;
+        _networkList = @[];
+        _connectedWLAN = nil;
+        if (wasAvailable) {
+            [_context invalidatePresentation];
+        }
+        return;
+    }
+    if (!_wlanEnabled) return;
+    int oldSignal = _signalStrength;
+    WLAN *oldConnected = _connectedWLAN;
+    NSUInteger oldCount = [_networkList count];
+    _networkList = [_backend scanForWLANs];
+    _connectedWLAN = [_backend connectedWLAN];
+    _signalStrength = _connectedWLAN ? [_connectedWLAN signalStrength] : 0;
+    if (oldSignal != _signalStrength || oldCount != [_networkList count] ||
+        (!oldConnected && _connectedWLAN) || (oldConnected && !_connectedWLAN)) {
+        [_context invalidatePresentation];
+    }
 }
 
 @end
