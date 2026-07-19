@@ -1,0 +1,131 @@
+/* Label for username field */
+"Username:" = "Username:";
+
+/* Label for password field */
+"Password:" = "Password:";
+
+/* Shutdown button */
+"Shut Down" = "Shut Down";
+
+/* Restart button */
+"Restart" = "Restart";
+
+/* Login button */
+"Log In" = "Log In";
+
+/* Shutdown alert title */
+"Shutdown Computer" = "Shutdown Computer";
+
+/* Restart alert title */
+"Restart Computer" = "Restart Computer";
+
+/* Shutdown confirmation */
+"Are you sure you want to shut down now?" = "Are you sure you want to shut down now?";
+
+/* Restart confirmation */
+"Are you sure you want to restart now?" = "Are you sure you want to restart now?";
+
+/* Cancel button */
+"Cancel" = "Cancel";
+
+/* OK button */
+"OK" = "OK";
+
+/* Error alert title */
+"Error" = "Error";
+
+/* Status when username is empty */
+"Please enter username" = "Please enter username";
+
+/* Status on auth failure */
+"Authentication failed" = "Authentication failed";
+
+/* Shutdown error message */
+"Failed to execute shutdown command. No suitable command found." = "Failed to execute shutdown command. No suitable command found.";
+
+/* Restart error message */
+"Failed to execute restart command. No suitable command found." = "Failed to execute restart command. No suitable command found.";
+
+/* Status user not found */
+"User not found" = "User not found";
+
+/* Status chdir failure */
+"Cannot change to home directory" = "Cannot change to home directory";
+
+/* Status X socket missing */
+"X server socket not found" = "X server socket not found";
+
+/* Status login cancelled */
+"Login cancelled" = "Login cancelled";
+
+/* Status session start failure */
+"Failed to start session" = "Failed to start session";
+
+/* Status auto-login user missing */
+"Auto-login user not found" = "Auto-login user not found";
+
+/* Status auto-login PAM failure */
+"Failed to open session for auto-login" = "Failed to open session for auto-login";
+
+/* Status auto-login X socket */
+"Auto-login socket access failed" = "Auto-login socket access failed";
+
+/* Status auto-login session failed */
+"Failed to start auto-login session" = "Failed to start auto-login session";
+
+/* Auth error alert title */
+"Authentication Error" = "Authentication Error";
+
+/* Home dir error title */
+"Home Directory Error" = "Home Directory Error";
+
+/* X socket error title */
+"X Server Socket Not Found" = "X Server Socket Not Found";
+
+/* X access warning title */
+"X Server Access Warning" = "X Server Access Warning";
+
+/* Session error title */
+"Session Start Error" = "Session Start Error";
+
+/* Session startup error */
+"Session Startup Error" = "Session Startup Error";
+
+/* Autologin permission title */
+"Autologin File Permission Error" = "Autologin File Permission Error";
+
+/* Auto-login PAM title */
+"Auto-Login PAM Error" = "Auto-Login PAM Error";
+
+/* Auto-login home dir title */
+"Auto-Login Home Directory Error" = "Auto-Login Home Directory Error";
+
+/* Auto-login X socket title */
+"Auto-Login X Server Socket Not Found" = "Auto-Login X Server Socket Not Found";
+
+/* Auto-login X access title */
+"Auto-Login X Server Access Warning" = "Auto-Login X Server Access Warning";
+
+/* Continue anyway button */
+"Continue Anyway" = "Continue Anyway";
+
+/* Log window title */
+"Keyboard Layout Log" = "Keyboard Layout Log";
+
+/* X socket missing message */
+"The X server unix socket at %s does not exist. The X server may not be running properly." = "The X server unix socket at %s does not exist. The X server may not be running properly.";
+
+/* X access warning message */
+"The user %s may not have access to the X server socket. The X session may not work properly." = "The user %s may not have access to the X server socket. The X session may not work properly.";
+
+/* Autologin permission message */
+"The autologin configuration file is not owned by root. Please check file permissions." = "The autologin configuration file is not owned by root. Please check file permissions.";
+
+/* Autologin bad permissions message */
+"The autologin configuration file has incorrect permissions (expected 0644). This is a security risk." = "The autologin configuration file has incorrect permissions (expected 0644). This is a security risk.";
+
+/* Auto-login X socket missing message */
+"The X server unix socket at %s does not exist. Falling back to login window." = "The X server unix socket at %s does not exist. Falling back to login window.";
+
+/* Auto-login X access warning message */
+"The auto-login user %s may not have access to the X server socket. Falling back to login window." = "The auto-login user %s may not have access to the X server socket. Falling back to login window.";

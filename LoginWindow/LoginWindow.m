@@ -742,7 +742,7 @@ void signalHandler(int sig) {
 
     // Username field
     NSTextField *usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 180+12, 100, 20)];
-    [usernameLabel setStringValue:@"Username:"];
+    [usernameLabel setStringValue:NSLocalizedString(@"Username:", @"Label for username field")];
     [usernameLabel setBezeled:NO];
     [usernameLabel setDrawsBackground:NO];
     [usernameLabel setEditable:NO];
@@ -760,7 +760,7 @@ void signalHandler(int sig) {
 
     // Password field
     passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 150+12, 100, 20)];
-    [passwordLabel setStringValue:@"Password:"];
+    [passwordLabel setStringValue:NSLocalizedString(@"Password:", @"Label for password field")];
     [passwordLabel setBezeled:NO];
     [passwordLabel setDrawsBackground:NO];
     [passwordLabel setEditable:NO];
@@ -820,19 +820,19 @@ void signalHandler(int sig) {
     CGFloat rightX = windowFrame.size.width - buttonWidth - METRICS_CONTENT_SIDE_MARGIN;
 
     shutdownButton = [[NSButton alloc] initWithFrame:NSMakeRect(leftX, buttonY, buttonWidth, buttonHeight)];
-    [shutdownButton setTitle:@"Shut Down"];
+    [shutdownButton setTitle:NSLocalizedString(NSLocalizedString(@"Shut Down", @"Shutdown button"), @"Shutdown button")];
     [shutdownButton setTarget:self];
     [shutdownButton setAction:@selector(shutdownButtonPressed:)];
     [contentView addSubview:shutdownButton];
 
     restartButton = [[NSButton alloc] initWithFrame:NSMakeRect(leftX + buttonWidth + buttonSpacing, buttonY, buttonWidth, buttonHeight)];
-    [restartButton setTitle:@"Restart"];
+    [restartButton setTitle:NSLocalizedString(NSLocalizedString(@"Restart", @"Restart button"), @"Restart button")];
     [restartButton setTarget:self];
     [restartButton setAction:@selector(restartButtonPressed:)];
     [contentView addSubview:restartButton];
 
     loginButton = [[NSButton alloc] initWithFrame:NSMakeRect(rightX, buttonY, buttonWidth, buttonHeight)];
-    [loginButton setTitle:@"Log In"];
+    [loginButton setTitle:NSLocalizedString(@"Log In", @"Login button")];
     [loginButton setTarget:self];
     [loginButton setAction:@selector(loginButtonPressed:)];
     [loginButton setKeyEquivalent:@"\r"];
@@ -875,7 +875,7 @@ void signalHandler(int sig) {
     NSString *password = [passwordField stringValue];
     
     if ([username length] == 0) {
-        [self showStatus:@"Please enter username"];
+        [self showStatus:NSLocalizedString(@"Please enter username", @"Status when username is empty")];
         [self shakeWindow];
         return;
     }
@@ -889,7 +889,7 @@ void signalHandler(int sig) {
         [self startUserSession:username];
     } else {
         NSDebugLLog(@"gwcomp", @"[DEBUG] authenticateUser:password: returned NO");
-        [self showStatus:@"Authentication failed"];
+        [self showStatus:NSLocalizedString(@"Authentication failed", @"Status on auth failure")];
 
         // Show detailed error message if available
         NSString *errorMsg = [pamAuth lastErrorMessage];
@@ -899,8 +899,8 @@ void signalHandler(int sig) {
                 NSDebugLLog(@"gwcomp", @"[DEBUG] Authentication failure (wrong password) — shaking only");
             } else {
                 NSDebugLLog(@"gwcomp", @"[ERROR] Showing PAM error to user: %@", errorMsg);
-                NSAlert *alert = [NSAlert alertWithMessageText:@"Authentication Error"
-                                                 defaultButton:@"OK"
+                NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Authentication Error", @"Auth error alert title")
+                                                 defaultButton:NSLocalizedString(@"OK", @"OK button")
                                                alternateButton:nil
                                                    otherButton:nil
                                      informativeTextWithFormat:@"%@", errorMsg];
@@ -1007,10 +1007,10 @@ void signalHandler(int sig) {
 - (void)shutdownButtonPressed:(id)sender
 {
     NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:@"Shutdown Computer"];
-    [alert setInformativeText:@"Are you sure you want to shut down now?"];
-    [alert addButtonWithTitle:@"Shut Down"];
-    [alert addButtonWithTitle:@"Cancel"];
+    [alert setMessageText:NSLocalizedString(@"Shutdown Computer", @"Shutdown alert title")];
+    [alert setInformativeText:NSLocalizedString(@"Are you sure you want to shut down now?", @"Shutdown confirmation")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Shut Down", @"Shutdown button")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Cancel button")];
     
     NSInteger result = [alert runModal];
     [alert release];
@@ -1019,9 +1019,9 @@ void signalHandler(int sig) {
         BOOL success = [self trySystemAction:@"shutdown"];
         if (!success) {
             NSAlert *errorAlert = [[NSAlert alloc] init];
-            [errorAlert setMessageText:@"Error"];
-            [errorAlert setInformativeText:@"Failed to execute shutdown command. No suitable command found."];
-            [errorAlert addButtonWithTitle:@"OK"];
+            [errorAlert setMessageText:NSLocalizedString(@"Error", @"Error alert title")];
+            [errorAlert setInformativeText:NSLocalizedString(@"Failed to execute shutdown command. No suitable command found.", @"Shutdown error message")];
+            [errorAlert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
             [errorAlert runModal];
             [errorAlert release];
         }
@@ -1031,10 +1031,10 @@ void signalHandler(int sig) {
 - (void)restartButtonPressed:(id)sender
 {
     NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:@"Restart Computer"];
-    [alert setInformativeText:@"Are you sure you want to restart now?"];
-    [alert addButtonWithTitle:@"Restart"];
-    [alert addButtonWithTitle:@"Cancel"];
+    [alert setMessageText:NSLocalizedString(@"Restart Computer", @"Restart alert title")];
+    [alert setInformativeText:NSLocalizedString(@"Are you sure you want to restart now?", @"Restart confirmation")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Restart", @"Restart button")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Cancel button")];
     
     NSInteger result = [alert runModal];
     [alert release];
@@ -1043,9 +1043,9 @@ void signalHandler(int sig) {
         BOOL success = [self trySystemAction:@"restart"];
         if (!success) {
             NSAlert *errorAlert = [[NSAlert alloc] init];
-            [errorAlert setMessageText:@"Error"];
-            [errorAlert setInformativeText:@"Failed to execute restart command. No suitable command found."];
-            [errorAlert addButtonWithTitle:@"OK"];
+            [errorAlert setMessageText:NSLocalizedString(@"Error", @"Error alert title")];
+            [errorAlert setInformativeText:NSLocalizedString(@"Failed to execute restart command. No suitable command found.", @"Restart error message")];
+            [errorAlert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
             [errorAlert runModal];
             [errorAlert release];
         }
@@ -1066,7 +1066,7 @@ void signalHandler(int sig) {
     
     if (!pwd) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] User not found: %@", username);
-        [self showStatus:@"User not found"];
+        [self showStatus:NSLocalizedString(@"User not found", @"Status user not found")];
         return;
     }
     
@@ -1090,13 +1090,13 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Cannot change to home directory: %s", pwd->pw_dir);
         NSString *errorMsg = [NSString stringWithFormat:@"Cannot change to home directory: %s\n\nError: %s", 
                              pwd->pw_dir, strerror(errno)];
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Home Directory Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Home Directory Error", @"Home dir error title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
                              informativeTextWithFormat:@"%@", errorMsg];
         [alert runModal];
-        [self showStatus:@"Cannot change to home directory"];
+        [self showStatus:NSLocalizedString(@"Cannot change to home directory", @"Status chdir failure")];
         [pamAuth closeSession];
         return;
     }
@@ -1110,13 +1110,13 @@ void signalHandler(int sig) {
     // Check if socket exists
     if (access(x_socket_path, F_OK) != 0) {
         NSDebugLLog(@"gwcomp", @"[ERROR] X11 unix socket does not exist at %s: %s", x_socket_path, strerror(errno));
-        NSAlert *alert = [NSAlert alertWithMessageText:@"X Server Socket Not Found"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"X Server Socket Not Found", @"X socket error title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
-                             informativeTextWithFormat:@"The X server unix socket at %s does not exist. The X server may not be running properly.", x_socket_path];
+                             informativeTextWithFormat:NSLocalizedString(@"The X server unix socket at %s does not exist. The X server may not be running properly.", @"X socket missing message"), x_socket_path];
         [alert runModal];
-        [self showStatus:@"X server socket not found"];
+        [self showStatus:NSLocalizedString(@"X server socket not found", @"Status X socket missing")];
         [pamAuth closeSession];
         return;
     }
@@ -1134,14 +1134,14 @@ void signalHandler(int sig) {
             if (socket_stat.st_uid != pwd->pw_uid && socket_stat.st_gid != pwd->pw_gid) {
                 NSDebugLLog(@"gwcomp", @"[WARNING] User %d may not have access to X socket (owner: %d, group: %d)",
                       pwd->pw_uid, socket_stat.st_uid, socket_stat.st_gid);
-                NSAlert *alert = [NSAlert alertWithMessageText:@"X Server Access Warning"
-                                                 defaultButton:@"Continue Anyway"
-                                               alternateButton:@"Cancel"
+                NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"X Server Access Warning", @"X access warning title")
+                                                 defaultButton:NSLocalizedString(@"Continue Anyway", @"Continue anyway button")
+                                               alternateButton:NSLocalizedString(@"Cancel", @"Cancel button")
                                                    otherButton:nil
-                                     informativeTextWithFormat:@"The user %s may not have access to the X server socket. The X session may not work properly.", user_cstr];
+                                     informativeTextWithFormat:NSLocalizedString(@"The user %s may not have access to the X server socket. The X session may not work properly.", @"X access warning message"), user_cstr];
                 NSInteger response = [alert runModal];
                 if (response != NSAlertDefaultReturn) {
-                    [self showStatus:@"Login cancelled"];
+                    [self showStatus:NSLocalizedString(@"Login cancelled", @"Status login cancelled")];
                     [pamAuth closeSession];
                     return;
                 }
@@ -1386,13 +1386,13 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Fork failed");
         NSString *errorMsg = [NSString stringWithFormat:@"Failed to fork process for session\n\nError: %s", 
                              strerror(errno)];
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Session Start Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Session Start Error", @"Session error title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
                              informativeTextWithFormat:@"%@", errorMsg];
         [alert runModal];
-        [self showStatus:@"Failed to start session"];
+        [self showStatus:NSLocalizedString(@"Failed to start session", @"Status session start failure")];
         [pamAuth closeSession];
     }
 }
@@ -1414,11 +1414,11 @@ void signalHandler(int sig) {
     // Check if file is owned by root (uid 0)
     if (fileStat.st_uid != 0) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Warning: LoginWindow.plist is not owned by root (owner uid: %d)", fileStat.st_uid);
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Autologin File Permission Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Autologin File Permission Error", @"Autologin permission title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
-                             informativeTextWithFormat:@"The autologin configuration file is not owned by root. Please check file permissions."];
+                             informativeTextWithFormat:NSLocalizedString(@"The autologin configuration file is not owned by root. Please check file permissions.", @"Autologin permission message")];
         [alert runModal];
         return NO;
     }
@@ -1428,11 +1428,11 @@ void signalHandler(int sig) {
     if ((fileStat.st_mode & 0777) != expectedMode) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Warning: LoginWindow.plist has incorrect permissions (expected 0644, got 0%o)", 
               fileStat.st_mode & 0777);
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Autologin File Permission Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Autologin File Permission Error", @"Autologin permission title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
-                             informativeTextWithFormat:@"The autologin configuration file has incorrect permissions (expected 0644). This is a security risk."];
+                             informativeTextWithFormat:NSLocalizedString(@"The autologin configuration file has incorrect permissions (expected 0644). This is a security risk.", @"Autologin bad permissions message")];
         [alert runModal];
         return NO;
     }
@@ -1491,7 +1491,7 @@ void signalHandler(int sig) {
     
     if (!pwd) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Auto-login user not found: %@", username);
-        [self showStatus:@"Auto-login user not found"];
+        [self showStatus:NSLocalizedString(@"Auto-login user not found", @"Status auto-login user missing")];
         [loginWindow makeKeyAndOrderFront:self];
         return;
     }
@@ -1504,14 +1504,14 @@ void signalHandler(int sig) {
     if (![pamAuth openSessionForUser:username]) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Failed to open PAM session for auto-login user");
         NSString *errorMsg = [pamAuth getLastError];
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Auto-Login PAM Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Auto-Login PAM Error", @"Auto-login PAM title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
                              informativeTextWithFormat:@"%@", errorMsg];
         [alert runModal];
         // Fall back to showing login window
-        [self showStatus:@"Failed to open session for auto-login"];
+        [self showStatus:NSLocalizedString(@"Failed to open session for auto-login", @"Status auto-login PAM failure")];
         [loginWindow makeKeyAndOrderFront:self];
         return;
     }
@@ -1532,13 +1532,13 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Cannot change to home directory: %s", pwd->pw_dir);
         NSString *errorMsg = [NSString stringWithFormat:@"Cannot change to home directory: %s\n\nError: %s", 
                              pwd->pw_dir, strerror(errno)];
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Auto-Login Home Directory Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Auto-Login Home Directory Error", @"Auto-login home dir title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
                              informativeTextWithFormat:@"%@", errorMsg];
         [alert runModal];
-        [self showStatus:@"Cannot change to home directory"];
+        [self showStatus:NSLocalizedString(@"Cannot change to home directory", @"Status chdir failure")];
         [pamAuth closeSession];
         [loginWindow makeKeyAndOrderFront:self];
         return;
@@ -1553,13 +1553,13 @@ void signalHandler(int sig) {
     // Check if socket exists
     if (access(x_socket_path_autologin, F_OK) != 0) {
         NSDebugLLog(@"gwcomp", @"[ERROR] X11 unix socket does not exist at %s: %s", x_socket_path_autologin, strerror(errno));
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Auto-Login X Server Socket Not Found"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Auto-Login X Server Socket Not Found", @"Auto-login X socket title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
-                             informativeTextWithFormat:@"The X server unix socket at %s does not exist. Falling back to login window.", x_socket_path_autologin];
+                             informativeTextWithFormat:NSLocalizedString(@"The X server unix socket at %s does not exist. Falling back to login window.", @"Auto-login X socket missing message"), x_socket_path_autologin];
         [alert runModal];
-        [self showStatus:@"X server socket not found"];
+        [self showStatus:NSLocalizedString(@"X server socket not found", @"Status X socket missing")];
         [pamAuth closeSession];
         [loginWindow makeKeyAndOrderFront:self];
         return;
@@ -1578,13 +1578,13 @@ void signalHandler(int sig) {
             if (socket_stat_autologin.st_uid != pwd->pw_uid && socket_stat_autologin.st_gid != pwd->pw_gid) {
                 NSDebugLLog(@"gwcomp", @"[WARNING] Auto-login user %d may not have access to X socket (owner: %d, group: %d)",
                       pwd->pw_uid, socket_stat_autologin.st_uid, socket_stat_autologin.st_gid);
-                NSAlert *alert = [NSAlert alertWithMessageText:@"Auto-Login X Server Access Warning"
-                                                 defaultButton:@"OK"
+                NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Auto-Login X Server Access Warning", @"Auto-login X access title")
+                                                 defaultButton:NSLocalizedString(@"OK", @"OK button")
                                                alternateButton:nil
                                                    otherButton:nil
-                                     informativeTextWithFormat:@"The auto-login user %s may not have access to the X server socket. Falling back to login window.", user_cstr];
+                                     informativeTextWithFormat:NSLocalizedString(@"The auto-login user %s may not have access to the X server socket. Falling back to login window.", @"Auto-login X access warning message"), user_cstr];
                 [alert runModal];
-                [self showStatus:@"Auto-login socket access failed"];
+                [self showStatus:NSLocalizedString(@"Auto-login socket access failed", @"Status auto-login X socket")];
                 [pamAuth closeSession];
                 [loginWindow makeKeyAndOrderFront:self];
                 return;
@@ -1843,7 +1843,7 @@ void signalHandler(int sig) {
         [self performSelector:@selector(monitorSession) withObject:nil afterDelay:1.0];
     } else {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Fork failed for auto-login");
-        [self showStatus:@"Failed to start auto-login session"];
+        [self showStatus:NSLocalizedString(@"Failed to start auto-login session", @"Status auto-login session failed")];
         [pamAuth closeSession];
         [loginWindow makeKeyAndOrderFront:self];
     }
@@ -1894,8 +1894,8 @@ void signalHandler(int sig) {
                            sessionDuration];
             }
             
-            NSAlert *alert = [NSAlert alertWithMessageText:@"Session Startup Error"
-                                             defaultButton:@"OK"
+            NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Session Startup Error", @"Session startup error")
+                                             defaultButton:NSLocalizedString(@"OK", @"OK button")
                                            alternateButton:nil
                                                otherButton:nil
                                  informativeTextWithFormat:@"%@", errorMsg];
@@ -3038,7 +3038,7 @@ static bool isDetachedDaemon(const char *comm)
                             | NSWindowStyleMaskMiniaturizable)
                     backing:NSBackingStoreBuffered
                       defer:NO];
-    [_logWindow setTitle:@"Keyboard Layout Log"];
+    [_logWindow setTitle:NSLocalizedString(@"Keyboard Layout Log", @"Log window title")];
     [_logWindow setMinSize:NSMakeSize(400, 150)];
 
     NSScrollView *scrollView = [[NSScrollView alloc]

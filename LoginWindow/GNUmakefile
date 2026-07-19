@@ -13,7 +13,9 @@ LoginWindow_OBJC_FILES = \
     KeyboardManager.m
 
 LoginWindow_RESOURCE_FILES = \
-    Info.plist
+    Info.plist \
+    Resources/English.lproj \
+    Resources/German.lproj
 
 LoginWindow_PRINCIPAL_CLASS = LoginWindow
 
@@ -27,7 +29,7 @@ INSTALL_APPS_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/CoreServices/Applications
 include $(GNUSTEP_MAKEFILES)/application.make
 
 # Install target
-install::
+install:: all
 	@echo "Installing LoginWindow.app..."
 	@if [ -n "$(DESTDIR)" ]; then \
 		echo "Installing to $(DESTDIR)$(INSTALL_APPS_DIR)"; \
