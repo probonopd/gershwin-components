@@ -1,0 +1,269 @@
+/* Title of the build log window and menu item */
+"Build Log" = "Bauprotokoll";
+
+/* Status: building a named app or dependency */
+"Building %@\u2026" = "Erstelle %@\u2026";
+
+/* Status: building (no name) */
+"Building\u2026" = "Erstelle\u2026";
+
+/* Window title while building */
+"Building %@" = "Erstelle %@";
+
+/* Window title and build button */
+"Build" = "Erstellen";
+
+/* Status: running autoreconf */
+"Running autoreconf\u2026" = "F\u00fchre autoreconf aus\u2026";
+
+/* Status: autoreconf failed */
+"autoreconf failed" = "autoreconf fehlgeschlagen";
+
+/* Status: running configure */
+"Running configure\u2026" = "F\u00fchre configure aus\u2026";
+
+/* Status: running configure via sh */
+"Running configure (sh)\u2026" = "F\u00fchre configure (sh) aus\u2026";
+
+/* Status: no makefile given */
+"Error: No GNUmakefile specified" = "Fehler: Kein GNUmakefile angegeben";
+
+/* Status: makefile not found at path */
+"Error: GNUmakefile not found: %@" = "Fehler: GNUmakefile nicht gefunden: %@";
+
+/* Status: copying source files */
+"Copying source to temp directory\u2026" = "Kopiere Quellen in tempor\u00e4res Verzeichnis\u2026";
+
+/* Status: make tool not found */
+"Error: neither gmake nor make found in PATH" = "Fehler: Weder gmake noch make im PATH gefunden";
+
+/* Status: build failed to start */
+"Error: Failed to start build: %@" = "Fehler: Build konnte nicht gestartet werden: %@";
+
+/* Status: build succeeded for app */
+"%@ built successfully" = "%@ erfolgreich erstellt";
+
+/* Status: build succeeded (no name) */
+"Build completed successfully" = "Build erfolgreich abgeschlossen";
+
+/* Status: build failed for app */
+"Failed to build %@" = "Erstellung von %@ fehlgeschlagen";
+
+/* Status: build failed (no name) */
+"Build failed" = "Build fehlgeschlagen";
+
+/* Window title and status during install */
+"Installing\u2026" = "Installiere\u2026";
+
+/* Status: gmake not found */
+"Error: gmake not found in PATH" = "Fehler: gmake nicht im PATH gefunden";
+
+/* Status: install failed with reason */
+"Install failed: %@" = "Installation fehlgeschlagen: %@";
+
+/* Status: install failed */
+"Install failed" = "Installation fehlgeschlagen";
+
+/* Status: install finished */
+"Install completed" = "Installation abgeschlossen";
+
+/* Status: downloading dependency */
+"Downloading %@\u2026" = "Lade %@ herunter\u2026";
+
+/* Status: hint to force quit */
+"Press Close again to force quit." = "Dr\u00fccken Sie erneut Schlie\u00dfen, um sofort zu beenden.";
+
+/* Cancel button */
+"Cancel" = "Abbrechen";
+
+/* About menu item */
+"About" = "\u00dcber";
+
+/* Quit menu item */
+"Quit" = "Beenden";
+
+/* Edit menu title */
+"Edit" = "Bearbeiten";
+
+/* Undo menu item */
+"Undo" = "R\u00fcckg\u00e4ngig";
+
+/* Redo menu item */
+"Redo" = "Wiederholen";
+
+/* Cut menu item */
+"Cut" = "Ausschneiden";
+
+/* Copy menu item */
+"Copy" = "Kopieren";
+
+/* Paste menu item */
+"Paste" = "Einsetzen";
+
+/* Select All menu item */
+"Select All" = "Alles ausw\u00e4hlen";
+
+/* Window menu title */
+"Window" = "Fenster";
+
+/* Minimize menu item */
+"Minimize" = "Minimieren";
+
+/* Zoom menu item */
+"Zoom" = "Zoomen";
+
+/* Bring All to Front menu item */
+"Bring All to Front" = "Alle nach vorne bringen";
+
+/* Close menu item */
+"Close" = "Schlie\u00dfen";
+
+/* Alert title: build succeeded */
+"Build Succeeded" = "Build erfolgreich";
+
+/* Button: install and launch app */
+"Install and Launch" = "Installieren und starten";
+
+/* Button: install app */
+"Install" = "Installieren";
+
+/* OK button */
+"OK" = "OK";
+
+/* Button: show build log */
+"Show Build Log" = "Bauprotokoll anzeigen";
+
+/* Alert title: install failed */
+"Install Failed" = "Installation fehlgeschlagen";
+
+/* Alert title: launch failed */
+"Launch Failed" = "Start fehlgeschlagen";
+
+/* Alert: installed but failed to launch */
+"The application was installed, but could not be launched." = "Die Anwendung wurde installiert, konnte aber nicht gestartet werden.";
+
+/* Alert title: force quit? */
+"Force Quit?" = "Sofort beenden?";
+
+/* Alert: confirm force quit */
+"Build is still in progress. Force quit?" = "Der Build l\u00e4uft noch. Sofort beenden?";
+
+/* Button: force quit */
+"Force Quit" = "Sofort beenden";
+
+/* Button: wait */
+"Wait" = "Warten";
+
+/* Open panel title */
+"Select GNUmakefile" = "GNUmakefile ausw\u00e4hlen";
+
+/* Dialog: build succeeded for app */
+"%@ built successfully." = "%@ erfolgreich erstellt.";
+
+/* Dialog: build succeeded (no name) */
+"The build completed successfully." = "Der Build wurde erfolgreich abgeschlossen.";
+
+/* Dialog title: build failed (no name) */
+"Build Failed" = "Build fehlgeschlagen";
+
+/* Error: no build output */
+"No output captured" = "Keine Ausgabe erfasst";
+
+/* Error: unsupported technology */
+"The build failed because it requires an unsupported technology:\n\n" = "Der Build ist fehlgeschlagen, da er eine nicht unterst\u00fctzte Technologie ben\u00f6tigt:\n\n";
+
+/* Error: also missing package */
+"\nAdditionally, a required package is missing:\n\n" = "\nZus\u00e4tzlich fehlt ein ben\u00f6tigtes Paket:\n\n";
+
+/* Error: missing item of kind */
+"The build failed because a required %@ is missing:\n\n" = "Der Build ist fehlgeschlagen, da ein ben\u00f6tigtes %@ fehlt:\n\n";
+
+/* Hint: install dev package */
+"\nAfter installing the corresponding development package, try building again." = "\nNach der Installation des entsprechenden Entwicklungspakets versuchen Sie es erneut.";
+
+/* Hint: use alternative */
+"\nPlease consider an alternative, as this technology is not planned to be supported on this system." = "\nBitte ziehen Sie eine Alternative in Betracht, da diese Technologie auf diesem System nicht unterst\u00fctzt werden wird.";
+
+/* Log: build started */
+"=== Build started in %@ ===\n" = "=== Build gestartet in %@ ===\n";
+
+/* Log: install started */
+"\n=== Install started ===\n" = "\n=== Installation gestartet ===\n";
+
+/* Log: downloading */
+"=== Downloading %@ from %@ ===\n" = "=== Lade %@ von %@ herunter ===\n";
+
+/* Log: building dep */
+"=== Building %@ ===\n" = "=== Erstelle %@ ===\n";
+
+/* Log: running configure in dep */
+"=== Running configure in %@ ===\n" = "=== F\u00fchre configure in %@ aus ===\n";
+
+/* Log: resolving transitive dep */
+"=== Resolving transitive dependency %@ ===\n" = "=== L\u00f6se transitive Abh\u00e4ngigkeit %@ auf ===\n";
+
+/* Log: dep built at path */
+"=== %@ built in %@ ===\n" = "=== %@ erstellt in %@ ===\n";
+
+/* Log: git clone failed */
+"git clone failed\n" = "git clone fehlgeschlagen\n";
+
+/* Log: build failed */
+"build failed\n" = "Build fehlgeschlagen\n";
+
+/* Log: configure failed */
+"configure failed: %@\n" = "configure fehlgeschlagen: %@\n";
+
+/* Log: build failed with reason */
+"build failed: %@\n" = "Build fehlgeschlagen: %@\n";
+
+/* Log: git clone failed with reason */
+"git clone failed: %@\n" = "git clone fehlgeschlagen: %@\n";
+
+/* Log: build result */
+"\n=== Build %@ (exit %d) ===\n\n" = "\n=== Build %@ (Exit %d) ===\n\n";
+
+/* Log: install result */
+"\n=== Install %@ (exit %d) ===\n" = "\n=== Installation %@ (Exit %d) ===\n";
+
+/* Build status: succeeded */
+"succeeded" = "erfolgreich";
+
+/* Build status: failed */
+"failed" = "fehlgeschlagen";
+
+/* Alert title: catalog entry missing */
+"Catalog Entry Not Found" = "Katalogeintrag nicht gefunden";
+
+/* Alert: no entry with name */
+"No catalog entry named '%@'." = "Kein Katalogeintrag mit dem Namen '%@'.";
+
+/* Alert title: clone failed */
+"Clone Failed" = "Klonen fehlgeschlagen";
+
+/* Alert: temp dir error */
+"Could not create temporary directory." = "Tempor\u00e4res Verzeichnis konnte nicht erstellt werden.";
+
+/* Alert: git clone error with reason */
+"git clone failed: %@" = "git clone fehlgeschlagen: %@";
+
+/* Alert: git clone error */
+"git clone returned an error." = "git clone hat einen Fehler zur\u00fcckgegeben.";
+
+/* Alert title: no makefile */
+"No Makefile Found" = "Kein Makefile gefunden";
+
+/* Alert: no makefile in clone */
+"The cloned repository does not contain a GNUmakefile or Makefile." = "Das geklonte Repository enth\u00e4lt kein GNUmakefile oder Makefile.";
+
+/* Log: cloning repo */
+"=== Cloning %@ ===\n" = "=== Klone %@ ===\n";
+
+/* Open button */
+"Open\u2026" = "\u00d6ffnen\u2026";
+
+/* Search placeholder */
+"Filter\u2026" = "Filtern\u2026";
+
+/* Table column header: app name */
+"App" = "App";

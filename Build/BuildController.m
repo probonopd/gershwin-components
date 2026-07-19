@@ -65,7 +65,7 @@ static const CGFloat kSpace16 = 16.0;
                            | NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable
                     backing:NSBackingStoreBuffered
                       defer:YES];
-    [logWindow setTitle:@"Build Log"];
+    [logWindow setTitle:NSLocalizedString(@"Build Log", @"Title of the build log window")];
     [logWindow setMinSize:NSMakeSize(400, 100)];
 
     self = [super initWithWindow:logWindow];
@@ -162,52 +162,52 @@ static const CGFloat kSpace16 = 16.0;
                                                   keyEquivalent:@""];
     [mainMenu addItem:appMenuItem];
     NSMenu *appMenu = [[NSMenu alloc] initWithTitle:appName];
-    [appMenu addItemWithTitle:@"About"
+    [appMenu addItemWithTitle:NSLocalizedString(@"About", @"About menu item")
                        action:@selector(orderFrontStandardAboutPanel:)
                 keyEquivalent:@""];
     [appMenu addItem:[NSMenuItem separatorItem]];
-    [appMenu addItemWithTitle:@"Quit"
+    [appMenu addItemWithTitle:NSLocalizedString(@"Quit", @"Quit menu item")
                        action:@selector(terminate:)
                 keyEquivalent:@"q"];
     [appMenuItem setSubmenu:appMenu];
 
     /* Edit Menu */
-    NSMenuItem *editMenuItem = [[NSMenuItem alloc] initWithTitle:@"Edit"
+    NSMenuItem *editMenuItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Edit", @"Edit menu title")
                                                           action:nil
                                                    keyEquivalent:@""];
     [mainMenu addItem:editMenuItem];
-    NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
-    [editMenu addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];
-    [editMenu addItemWithTitle:@"Redo" action:@selector(redo:) keyEquivalent:@"Z"];
+    NSMenu *editMenu = [[NSMenu alloc] initWithTitle:NSLocalizedString(@"Edit", @"Edit menu title")];
+    [editMenu addItemWithTitle:NSLocalizedString(@"Undo", @"Undo menu item") action:@selector(undo:) keyEquivalent:@"z"];
+    [editMenu addItemWithTitle:NSLocalizedString(@"Redo", @"Redo menu item") action:@selector(redo:) keyEquivalent:@"Z"];
     [editMenu addItem:[NSMenuItem separatorItem]];
-    [editMenu addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
-    [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
-    [editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
-    [editMenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
+    [editMenu addItemWithTitle:NSLocalizedString(@"Cut", @"Cut menu item") action:@selector(cut:) keyEquivalent:@"x"];
+    [editMenu addItemWithTitle:NSLocalizedString(@"Copy", @"Copy menu item") action:@selector(copy:) keyEquivalent:@"c"];
+    [editMenu addItemWithTitle:NSLocalizedString(@"Paste", @"Paste menu item") action:@selector(paste:) keyEquivalent:@"v"];
+    [editMenu addItemWithTitle:NSLocalizedString(@"Select All", @"Select All menu item") action:@selector(selectAll:) keyEquivalent:@"a"];
     [editMenuItem setSubmenu:editMenu];
 
     /* Window Menu */
-    NSMenuItem *windowMenuItem = [[NSMenuItem alloc] initWithTitle:@"Window"
+    NSMenuItem *windowMenuItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Window", @"Window menu title")
                                                            action:nil
                                                     keyEquivalent:@""];
     [mainMenu addItem:windowMenuItem];
-    NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
-    [windowMenu addItemWithTitle:@"Minimize"
+    NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:NSLocalizedString(@"Window", @"Window menu title")];
+    [windowMenu addItemWithTitle:NSLocalizedString(@"Minimize", @"Minimize menu item")
                           action:@selector(performMiniaturize:)
                    keyEquivalent:@"m"];
-    [windowMenu addItemWithTitle:@"Zoom"
+    [windowMenu addItemWithTitle:NSLocalizedString(@"Zoom", @"Zoom menu item")
                           action:@selector(performZoom:)
                    keyEquivalent:@""];
     [windowMenu addItem:[NSMenuItem separatorItem]];
-    [windowMenu addItemWithTitle:@"Build Log"
+    [windowMenu addItemWithTitle:NSLocalizedString(@"Build Log", @"Build Log menu item")
                           action:@selector(showLog:)
                    keyEquivalent:@"l"];
     [windowMenu addItem:[NSMenuItem separatorItem]];
-    [windowMenu addItemWithTitle:@"Bring All to Front"
+    [windowMenu addItemWithTitle:NSLocalizedString(@"Bring All to Front", @"Bring All to Front menu item")
                           action:@selector(arrangeInFront:)
                    keyEquivalent:@""];
     [windowMenu addItem:[NSMenuItem separatorItem]];
-    [windowMenu addItemWithTitle:@"Close"
+    [windowMenu addItemWithTitle:NSLocalizedString(@"Close", @"Close menu item")
                           action:@selector(performClose:)
                    keyEquivalent:@"w"];
     [windowMenuItem setSubmenu:windowMenu];
@@ -241,7 +241,7 @@ static const CGFloat kSpace16 = 16.0;
     /* Cancel button (lower-right) */
     CGFloat cancelX = btnRight - kBtnWide;
     _cancelButton = [[NSButton alloc] initWithFrame:NSMakeRect(cancelX, y, kBtnWide, kBtnHeight)];
-    [_cancelButton setTitle:@"Cancel"];
+    [_cancelButton setTitle:NSLocalizedString(@"Cancel", @"Cancel button")];
     [_cancelButton setTarget:self];
     [_cancelButton setAction:@selector(cancelClicked:)];
     [_cancelButton setKeyEquivalent:@"\e"];
@@ -263,7 +263,7 @@ static const CGFloat kSpace16 = 16.0;
 
     /* Status field */
     _statusField = [[NSTextField alloc] initWithFrame:NSMakeRect(kTextLeft, y, textW, kLineHeight)];
-    [_statusField setStringValue:name ? [NSString stringWithFormat:@"Building %@…", name] : @"Building…"];
+    [_statusField setStringValue:name ? [NSString stringWithFormat:NSLocalizedString(@"Building %@…", @"Status: building a named app"), name] : NSLocalizedString(@"Building…", @"Status: building (no name)")];
     [_statusField setBezeled:NO];
     [_statusField setDrawsBackground:NO];
     [_statusField setEditable:NO];
@@ -306,7 +306,7 @@ static const CGFloat kSpace16 = 16.0;
         [[_window contentView] addSubview:_nameField];
     }
 
-    [_window setTitle:name ? name : @"Build"];
+    [_window setTitle:name ? name : NSLocalizedString(@"Build", @"Window title")];
     [_window setDelegate:self];
     [_window center];
     [_window orderFront:nil];
@@ -500,7 +500,7 @@ static const CGFloat kSpace16 = 16.0;
 
     if (needsAutoreconf) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (_statusField) [_statusField setStringValue:@"Running autoreconf\u2026"];
+            if (_statusField) [_statusField setStringValue:NSLocalizedString(@"Running autoreconf…", @"Status: running autoreconf")];
         });
         NSString *autoreconfPath = [NSTask launchPathForTool:@"autoreconf"];
         if (autoreconfPath) {
@@ -510,7 +510,7 @@ static const CGFloat kSpace16 = 16.0;
                               logPrefix:@"autoreconf"];
             if (!ok) {
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    if (_statusField) [_statusField setStringValue:@"autoreconf failed"];
+                    if (_statusField) [_statusField setStringValue:NSLocalizedString(@"autoreconf failed", @"Status: autoreconf failed")];
                 });
                 return;
             }
@@ -533,7 +533,7 @@ static const CGFloat kSpace16 = 16.0;
         if (needsConfigure) {
             if ([fm isExecutableFileAtPath:configure]) {
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    if (_statusField) [_statusField setStringValue:@"Running configure\u2026"];
+                    if (_statusField) [_statusField setStringValue:NSLocalizedString(@"Running configure…", @"Status: running configure")];
                 });
                 [self runSyncTask:configure
                         arguments:@[]
@@ -541,7 +541,7 @@ static const CGFloat kSpace16 = 16.0;
                         logPrefix:@"configure"];
             } else if ([fm fileExistsAtPath:configure]) {
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    if (_statusField) [_statusField setStringValue:@"Running configure (sh)\u2026"];
+                    if (_statusField) [_statusField setStringValue:NSLocalizedString(@"Running configure (sh)…", @"Status: running configure via sh")];
                 });
                 [self runSyncTask:@"/bin/sh"
                         arguments:@[configure]
@@ -569,7 +569,7 @@ static const CGFloat kSpace16 = 16.0;
     [_logController clearLog];
 
     if (!makefilePath) {
-        if (_statusField) [_statusField setStringValue:@"Error: No GNUmakefile specified"];
+        if (_statusField) [_statusField setStringValue:NSLocalizedString(@"Error: No GNUmakefile specified", @"Status: no makefile given")];
         else fprintf(stderr, "Error: No GNUmakefile specified\n");
         return;
     }
@@ -598,7 +598,7 @@ static const CGFloat kSpace16 = 16.0;
         if (mkdtemp(tmpPath)) {
             _objDir = [[NSString stringWithUTF8String:tmpPath] stringByStandardizingPath];
 
-            if (_statusField) [_statusField setStringValue:@"Copying source to temp directory…"];
+            if (_statusField) [_statusField setStringValue:NSLocalizedString(@"Copying source to temp directory…", @"Status: copying source files")];
 
             NSTask *cpTask = [[NSTask alloc] init];
             [cpTask setLaunchPath:@"/bin/cp"];
@@ -618,7 +618,7 @@ static const CGFloat kSpace16 = 16.0;
 
     NSString *makePath = [self resolveMakePath];
     if (!makePath) {
-        if (_statusField) [_statusField setStringValue:@"Error: neither gmake nor make found in PATH"];
+        if (_statusField) [_statusField setStringValue:NSLocalizedString(@"Error: neither gmake nor make found in PATH", @"Status: make tool not found")];
         else fprintf(stderr, "Error: neither gmake nor make found in PATH\n");
         return;
     }
@@ -659,11 +659,11 @@ static const CGFloat kSpace16 = 16.0;
 
     NSString *dName = [self displayNameFromMakefile];
     if (_statusField) {
-        [_statusField setStringValue:dName ? [NSString stringWithFormat:@"Building %@…", dName] : @"Building…"];
+        [_statusField setStringValue:dName ? [NSString stringWithFormat:NSLocalizedString(@"Building %@…", @"Status: building a named app"), dName] : NSLocalizedString(@"Building…", @"Status: building (no name)")];
     }
-    if (_window) [_window setTitle:dName ? [NSString stringWithFormat:@"Building %@", dName] : @"Building…"];
+    if (_window) [_window setTitle:dName ? [NSString stringWithFormat:NSLocalizedString(@"Building %@", @"Window title while building"), dName] : NSLocalizedString(@"Building…", @"Window title while building (no name)")];
     else fprintf(stderr, "Building…\n");
-    [_logController appendLog:[NSString stringWithFormat:@"=== Build started in %@ ===\n", directory]];
+    [_logController appendLog:[NSString stringWithFormat:NSLocalizedString(@"=== Build started in %@ ===\n", @"Log: build started"), directory]];
     NSLog(@"build: directory=%@ makefilePath=%@", directory, makefilePath);
 
     buildTask = [[NSTask alloc] init];
@@ -774,7 +774,7 @@ static const CGFloat kSpace16 = 16.0;
     @try {
         [buildTask launch];
     } @catch (NSException *exception) {
-        [_statusField setStringValue:[NSString stringWithFormat:@"Error: Failed to start build: %@", [exception reason]]];
+        [_statusField setStringValue:[NSString stringWithFormat:NSLocalizedString(@"Error: Failed to start build: %@", @"Status: build failed to start"), [exception reason]]];
         [_cancelButton setEnabled:NO];
     }
 }
@@ -782,7 +782,7 @@ static const CGFloat kSpace16 = 16.0;
 - (void)showFileOpenDialog
 {
     NSOpenPanel *openPanel = [NSOpenPanel openPanel];
-    [openPanel setTitle:@"Select GNUmakefile"];
+    [openPanel setTitle:NSLocalizedString(@"Select GNUmakefile", @"Open panel title")];
     [openPanel setCanChooseFiles:YES];
     [openPanel setCanChooseDirectories:YES];
     [openPanel setAllowsMultipleSelection:NO];
@@ -937,23 +937,23 @@ static const CGFloat kSpace16 = 16.0;
 
     if (status == 0) {
         [_progressBar setDoubleValue:[_progressBar maxValue]];
-        [_statusField setStringValue:dName ? [NSString stringWithFormat:@"%@ built successfully", dName] : @"Build completed successfully"];
-        [_window setTitle:dName ? dName : @"Build"];
+        [_statusField setStringValue:dName ? [NSString stringWithFormat:NSLocalizedString(@"%@ built successfully", @"Status: build succeeded for app"), dName] : NSLocalizedString(@"Build completed successfully", @"Status: build succeeded (no name)")];
+        [_window setTitle:dName ? dName : NSLocalizedString(@"Build", @"Window title")];
     } else {
-        [_statusField setStringValue:dName ? [NSString stringWithFormat:@"Failed to build %@", dName] : @"Build failed"];
-        [_window setTitle:dName ? dName : @"Build"];
+        [_statusField setStringValue:dName ? [NSString stringWithFormat:NSLocalizedString(@"Failed to build %@", @"Status: build failed for app"), dName] : NSLocalizedString(@"Build failed", @"Status: build failed (no name)")];
+        [_window setTitle:dName ? dName : NSLocalizedString(@"Build", @"Window title")];
     }
 
     [_logController appendLog:[NSString stringWithFormat:
-        @"\n=== Build %@ (exit %d) ===\n\n", status == 0 ? @"succeeded" : @"failed", status]];
+        NSLocalizedString(@"\n=== Build %@ (exit %d) ===\n\n", @"Log: build result"), status == 0 ? NSLocalizedString(@"succeeded", @"Build status") : NSLocalizedString(@"failed", @"Build status"), status]];
 
     if (_window) [_window orderOut:nil];
 
-    NSString *succeededMsg = dName ? [NSString stringWithFormat:@"%@ built successfully.", dName] : @"The build completed successfully.";
-    NSString *failedTitle = dName ? [NSString stringWithFormat:@"Failed to build %@", dName] : @"Build Failed";
+    NSString *succeededMsg = dName ? [NSString stringWithFormat:NSLocalizedString(@"%@ built successfully.", @"Dialog: build succeeded for app"), dName] : NSLocalizedString(@"The build completed successfully.", @"Dialog: build succeeded (no name)");
+    NSString *failedTitle = dName ? [NSString stringWithFormat:NSLocalizedString(@"Failed to build %@", @"Dialog title: build failed for app"), dName] : NSLocalizedString(@"Build Failed", @"Dialog title: build failed (no name)");
 
     NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:(status == 0) ? @"Build Succeeded" : failedTitle];
+    [alert setMessageText:(status == 0) ? NSLocalizedString(@"Build Succeeded", @"Alert title: build succeeded") : failedTitle];
     [alert setInformativeText:(status == 0)
         ? succeededMsg
         : [self formatErrorOutput:self.buildOutput]];
@@ -975,13 +975,13 @@ static const CGFloat kSpace16 = 16.0;
 
     if (status == 0) {
         if (canLaunch) {
-            [alert addButtonWithTitle:@"Install and Launch"];
+            [alert addButtonWithTitle:NSLocalizedString(@"Install and Launch", @"Button: install and launch app")];
         }
-        [alert addButtonWithTitle:@"Install"];
+        [alert addButtonWithTitle:NSLocalizedString(@"Install", @"Button: install app")];
     }
-    [alert addButtonWithTitle: (status == 0) ? @"OK" : @"Cancel"];
+    [alert addButtonWithTitle: (status == 0) ? NSLocalizedString(@"OK", @"OK button") : NSLocalizedString(@"Cancel", @"Cancel button")];
     if (status != 0) {
-        [alert addButtonWithTitle:@"Show Build Log"];
+        [alert addButtonWithTitle:NSLocalizedString(@"Show Build Log", @"Button: show build log")];
     }
 
     NSInteger button = [alert runModal];
@@ -1020,10 +1020,10 @@ static const CGFloat kSpace16 = 16.0;
 
     if (_window) {
         [_window orderFront:nil];
-        [_window setTitle:@"Installing…"];
+        [_window setTitle:NSLocalizedString(@"Installing…", @"Window title during install")];
     }
     [_cancelButton setEnabled:YES];
-    [_statusField setStringValue:@"Installing…"];
+    [_statusField setStringValue:NSLocalizedString(@"Installing…", @"Status: installing")];
     [_progressBar setIndeterminate:YES];
     [_progressBar startAnimation:nil];
     [self.buildOutput setString:@""];
@@ -1034,7 +1034,7 @@ static const CGFloat kSpace16 = 16.0;
 
     NSString *gmakePath = [NSTask launchPathForTool:@"gmake"];
     if (!gmakePath) {
-        [_statusField setStringValue:@"Error: gmake not found in PATH"];
+        [_statusField setStringValue:NSLocalizedString(@"Error: gmake not found in PATH", @"Status: gmake not found")];
         return;
     }
 
@@ -1064,7 +1064,7 @@ static const CGFloat kSpace16 = 16.0;
     @try {
         [installTask launch];
     } @catch (NSException *exception) {
-        [_statusField setStringValue:[NSString stringWithFormat:@"Install failed: %@", [exception reason]]];
+        [_statusField setStringValue:[NSString stringWithFormat:NSLocalizedString(@"Install failed: %@", @"Status: install failed with reason"), [exception reason]]];
         [_cancelButton setEnabled:NO];
         installTask = nil;
         installPipe = nil;
@@ -1112,21 +1112,21 @@ static const CGFloat kSpace16 = 16.0;
     [_progressBar stopAnimation:nil];
     [_progressBar setIndeterminate:NO];
     [_cancelButton setEnabled:NO];
-    [_window setTitle:@"Build"];
+    [_window setTitle:NSLocalizedString(@"Build", @"Window title")];
 
     [_logController appendLog:[NSString stringWithFormat:
-        @"\n=== Install %@ (exit %d) ===\n", status == 0 ? @"succeeded" : @"failed", status]];
+        NSLocalizedString(@"\n=== Install %@ (exit %d) ===\n", @"Log: install result"), status == 0 ? NSLocalizedString(@"succeeded", @"Build status") : NSLocalizedString(@"failed", @"Build status"), status]];
 
     if (_window) [_window orderOut:nil];
 
     if (status != 0) {
-        [_statusField setStringValue:@"Install failed"];
+        [_statusField setStringValue:NSLocalizedString(@"Install failed", @"Status: install failed")];
 
         NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:@"Install Failed"];
+        [alert setMessageText:NSLocalizedString(@"Install Failed", @"Alert title: install failed")];
         [alert setInformativeText:[self formatErrorOutput:self.buildOutput]];
-        [alert addButtonWithTitle:@"Cancel"];
-        [alert addButtonWithTitle:@"Show Build Log"];
+        [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Cancel button")];
+        [alert addButtonWithTitle:NSLocalizedString(@"Show Build Log", @"Button: show build log")];
         NSInteger button = [alert runModal];
 
         if (button == NSAlertSecondButtonReturn) {
@@ -1139,7 +1139,7 @@ static const CGFloat kSpace16 = 16.0;
         return;
     }
 
-    [_statusField setStringValue:@"Install completed"];
+    [_statusField setStringValue:NSLocalizedString(@"Install completed", @"Status: install finished")];
 
     if (installShouldLaunch) {
         NSString *name = [self productNameFromMakefile];
@@ -1175,9 +1175,9 @@ static const CGFloat kSpace16 = 16.0;
         }
 
         NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:@"Launch Failed"];
-        [alert setInformativeText:@"The application was installed, but could not be launched.."];
-        [alert addButtonWithTitle:@"OK"];
+        [alert setMessageText:NSLocalizedString(@"Launch Failed", @"Alert title: launch failed")];
+        [alert setInformativeText:NSLocalizedString(@"The application was installed, but could not be launched.", @"Alert: installed but failed to launch")];
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
         [alert runModal];
     }
 
@@ -1622,7 +1622,7 @@ static const CGFloat kSpace16 = 16.0;
     NSMutableString *friendly = [NSMutableString string];
 
     if ([blocked count] > 0) {
-        [friendly appendString:@"The build failed because it requires an unsupported technology:\n\n"];
+        [friendly appendString:NSLocalizedString(@"The build failed because it requires an unsupported technology:\n\n", @"Error: unsupported technology")];
         for (NSString *item in blocked) {
             [friendly appendFormat:@"  • %@\n", item];
         }
@@ -1630,9 +1630,9 @@ static const CGFloat kSpace16 = 16.0;
 
     if ([allowed count] > 0) {
         if ([blocked count] > 0) {
-            [friendly appendString:@"\nAdditionally, a required package is missing:\n\n"];
+            [friendly appendString:NSLocalizedString(@"\nAdditionally, a required package is missing:\n\n", @"Error: also missing package")];
         } else {
-            [friendly appendFormat:@"The build failed because a required %@ is missing:\n\n", kind];
+            [friendly appendFormat:NSLocalizedString(@"The build failed because a required %@ is missing:\n\n", @"Error: missing item of kind"), kind];
         }
         for (NSString *item in allowed) {
             [friendly appendFormat:@"  • %@\n", item];
@@ -1640,9 +1640,9 @@ static const CGFloat kSpace16 = 16.0;
     }
 
     if ([allowed count] > 0) {
-        [friendly appendString:@"\nAfter installing the corresponding development package, try building again."];
+        [friendly appendString:NSLocalizedString(@"\nAfter installing the corresponding development package, try building again.", @"Hint: install dev package")];
     } else if ([blocked count] > 0) {
-        [friendly appendString:@"\nPlease consider an alternative, as this technology is not planned to be supported on this system."];
+        [friendly appendString:NSLocalizedString(@"\nPlease consider an alternative, as this technology is not planned to be supported on this system.", @"Hint: use alternative")];
     }
     return friendly;
 }
@@ -1666,7 +1666,7 @@ static const CGFloat kSpace16 = 16.0;
 
     NSUInteger totalLines = [cleanLines count];
     if (totalLines == 0) {
-        return @"No output captured";
+        return NSLocalizedString(@"No output captured", @"Error: no build output");
     }
 
     NSMutableString *formattedOutput = [NSMutableString string];
@@ -1911,8 +1911,8 @@ static const CGFloat kSpace16 = 16.0;
 
     NSString *depDir = [dir stringByAppendingPathComponent:@"GNUstepDependencies"];
 
-    [_statusField setStringValue:[NSString stringWithFormat:@"Downloading %@…", repo]];
-    [_logController appendLog:[NSString stringWithFormat:@"=== Downloading %@ from %@ ===\n", repo, url]];
+    [_statusField setStringValue:[NSString stringWithFormat:NSLocalizedString(@"Downloading %@…", @"Status: downloading dependency"), repo]];
+    [_logController appendLog:[NSString stringWithFormat:NSLocalizedString(@"=== Downloading %@ from %@ ===\n", @"Log: downloading"), repo, url]];
 
     [[NSFileManager defaultManager] createDirectoryAtPath:depDir
                               withIntermediateDirectories:YES
@@ -1928,12 +1928,12 @@ static const CGFloat kSpace16 = 16.0;
         [gitTask launch];
         [gitTask waitUntilExit];
     } @catch (NSException *e) {
-        [_logController appendLog:[NSString stringWithFormat:@"git clone failed: %@\n", [e reason]]];
+        [_logController appendLog:[NSString stringWithFormat:NSLocalizedString(@"git clone failed: %@\n", @"Log: git clone failed"), [e reason]]];
         return;
     }
 
     if ([gitTask terminationStatus] != 0) {
-        [_logController appendLog:@"git clone failed\n"];
+        [_logController appendLog:NSLocalizedString(@"git clone failed\n", @"Log: git clone failed")];
         return;
     }
 
@@ -1985,7 +1985,7 @@ static const CGFloat kSpace16 = 16.0;
                             NSString *depCloneDir = [depDir2 stringByAppendingPathComponent:depRepo];
                             NSDictionary *depInfo = [[self gnustepInfo] objectForKey:depRepo];
                             if (depInfo && ![[NSFileManager defaultManager] fileExistsAtPath:depCloneDir]) {
-                                [_logController appendLog:[NSString stringWithFormat:@"=== Resolving transitive dependency %@ ===\n", depRepo]];
+                                [_logController appendLog:[NSString stringWithFormat:NSLocalizedString(@"=== Resolving transitive dependency %@ ===\n", @"Log: resolving transitive dep"), depRepo]];
                                 [self buildGNUstepRepo:depRepo info:depInfo dir:dir cloneDir:depCloneDir];
                             }
                         }
@@ -1995,13 +1995,13 @@ static const CGFloat kSpace16 = 16.0;
         }
     }
 
-    [_statusField setStringValue:[NSString stringWithFormat:@"Building %@…", repo]];
-    [_logController appendLog:[NSString stringWithFormat:@"=== Building %@ ===\n", repo]];
+    [_statusField setStringValue:[NSString stringWithFormat:NSLocalizedString(@"Building %@…", @"Status: building dependency"), repo]];
+    [_logController appendLog:[NSString stringWithFormat:NSLocalizedString(@"=== Building %@ ===\n", @"Log: building dep"), repo]];
 
     // Run configure if it exists
     NSString *configure = [cloneDir stringByAppendingPathComponent:@"configure"];
     if ([[NSFileManager defaultManager] isExecutableFileAtPath:configure]) {
-        [_logController appendLog:[NSString stringWithFormat:@"=== Running configure in %@ ===\n", repo]];
+        [_logController appendLog:[NSString stringWithFormat:NSLocalizedString(@"=== Running configure in %@ ===\n", @"Log: running configure in dep"), repo]];
         NSPipe *cOut = [NSPipe pipe];
         NSTask *cfgTask = [[NSTask alloc] init];
         [cfgTask setCurrentDirectoryPath:cloneDir];
@@ -2019,7 +2019,7 @@ static const CGFloat kSpace16 = 16.0;
                 [_logController appendLog:cStr];
             }
         } @catch (NSException *e) {
-            [_logController appendLog:[NSString stringWithFormat:@"configure failed: %@\n", [e reason]]];
+            [_logController appendLog:[NSString stringWithFormat:NSLocalizedString(@"configure failed: %@\n", @"Log: configure failed"), [e reason]]];
         }
     }
 
@@ -2099,7 +2099,7 @@ static const CGFloat kSpace16 = 16.0;
         [buildTask2 launch];
         [buildTask2 waitUntilExit];
     } @catch (NSException *e) {
-        [_logController appendLog:[NSString stringWithFormat:@"build failed: %@\n", [e reason]]];
+        [_logController appendLog:[NSString stringWithFormat:NSLocalizedString(@"build failed: %@\n", @"Log: build failed"), [e reason]]];
         return;
     }
 
@@ -2139,7 +2139,7 @@ static const CGFloat kSpace16 = 16.0;
     }
 
     if ([buildTask2 terminationStatus] != 0) {
-        [_logController appendLog:@"build failed\n"];
+        [_logController appendLog:NSLocalizedString(@"build failed\n", @"Log: build failed")];
         return;
     }
 
@@ -2164,7 +2164,7 @@ static const CGFloat kSpace16 = 16.0;
         }
     }
 
-    [_logController appendLog:[NSString stringWithFormat:@"=== %@ built in %@ ===\n", repo, cloneDir]];
+    [_logController appendLog:[NSString stringWithFormat:NSLocalizedString(@"=== %@ built in %@ ===\n", @"Log: dep built at path"), repo, cloneDir]];
     _dependencyResolved = YES;
 }
 
@@ -2184,7 +2184,7 @@ static const CGFloat kSpace16 = 16.0;
                                                     userInfo:nil
                                                      repeats:NO];
         if (_statusField) {
-            [_statusField setStringValue:@"Press Close again to force quit."];
+            [_statusField setStringValue:NSLocalizedString(@"Press Close again to force quit.", @"Status: hint to force quit")];
         }
         return NO;
     }
@@ -2195,10 +2195,10 @@ static const CGFloat kSpace16 = 16.0;
     closeCount = 0;
 
     NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:@"Force Quit?"];
-    [alert setInformativeText:@"Build is still in progress. Force quit?"];
-    [alert addButtonWithTitle:@"Force Quit"];
-    [alert addButtonWithTitle:@"Wait"];
+    [alert setMessageText:NSLocalizedString(@"Force Quit?", @"Alert title: force quit?")];
+    [alert setInformativeText:NSLocalizedString(@"Build is still in progress. Force quit?", @"Alert: confirm force quit")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Force Quit", @"Button: force quit")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Wait", @"Button: wait")];
     NSInteger result = [alert runModal];
     if (result == NSAlertFirstButtonReturn) {
         if (buildTask && [buildTask isRunning]) [buildTask terminate];
@@ -2206,7 +2206,7 @@ static const CGFloat kSpace16 = 16.0;
         return YES;
     }
     if (_statusField) {
-        [_statusField setStringValue:@"Building\u2026"];
+        [_statusField setStringValue:NSLocalizedString(@"Building…", @"Status: building (no name)")];
     }
     return NO;
 }
@@ -2223,10 +2223,10 @@ static const CGFloat kSpace16 = 16.0;
     }
 
     NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:@"Force Quit?"];
-    [alert setInformativeText:@"Build is still in progress. Force quit?"];
-    [alert addButtonWithTitle:@"Force Quit"];
-    [alert addButtonWithTitle:@"Wait"];
+    [alert setMessageText:NSLocalizedString(@"Force Quit?", @"Alert title: force quit?")];
+    [alert setInformativeText:NSLocalizedString(@"Build is still in progress. Force quit?", @"Alert: confirm force quit")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Force Quit", @"Button: force quit")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Wait", @"Button: wait")];
     NSInteger result = [alert runModal];
     if (result == NSAlertFirstButtonReturn) {
         if (buildTask && [buildTask isRunning]) [buildTask terminate];
@@ -2234,7 +2234,7 @@ static const CGFloat kSpace16 = 16.0;
         [_window close];
     } else {
         if (_statusField) {
-            [_statusField setStringValue:@"Building\u2026"];
+            [_statusField setStringValue:NSLocalizedString(@"Building…", @"Status: building (no name)")];
         }
     }
 }

@@ -64,7 +64,7 @@ static const CGFloat kWinHeight = 260.0;
                                                   | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
                                             backing:NSBackingStoreBuffered
                                               defer:NO];
-    [_window setTitle:@"Build"];
+    [_window setTitle:NSLocalizedString(@"Build", @"Window title")];
     [_window setMinSize:NSMakeSize(300, 200)];
     [_window setDelegate:(id)self];
 
@@ -74,7 +74,7 @@ static const CGFloat kWinHeight = 260.0;
     /* Build button (lower-right) */
     CGFloat buildX = kWinWidth - right - btnW;
     _buildButton = [[NSButton alloc] initWithFrame:NSMakeRect(buildX, y, btnW, btnH)];
-    [_buildButton setTitle:@"Build"];
+    [_buildButton setTitle:NSLocalizedString(@"Build", @"Build button")];
     [_buildButton setTarget:self];
     [_buildButton setAction:@selector(buildClicked:)];
     [_buildButton setEnabled:NO];
@@ -84,7 +84,7 @@ static const CGFloat kWinHeight = 260.0;
     /* Open button (to the left of Build) */
     CGFloat openX = buildX - kBtnHSpace - btnW;
     NSButton *openButton = [[NSButton alloc] initWithFrame:NSMakeRect(openX, y, btnW, btnH)];
-    [openButton setTitle:@"Open\u2026"];
+    [openButton setTitle:NSLocalizedString(@"Open…", @"Open button")];
     [openButton setTarget:self];
     [openButton setAction:@selector(openClicked:)];
     [contentView addSubview:openButton];
@@ -108,7 +108,7 @@ static const CGFloat kWinHeight = 260.0;
     [_tableView setHeaderView:nil];
 
     NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"name"];
-    [[column headerCell] setStringValue:@"App"];
+    [[column headerCell] setStringValue:NSLocalizedString(@"App", @"Table column header: app name")];
     [column setEditable:NO];
     [column setWidth:tableW];
     [_tableView addTableColumn:column];
@@ -139,7 +139,7 @@ static const CGFloat kWinHeight = 260.0;
         [tf setSelectable: YES];
         _searchField = (NSSearchField *)tf;
       }
-    [_searchField setPlaceholderString:@"Filter\u2026"];
+    [_searchField setPlaceholderString:NSLocalizedString(@"Filter…", @"Search placeholder")];
     [_searchField setTarget:self];
     [_searchField setAction:@selector(filterContent:)];
     [_searchField setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
@@ -230,9 +230,9 @@ static const CGFloat kWinHeight = 260.0;
     char *tmpPath = strdup([template UTF8String]);
     if (!mkdtemp(tmpPath)) {
         NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:@"Clone Failed"];
-        [alert setInformativeText:@"Could not create temporary directory."];
-        [alert addButtonWithTitle:@"OK"];
+        [alert setMessageText:NSLocalizedString(@"Clone Failed", @"Alert title: clone failed")];
+        [alert setInformativeText:NSLocalizedString(@"Could not create temporary directory.", @"Alert: temp dir error")];
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
         [alert runModal];
         free(tmpPath);
         return;
@@ -265,7 +265,7 @@ static const CGFloat kWinHeight = 260.0;
     [gitTask setStandardError:gitPipe];
     [gitTask setStandardInput:[NSFileHandle fileHandleWithNullDevice]];
 
-        NSString *logMsg = [NSString stringWithFormat:@"=== Cloning %@ ===\n", entry.gitURL];
+        NSString *logMsg = [NSString stringWithFormat:NSLocalizedString(@"=== Cloning %@ ===\n", @"Log: cloning repo"), entry.gitURL];
         [controller.buildOutput appendString:logMsg];
         dispatch_async(dispatch_get_main_queue(), ^{
             [controller.logController appendLog:logMsg];
@@ -302,9 +302,9 @@ static const CGFloat kWinHeight = 260.0;
             dispatch_sync(dispatch_get_main_queue(), ^{
                 [controller hideProgressWindow];
                 NSAlert *alert = [[NSAlert alloc] init];
-                [alert setMessageText:@"Clone Failed"];
-                [alert setInformativeText:[NSString stringWithFormat:@"git clone failed: %@", [e reason]]];
-                [alert addButtonWithTitle:@"OK"];
+                [alert setMessageText:NSLocalizedString(@"Clone Failed", @"Alert title: clone failed")];
+                [alert setInformativeText:[NSString stringWithFormat:NSLocalizedString(@"git clone failed: %@", @"Alert: git clone error with reason"), [e reason]]];
+                [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                 [alert runModal];
                 [NSApp terminate:nil];
             });
@@ -315,9 +315,9 @@ static const CGFloat kWinHeight = 260.0;
             dispatch_sync(dispatch_get_main_queue(), ^{
                 [controller hideProgressWindow];
                 NSAlert *alert = [[NSAlert alloc] init];
-                [alert setMessageText:@"Clone Failed"];
-                [alert setInformativeText:@"git clone returned an error."];
-                [alert addButtonWithTitle:@"OK"];
+                [alert setMessageText:NSLocalizedString(@"Clone Failed", @"Alert title: clone failed")];
+                [alert setInformativeText:NSLocalizedString(@"git clone returned an error.", @"Alert: git clone error")];
+                [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                 [alert runModal];
                 [NSApp terminate:nil];
             });
@@ -350,9 +350,9 @@ static const CGFloat kWinHeight = 260.0;
                 dispatch_sync(dispatch_get_main_queue(), ^{
                     [controller hideProgressWindow];
                     NSAlert *alert = [[NSAlert alloc] init];
-                    [alert setMessageText:@"No Makefile Found"];
-                    [alert setInformativeText:@"The cloned repository does not contain a GNUmakefile or Makefile."];
-                    [alert addButtonWithTitle:@"OK"];
+                    [alert setMessageText:NSLocalizedString(@"No Makefile Found", @"Alert title: no makefile")];
+                    [alert setInformativeText:NSLocalizedString(@"The cloned repository does not contain a GNUmakefile or Makefile.", @"Alert: no makefile in clone")];
+                    [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                     [alert runModal];
                     [NSApp terminate:nil];
                 });
@@ -370,7 +370,7 @@ static const CGFloat kWinHeight = 260.0;
 - (void)openClicked:(id)sender
 {
     NSOpenPanel *openPanel = [NSOpenPanel openPanel];
-    [openPanel setTitle:@"Select GNUmakefile"];
+    [openPanel setTitle:NSLocalizedString(@"Select GNUmakefile", @"Open panel title")];
     [openPanel setCanChooseFiles:YES];
     [openPanel setCanChooseDirectories:YES];
     [openPanel setAllowsMultipleSelection:NO];
