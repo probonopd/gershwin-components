@@ -792,7 +792,20 @@
     [contentView addSubview:detailsLabel];
 
     // ===== RADIO MODE UI ELEMENTS (hidden initially) =====
-    searchField = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    BOOL themeSearch = [NSSearchFieldCell instancesRespondToSelector:@selector(EAUsearchButtonRectForBounds:)];
+    if (themeSearch)
+      {
+        searchField = [[NSSearchField alloc] initWithFrame:NSZeroRect];
+      }
+    else
+      {
+        NSTextField *tf = [[NSTextField alloc] initWithFrame:NSZeroRect];
+        [tf setBezeled:YES];
+        [tf setBezelStyle:NSTextFieldRoundedBezel];
+        [tf setEditable:YES];
+        [tf setSelectable:YES];
+        searchField = tf;
+      }
     [[searchField cell] setPlaceholderString:@"Search Radio Stations..."];
     [searchField setTarget:self];
     [searchField setAction:@selector(radioSearchAction:)];

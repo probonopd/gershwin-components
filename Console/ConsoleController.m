@@ -331,13 +331,25 @@ static ConsoleController *sharedInstance = nil;
     CGFloat topWidth = [topPanel bounds].size.width;
     CGFloat searchHeight = 26.0;
     CGFloat searchMargin = 6.0;
-    _searchField = [[NSTextField alloc] initWithFrame:NSMakeRect(8, topHeight - searchHeight - searchMargin, topWidth - 16, searchHeight)];
+    BOOL themeSearch = [NSSearchFieldCell instancesRespondToSelector:@selector(EAUsearchButtonRectForBounds:)];
+    if (themeSearch)
+      {
+        _searchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(8, topHeight - searchHeight - searchMargin, topWidth - 16, searchHeight)];
+      }
+    else
+      {
+        NSTextField *tf = [[NSTextField alloc] initWithFrame:NSMakeRect(8, topHeight - searchHeight - searchMargin, topWidth - 16, searchHeight)];
+        [tf setBezeled:YES];
+        [tf setBezelStyle:NSTextFieldRoundedBezel];
+        [tf setEditable:YES];
+        [tf setSelectable:YES];
+        _searchField = (NSTextField *)tf;
+      }
     [_searchField setTarget:self];
     [_searchField setAction:@selector(search:)];
     [_searchField setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
-    if ([_searchField respondsToSelector:@selector(setPlaceholderString:)]) {
-        [(id)_searchField setPlaceholderString:@"Search"]; 
-    }
+    [(id)_searchField setPlaceholderString:@"Search"];
+    [[_searchField cell] setSendsActionOnEndEditing:NO];
     [topPanel addSubview:_searchField];
     
     NSScrollView *tableScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, topWidth, topHeight - (searchHeight + searchMargin))];

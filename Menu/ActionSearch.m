@@ -185,14 +185,23 @@ static const CGFloat kMaxResultsShown = 15;
     [self.searchPanel setReleasedWhenClosed:NO];
 
     // Search field fills the panel exactly — no padding
-    self.searchField = [[NSTextField alloc] initWithFrame:panelRect];
+    BOOL themeSearch = [NSSearchFieldCell instancesRespondToSelector:@selector(EAUsearchButtonRectForBounds:)];
+    if (themeSearch)
+      {
+        self.searchField = [[NSSearchField alloc] initWithFrame:panelRect];
+      }
+    else
+      {
+        NSTextField *tf = [[NSTextField alloc] initWithFrame:panelRect];
+        [tf setBezeled:YES];
+        [tf setBezelStyle:NSTextFieldRoundedBezel];
+        [tf setEditable:YES];
+        [tf setSelectable:YES];
+        [tf setEnabled:YES];
+        [tf setFont:[NSFont systemFontOfSize:12]];
+        self.searchField = tf;
+      }
     [self.searchField setDelegate:self];
-    [self.searchField setBordered:YES];
-    [self.searchField setBezeled:YES];
-    [self.searchField setBezelStyle:NSTextFieldRoundedBezel];
-    [self.searchField setEditable:YES];
-    [self.searchField setSelectable:YES];
-    [self.searchField setEnabled:YES];
     [self.searchField setFont:[NSFont systemFontOfSize:12]];
 
     NSAttributedString *placeholder = [[NSAttributedString alloc]

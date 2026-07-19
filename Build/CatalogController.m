@@ -54,9 +54,7 @@ static const CGFloat kWinHeight = 260.0;
         return;
     }
 
-    CGFloat left = kSideMargin;
     CGFloat right = kSideMargin;
-    CGFloat contentW = kWinWidth - left - right;
     CGFloat bottom = kBottomMargin;
     CGFloat btnW = kBtnWide;
     CGFloat btnH = kBtnHeight;
@@ -93,16 +91,17 @@ static const CGFloat kWinHeight = 260.0;
 
     y += btnH + kSpace16;
 
-    /* Table view */
+    /* Table view — edge-to-edge */
     CGFloat tableTop = kWinHeight - kTopMargin - kSpace8 - kSearchFieldHeight;
     CGFloat listH = tableTop - y;
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(left, y, contentW, listH)];
+    CGFloat tableW = kWinWidth;
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, y, tableW, listH)];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:NO];
     [scrollView setBorderType:NSBezelBorder];
     [scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
 
-    _tableView = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, contentW, listH)];
+    _tableView = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, tableW, listH)];
     [_tableView setRowHeight:kRowHeight];
     [_tableView setAllowsMultipleSelection:NO];
     [_tableView setAllowsEmptySelection:NO];
@@ -111,7 +110,7 @@ static const CGFloat kWinHeight = 260.0;
     NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"name"];
     [[column headerCell] setStringValue:@"App"];
     [column setEditable:NO];
-    [column setWidth:contentW];
+    [column setWidth:tableW];
     [_tableView addTableColumn:column];
 
     [_tableView setDataSource:self];
@@ -125,17 +124,15 @@ static const CGFloat kWinHeight = 260.0;
 
     y = tableTop + kSpace8;
 
-    /* Search field — use NSSearchField if the theme supports it (Eau's
-     * NSSearchFieldCell+Eau provides rounded bezel, search icon, clear button);
-     * fall back to a plain rounded NSTextField if no theme is active. */
+    /* Search field */
     BOOL themeSearch = [NSSearchFieldCell instancesRespondToSelector:@selector(EAUsearchButtonRectForBounds:)];
     if (themeSearch)
       {
-        _searchField = [[NSSearchField alloc] initWithFrame: NSMakeRect(left, y, contentW, kSearchFieldHeight)];
+        _searchField = [[NSSearchField alloc] initWithFrame: NSMakeRect(kSideMargin, y, kWinWidth - kSideMargin * 2, kSearchFieldHeight)];
       }
     else
       {
-        NSTextField *tf = [[NSTextField alloc] initWithFrame: NSMakeRect(left, y, contentW, kSearchFieldHeight)];
+        NSTextField *tf = [[NSTextField alloc] initWithFrame: NSMakeRect(kSideMargin, y, kWinWidth - kSideMargin * 2, kSearchFieldHeight)];
         [tf setBezeled: YES];
         [tf setBezelStyle: NSTextFieldRoundedBezel];
         [tf setEditable: YES];
