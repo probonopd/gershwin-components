@@ -1305,9 +1305,11 @@ void signalHandler(int sig) {
             NSDebugLLog(@"gwcomp", @"[DEBUG] No PAM environment variables to set");
         }
         
-        // Apply keyboard layout to X server (as user, DISPLAY is set above)
+        // Apply keyboard layout and language to X server (as user, DISPLAY is set above)
         NSDebugLLog(@"gwcomp", @"[DEBUG] Applying keyboard layout to X server");
         [kbMgr applyToXServer];
+        NSDebugLLog(@"gwcomp", @"[DEBUG] Applying language");
+        [kbMgr applyLanguage];
         [kbMgr release];
         
         // Change to user's home directory
@@ -1762,9 +1764,11 @@ void signalHandler(int sig) {
             NSDebugLLog(@"gwcomp", @"[DEBUG] No PAM environment variables to set for auto-login");
         }
         
-        // Apply keyboard layout to X server (as user, DISPLAY is set above)
+        // Apply keyboard layout and language to X server (as user, DISPLAY is set above)
         NSDebugLLog(@"gwcomp", @"[DEBUG] Applying keyboard layout to X server for auto-login");
         [kbMgr applyToXServer];
+        NSDebugLLog(@"gwcomp", @"[DEBUG] Applying language for auto-login");
+        [kbMgr applyLanguage];
         [kbMgr release];
         
         // Change to user's home directory

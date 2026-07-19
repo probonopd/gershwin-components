@@ -13,6 +13,7 @@
     NSString *_variant;
     NSString *_options;
     NSString *_model;
+    NSString *_language;
     NSString *_lastError;
     NSString *_detectionLog;
 }
@@ -20,12 +21,15 @@
 @property (readonly, copy) NSString *variant;
 @property (readonly, copy) NSString *options;
 @property (readonly, copy) NSString *model;
+@property (readonly, copy) NSString *language;
 @property (readonly, copy) NSString *lastError;
 @property (readonly, copy) NSString *detectionLog;
 - (id)init;
 - (void)dealloc;
 - (BOOL)detectKeyboardWithPasswd:(const struct passwd *)pwd;
 - (BOOL)persistConfiguration;
+- (BOOL)persistLanguage;
+- (BOOL)applyLanguage;
 - (BOOL)applyToXServer;
 - (BOOL)setupWithPasswd:(const struct passwd *)pwd;
 @end
