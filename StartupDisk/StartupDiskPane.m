@@ -6,8 +6,24 @@
 
 #import "StartupDiskPane.h"
 #import "StartupDiskController.h"
+#include <stdlib.h>
 
 @implementation StartupDiskPane
+
++ (BOOL)isCompatible {
+  NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
+  NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
+  for (NSString *dir in paths) {
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
+          [dir stringByAppendingPathComponent: @"efibootmgr"]])
+      return YES;
+  }
+  return NO;
+}
+
++ (NSString *)compatibilityReason {
+  return @"efibootmgr not found — startup disk selection requires EFI boot manager";
+}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {

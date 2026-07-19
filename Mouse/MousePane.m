@@ -6,8 +6,24 @@
 
 #import "MousePane.h"
 #import "MouseController.h"
+#include <stdlib.h>
 
 @implementation MousePane
+
++ (BOOL)isCompatible {
+  NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
+  NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
+  for (NSString *dir in paths) {
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
+          [dir stringByAppendingPathComponent: @"xinput"]])
+      return YES;
+  }
+  return NO;
+}
+
++ (NSString *)compatibilityReason {
+  return @"xinput not found — mouse configuration requires X11";
+}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {

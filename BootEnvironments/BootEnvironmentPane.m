@@ -6,8 +6,24 @@
 
 #import "BootEnvironmentPane.h"
 #import "BootConfigController.h"
+#include <stdlib.h>
 
 @implementation BootEnvironmentPane
+
++ (BOOL)isCompatible {
+  NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
+  NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
+  for (NSString *dir in paths) {
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
+          [dir stringByAppendingPathComponent: @"bectl"]])
+      return YES;
+  }
+  return NO;
+}
+
++ (NSString *)compatibilityReason {
+  return @"/sbin/bectl not found — boot environment management requires bectl";
+}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {

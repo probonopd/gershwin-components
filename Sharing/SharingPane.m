@@ -11,6 +11,8 @@
 
 @implementation SharingPane
 
++ (BOOL)isCompatible { return YES; }
+
 - (id)initWithBundle:(NSBundle *)bundle
 {
     NSDebugLog(@"SharingPane: initWithBundle starting");

@@ -6,8 +6,24 @@
 
 #import "EnergyPane.h"
 #import "EnergyController.h"
+#include <stdlib.h>
 
 @implementation EnergyPane
+
++ (BOOL)isCompatible {
+  NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
+  NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
+  for (NSString *dir in paths) {
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
+          [dir stringByAppendingPathComponent: @"xset"]])
+      return YES;
+  }
+  return NO;
+}
+
++ (NSString *)compatibilityReason {
+  return @"xset not found — power management requires X11";
+}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {

@@ -9,6 +9,8 @@
 
 @implementation PrintersPane
 
++ (BOOL)isCompatible { return YES; }
+
 - (id)initWithBundle:(NSBundle *)bundle
 {
     self = [super initWithBundle:bundle];

@@ -9,8 +9,24 @@
 #import "SoundPane.h"
 #import "SoundController.h"
 #import <dispatch/dispatch.h>
+#include <stdlib.h>
 
 @implementation SoundPane
+
++ (BOOL)isCompatible {
+  NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
+  NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
+  for (NSString *dir in paths) {
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
+          [dir stringByAppendingPathComponent: @"amixer"]])
+      return YES;
+  }
+  return NO;
+}
+
++ (NSString *)compatibilityReason {
+  return @"amixer not found — sound configuration requires ALSA";
+}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {
