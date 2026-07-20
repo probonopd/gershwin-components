@@ -5,6 +5,9 @@
  */
 
 #import <Foundation/Foundation.h>
+#ifdef RECORDING_CODER
+#import <AppKit/AppKit.h>
+#endif
 #import "MGTypes.h"
 #import "MGArchiverReader.h"
 #import "MGArchiverWriter.h"

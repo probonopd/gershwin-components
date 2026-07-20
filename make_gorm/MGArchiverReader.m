@@ -7,6 +7,9 @@
  * with -DRECORDING_CODER (requires GUI).
  */
 #import "MGArchiverReader.h"
+#ifdef RECORDING_CODER
+#import <AppKit/AppKit.h>
+#endif
 #import "MGTypes.h"
 #import <Foundation/Foundation.h>
 
