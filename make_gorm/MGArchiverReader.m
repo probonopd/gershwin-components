@@ -150,7 +150,7 @@
   if (!cn) cn = @"(null)";
   p = ce;
 
-    /* Find next _GSC_ID to get data boundary */
+    /* Find next _GSC_ID to get data boundary. If none found, data extends to EOF. */
     unsigned ds = p;
     unsigned de = [self _skipToNextObj:b len:len pos:ds];
     if (de <= ds) de = len;
@@ -208,12 +208,14 @@
   if (t & 0x80) return [self _skipXr:b len:len pos:p tag:t];
 
   switch (m) {
+    case 0x00: return p + 1;
     case 0x01: case 0x02: case 0x0d: return p + 1;
     case 0x03: case 0x04: return p + 2;
     case 0x05: case 0x06: case 0x07: case 0x08:
-      if (sz == 0x20) return p + 1;
-      if (sz == 0x40) return p + 2;
-      if (sz == 0x60) return p + 4;
+      /* Integer width: I16=0x00→2, I32=0x20→4, I64=0x40→8 */
+      if (sz == 0x00) return p + 2;
+      if (sz == 0x20) return p + 4;
+      if (sz == 0x40) return p + 8;
       return p + 4;
     case 0x09: case 0x0a: return p + 8;
     case 0x0b: return p + 4;
@@ -338,10 +340,17 @@ static unsigned cSkipFull(const uint8_t *b, unsigned len, unsigned p) {
       unsigned nl = r16(b + p); p += 2 + nl + 4;
     }
     if (p < len && b[p] == 0) p++;
-    /* Skip data until next _GSC_ID without xref */
-    while (p < len) {
+    /* Skip data: skip individual values and recursively skip
+     * nested _GSC_ID definitions. Stops at EOF. */
+    int maxVals = 10000000;
+    while (p < len && maxVals-- > 0) {
       uint8_t ct = b[p];
-      if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) break;
+      if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) {
+        unsigned old = p;
+        p = cSkipFull(b, len, p);
+        if (p <= old) { p++; break; }
+        continue;
+      }
       unsigned old = p;
       p = cSkipOne(b, len, p);
       if (p <= old) { p++; break; }
