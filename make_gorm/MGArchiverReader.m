@@ -315,4 +315,241 @@ static inline uint32_t r32(const uint8_t *b) {
        | (uint32_t)b[2] << 8  | (uint32_t)b[3];
 }
 
+#pragma mark - Raw data value parser
+
+/* C-level skip for a single GSC value (recurses into arrays/structs). */
+static unsigned cSkipOne(const uint8_t *b, unsigned len, unsigned p) {
+  if (p >= len) return p;
+  uint8_t t = b[p++];
+  uint8_t m = t & 0x1f;
+  uint8_t sz = t & 0x60;
+  if (t & 0x80) {
+    if (sz == 0x20) return p + 1;
+    if (sz == 0x40) return p + 2;
+    if (sz == 0x60) return p + 4;
+    return p;
+  }
+  switch (m) {
+    case 0x01: case 0x02: case 0x0d: return p + 1;
+    case 0x03: case 0x04: return p + 2;
+    case 0x05: case 0x06: case 0x07: case 0x08:
+      if (sz == 0x20) return p + 1;
+      if (sz == 0x40) return p + 2;
+      if (sz == 0x60) return p + 4;
+      return p + 4;
+    case 0x09: case 0x0a: return p + 8;
+    case 0x0b: return p + 4;
+    case 0x0c: return p + 8;
+    case 0x10: case 0x11: case 0x17: {
+      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
+      return p + xl;
+    }
+    case 0x12: case 0x14: {
+      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
+      if (p + xl + 2 > len) return len;
+      p += xl;
+      return p + 2 + r16(b + p);
+    }
+    case 0x13: {
+      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
+      return p + xl;
+    }
+    case 0x15: {
+      if (p + 4 > len) return len;
+      unsigned cnt = r32(b + p); p += 4;
+      for (unsigned i = 0; i < cnt && p < len; i++)
+        p = cSkipOne(b, len, p);
+      return p;
+    }
+    case 0x16: {
+      while (p < len) {
+        uint8_t ct = b[p];
+        if (ct == 0 || (ct & 0x1f) == 0x15) break;
+        p = cSkipOne(b, len, p);
+      }
+      return p;
+    }
+    default: return p;
+  }
+}
+
+/* Read one MGValue from raw GSC-tagged data starting at *posp.
+ * Updates *posp to after the consumed bytes. Returns nil on error. */
+static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp)
+{
+  if (*posp >= len) return nil;
+  unsigned p = *posp;
+  uint8_t tag = b[p++];
+  MGValue *val = [[MGValue alloc] init];
+  val.tag = tag;
+  uint8_t base = tag & 0x1f;
+  uint8_t sz = tag & 0x60;
+
+  if (tag & 0x80) {
+    if (sz != 0x00) {
+      if (sz == 0x20) { val.xref = b[p]; p += 1; }
+      else if (sz == 0x40) { val.xref = (b[p]<<8)|b[p+1]; p += 2; }
+      else if (sz == 0x60) { val.xref = (b[p]<<24)|(b[p+1]<<16)|(b[p+2]<<8)|b[p+3]; p += 4; }
+    }
+    *posp = p; return AUTORELEASE(val);
+  }
+
+  switch (base) {
+    case 0x00: break;
+    case 0x01: if (p < len) { val.intValue = (int64_t)(int8_t)b[p]; p++; } break;
+    case 0x02: if (p < len) { val.uintValue = b[p]; p++; } break;
+    case 0x0d: if (p < len) { val.boolValue = b[p] != 0; p++; } break;
+    case 0x03: case 0x04: {
+      if (p + 2 <= len) {
+        unsigned v = (b[p]<<8)|b[p+1];
+        if (base == 0x03) val.intValue = (int64_t)(int16_t)v;
+        else val.uintValue = v;
+        p += 2;
+      }
+      break;
+    }
+    case 0x05: case 0x06: case 0x07: case 0x08: {
+      unsigned nb = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 4;
+      if (p + nb <= len) {
+        uint64_t v = 0;
+        for (unsigned i = 0; i < nb; i++) v = (v << 8) | b[p + i];
+        p += nb;
+        if (base == 0x05 || base == 0x07) {
+          if (nb == 1) v = (uint64_t)(int64_t)(int8_t)(uint8_t)v;
+          else if (nb == 2) v = (uint64_t)(int64_t)(int16_t)(uint16_t)v;
+          else if (nb == 4) v = (uint64_t)(int64_t)(int32_t)(uint32_t)v;
+          val.intValue = (int64_t)v;
+        } else val.uintValue = v;
+      }
+      break;
+    }
+    case 0x09: if (p + 8 <= len) {
+      uint64_t raw = (uint64_t)b[p]<<56 | (uint64_t)b[p+1]<<48
+                   | (uint64_t)b[p+2]<<40 | (uint64_t)b[p+3]<<32
+                   | (uint64_t)b[p+4]<<24 | (uint64_t)b[p+5]<<16
+                   | (uint64_t)b[p+6]<<8  | (uint64_t)b[p+7];
+      val.intValue = (int64_t)raw; p += 8;
+    } break;
+    case 0x0a: if (p + 8 <= len) {
+      uint64_t raw = (uint64_t)b[p]<<56 | (uint64_t)b[p+1]<<48
+                   | (uint64_t)b[p+2]<<40 | (uint64_t)b[p+3]<<32
+                   | (uint64_t)b[p+4]<<24 | (uint64_t)b[p+5]<<16
+                   | (uint64_t)b[p+6]<<8  | (uint64_t)b[p+7];
+      val.uintValue = raw; p += 8;
+    } break;
+    case 0x0b: if (p + 4 <= len) {
+      uint32_t bits = r32(b + p); float f; memcpy(&f, &bits, 4);
+      val.floatValue = f; p += 4;
+    } break;
+    case 0x0c: if (p + 8 <= len) {
+      uint64_t bits = (uint64_t)b[p]<<56 | (uint64_t)b[p+1]<<48
+                    | (uint64_t)b[p+2]<<40 | (uint64_t)b[p+3]<<32
+                    | (uint64_t)b[p+4]<<24 | (uint64_t)b[p+5]<<16
+                    | (uint64_t)b[p+6]<<8  | (uint64_t)b[p+7];
+      double d; memcpy(&d, &bits, 8); val.doubleValue = d; p += 8;
+    } break;
+    case 0x10: case 0x11: case 0x17: {
+      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
+      if (xl > 0 && p + xl <= len) {
+        if (xl == 1) val.xref = b[p];
+        else if (xl == 2) val.xref = (b[p]<<8)|b[p+1];
+        else if (xl == 4) val.xref = r32(b + p);
+        p += xl;
+      }
+      /* For new object defs (_GSC_ID without xref): skip class hierarchy + data */
+      if (base == 0x10 && !(tag & 0x80)) {
+        unsigned end = p;
+        /* Skip class hierarchy (CLASS tags + _GSC_NONE) */
+        while (end < len) {
+          uint8_t ct = b[end];
+          if ((ct & 0x1f) != 0x11) break;
+          end++;
+          unsigned cl = ((ct & 0x60) == 0x20) ? 1 : ((ct & 0x60) == 0x40) ? 2 : ((ct & 0x60) == 0x60) ? 4 : 0;
+          end += cl;
+          if (end + 2 > len) { end = len; break; }
+          unsigned nl = r16(b + end); end += 2 + nl + 4;
+        }
+        if (end < len && b[end] == 0) end++;
+        p = end;
+        /* Skip data by reading until next _GSC_ID without xref */
+        while (p < len) {
+          uint8_t ct = b[p];
+          if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) break;
+          unsigned old = p;
+          p = cSkipOne(b, len, p);
+          if (p <= old) { p++; break; }
+        }
+      }
+      break;
+    }
+    case 0x12: case 0x14: {
+      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
+      p += xl;
+      if (p + 2 <= len) {
+        unsigned sl = r16(b + p); p += 2;
+        if (sl > 0 && p + sl <= len) {
+          val.stringValue = [[[NSString alloc] initWithBytes:b+p length:sl encoding:NSUTF8StringEncoding] autorelease];
+          p += sl;
+        }
+      }
+      break;
+    }
+    case 0x13: {
+      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
+      p += xl;
+      break;
+    }
+    case 0x15: {
+      if (p + 4 <= len) {
+        unsigned cnt = r32(b + p); p += 4;
+        val.children = [NSMutableArray array];
+        for (unsigned i = 0; i < cnt && p < len; i++) {
+          MGValue *child = readRawValue(b, len, &p);
+          if (child) [val.children addObject:child];
+          else break;
+        }
+      }
+      break;
+    }
+    case 0x16: {
+      val.children = [NSMutableArray array];
+      while (p < len) {
+        uint8_t ct = b[p];
+        if (ct == 0 || (ct & 0x1f) == 0x15) break;
+        if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) break;
+        unsigned old = p;
+        MGValue *child = readRawValue(b, len, &p);
+        if (child) [val.children addObject:child];
+        if (p <= old) { p++; break; }
+      }
+      break;
+    }
+    default: break;
+  }
+
+  *posp = p;
+  return AUTORELEASE(val);
+}
+
++ (NSArray *)parseValuesFromRawData:(NSData *)data error:(NSError **)error
+{
+  const uint8_t *b = [data bytes];
+  unsigned len = (unsigned)[data length];
+  unsigned pos = 0;
+  NSMutableArray *result = [NSMutableArray array];
+
+  while (pos < len) {
+    unsigned saved = pos;
+    MGValue *val = readRawValue(b, len, &pos);
+    if (!val || pos <= saved) {
+      if (error) *error = [NSError errorWithDomain:@"MGReader"
+        code:1 userInfo:@{NSLocalizedDescriptionKey: @"Parse error at offset"}];
+      return nil;
+    }
+    [result addObject:val];
+  }
+
+  return AUTORELEASE([result copy]);
+}
+
 @end

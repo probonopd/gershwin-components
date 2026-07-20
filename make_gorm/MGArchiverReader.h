@@ -10,4 +10,5 @@
 
 @interface MGArchiverReader : NSObject
 - (MGArchive *)parseArchiveFromData:(NSData *)data error:(NSError **)error;
++ (NSArray *)parseValuesFromRawData:(NSData *)data error:(NSError **)error;
 @end
