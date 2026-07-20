@@ -50,7 +50,7 @@ ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include -I/Developer/Library/Sources/ger
 #
 # Link libraries
 #
-ADDITIONAL_GUI_LIBS += -lwhisper -lSoundBackend
+ADDITIONAL_GUI_LIBS += -lwhisper -lSoundBackend -ldispatch
 
 # libcurl (cross-platform: pkg-config with fallback)
 WHISPER_CURL_CFLAGS := $(shell pkg-config --cflags libcurl 2>/dev/null)
