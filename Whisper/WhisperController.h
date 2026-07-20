@@ -50,12 +50,11 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 
     // Export
     NSButton *copyTextButton;
-    NSButton *autoTypeCheckbox;
     NSButton *showTimestampsCheckbox;
     BOOL showTimestamps;
-    BOOL autoTypeEnabled;
     BOOL copyDefaultConsumed;
     NSString *typedText;
+    unsigned long targetWindowID;
     NSString *vocabularyPrompt;
 
     // Whisper state
@@ -80,6 +79,7 @@ typedef NS_ENUM(NSInteger, WhisperState) {
     NSTextView *vocabTextView;
 
     // Model download
+    BOOL firstRealProgress;
     NSTask *downloadTask;
     NSString *downloadingModel;
     NSMutableData *downloadData;
@@ -117,7 +117,6 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 - (IBAction)saveAsSrt:(id)sender;
 - (IBAction)saveAsVtt:(id)sender;
 - (IBAction)copyText:(id)sender;
-- (IBAction)autoTypeToggled:(id)sender;
 - (IBAction)timestampsToggled:(id)sender;
 - (IBAction)editVocabulary:(id)sender;
 

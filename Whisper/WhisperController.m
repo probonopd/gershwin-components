@@ -34,6 +34,8 @@
 #import <Foundation/NSFileHandle.h>
 
 #import <whisper.h>
+#include <stdlib.h>
+#include <strings.h>
 
 
 
@@ -43,6 +45,8 @@
 @implementation WhisperFloatingWindow
 - (BOOL)canBecomeKeyWindow { return YES; }
 @end
+
+
 
 #define DEFAULT_WINDOW_WIDTH  480.0
 #define DEFAULT_WINDOW_HEIGHT 347.0
@@ -173,6 +177,74 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
 
 @synthesize mainWindow, availableModels, segments, currentFilePath;
 
+- (NSString *)findTool:(NSString *)name
+{
+    NSString *pathEnv = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
+    if (!pathEnv) return nil;
+    NSArray *dirs = [pathEnv componentsSeparatedByString:@":"];
+    for (NSString *dir in dirs) {
+        NSString *full = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:full])
+            return full;
+    }
+    return nil;
+}
+
+- (void)playSubmarineSound
+{
+    NSString *path = @"/System/Library/Sounds/Submarine.wav";
+    NSString *aplayer = [self findTool:@"aplay"];
+    NSString *audioplayer = [self findTool:@"audioplay"];
+    NSString *paplayer = [self findTool:@"paplay"];
+
+    NSMutableDictionary *cEnv = [[[[NSProcessInfo processInfo] environment] mutableCopy] autorelease];
+    [cEnv setObject:@"C" forKey:@"LC_ALL"];
+
+    // Try each player: aplay, audioplay, paplay
+    NSString *players[3] = { aplayer, audioplayer, paplayer };
+    NSArray *args[3] = {
+        @[@"-q", path],
+        @[path],
+        @[path]
+    };
+    for (int i = 0; i < 3; i++) {
+        if (!players[i]) continue;
+        NSLog(@"playSubmarineSound: trying %@", players[i]);
+        NSTask *t = [[NSTask alloc] init];
+        [t setLaunchPath:players[i]];
+        [t setArguments:args[i]];
+        [t setEnvironment:cEnv];
+        @try {
+            [t launch];
+            [t waitUntilExit];
+            if ([t terminationStatus] == 0) {
+                NSLog(@"playSubmarineSound: succeeded with %@", players[i]);
+                [t release];
+                return;
+            }
+            NSLog(@"playSubmarineSound: %@ failed status=%d",
+                  players[i], [t terminationStatus]);
+        } @catch (NSException *e) {
+            NSLog(@"playSubmarineSound: %@ threw %@", players[i], e);
+        }
+        [t release];
+    }
+    // Last resort: raw OSS — cat WAV to /dev/dsp
+    NSLog(@"playSubmarineSound: trying cat > /dev/dsp");
+    NSTask *t = [[NSTask alloc] init];
+    [t setLaunchPath:@"/bin/sh"];
+    [t setArguments:@[@"-c", [NSString stringWithFormat:@"cat '%@' > /dev/dsp 2>/dev/null", path]]];
+    [t setEnvironment:cEnv];
+    @try {
+        [t launch];
+        [t waitUntilExit];
+        NSLog(@"playSubmarineSound: cat > /dev/dsp exit=%d", [t terminationStatus]);
+    } @catch (NSException *e) {
+        NSLog(@"playSubmarineSound: cat > /dev/dsp threw %@", e);
+    }
+    [t release];
+}
+
 #pragma mark - Initialization
 
 - (id)init
@@ -191,11 +263,13 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         recordTimer = nil;
         streamTimer = nil;
         showTimestamps = NO;
-        autoTypeEnabled = NO;
         copyDefaultConsumed = NO;
         typedText = nil;
         vocabularyPrompt = [[[NSUserDefaults standardUserDefaults]
             stringForKey:@"VocabularyPrompt"] retain];
+        if (!vocabularyPrompt) {
+            vocabularyPrompt = [@"GNUstep AppImage" retain];
+        }
         currentThreads = 8;
 
         [self populateModelList];
@@ -218,7 +292,6 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     [streamTimer invalidate];
     [streamTimer release];
     if (captureHandle) wcapture_cancel(captureHandle);
-    [autoTypeCheckbox release];
     [typedText release];
     [vocabularyPrompt release];
     [vocabPanel release];
@@ -235,7 +308,11 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     // Restore last selected model (default: base.en) and set checkmark
     NSString *savedModel = [[NSUserDefaults standardUserDefaults]
         stringForKey:@"LastModel"];
-    if (!savedModel) savedModel = @"ggml-base.en.bin";
+    if (!savedModel) {
+        savedModel = @"ggml-base.en.bin";
+        [[NSUserDefaults standardUserDefaults] setObject:savedModel forKey:@"LastModel"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
     NSMenu *mainMenu = [NSApp mainMenu];
     NSMenuItem *appItem = [[mainMenu itemArray] objectAtIndex:0];
     NSMenu *appMenu = [appItem submenu];
@@ -268,11 +345,8 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         currentThreads = (int)savedThreads;
     }
 
-    // Restore persistent toggles
     showTimestamps = [[NSUserDefaults standardUserDefaults] boolForKey:@"ShowTimestamps"];
-    autoTypeEnabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"AutoTypeEnabled"];
     [showTimestampsCheckbox setState:(showTimestamps ? NSOnState : NSOffState)];
-    [autoTypeCheckbox setState:(autoTypeEnabled ? NSOnState : NSOffState)];
 
     [self updateUIForState];
 
@@ -470,6 +544,7 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         @"Downloading %@", name]];
     [self setState:WhisperStateLoadingModel];
 
+    firstRealProgress = NO;
     [downloadingModel release];
     downloadingModel = [name retain];
 
@@ -590,6 +665,10 @@ static const unsigned long long modelMinSizes[] = {
 - (void)downloadProgressUpdated:(NSNumber *)pct
 {
     double v = [pct doubleValue];
+    // curl emits a fake 100% line after resolving redirects.
+    // Skip it — real progress always starts below 100.
+    if (v >= 100.0 && !firstRealProgress) return;
+    if (v < 100.0) firstRealProgress = YES;
     [downloadProgress setDoubleValue:v];
     [downloadProgress displayIfNeeded];
     [progressBar setIndeterminate:NO];
@@ -837,14 +916,21 @@ static const unsigned long long modelMinSizes[] = {
         @"Done (%.1f s)", elapsed]];
 
     [self rebuildTextView];
-
-    if (autoTypeEnabled)
-        [self syncTypedText];
+    [self syncTypedText];
 }
 
 - (void)streamingFlushDone
 {
-    if (!autoTypeEnabled || captureHandle) return;
+    if (captureHandle) return;
+    if ([segments count] == 0) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"No speech detected"];
+        [alert setInformativeText:@"The microphone did not pick up any recognizable speech."];
+        [alert addButtonWithTitle:@"OK"];
+        [alert runModal];
+        [alert release];
+        return;
+    }
     [self syncTypedText];
 }
 
@@ -896,8 +982,6 @@ static const unsigned long long modelMinSizes[] = {
     [mainWindow setDefaultButtonCell:nil];
     if (isRecording) {
         [stopButton setKeyEquivalent:@"\r"];
-    } else if (hasResults && !isWorking && !copyDefaultConsumed) {
-        [copyTextButton setKeyEquivalent:@"\r"];
     } else {
         [recordButton setKeyEquivalent:@"\r"];
     }
@@ -1049,8 +1133,23 @@ static const unsigned long long modelMinSizes[] = {
     }
 
     NSLog(@"recordAudio: capture started, handle=%p", captureHandle);
+    [self playSubmarineSound];
     copyDefaultConsumed = NO;
     [typedText release]; typedText = nil;
+
+    // Save target window for xdotool so it types into the correct app
+    {
+        FILE *fp = popen("xdotool getactivewindow 2>/dev/null", "r");
+        if (fp) {
+            char buf[32];
+            if (fgets(buf, sizeof(buf), fp)) {
+                targetWindowID = strtoul(buf, NULL, 10);
+                NSLog(@"recordAudio: target window = %lu", targetWindowID);
+            }
+            pclose(fp);
+        }
+    }
+
     [self setState:WhisperStateRecording];
     recordStartTime = [NSDate timeIntervalSinceReferenceDate];
     lastSegmentCount = 0;
@@ -1090,6 +1189,7 @@ static const unsigned long long modelMinSizes[] = {
     }
 
     NSLog(@"stopRecording: stopping capture...");
+    [self playSubmarineSound];
     [recordTimer invalidate];
     [recordTimer release];
     recordTimer = nil;
@@ -1257,7 +1357,7 @@ static const unsigned long long modelMinSizes[] = {
     if (captureHandle) {
         for (int i = 0; i < lastSegmentCount; i++) {
             const char *segText = whisper_full_get_segment_text(whisperCtx, i);
-            if (segText && strcasestr(segText, "[silence]")) {
+            if (segText && (strcasestr(segText, "[silence]") || strcasestr(segText, "[BLANK_AUDIO]"))) {
                 NSLog(@"transcribeStreamingChunk: silence detected, stopping");
                 [self performSelectorOnMainThread:@selector(stopRecording:)
                                        withObject:nil
@@ -1267,11 +1367,9 @@ static const unsigned long long modelMinSizes[] = {
         }
     }
 
-    // Sync typed text with current transcription (main thread)
-    if (autoTypeEnabled)
-        [self performSelectorOnMainThread:@selector(syncTypedText)
-                               withObject:nil
-                            waitUntilDone:NO];
+    [self performSelectorOnMainThread:@selector(syncTypedText)
+                           withObject:nil
+                        waitUntilDone:NO];
 
     isTranscribing = NO;
 
@@ -1292,9 +1390,14 @@ static const unsigned long long modelMinSizes[] = {
           (unsigned long)[newSegs count]);
 
     // Remove existing segments that overlap in time with incoming
-    // segments, then add the new ones.  Whisper may shift timestamps
-    // on each pass, so exact-t0 matching causes duplicates.
+    // segments, then add the new ones (except silence).
     for (NSDictionary *seg in newSegs) {
+        NSString *txt = [seg objectForKey:@"text"];
+        if (txt && ([txt rangeOfString:@"[silence]"
+                               options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                    [txt rangeOfString:@"[BLANK_AUDIO]"
+                               options:NSCaseInsensitiveSearch].location != NSNotFound))
+            continue;
         int64_t newT0 = [[seg objectForKey:@"t0"] longLongValue];
         int64_t newT1 = [[seg objectForKey:@"t1"] longLongValue];
         for (NSInteger i = [segments count] - 1; i >= 0; i--) {
@@ -1545,9 +1648,15 @@ static const unsigned long long modelMinSizes[] = {
 - (NSString *)displayTextFromSegments
 {
     NSMutableString *result = [NSMutableString string];
+    NSCharacterSet *ws = [NSCharacterSet whitespaceCharacterSet];
     for (NSDictionary *seg in segments) {
         NSString *txt = [seg objectForKey:@"text"];
         if (!txt) continue;
+        NSUInteger i = 0;
+        while (i < [txt length] && [ws characterIsMember:[txt characterAtIndex:i]])
+            i++;
+        if (i >= [txt length]) continue;
+        txt = [txt substringFromIndex:i];
         if (showTimestamps) {
             int64_t t0 = [[seg objectForKey:@"t0"] longLongValue];
             int64_t t1 = [[seg objectForKey:@"t1"] longLongValue];
@@ -1983,16 +2092,6 @@ static const unsigned long long modelMinSizes[] = {
     [showTimestampsCheckbox setState:NSOffState];
     [contentView addSubview:showTimestampsCheckbox];
 
-    autoTypeCheckbox = [[NSButton alloc] initWithFrame:NSZeroRect];
-    [autoTypeCheckbox setButtonType:NSSwitchButton];
-    [autoTypeCheckbox setTitle:@"Auto-type"];
-    [autoTypeCheckbox setTarget:self];
-    [autoTypeCheckbox setAction:@selector(autoTypeToggled:)];
-    [autoTypeCheckbox setFont:METRICS_FONT_SYSTEM_REGULAR_11];
-    [autoTypeCheckbox sizeToFit];
-    [autoTypeCheckbox setState:NSOffState];
-    [contentView addSubview:autoTypeCheckbox];
-
     [self layoutSubviews];
 }
 
@@ -2043,15 +2142,12 @@ static const unsigned long long modelMinSizes[] = {
     // ---- Bottom row: checkboxes (left) + action buttons (right) ----
     NSSize copySz = [copyTextButton frame].size;
     NSSize tsSz   = [showTimestampsCheckbox frame].size;
-    NSSize atSz   = [autoTypeCheckbox frame].size;
     CGFloat bottomRowY = mb + s8;
     CGFloat textY      = bottomRowY + bh + s8;
     [resultScrollView setFrame:NSMakeRect(mx, textY, w, y - textY)];
     [[resultTextView textContainer] setContainerSize:
         NSMakeSize([resultScrollView contentSize].width, FLT_MAX)];
     [showTimestampsCheckbox setFrame:NSMakeRect(mx, bottomRowY, tsSz.width, bh)];
-    [autoTypeCheckbox setFrame:NSMakeRect(mx + tsSz.width + s8, bottomRowY,
-                                          atSz.width, bh)];
     [copyTextButton setFrame:NSMakeRect(mx + w - copySz.width, bottomRowY,
                                         copySz.width, bh)];
 
@@ -2067,35 +2163,27 @@ static const unsigned long long modelMinSizes[] = {
 
 #pragma mark - Auto-type
 
-- (IBAction)autoTypeToggled:(id)sender
-{
-    autoTypeEnabled = ([sender state] == NSOnState);
-    [[NSUserDefaults standardUserDefaults] setBool:autoTypeEnabled
-                                            forKey:@"AutoTypeEnabled"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
-    if (autoTypeEnabled) {
-        if ([segments count] > 0) [self syncTypedText];
-    } else {
-        [typedText release];
-        typedText = nil;
-    }
-}
-
 - (NSString *)plainTextFromSegments
 {
     NSMutableString *result = [NSMutableString string];
+    NSCharacterSet *ws = [NSCharacterSet whitespaceCharacterSet];
     for (NSDictionary *seg in segments) {
         NSString *txt = [seg objectForKey:@"text"];
         if (!txt) continue;
-        if ([result length] > 0) [result appendString:@" "];
-        [result appendString:txt];
+        // Strip leading whitespace whisper often prepends
+        NSUInteger i = 0;
+        while (i < [txt length] && [ws characterIsMember:[txt characterAtIndex:i]])
+            i++;
+        if (i < [txt length]) {
+            if ([result length] > 0) [result appendString:@" "];
+            [result appendString:[txt substringFromIndex:i]];
+        }
     }
     return result;
 }
 
 - (void)syncTypedText
 {
-    if (!autoTypeEnabled) return;
     NSString *desired = [self plainTextFromSegments];
     if (!desired) desired = @"";
     if (!typedText) typedText = [@"" retain];
@@ -2130,8 +2218,9 @@ static const unsigned long long modelMinSizes[] = {
     if (count <= 0) return;
     NSTask *task = [[NSTask alloc] init];
     [task setLaunchPath:@"/usr/bin/xdotool"];
+    NSString *winArg = [NSString stringWithFormat:@"%lu", targetWindowID];
     NSMutableArray *args = [NSMutableArray arrayWithObjects:
-        @"key", @"--clearmodifiers", nil];
+        @"key", @"--clearmodifiers", @"--window", winArg, nil];
     for (int i = 0; i < count; i++)
         [args addObject:@"BackSpace"];
     [task setArguments:args];
@@ -2145,8 +2234,10 @@ static const unsigned long long modelMinSizes[] = {
     if ([text length] == 0) return;
     NSTask *task = [[NSTask alloc] init];
     [task setLaunchPath:@"/usr/bin/xdotool"];
+    NSString *winArg = [NSString stringWithFormat:@"%lu", targetWindowID];
     [task setArguments:[NSArray arrayWithObjects:
-        @"type", @"--clearmodifiers", @"--delay", @"0", text, nil]];
+        @"type", @"--clearmodifiers", @"--delay", @"0",
+        @"--window", winArg, text, nil]];
     [task launch];
     [task waitUntilExit];
     [task release];
