@@ -353,8 +353,10 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
   unsigned len = (unsigned)[data length];
   unsigned p = strlen(PREFIX) + 36;
 
+  NSMutableSet *seenIds = [NSMutableSet set];
   while (p < len) {
-    if ((b[p] & 0x1f) != 0x10 || (b[p] & 0x80)) { p++; continue; }
+    uint8_t bt = b[p];
+    if (bt != 0x30 && bt != 0x50 && bt != 0x70) { p++; continue; }
     uint8_t tag = b[p]; p++;
     uint32_t oid = 0;
     switch (tag & 0x60) {
@@ -365,17 +367,22 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
     }
     unsigned ce = p;
     NSString *cn = [self _readClsName:b len:len pos:p end:&ce];
+    if (cn && [seenIds containsObject:@(oid)]) {
+      p = ce; p = cSkipFull(b, len, p); continue;
+    }
+    if (cn && oid > 0) [seenIds addObject:@(oid)];
     if (!cn) cn = @"(null)";
     p = ce;
     /* Data from here to EOF (flat parse stores raw for round-trip) */
-    /* Find data boundary: next _GSC_ID without xref.
-     * Use cSkipOne (NOT cSkipFull) to avoid skipping nested defs. */
-    unsigned ds = p;
-    unsigned de = len;
-    unsigned scan = p;
+    /* Find data boundary: next _GSC_ID. Include its tag+crossref
+     * in data (it's a reference to a sub-object). Stop before class hier. */
+    unsigned ds = p, de = len, scan = p;
     while (scan < len) {
       uint8_t ct = b[scan];
-      if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) { de = scan; break; }
+      if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) {
+        unsigned xl = ((ct & 0x60) == 0x20) ? 1 : ((ct & 0x60) == 0x40) ? 2 : ((ct & 0x60) == 0x60) ? 4 : 1;
+        de = scan + 1 + xl; break;
+      }
       unsigned old = scan;
       scan = cSkipOne(b, len, scan);
       if (scan <= old) { scan = old + 1; }
@@ -394,7 +401,15 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
       }
     }
     [archive.objects addObject:obj]; RELEASE(obj);
-    p = de;
+    /* Skip sub-object's full definition if our data was just a reference */
+    if (de - ds > 0 && de - ds < 10 && p < len) {
+      uint8_t ct = b[p];
+      if ((ct & 0x1f) == 0x11) { /* starts with CLASS = sub-object definition */
+        p = cSkipFull(b, len, p);
+      }
+    } else {
+      p = de;
+    }
   }
 }
 

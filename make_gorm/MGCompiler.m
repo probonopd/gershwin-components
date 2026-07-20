@@ -92,23 +92,19 @@ static uint32_t w32(uint32_t v) {
       if ([raw isKindOfClass:[NSData class]])
         [data appendData:(NSData *)raw];
     }
-  } else if ([archive.objects count] <= 4) {
-    /* Small archive: use NSArchiver for correct encoding */
-    NSData *archived = [self _compileWithNSArchiver:archive];
-    if (archived) return archived;
-    /* Fall back to MGValue tree approach */
-    for (MGArchiveObject *obj in sorted) {
-      [obj.encodedValues removeAllObjects];
-      [self _namedPropsToValues:obj];
-    }
-    [self _writeObjectRecursive:root allObjects:archive.objects data:data written:[[NSMutableSet alloc] init]];
   } else {
-    /* Large archive: write objects sequentially */
+    /* MGValue tree approach: convert namedProps to values, write recursively */
     for (MGArchiveObject *obj in sorted) {
-      [self _writeId:(uint32_t)obj.objectId data:data];
-      [self _writeClassHierarchy:obj.className data:data];
-      uint8_t none = 0; [data appendBytes:&none length:1];
+      if ([obj.encodedValues count] == 0 && [obj.namedProperties count] > 0) {
+        [self _namedPropsToValues:obj];
+      }
     }
+    /* Find root (id=1) for recursive writing */
+    MGArchiveObject *rootObj = nil;
+    for (MGArchiveObject *o in sorted)
+      if (o.objectId == 1) { rootObj = o; break; }
+    if (!rootObj) rootObj = [sorted objectAtIndex:0];
+    [self _writeObjectRecursive:rootObj allObjects:archive.objects data:data written:[[NSMutableSet alloc] init]];
   }
 
   return data;
