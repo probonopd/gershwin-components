@@ -6,6 +6,7 @@
 
 #import "MGTextWriter.h"
 #import "MGTypes.h"
+#import "MGArchiverReader.h"
 
 #import <Foundation/Foundation.h>
 #import <GNUstepBase/GNUstep.h>
@@ -657,13 +658,22 @@ static NSString *_formatValue(id val, NSUInteger indent)
               if ([v.objectValue isKindOfClass:[NSData class]])
                 {
                   NSData *raw = (NSData *)v.objectValue;
-                  [output appendFormat:@"    data = %@;\n",
-                    _formatRawData(raw, 1)];
+                  NSError *pe = nil;
+                  NSArray *parsed = [MGArchiverReader parseValuesFromRawData:raw error:&pe];
+                  if (parsed && [parsed count] > 0)
+                    {
+                      for (NSUInteger vi = 0; vi < [parsed count]; vi++)
+                        {
+                          NSString *s = _formatMGValue([parsed objectAtIndex:vi], 1, idToClass);
+                          [output appendFormat:@"    _%lu = %@;\n", (unsigned long)vi, s];
+                        }
+                    }
+                  /* Always include raw data for round-trip compilation */
+                  [output appendFormat:@"    data = %@;\n", _formatRawData(raw, 1)];
                 }
               else
                 {
-                  [output appendFormat:@"    val_%p = %@;\n",
-                    v, _formatMGValue(v, 1, idToClass)];
+                  [output appendFormat:@"    val_%p = %@;\n", v, _formatMGValue(v, 1, idToClass)];
                 }
             }
         }
