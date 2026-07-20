@@ -34,6 +34,19 @@
 #import <Foundation/NSFileHandle.h>
 
 #import <whisper.h>
+#include <X11/Xlib.h>
+#include <X11/Xatom.h>
+#include <strings.h>
+
+
+
+// ── Floating window: always on top, no keyboard input ──────────────
+@interface WhisperFloatingWindow : NSWindow
+@end
+@implementation WhisperFloatingWindow
+- (BOOL)canBecomeKeyWindow { return NO; }
+- (BOOL)canBecomeMainWindow { return NO; }
+@end
 
 #define DEFAULT_WINDOW_WIDTH  480.0
 #define DEFAULT_WINDOW_HEIGHT 347.0
@@ -182,7 +195,9 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         recordTimer = nil;
         streamTimer = nil;
         showTimestamps = NO;
+        autoTypeEnabled = NO;
         copyDefaultConsumed = NO;
+        typedText = nil;
         currentThreads = 8;
 
         [self populateModelList];
@@ -205,6 +220,8 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     [streamTimer invalidate];
     [streamTimer release];
     if (captureHandle) wcapture_cancel(captureHandle);
+    [autoTypeCheckbox release];
+    [typedText release];
     [super dealloc];
 }
 
@@ -255,6 +272,8 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
 
     [mainWindow center];
     [mainWindow makeKeyAndOrderFront:self];
+
+    [self performSelector:@selector(makeWindowFloating) withObject:nil afterDelay:0.5];
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification
@@ -697,6 +716,7 @@ static const unsigned long long modelMinSizes[] = {
     }
 
     [[self segments] removeAllObjects];
+    [typedText release]; typedText = nil;
     if (resultTextView) {
         [resultTextView setString:@""];
     }
@@ -806,6 +826,15 @@ static const unsigned long long modelMinSizes[] = {
         @"Done (%.1f s)", elapsed]];
 
     [self rebuildTextView];
+
+    if (autoTypeEnabled)
+        [self syncTypedText];
+}
+
+- (void)streamingFlushDone
+{
+    if (!autoTypeEnabled || captureHandle) return;
+    [self syncTypedText];
 }
 
 - (void)transcriptionFailed:(NSString *)error
@@ -848,9 +877,7 @@ static const unsigned long long modelMinSizes[] = {
 
     BOOL hasResults = [segments count] > 0;
     [copyTextButton setEnabled:hasResults];
-
-    // Allow editing the result text when idle
-    [resultTextView setEditable:(!isWorking && !isRecording)];
+    [typeOutputButton setEnabled:hasResults];
 
     // Default button: exactly one responds to Enter — never more
     [recordButton setKeyEquivalent:@""];
@@ -1013,6 +1040,7 @@ static const unsigned long long modelMinSizes[] = {
 
     NSLog(@"recordAudio: capture started, handle=%p", captureHandle);
     copyDefaultConsumed = NO;
+    [typedText release]; typedText = nil;
     [self setState:WhisperStateRecording];
     recordStartTime = [NSDate timeIntervalSinceReferenceDate];
     lastSegmentCount = 0;
@@ -1207,11 +1235,37 @@ static const unsigned long long modelMinSizes[] = {
     int ret = whisper_full(whisperCtx, wparams, samples, n);
     NSLog(@"transcribeStreamingChunk: whisper_full returned %d", ret);
 
-    // Update segment count from the final result
     lastSegmentCount = whisper_full_n_segments(whisperCtx);
     NSLog(@"transcribeStreamingChunk: done, total segments=%d", lastSegmentCount);
 
+    // If whisper detected silence, stop recording
+    if (captureHandle) {
+        for (int i = 0; i < lastSegmentCount; i++) {
+            const char *segText = whisper_full_get_segment_text(whisperCtx, i);
+            if (segText && strcasestr(segText, "[silence]")) {
+                NSLog(@"transcribeStreamingChunk: silence detected, stopping");
+                [self performSelectorOnMainThread:@selector(stopRecording:)
+                                       withObject:nil
+                                    waitUntilDone:NO];
+                break;
+            }
+        }
+    }
+
+    // Sync typed text with current transcription (main thread)
+    if (autoTypeEnabled)
+        [self performSelectorOnMainThread:@selector(syncTypedText)
+                               withObject:nil
+                            waitUntilDone:NO];
+
     isTranscribing = NO;
+
+    // If capture is gone (recording stopped), this was the final flush
+    if (!captureHandle) {
+        [self performSelectorOnMainThread:@selector(streamingFlushDone)
+                               withObject:nil
+                            waitUntilDone:NO];
+    }
     [pool release];
 }
 
@@ -1408,17 +1462,16 @@ static const unsigned long long modelMinSizes[] = {
         if (showTimestamps) {
             int64_t t0 = [[seg objectForKey:@"t0"] longLongValue];
             int64_t t1 = [[seg objectForKey:@"t1"] longLongValue];
-            [result appendFormat:@"[%@ --> %@] %@\n",
-                [self formatTimestamp:t0],
-                [self formatTimestamp:t1],
-                txt];
+            NSString *ts = [NSString stringWithFormat:@"[%@ --> %@] ",
+                              [self formatTimestamp:t0],
+                              [self formatTimestamp:t1]];
+            if ([result length] > 0) [result appendString:@" "];
+            [result appendString:ts];
+            [result appendString:txt];
         } else {
-            [result appendFormat:@"%@\n", txt];
+            if ([result length] > 0) [result appendString:@" "];
+            [result appendString:txt];
         }
-    }
-    // Remove trailing newline
-    if ([result hasSuffix:@"\n"]) {
-        [result deleteCharactersInRange:NSMakeRange([result length] - 1, 1)];
     }
     return result;
 }
@@ -1715,15 +1768,16 @@ static const unsigned long long modelMinSizes[] = {
                            NSMiniaturizableWindowMask |
                            NSResizableWindowMask;
 
-    mainWindow = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0,
-                                                DEFAULT_WINDOW_WIDTH,
-                                                DEFAULT_WINDOW_HEIGHT)
-                                             styleMask:styleMask
-                                               backing:NSBackingStoreBuffered
-                                                 defer:NO];
+    mainWindow = [[WhisperFloatingWindow alloc] initWithContentRect:NSMakeRect(0, 0,
+                                                       DEFAULT_WINDOW_WIDTH,
+                                                       DEFAULT_WINDOW_HEIGHT)
+                                                         styleMask:styleMask
+                                                           backing:NSBackingStoreBuffered
+                                                             defer:NO];
     [mainWindow setTitle:@"Whisper Speech-to-Text"];
     [mainWindow setDelegate:self];
     [mainWindow setMinSize:NSMakeSize(CONTENT_MIN_WIDTH, CONTENT_MIN_HEIGHT)];
+    [mainWindow setLevel:NSFloatingWindowLevel];
 
     NSView *contentView = [mainWindow contentView];
 
@@ -1794,7 +1848,8 @@ static const unsigned long long modelMinSizes[] = {
 
     // Results text view
     resultScrollView = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-    [resultScrollView setHasVerticalScroller:NO];
+    [resultScrollView setHasVerticalScroller:YES];
+    [resultScrollView setAutoresizesSubviews:YES];
     [resultScrollView setBorderType:NSBezelBorder];
     [resultScrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [contentView addSubview:resultScrollView];
@@ -1819,6 +1874,15 @@ static const unsigned long long modelMinSizes[] = {
     [copyTextButton setEnabled:NO];
     [contentView addSubview:copyTextButton];
 
+    typeOutputButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+    [typeOutputButton setTitle:@"Type to App"];
+    [typeOutputButton setTarget:self];
+    [typeOutputButton setAction:@selector(typeOutput:)];
+    [typeOutputButton setBezelStyle:NSRoundedBezelStyle];
+    [typeOutputButton sizeToFit];
+    [typeOutputButton setEnabled:NO];
+    [contentView addSubview:typeOutputButton];
+
     showTimestampsCheckbox = [[NSButton alloc] initWithFrame:NSZeroRect];
     [showTimestampsCheckbox setButtonType:NSSwitchButton];
     [showTimestampsCheckbox setTitle:@"Show Timestamps"];
@@ -1828,6 +1892,16 @@ static const unsigned long long modelMinSizes[] = {
     [showTimestampsCheckbox sizeToFit];
     [showTimestampsCheckbox setState:NSOffState];
     [contentView addSubview:showTimestampsCheckbox];
+
+    autoTypeCheckbox = [[NSButton alloc] initWithFrame:NSZeroRect];
+    [autoTypeCheckbox setButtonType:NSSwitchButton];
+    [autoTypeCheckbox setTitle:@"Auto-type"];
+    [autoTypeCheckbox setTarget:self];
+    [autoTypeCheckbox setAction:@selector(autoTypeToggled:)];
+    [autoTypeCheckbox setFont:METRICS_FONT_SYSTEM_REGULAR_11];
+    [autoTypeCheckbox sizeToFit];
+    [autoTypeCheckbox setState:NSOffState];
+    [contentView addSubview:autoTypeCheckbox];
 
     [self layoutSubviews];
 }
@@ -1876,13 +1950,19 @@ static const unsigned long long modelMinSizes[] = {
     [progressBar setFrame:NSMakeRect(mx, y, w, bh)];
     y -= bh + s8;
 
-    // ---- Bottom row: show timestamps checkbox (left) + copy button (right) ----
+    // ---- Bottom row: checkboxes (left) + action buttons (right) ----
     NSSize copySz = [copyTextButton frame].size;
-    NSSize tsSz = [showTimestampsCheckbox frame].size;
+    NSSize typeSz = [typeOutputButton frame].size;
+    NSSize tsSz   = [showTimestampsCheckbox frame].size;
+    NSSize atSz   = [autoTypeCheckbox frame].size;
     CGFloat bottomRowY = mb + s8;
     CGFloat textY      = bottomRowY + bh + s8;
     [resultScrollView setFrame:NSMakeRect(mx, textY, w, y - textY)];
     [showTimestampsCheckbox setFrame:NSMakeRect(mx, bottomRowY, tsSz.width, bh)];
+    [autoTypeCheckbox setFrame:NSMakeRect(mx + tsSz.width + s8, bottomRowY,
+                                          atSz.width, bh)];
+    [typeOutputButton setFrame:NSMakeRect(mx + w - typeSz.width - copySz.width - s8,
+                                          bottomRowY, typeSz.width, bh)];
     [copyTextButton setFrame:NSMakeRect(mx + w - copySz.width, bottomRowY,
                                         copySz.width, bh)];
 
@@ -1892,6 +1972,142 @@ static const unsigned long long modelMinSizes[] = {
 - (void)windowDidResize:(NSNotification *)notification
 {
     [self layoutSubviews];
+}
+
+#pragma mark - Window
+
+- (void)makeWindowFloating
+{
+    Display *dpy = XOpenDisplay(NULL);
+    if (!dpy) return;
+
+    Atom wmName  = XInternAtom(dpy, "_NET_WM_NAME", False);
+    Atom utf8    = XInternAtom(dpy, "UTF8_STRING", False);
+    Atom netWmState = XInternAtom(dpy, "_NET_WM_STATE", False);
+    Atom above   = XInternAtom(dpy, "_NET_WM_STATE_ABOVE", False);
+
+    Window root = DefaultRootWindow(dpy);
+    Window actualRoot, parent;
+    Window *children;
+    unsigned int nChildren;
+    if (!XQueryTree(dpy, root, &actualRoot, &parent, &children, &nChildren) || !children) {
+        XCloseDisplay(dpy);
+        return;
+    }
+
+    for (unsigned int i = 0; i < nChildren; i++) {
+        Atom actualType; int actualFormat;
+        unsigned long nItems, bytesAfter; unsigned char *data = NULL;
+        if (XGetWindowProperty(dpy, children[i], wmName, 0, 256, False, utf8,
+                               &actualType, &actualFormat,
+                               &nItems, &bytesAfter, &data) == Success && data) {
+            if (strstr((const char *)data, "Whisper Speech-to-Text")) {
+                XFree(data);
+                if (netWmState != None && above != None) {
+                    XChangeProperty(dpy, children[i], netWmState, XA_ATOM, 32,
+                                    PropModeReplace, (unsigned char *)&above, 1);
+                    XFlush(dpy);
+                }
+                break;
+            }
+            XFree(data);
+        }
+    }
+    XFree(children);
+    XCloseDisplay(dpy);
+}
+
+#pragma mark - Auto-type
+
+- (IBAction)typeOutput:(id)sender
+{
+    NSString *text = [resultTextView string];
+    if ([text length] == 0) return;
+    [typedText release];
+    typedText = [text retain];
+    [self typeTextToApp:text];
+}
+
+- (IBAction)autoTypeToggled:(id)sender
+{
+    autoTypeEnabled = ([sender state] == NSOnState);
+    if (autoTypeEnabled) {
+        if ([segments count] > 0) [self syncTypedText];
+    } else {
+        [typedText release];
+        typedText = nil;
+    }
+}
+
+- (NSString *)plainTextFromSegments
+{
+    NSMutableString *result = [NSMutableString string];
+    for (NSDictionary *seg in segments) {
+        NSString *txt = [seg objectForKey:@"text"];
+        if (!txt) continue;
+        if ([result length] > 0) [result appendString:@" "];
+        [result appendString:txt];
+    }
+    return result;
+}
+
+- (void)syncTypedText
+{
+    if (!autoTypeEnabled) return;
+    NSString *desired = [self plainTextFromSegments];
+    if (!desired) desired = @"";
+    if (!typedText) typedText = [@"" retain];
+
+    if ([typedText isEqualToString:desired]) return;
+
+    NSUInteger oldLen = [typedText length];
+    NSUInteger newLen = [desired length];
+    NSUInteger common = 0;
+    NSUInteger minLen = oldLen < newLen ? oldLen : newLen;
+    for (NSUInteger i = 0; i < minLen; i++) {
+        if ([typedText characterAtIndex:i] == [desired characterAtIndex:i])
+            common++;
+        else
+            break;
+    }
+
+    if (common < oldLen)
+        [self typeBackspaces:(int)(oldLen - common)];
+
+    if (common < newLen) {
+        NSString *toType = [desired substringFromIndex:common];
+        [self typeTextToApp:toType];
+    }
+
+    [typedText release];
+    typedText = [desired retain];
+}
+
+- (void)typeBackspaces:(int)count
+{
+    if (count <= 0) return;
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/usr/bin/xdotool"];
+    NSMutableArray *args = [NSMutableArray arrayWithObjects:
+        @"key", @"--clearmodifiers", nil];
+    for (int i = 0; i < count; i++)
+        [args addObject:@"BackSpace"];
+    [task setArguments:args];
+    [task launch];
+    [task waitUntilExit];
+    [task release];
+}
+
+- (void)typeTextToApp:(NSString *)text
+{
+    if ([text length] == 0) return;
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/usr/bin/xdotool"];
+    [task setArguments:[NSArray arrayWithObjects:
+        @"type", @"--clearmodifiers", @"--delay", @"0", text, nil]];
+    [task launch];
+    [task waitUntilExit];
+    [task release];
 }
 
 @end

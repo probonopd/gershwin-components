@@ -49,9 +49,9 @@ Whisper_C_FILES = \
 ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include -I/Developer/Library/Sources/gershwin-components/Sound
 
 #
-# Link with libwhisper
+# Link libraries
 #
-ADDITIONAL_GUI_LIBS += -lwhisper -lSoundBackend
+ADDITIONAL_GUI_LIBS += -lwhisper -lSoundBackend -lX11
 
 -include GNUmakefile.preamble
 

@@ -50,9 +50,13 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 
     // Export
     NSButton *copyTextButton;
+    NSButton *typeOutputButton;
+    NSButton *autoTypeCheckbox;
     NSButton *showTimestampsCheckbox;
     BOOL showTimestamps;
+    BOOL autoTypeEnabled;
     BOOL copyDefaultConsumed;
+    NSString *typedText;
 
     // Whisper state
     struct whisper_context *whisperCtx;
@@ -109,6 +113,8 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 - (IBAction)saveAsSrt:(id)sender;
 - (IBAction)saveAsVtt:(id)sender;
 - (IBAction)copyText:(id)sender;
+- (IBAction)typeOutput:(id)sender;
+- (IBAction)autoTypeToggled:(id)sender;
 - (IBAction)timestampsToggled:(id)sender;
 
 // Transcription
@@ -138,6 +144,12 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 // Display
 - (NSString *)displayTextFromSegments;
 - (void)rebuildTextView;
+
+// Auto-type
+- (NSString *)plainTextFromSegments;
+- (void)syncTypedText;
+- (void)typeTextToApp:(NSString *)text;
+- (void)typeBackspaces:(int)count;
 
 @end
 #endif
