@@ -643,39 +643,18 @@ static NSString *_formatValue(id val, NSUInteger indent)
             {
               id val = [obj.namedProperties objectForKey:key];
               if ([key isEqualToString:@"class"]) continue;
-              if ([val isKindOfClass:[NSData class]])
-                [output appendFormat:@"    %@ = %@;\n",
-                  key, _formatRawData((NSData *)val, 1)];
-              else
-                [output appendFormat:@"    %@ = %@;\n",
-                  key, _formatValue(val, 1)];
+              [output appendFormat:@"    %@ = %@;\n",
+                key, _formatValue(val, 1)];
             }
         }
       else if ([obj.encodedValues count] > 0)
         {
+          NSUInteger vi = 0;
           for (MGValue *v in obj.encodedValues)
             {
-              if ([v.objectValue isKindOfClass:[NSData class]])
-                {
-                  NSData *raw = (NSData *)v.objectValue;
-                  NSError *pe = nil;
-                  NSArray *parsed = [MGArchiverReader parseValuesFromRawData:raw error:&pe];
-                  if (parsed && [parsed count] > 0)
-                    {
-                      for (NSUInteger vi = 0; vi < [parsed count]; vi++)
-                        {
-                          idToClass[@(obj.objectId)] = obj.className;
-                          NSString *s = _formatMGValue([parsed objectAtIndex:vi], 1, idToClass);
-                          [output appendFormat:@"    _%lu = %@;\n", (unsigned long)vi, s];
-                        }
-                    }
-                  /* Raw data for lossless round-trip compilation */
-                  [output appendFormat:@"    data = %@;\n", _formatRawData(raw, 1)];
-                }
-              else
-                {
-                  [output appendFormat:@"    val_%p = %@;\n", v, _formatMGValue(v, 1, idToClass)];
-                }
+              NSString *s = _formatMGValue(v, 1, idToClass);
+              [output appendFormat:@"    _%lu = %@;\n", (unsigned long)vi, s];
+              vi++;
             }
         }
 
@@ -723,11 +702,9 @@ static NSString *_formatMGValue(MGValue *val, NSUInteger indent,
 {
   if (!val) return @"null";
 
-  /* Handle raw data blob (objectValue = NSData) */
+  /* Skip raw data blobs (no hex output) */
   if ([val.objectValue isKindOfClass:[NSData class]])
-    {
-      return _formatRawData((NSData *)val.objectValue, indent);
-    }
+    return @"<raw>";
 
   uint8_t base = val.tag & GSC_MASK;
 

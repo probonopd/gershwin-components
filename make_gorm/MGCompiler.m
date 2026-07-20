@@ -84,7 +84,6 @@ static uint32_t w32(uint32_t v) {
   [data appendData:[hdr dataUsingEncoding:NSASCIIStringEncoding]];
 
   if (hasHexData) {
-    /* Write each object with its class hierarchy and hex data */
     for (MGArchiveObject *obj in sorted) {
       [self _writeId:(uint32_t)obj.objectId data:data];
       [self _writeClassHierarchy:obj.className data:data];
@@ -93,13 +92,23 @@ static uint32_t w32(uint32_t v) {
       if ([raw isKindOfClass:[NSData class]])
         [data appendData:(NSData *)raw];
     }
-  } else {
-    /* No hex: convert named properties to MGValue trees and write recursively */
+  } else if ([archive.objects count] <= 4) {
+    /* Small archive: use NSArchiver for correct encoding */
+    NSData *archived = [self _compileWithNSArchiver:archive];
+    if (archived) return archived;
+    /* Fall back to MGValue tree approach */
     for (MGArchiveObject *obj in sorted) {
       [obj.encodedValues removeAllObjects];
       [self _namedPropsToValues:obj];
     }
     [self _writeObjectRecursive:root allObjects:archive.objects data:data written:[[NSMutableSet alloc] init]];
+  } else {
+    /* Large archive: write objects sequentially */
+    for (MGArchiveObject *obj in sorted) {
+      [self _writeId:(uint32_t)obj.objectId data:data];
+      [self _writeClassHierarchy:obj.className data:data];
+      uint8_t none = 0; [data appendBytes:&none length:1];
+    }
   }
 
   return data;
@@ -150,6 +159,82 @@ static uint32_t w32(uint32_t v) {
       [self _writeValue:v data:data];
     }
   }
+}
+
+/* Compile using NSArchiver (reconstructs objects, archives them) */
+- (NSData *)_compileWithNSArchiver:(MGArchive *)archive
+{
+  /* Reconstruct objects in ID order */
+  NSMutableDictionary *reconstructed = [NSMutableDictionary dictionary];
+  id rootObj = nil;
+  
+  for (MGArchiveObject *ao in archive.objects) {
+    Class cls = NSClassFromString(ao.className);
+    if (!cls) cls = [NSObject class];
+    id obj = [[cls alloc] init];
+    if (ao.objectId == 1) rootObj = obj;
+    reconstructed[@(ao.objectId)] = obj;
+    RELEASE(obj);
+  }
+  
+  if (!rootObj) return nil;
+  
+  /* Set properties on each object */
+  for (MGArchiveObject *ao in archive.objects) {
+    id obj = reconstructed[@(ao.objectId)];
+    if (!obj) continue;
+    for (NSString *key in ao.namedProperties) {
+      if ([key isEqualToString:@"class"] || [key isEqualToString:@"data"]) continue;
+      id val = [ao.namedProperties objectForKey:key];
+      id converted = [self _convertNamedValue:val withMap:reconstructed];
+      if (converted) {
+        @try { [obj setValue:converted forKey:key]; }
+        @catch (NSException *e) { /* skip unsettable properties */ }
+      }
+    }
+  }
+  
+  /* Archive the root object */
+  @try {
+    return [NSArchiver archivedDataWithRootObject:rootObj];
+  } @catch (NSException *e) {
+    return nil;
+  }
+}
+
+/* Convert a named property value (string, number, etc.) back to an ObjC object */
+- (id)_convertNamedValue:(id)val withMap:(NSDictionary *)map
+{
+  if (!val || [val isKindOfClass:[NSNull class]]) return nil;
+  if ([val isKindOfClass:[MGBoolBox class]])
+    return [NSNumber numberWithBool:[(MGBoolBox *)val boolValue]];
+  if ([val isKindOfClass:[NSNumber class]]) return val;
+  if ([val isKindOfClass:[NSString class]]) {
+    NSString *s = (NSString *)val;
+    if ([s hasPrefix:@"@"] && [s length] > 1) {
+      int oid = [[s substringFromIndex:1] intValue];
+      id ref = [map objectForKey:@(oid)];
+      return ref ? ref : [NSNull null];
+    }
+    return s;
+  }
+  if ([val isKindOfClass:[NSArray class]]) {
+    NSMutableArray *arr = [NSMutableArray array];
+    for (id e in (NSArray *)val) {
+      id cv = [self _convertNamedValue:e withMap:map];
+      if (cv) [arr addObject:cv];
+    }
+    return arr;
+  }
+  if ([val isKindOfClass:[NSDictionary class]]) {
+    NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+    for (id k in [(NSDictionary *)val allKeys]) {
+      id cv = [self _convertNamedValue:[(NSDictionary *)val objectForKey:k] withMap:map];
+      if (cv) [dict setObject:cv forKey:k];
+    }
+    return dict;
+  }
+  return val;
 }
 
 - (unsigned)_countUniqueClasses:(NSArray *)objects

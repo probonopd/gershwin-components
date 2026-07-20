@@ -2,8 +2,8 @@
  * Copyright (c) 2026 Simon Peter
  *
  * SPDX-License-Identifier: BSD-2-Clause
- * NSArchiver binary parser + GSC-tagged value parser.
- * Flat parse for lossless round-trip; GSC parser for structured output.
+ * NSArchiver binary parser.
+ * GSC-tagged value parser for structured output (zero hex).
  */
 #import "MGArchiverReader.h"
 #import "MGTypes.h"
@@ -242,38 +242,61 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
       if (p + 4 <= len) {
         unsigned cnt = r32(b + p); p += 4;
         val.children = [NSMutableArray array];
-        /* Read element type tag and skip elements as raw bytes */
         if (p >= len) break;
         uint8_t et = b[p]; p++;
-        unsigned esz = 0;
-        switch (et & 0x1f) {
-          case 0x01: case 0x02: case 0x0d: esz = 1; break;
-          case 0x03: case 0x04: esz = 2; break;
-          case 0x05: case 0x06: case 0x07: case 0x08:
-            esz = ((et & 0x60) == 0x00) ? 2 : ((et & 0x60) == 0x20) ? 4 : 8;
-            break;
-          case 0x09: case 0x0a: esz = 8; break;
-          case 0x0b: esz = 4; break;
-          case 0x0c: esz = 8; break;
-          default: esz = 1; break;
+        uint8_t eb = et & 0x1f, esz = et & 0x60;
+        for (unsigned i = 0; i < cnt && p < len; i++) {
+          MGValue *child = [[MGValue alloc] init];
+          child.tag = et;
+          switch (eb) {
+            case 0x01: if (p < len) { child.intValue = (int64_t)(int8_t)b[p]; p++; } break;
+            case 0x02: case 0x0d: if (p < len) { child.uintValue = b[p]; p++; } break;
+            case 0x03: case 0x04: {
+              if (p + 2 <= len) { unsigned v = (b[p]<<8)|b[p+1];
+                if (eb == 0x03) child.intValue = (int64_t)(int16_t)v;
+                else child.uintValue = v; p += 2; } break;
+            }
+            case 0x05: case 0x06: case 0x07: case 0x08: {
+              unsigned nb = (esz == 0x00) ? 2 : (esz == 0x20) ? 4 : (esz == 0x40) ? 8 : 4;
+              if (p + nb <= len) {
+                uint64_t v = 0;
+                for (unsigned j = 0; j < nb; j++) v = (v << 8) | b[p + j];
+                p += nb;
+                if (eb == 0x05 || eb == 0x07) child.intValue = (int64_t)v;
+                else child.uintValue = v;
+              } break;
+            }
+            case 0x09: case 0x0a: if (p + 8 <= len) {
+              uint64_t raw = (uint64_t)b[p]<<56|(uint64_t)b[p+1]<<48|(uint64_t)b[p+2]<<40|(uint64_t)b[p+3]<<32|(uint64_t)b[p+4]<<24|(uint64_t)b[p+5]<<16|(uint64_t)b[p+6]<<8|(uint64_t)b[p+7];
+              if (eb == 0x09) child.intValue = (int64_t)raw;
+              else child.uintValue = raw; p += 8;
+            } break;
+            case 0x0b: if (p + 4 <= len) {
+              uint32_t bits = r32(b+p); float f; memcpy(&f,&bits,4); child.floatValue = f; p += 4;
+            } break;
+            case 0x0c: if (p + 8 <= len) {
+              uint64_t bits = (uint64_t)b[p]<<56|(uint64_t)b[p+1]<<48|(uint64_t)b[p+2]<<40|(uint64_t)b[p+3]<<32|(uint64_t)b[p+4]<<24|(uint64_t)b[p+5]<<16|(uint64_t)b[p+6]<<8|(uint64_t)b[p+7];
+              double d; memcpy(&d,&bits,8); child.doubleValue = d; p += 8;
+            } break;
+            default: break;
+          }
+          [val.children addObject:child]; RELEASE(child);
         }
-        unsigned total = cnt * esz;
-        if (p + total > len) total = len - p;
-        /* Store as raw data blob */
-        val.objectValue = [NSData dataWithBytes:b+p length:total];
-        p += total;
       }
       break;
     }
     case 0x16: {
       val.children = [NSMutableArray array];
-      while (p < len) {
+      int limit = 10000;
+      while (p < len && limit-- > 0) {
         uint8_t ct = b[p];
         if (ct == 0) { p++; break; }
         if ((ct & 0x1f) == 0x15) break;
         unsigned old = p;
         MGValue *child = readRawValue(b, len, &p);
-        if (child) [val.children addObject:child];
+        if (child && !([child.objectValue isKindOfClass:[NSData class]] && [(NSData *)child.objectValue length] == 0)) {
+          [val.children addObject:child];
+        }
         if (p <= old) { p++; break; }
       }
       break;
@@ -318,7 +341,7 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
   archive.classDefs = [NSMutableArray array];
   archive.objects = [NSMutableArray array];
 
-  /* Flat parse: find root object with raw data */
+  /* Flat parse with MGValue tree extraction (zero hex output) */
   [self _flatParse:data into:archive];
 
   return AUTORELEASE(archive);
@@ -362,9 +385,13 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
     obj.className = cn;
     obj.encodedValues = [NSMutableArray array];
     if (de > ds) {
-      MGValue *rv = [MGValue valueWithTag:0];
-      rv.objectValue = [data subdataWithRange:NSMakeRange(ds, de - ds)];
-      [obj.encodedValues addObject:rv];
+      /* Parse raw data into MGValue trees immediately (NO hex storage) */
+      NSData *raw = [data subdataWithRange:NSMakeRange(ds, de - ds)];
+      NSError *pe = nil;
+      NSArray *parsed = [[self class] parseValuesFromRawData:raw error:&pe];
+      if (parsed && [parsed count] > 0) {
+        [obj.encodedValues addObjectsFromArray:parsed];
+      }
     }
     [archive.objects addObject:obj]; RELEASE(obj);
     p = de;
