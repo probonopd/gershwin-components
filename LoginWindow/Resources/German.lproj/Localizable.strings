@@ -129,3 +129,6 @@
 
 /* Auto-login X access warning message */
 "The auto-login user %s may not have access to the X server socket. Falling back to login window." = "Der Auto-Login-Benutzer %s hat m\u00f6glicherweise keinen Zugriff auf den X-Server-Socket. R\u00fcckgriff auf das Anmeldefenster.";
+
+/* Fallback log message when no detection data */
+"No keyboard layout detection data available.\nThe layout was detected before the logging\ninfrastructure was initialized." = "Keine Tastaturlayout-Erkennungsdaten verf\u00fcgbar.\nDas Layout wurde erkannt, bevor die Protokollierungs-\nInfrastruktur initialisiert wurde.";

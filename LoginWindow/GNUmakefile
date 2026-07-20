@@ -15,7 +15,9 @@ LoginWindow_OBJC_FILES = \
 LoginWindow_RESOURCE_FILES = \
     Info.plist \
     Resources/English.lproj \
-    Resources/German.lproj
+    Resources/German.lproj \
+    Resources/French.lproj \
+    Resources/Spanish.lproj
 
 LoginWindow_PRINCIPAL_CLASS = LoginWindow
 

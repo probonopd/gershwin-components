@@ -129,3 +129,6 @@
 
 /* Auto-login X access warning message */
 "The auto-login user %s may not have access to the X server socket. Falling back to login window." = "The auto-login user %s may not have access to the X server socket. Falling back to login window.";
+
+/* Fallback log message when no detection data */
+"No keyboard layout detection data available.\nThe layout was detected before the logging\ninfrastructure was initialized." = "No keyboard layout detection data available.\nThe layout was detected before the logging\ninfrastructure was initialized.";
