@@ -44,7 +44,6 @@
 @property BOOL keepBuildDir;
 @property (strong) NSString *buildDir;
 @property (strong) NSArray *extraArgs;
-@property (strong) NSArray *libraryMakefilePaths;
 @property NSInteger closeCount;
 @property (strong) NSTimer *closeTimer;
 

@@ -27,7 +27,6 @@
         entry.gitURL = gitURL;
         entry.desc = [item objectForKey:@"Description"];
         entry.makefilePath = [item objectForKey:@"MakefilePath"];
-        entry.libraryMakefilePaths = [item objectForKey:@"LibraryMakefilePaths"];
         [result addObject:entry];
     }
 

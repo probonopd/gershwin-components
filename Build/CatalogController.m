@@ -250,7 +250,6 @@ static const CGFloat kWinHeight = 260.0;
     [controller setMakefilePath:guessedMakefile];
     [controller setExtraArgs:@[]];
     [controller setBuildDir:cloneDir];
-    [controller setLibraryMakefilePaths:entry.libraryMakefilePaths];
     [controller showProgressWindow];
     [NSApp updateWindows];
 

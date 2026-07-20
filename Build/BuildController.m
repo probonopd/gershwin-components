@@ -473,20 +473,57 @@ static const CGFloat kSpace16 = 16.0;
     return path ?: [NSTask launchPathForTool:@"make"];
 }
 
-- (void)buildLibraryDependenciesInDirectory:(NSString *)directory makePath:(NSString *)makePath
+- (NSString *)findRepoRootFromMakefileDir:(NSString *)makefileDir buildDir:(NSString *)buildDir
 {
-    NSFileManager *fm = [NSFileManager defaultManager];
-    for (NSString *libPath in self.libraryMakefilePaths)
+    /* For catalog builds, buildDir is the clone root */
+    if (buildDir)
     {
-        NSString *fullLibPath = [directory stringByAppendingPathComponent:libPath];
-        if (![fm fileExistsAtPath:fullLibPath])
-        {
-            NSString *msg = [NSString stringWithFormat:@"Library GNUmakefile not found: %@\n", fullLibPath];
-            [self.buildOutput appendString:msg];
-            [_logController appendLog:msg];
-            continue;
-        }
+        NSString *libsDir = [buildDir stringByAppendingPathComponent:@"Libraries"];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:libsDir])
+            return buildDir;
+    }
 
+    /* Walk up from the makefile directory looking for Libraries/ or .git */
+    NSString *candidate = makefileDir;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    while (candidate && [candidate length] > 1)
+    {
+        NSString *libs = [candidate stringByAppendingPathComponent:@"Libraries"];
+        NSString *gitDir = [candidate stringByAppendingPathComponent:@".git"];
+        if ([fm fileExistsAtPath:libs] || [fm fileExistsAtPath:gitDir])
+            return candidate;
+        candidate = [candidate stringByDeletingLastPathComponent];
+    }
+    return nil;
+}
+
+- (void)buildLibraryDependenciesInDirectory:(NSString *)directory makePath:(NSString *)makePath repoRoot:(NSString *)repoRoot
+{
+    if (!repoRoot)
+        repoRoot = [self findRepoRootFromMakefileDir:directory buildDir:self.buildDir];
+    if (!repoRoot)
+        return;
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *libsDir = [repoRoot stringByAppendingPathComponent:@"Libraries"];
+    NSArray *libContents = [fm contentsOfDirectoryAtPath:libsDir error:NULL];
+    if (!libContents)
+        return;
+
+    NSMutableArray *libMakefiles = [NSMutableArray array];
+    for (NSString *item in libContents)
+    {
+        NSString *mf = [libsDir stringByAppendingPathComponent:item];
+        mf = [mf stringByAppendingPathComponent:@"GNUmakefile"];
+        if ([fm fileExistsAtPath:mf])
+            [libMakefiles addObject:mf];
+    }
+
+    if ([libMakefiles count] == 0)
+        return;
+
+    for (NSString *fullLibPath in libMakefiles)
+    {
         NSString *libDir = [fullLibPath stringByDeletingLastPathComponent];
         NSString *libName = [[libDir lastPathComponent] stringByDeletingPathExtension];
         NSString *logMsg = [NSString stringWithFormat:@"=== Building library: %@ ===\n", libName];
@@ -540,7 +577,6 @@ static const CGFloat kSpace16 = 16.0;
             return;
         }
 
-        /* Install the library so the app build can find its headers */
         NSTask *libInstallTask = [[NSTask alloc] init];
         [libInstallTask setCurrentDirectoryPath:libDir];
         [libInstallTask setLaunchPath:makePath];
@@ -730,10 +766,8 @@ static const CGFloat kSpace16 = 16.0;
     // Resolve GNUstep dependencies before building
     [self resolveDependenciesBeforeBuildInDirectory:directory];
 
-    // Build bundled libraries (e.g. AlsaSoundKit, McLarenSynthKit from same repo)
-    if (self.libraryMakefilePaths) {
-        [self buildLibraryDependenciesInDirectory:directory makePath:makePath];
-    }
+    // Build bundled Libraries/ from the same repo (detected automatically)
+    [self buildLibraryDependenciesInDirectory:directory makePath:makePath repoRoot:nil];
 
     // Add main project as last progress segment
     NSString *mainTarget = [self productNameFromMakefile];
