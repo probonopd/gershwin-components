@@ -263,6 +263,7 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         recordTimer = nil;
         streamTimer = nil;
         showTimestamps = NO;
+        showNewlines = [[NSUserDefaults standardUserDefaults] boolForKey:@"ShowNewlines"];
         copyDefaultConsumed = NO;
         typedText = nil;
         vocabularyPrompt = [[[NSUserDefaults standardUserDefaults]
@@ -347,6 +348,7 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
 
     showTimestamps = [[NSUserDefaults standardUserDefaults] boolForKey:@"ShowTimestamps"];
     [showTimestampsCheckbox setState:(showTimestamps ? NSOnState : NSOffState)];
+    [newlinesCheckbox setState:(showNewlines ? NSOnState : NSOffState)];
 
     [self updateUIForState];
 
@@ -704,7 +706,8 @@ static const unsigned long long modelMinSizes[] = {
         NSLog(@"downloadFinished: successfully downloaded %@", downloadingModel);
         [statusLabel setStringValue:[NSString stringWithFormat:
             @"Downloaded %@", downloadingModel]];
-        // Model menu already built in createMenu
+        NSString *modelPath = [self modelPathForName:downloadingModel];
+        [self loadModel:modelPath];
     } else {
         NSLog(@"downloadFinished: FAILED (status=%d) for %@", status, downloadingModel);
         [statusLabel setStringValue:[NSString stringWithFormat:
@@ -980,11 +983,7 @@ static const unsigned long long modelMinSizes[] = {
     [stopButton setKeyEquivalent:@""];
     [copyTextButton setKeyEquivalent:@""];
     [mainWindow setDefaultButtonCell:nil];
-    if (isRecording) {
-        [stopButton setKeyEquivalent:@"\r"];
-    } else {
-        [recordButton setKeyEquivalent:@"\r"];
-    }
+    [recordButton setKeyEquivalent:@"\r"];
 
 }
 
@@ -1092,6 +1091,8 @@ static const unsigned long long modelMinSizes[] = {
         return;
     }
 
+    [self playSubmarineSound];
+
     // Ensure model is loaded before recording
     if (!whisperCtx) {
         NSLog(@"recordAudio: no model loaded, loading now...");
@@ -1133,7 +1134,6 @@ static const unsigned long long modelMinSizes[] = {
     }
 
     NSLog(@"recordAudio: capture started, handle=%p", captureHandle);
-    [self playSubmarineSound];
     copyDefaultConsumed = NO;
     [typedText release]; typedText = nil;
 
@@ -1468,6 +1468,8 @@ static const unsigned long long modelMinSizes[] = {
     NSString *modelPath = [self modelPathForName:name];
     if (![[NSFileManager defaultManager] fileExistsAtPath:modelPath]) {
         [self downloadModelWithName:name];
+    } else {
+        [self loadModel:modelPath];
     }
 
     // Models ending in .en only support English
@@ -1574,6 +1576,15 @@ static const unsigned long long modelMinSizes[] = {
     [self rebuildTextView];
 }
 
+- (IBAction)newlinesToggled:(id)sender
+{
+    showNewlines = ([sender state] == NSOnState);
+    [[NSUserDefaults standardUserDefaults] setBool:showNewlines
+                                            forKey:@"ShowNewlines"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    [self rebuildTextView];
+}
+
 #pragma mark - Vocabulary
 
 - (IBAction)editVocabulary:(id)sender
@@ -1647,6 +1658,7 @@ static const unsigned long long modelMinSizes[] = {
 
 - (NSString *)displayTextFromSegments
 {
+    NSString *sep = showNewlines ? @"\n" : @" ";
     NSMutableString *result = [NSMutableString string];
     NSCharacterSet *ws = [NSCharacterSet whitespaceCharacterSet];
     for (NSDictionary *seg in segments) {
@@ -1663,11 +1675,11 @@ static const unsigned long long modelMinSizes[] = {
             NSString *ts = [NSString stringWithFormat:@"[%@ --> %@] ",
                               [self formatTimestamp:t0],
                               [self formatTimestamp:t1]];
-            if ([result length] > 0) [result appendString:@" "];
+            if ([result length] > 0) [result appendString:sep];
             [result appendString:ts];
             [result appendString:txt];
         } else {
-            if ([result length] > 0) [result appendString:@" "];
+            if ([result length] > 0) [result appendString:sep];
             [result appendString:txt];
         }
     }
@@ -2092,6 +2104,16 @@ static const unsigned long long modelMinSizes[] = {
     [showTimestampsCheckbox setState:NSOffState];
     [contentView addSubview:showTimestampsCheckbox];
 
+    newlinesCheckbox = [[NSButton alloc] initWithFrame:NSZeroRect];
+    [newlinesCheckbox setButtonType:NSSwitchButton];
+    [newlinesCheckbox setTitle:@"Newlines"];
+    [newlinesCheckbox setTarget:self];
+    [newlinesCheckbox setAction:@selector(newlinesToggled:)];
+    [newlinesCheckbox setFont:METRICS_FONT_SYSTEM_REGULAR_11];
+    [newlinesCheckbox sizeToFit];
+    [newlinesCheckbox setState:NSOffState];
+    [contentView addSubview:newlinesCheckbox];
+
     [self layoutSubviews];
 }
 
@@ -2142,12 +2164,15 @@ static const unsigned long long modelMinSizes[] = {
     // ---- Bottom row: checkboxes (left) + action buttons (right) ----
     NSSize copySz = [copyTextButton frame].size;
     NSSize tsSz   = [showTimestampsCheckbox frame].size;
+    NSSize nlSz   = [newlinesCheckbox frame].size;
     CGFloat bottomRowY = mb + s8;
     CGFloat textY      = bottomRowY + bh + s8;
     [resultScrollView setFrame:NSMakeRect(mx, textY, w, y - textY)];
     [[resultTextView textContainer] setContainerSize:
         NSMakeSize([resultScrollView contentSize].width, FLT_MAX)];
     [showTimestampsCheckbox setFrame:NSMakeRect(mx, bottomRowY, tsSz.width, bh)];
+    [newlinesCheckbox setFrame:NSMakeRect(mx + tsSz.width + s8, bottomRowY,
+                                          nlSz.width, bh)];
     [copyTextButton setFrame:NSMakeRect(mx + w - copySz.width, bottomRowY,
                                         copySz.width, bh)];
 
@@ -2165,17 +2190,17 @@ static const unsigned long long modelMinSizes[] = {
 
 - (NSString *)plainTextFromSegments
 {
+    NSString *sep = showNewlines ? @"\n" : @" ";
     NSMutableString *result = [NSMutableString string];
     NSCharacterSet *ws = [NSCharacterSet whitespaceCharacterSet];
     for (NSDictionary *seg in segments) {
         NSString *txt = [seg objectForKey:@"text"];
         if (!txt) continue;
-        // Strip leading whitespace whisper often prepends
         NSUInteger i = 0;
         while (i < [txt length] && [ws characterIsMember:[txt characterAtIndex:i]])
             i++;
         if (i < [txt length]) {
-            if ([result length] > 0) [result appendString:@" "];
+            if ([result length] > 0) [result appendString:sep];
             [result appendString:[txt substringFromIndex:i]];
         }
     }
