@@ -378,7 +378,7 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
       if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) { de = scan; break; }
       unsigned old = scan;
       scan = cSkipOne(b, len, scan);
-      if (scan <= old) { scan++; break; }
+      if (scan <= old) { scan = old + 1; }
     }
     MGArchiveObject *obj = [[MGArchiveObject alloc] init];
     obj.objectId = (int32_t)oid;
