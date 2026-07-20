@@ -40,7 +40,7 @@ install_deps() {
             ;;
         freebsd)
             sudo pkg install -y \
-                git cmake \
+                git cmake patchelf \
                 vulkan-loader vulkan-headers \
                 alsa-lib
             ;;
@@ -92,6 +92,23 @@ build_whisper() {
         FreeBSD) sudo ldconfig -m "$PREFIX/lib" ;;
         OpenBSD) doas ldconfig "$PREFIX/lib" ;;
     esac
+
+    # BSD: patchelf the installed libraries to replace relative NEEDED paths
+    # (e.g. ../bin/libggml.so) with plain names so ld-elf.so.1 can find them.
+    if [ "$(uname -s)" = "FreeBSD" ] && command -v patchelf >/dev/null 2>&1; then
+        echo "==> Fixing library NEEDED entries with patchelf"
+        for lib in "$PREFIX/lib/libwhisper.so" \
+                   "$PREFIX/lib/libggml.so" \
+                   "$PREFIX/lib/libggml-cpu.so" \
+                   "$PREFIX/lib/libggml-base.so"; do
+            [ -f "$lib" ] || continue
+            for needed in $(patchelf --print-needed "$lib" 2>/dev/null | grep '\.\./bin/'); do
+                base=$(basename "$needed")
+                echo "  $lib: $needed -> $base"
+                sudo patchelf --replace-needed "$needed" "$base" "$lib"
+            done
+        done
+    fi
 
     echo "==> Cleaning up"
     rm -rf "$tmpdir"
