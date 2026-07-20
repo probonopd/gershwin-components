@@ -175,6 +175,18 @@ static id<SoundBackend> CreateSoundBackend(void)
 {
     _backend = CreateSoundBackend();
     [self updateState];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(volUp:)
+                                                 name:@"GSMenuExtraVolumeUp"
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(volDown:)
+                                                 name:@"GSMenuExtraVolumeDown"
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(toggleMute:)
+                                                 name:@"GSMenuExtraMute"
+                                               object:nil];
     _timer = [NSTimer scheduledTimerWithTimeInterval:10.0
                                               target:self
                                             selector:@selector(refreshTimerFired:)
@@ -211,6 +223,7 @@ static id<SoundBackend> CreateSoundBackend(void)
 
 - (void)menuExtraWillUnload
 {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_timer invalidate];
     _timer = nil;
     _backend = nil;

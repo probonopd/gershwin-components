@@ -108,14 +108,22 @@ static const BOOL kShowTextInMenuBar = NO;
     _backend = [[SysfsBacklightBackend alloc] init];
     [self refreshBrightnessPresentation];
     [[NSNotificationCenter defaultCenter] addObserver:self
-                                            selector:@selector(brightnessChanged:)
-                                                 name:@"BrightnessChanged"
+                                             selector:@selector(brightnessChanged:)
+                                                  name:@"BrightnessChanged"
+                                                object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(brightnessUp:)
+                                                 name:@"GSMenuExtraBrightnessUp"
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(brightnessDown:)
+                                                 name:@"GSMenuExtraBrightnessDown"
                                                object:nil];
     _timer = [NSTimer scheduledTimerWithTimeInterval:5.0
-                                             target:self
-                                            selector:@selector(refreshTimerFired:)
-                                            userInfo:nil
-                                            repeats:YES];
+                                              target:self
+                                             selector:@selector(refreshTimerFired:)
+                                             userInfo:nil
+                                             repeats:YES];
 }
 
 - (void)menuExtraWillOpenMenu

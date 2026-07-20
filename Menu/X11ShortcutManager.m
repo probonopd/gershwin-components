@@ -444,38 +444,41 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         return NO;
     }
 
-    KeyCode keycode = XKeysymToKeycode(_display, keysym);
-    if (keycode == 0) {
-        NSLog(@"X11ShortcutManager: No keycode for XF86 keysym 0x%lx", (unsigned long)keysym);
-        return NO;
-    }
-
-    // Grab with AnyModifier to capture regardless of NumLock etc.
-    // The event handler filters out lock masks.
-    for (unsigned int mods = 0; mods <= 2; mods++) {
-        unsigned int mod = (mods == 0) ? AnyModifier :
-                           (mods == 1) ? 0 :
-                           _numlock_mask;
-        XGrabKey(_display, keycode, mod, DefaultRootWindow(_display), True,
-                 GrabModeAsync, GrabModeAsync);
-    }
-    XSync(_display, False);
-
+    // Always register the action so keysym-based dispatch in the event handler
+    // can find it, even when XKeysymToKeycode returns 0 (some keys like mute
+    // may not have a dedicated keycode but still generate root-window events).
     NSNumber *ksNum = @((unsigned long)keysym);
     NSDictionary *actionDict = @{@"target": target,
                                  @"action": NSStringFromSelector(action)};
     [_xf86Actions setObject:actionDict forKey:ksNum];
 
-    // Store in _grabbedKeys so suspend/resumeKeyGrabs can re-grab them
-    NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", keycode, AnyModifier];
-    [_grabbedKeys setObject:[ksNum stringValue] forKey:keycodeModifierKey];
+    KeyCode keycode = XKeysymToKeycode(_display, keysym);
+    if (keycode != 0) {
+        // Grab with AnyModifier to capture regardless of NumLock etc.
+        // The event handler filters out lock masks.
+        for (unsigned int mods = 0; mods <= 2; mods++) {
+            unsigned int mod = (mods == 0) ? AnyModifier :
+                               (mods == 1) ? 0 :
+                               _numlock_mask;
+            XGrabKey(_display, keycode, mod, DefaultRootWindow(_display), True,
+                     GrabModeAsync, GrabModeAsync);
+        }
+        XSync(_display, False);
+
+        // Store in _grabbedKeys so suspend/resumeKeyGrabs can re-grab them
+        NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", keycode, AnyModifier];
+        [_grabbedKeys setObject:[ksNum stringValue] forKey:keycodeModifierKey];
+
+        NSLog(@"X11ShortcutManager: Registered XF86 key 0x%lx with keycode %d", (unsigned long)keysym, keycode);
+    } else {
+        NSLog(@"X11ShortcutManager: Registered XF86 key 0x%lx (keysym-only, no keycode mapping)", (unsigned long)keysym);
+    }
 
     // Start event monitoring if this is the first XF86 key
     if (!_eventMonitorThread) {
         [self startX11EventMonitoring];
     }
 
-    NSLog(@"X11ShortcutManager: Registered XF86 key 0x%lx with keycode %d", (unsigned long)keysym, keycode);
     return YES;
 }
 

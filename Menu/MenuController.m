@@ -701,46 +701,42 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         [[NSNotificationCenter defaultCenter] postNotificationName:@"BrightnessChanged" object:nil];
     }];
 
-    // Also register XF86 brightness keys so volume-like XF86 handling works.
+    // Also register XF86 brightness keys — forwarded via notification to BrightnessExtra.
     X11ShortcutManager *mgr = [X11ShortcutManager sharedManager];
     if (mgr) {
-        [mgr registerXF86Key:XF86XK_MonBrightnessUp target:self action:@selector(_brightnessUp)];
-        [mgr registerXF86Key:XF86XK_MonBrightnessDown target:self action:@selector(_brightnessDown)];
+        [mgr registerXF86Key:XF86XK_MonBrightnessUp target:self action:@selector(_xf86BrightnessUp)];
+        [mgr registerXF86Key:XF86XK_MonBrightnessDown target:self action:@selector(_xf86BrightnessDown)];
     }
 
     NSDebugLLog(@"gwcomp", @"MenuController: Backlight control started (max=%d, step=%d)",
           maxBrightness, step);
 }
 
-- (void)_brightnessUp
+#pragma mark - XF86 multimedia key forwarding
+
+- (void)_xf86VolumeUp
 {
-    [self _adjustBrightnessBy:1];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraVolumeUp" object:nil];
 }
 
-- (void)_brightnessDown
+- (void)_xf86VolumeDown
 {
-    [self _adjustBrightnessBy:-1];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraVolumeDown" object:nil];
 }
 
-- (void)_adjustBrightnessBy:(int)delta
+- (void)_xf86Mute
 {
-    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-    if (now - _lastBrightnessAdjust < 0.2) return;
-    _lastBrightnessAdjust = now;
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraMute" object:nil];
+}
 
-    id<BacklightBackend> backend = _backlightBackend;
-    if (!backend) return;
+- (void)_xf86BrightnessUp
+{
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraBrightnessUp" object:nil];
+}
 
-    int cur = [backend current];
-    int max = [backend maximum];
-    int step = max / 20;
-    int next = cur + delta * step;
-
-    if (next < 0) next = 0;
-    if (next > max) next = max;
-
-    [backend set:next];
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"BrightnessChanged" object:nil];
+- (void)_xf86BrightnessDown
+{
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraBrightnessDown" object:nil];
 }
 
 #pragma mark - Mic mute (evdev, to preserve hardware LED)
@@ -1072,13 +1068,13 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         }
     }
 
-    // Register XF86Audio volume keys for hardware volume control.
+    // Register XF86Audio volume keys — forwarded via notification to SoundExtra.
     X11ShortcutManager *volMgr = [X11ShortcutManager sharedManager];
     if (volMgr) {
-        [volMgr registerXF86Key:XF86XK_AudioRaiseVolume target:[GSVolumeControl class] action:@selector(increaseVolume)];
-        [volMgr registerXF86Key:XF86XK_AudioLowerVolume target:[GSVolumeControl class] action:@selector(decreaseVolume)];
-        [volMgr registerXF86Key:XF86XK_AudioMute target:[GSVolumeControl class] action:@selector(toggleMute)];
-        NSDebugLLog(@"gwcomp", @"MenuController: Registered XF86Audio volume keys");
+        [volMgr registerXF86Key:XF86XK_AudioRaiseVolume target:self action:@selector(_xf86VolumeUp)];
+        [volMgr registerXF86Key:XF86XK_AudioLowerVolume target:self action:@selector(_xf86VolumeDown)];
+        [volMgr registerXF86Key:XF86XK_AudioMute target:self action:@selector(_xf86Mute)];
+        NSDebugLLog(@"gwcomp", @"MenuController: Registered XF86Audio volume keys via notifications");
     }
 
     // Mic mute uses evdev (not XGrabKey) so the system mic-mute LED still works.
