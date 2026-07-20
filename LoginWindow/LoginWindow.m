@@ -938,7 +938,7 @@ void signalHandler(int sig) {
     [contentView addSubview:passwordField];
 
     // --- Language dropdown ---
-    languageDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(50, 115+12+60, 135, 24)];
+    languageDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(50, 115+12+60, 135, METRICS_BUTTON_SMALL_HEIGHT)];
     [languageDropdown setFont:METRICS_FONT_SYSTEM_REGULAR_11];
     [self populateLanguageDropdown];
     [languageDropdown setTarget:self];
@@ -946,7 +946,7 @@ void signalHandler(int sig) {
     [contentView addSubview:languageDropdown];
 
     // --- Keyboard layout dropdown ---
-    keyboardDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(210, 115+12+60, 140, 24)];
+    keyboardDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(210, 115+12+60, 140, METRICS_BUTTON_SMALL_HEIGHT)];
     [keyboardDropdown setFont:METRICS_FONT_SYSTEM_REGULAR_11];
     [self populateKeyboardDropdown];
     [keyboardDropdown setTarget:self];
