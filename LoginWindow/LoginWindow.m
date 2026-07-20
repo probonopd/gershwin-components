@@ -1400,6 +1400,51 @@ static NSDictionary *parseStringsFile(NSString *path)
     // Save the current session choice before starting
     [self saveLastSession:selectedSessionExec];
     
+    // Log the final locale and layout decisions before launching the session.
+    // The dropdown always has the last word over auto-detected values.
+    NSString *finalLang  = _keyboardManager.language ?: @"(not set)";
+    NSString *finalLayout = _keyboardManager.layout ?: @"(not set)";
+    NSString *finalVariant = _keyboardManager.variant ?: @"";
+    NSArray *finalLangs = [[NSUserDefaults standardUserDefaults]
+        arrayForKey:@"Languages"];
+    NSString *finalUILang = ([finalLangs count] > 0)
+        ? [finalLangs objectAtIndex:0] : @"English";
+
+    NSLog(@"[LoginWindow] ═══════════ Session Environment ═══════════");
+    NSLog(@"[LoginWindow]   UI language (NSUserDefaults): %@", finalUILang);
+    NSLog(@"[LoginWindow]   Locale (LANG):                %@", finalLang);
+    NSLog(@"[LoginWindow]   Keyboard layout:              %@", finalLayout);
+    if ([finalVariant length] > 0) {
+        NSLog(@"[LoginWindow]   Keyboard variant:             %@", finalVariant);
+    }
+    NSLog(@"[LoginWindow]   Selected session:             %@",
+          selectedSessionExec ?: @"(default)");
+
+    {
+        // Collect env vars that will be exported
+        NSMutableArray *envVars = [NSMutableArray array];
+        [envVars addObject:[NSString stringWithFormat:@"LANG=%@", finalLang]];
+        if (finalLang) {
+            NSString *langNo = [[finalLang componentsSeparatedByString:@"."]
+                firstObject];
+            if (langNo) {
+                [envVars addObject:[NSString stringWithFormat:
+                    @"LANGUAGE=%@", langNo]];
+                [envVars addObject:[NSString stringWithFormat:
+                    @"LC_ALL=%@", finalLang]];
+            }
+        }
+        [envVars addObject:[NSString stringWithFormat:@"DISPLAY=:0"]];
+        [envVars addObject:[NSString stringWithFormat:@"USER=%@", username]];
+        [envVars addObject:[NSString stringWithFormat:@"HOME=%s", pwd->pw_dir]];
+
+        for (NSString *ev in envVars) {
+            NSLog(@"[LoginWindow]   Export: %@", ev);
+        }
+    }
+
+    NSLog(@"[LoginWindow] ═══════════════════════════════════════════");
+
     // Get PAM environment
     char **pam_envlist = [pamAuth getEnvironmentList];
     NSDebugLLog(@"gwcomp", @"[DEBUG] PAM environment list obtained: %p", pam_envlist);
@@ -1499,10 +1544,11 @@ static NSDictionary *parseStringsFile(NSString *path)
             close(fd);
         }
         
-        // Detect and persist keyboard config while we are still root
-        KeyboardManager *kbMgr = [[KeyboardManager alloc] init];
-        [kbMgr detectKeyboardWithPasswd:pwd];
-        [kbMgr persistConfiguration];
+        // Use the parent's detected/selected values — the dropdown
+        // always has the last word.  No re-detection in the child.
+        NSString *childLang = _keyboardManager.language;
+        NSString *childLayout = _keyboardManager.layout;
+        NSString *childVariant = _keyboardManager.variant;
         
         NSDebugLLog(@"gwcomp", @"[DEBUG] About to set user context for user: %s (uid=%d, gid=%d)", pwd->pw_name, pwd->pw_uid, pwd->pw_gid);
         
@@ -1629,12 +1675,14 @@ static NSDictionary *parseStringsFile(NSString *path)
             NSDebugLLog(@"gwcomp", @"[DEBUG] No PAM environment variables to set");
         }
         
-        // Apply keyboard layout and language to X server (as user, DISPLAY is set above)
-        NSDebugLLog(@"gwcomp", @"[DEBUG] Applying keyboard layout to X server");
-        [kbMgr applyToXServer];
-        NSDebugLLog(@"gwcomp", @"[DEBUG] Applying language");
-        [kbMgr applyLanguage];
-        [kbMgr release];
+        // Apply keyboard layout and language to X server (as user, DISPLAY is set above).
+        // _keyboardManager was copied on fork and reflects the user's dropdown choices.
+        NSDebugLLog(@"gwcomp", @"[DEBUG] Applying keyboard layout '%@' to X server",
+              childLayout);
+        [_keyboardManager applyLayout:childLayout variant:childVariant];
+        NSDebugLLog(@"gwcomp", @"[DEBUG] Applying language: %@",
+              childLang ?: @"(none)");
+        [_keyboardManager applyLanguage];
         
         // Change to user's home directory
         if (chdir(pwd->pw_dir) != 0) {
