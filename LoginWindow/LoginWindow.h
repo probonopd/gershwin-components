@@ -42,6 +42,8 @@
     NSTextField *statusLabel;
     LoginWindowPAM *pamAuth;
     NSPopUpButton *sessionDropdown;
+    NSPopUpButton *languageDropdown;
+    NSPopUpButton *keyboardDropdown;
     NSArray *availableSessions;
     NSArray *availableSessionExecs;
     NSString *selectedSessionExec;
@@ -67,6 +69,8 @@
 - (void)startUserSession:(NSString *)username;
 - (void)showStatus:(NSString *)message;
 - (void)sessionChanged:(id)sender;
+- (void)languageChanged:(id)sender;
+- (void)keyboardLayoutChanged:(id)sender;
 - (void)resetLoginWindow;
 - (void)monitorSession;
 - (BOOL)trySystemAction:(NSString *)actionType;

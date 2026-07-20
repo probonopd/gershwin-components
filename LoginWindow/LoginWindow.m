@@ -393,6 +393,52 @@ void signalHandler(int sig) {
           gsLanguage, localeStr);
 }
 
+- (NSString *)detectedGSLanguage
+{
+    // Extract the GNUstep language name from the detected keyboard language
+    // (same logic as applyDetectedLanguage but returns the name).
+    static const char *langMap[][2] = {
+        {"de","German"},{"fr","French"},{"es","Spanish"},
+        {"it","Italian"},{"pt","Portuguese"},{"ru","Russian"},
+        {"nl","Dutch"},{"tr","Turkish"},{"il","Hebrew"},
+        {"dk","Danish"},{"se","Swedish"},{"no","Norwegian"},
+        {"fi","Finnish"},{"jp","Japanese"},{"kr","Korean"},
+        {"cn","Chinese"},{"cz","Czech"},{"hu","Hungarian"},
+        {"pl","Polish"},{"sk","Slovak"},{"bg","Bulgarian"},
+        {"ua","Ukrainian"},{"hr","Croatian"},{"ro","Romanian"},
+        {"si","Slovenian"},{"ee","Estonian"},{"lv","Latvian"},
+        {"lt","Lithuanian"},{"is","Icelandic"},{"gr","Greek"},
+        {"vn","Vietnamese"},{"th","Thai"},{"by","Belarusian"},
+        {"mk","Macedonian"},{"mt","Maltese"},{"ca","French"},
+        {"gb","English"},{"us","English"},{"br","Portuguese"},
+        {NULL,NULL}
+    };
+
+    NSString *localeStr = _keyboardManager.language;
+    if (!localeStr) return nil;
+
+    NSString *langCode = nil;
+    NSRange underscore = [localeStr rangeOfString:@"_"];
+    if (underscore.location != NSNotFound)
+        langCode = [localeStr substringToIndex:underscore.location];
+    else {
+        NSRange dot = [localeStr rangeOfString:@"."];
+        if (dot.location != NSNotFound)
+            langCode = [localeStr substringToIndex:dot.location];
+        else
+            langCode = localeStr;
+    }
+    if (!langCode || [langCode length] < 2) return nil;
+
+    for (int i = 0; langMap[i][0]; i++) {
+        if ([[NSString stringWithUTF8String:langMap[i][0]]
+                isEqualToString:langCode]) {
+            return [NSString stringWithUTF8String:langMap[i][1]];
+        }
+    }
+    return nil;
+}
+
 - (void)updateLocalizedStrings
 {
     // Update all UI element strings to the currently selected language
@@ -813,7 +859,7 @@ void signalHandler(int sig) {
 {
     [self scanAvailableSessions];
     
-    NSRect windowFrame = NSMakeRect(0, 0, 400, 310);
+    NSRect windowFrame = NSMakeRect(0, 0, 400, 370);
     
     char hostname[256] = "";
     gethostname(hostname, sizeof(hostname));
@@ -845,7 +891,7 @@ void signalHandler(int sig) {
     NSView *contentView = [loginWindow contentView];
     
     // Title
-    NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 230+12, 300, 40)];
+    NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 230+12+60, 300, 40)];
     [titleLabel setStringValue:computerName];
     [titleLabel setAlignment:NSCenterTextAlignment];
     [titleLabel setFont:[NSFont boldSystemFontOfSize:24]];
@@ -856,7 +902,7 @@ void signalHandler(int sig) {
     [contentView addSubview:titleLabel];
 
     // Username field
-    usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 180+12, 100, 20)];
+    usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 180+12+60, 100, 20)];
     [usernameLabel setStringValue:NSLocalizedString(@"Username:", @"Label for username field")];
     [usernameLabel setBezeled:NO];
     [usernameLabel setDrawsBackground:NO];
@@ -864,7 +910,7 @@ void signalHandler(int sig) {
     [usernameLabel setSelectable:NO];
     [contentView addSubview:usernameLabel];
 
-    usernameField = [[NSTextField alloc] initWithFrame:NSMakeRect(160, 180+12, 190, 22)];
+    usernameField = [[NSTextField alloc] initWithFrame:NSMakeRect(160, 180+12+60, 190, 22)];
     [usernameField setBezeled:YES];
     [usernameField setBezelStyle:NSTextFieldSquareBezel];
     [usernameField setEditable:YES];
@@ -874,7 +920,7 @@ void signalHandler(int sig) {
     [contentView addSubview:usernameField];
 
     // Password field
-    passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 150+12, 100, 20)];
+    passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 150+12+60, 100, 20)];
     [passwordLabel setStringValue:NSLocalizedString(@"Password:", @"Label for password field")];
     [passwordLabel setBezeled:NO];
     [passwordLabel setDrawsBackground:NO];
@@ -882,7 +928,7 @@ void signalHandler(int sig) {
     [passwordLabel setSelectable:NO];
     [contentView addSubview:passwordLabel];
 
-    passwordField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(160, 150+12, 190, 22)];
+    passwordField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(160, 150+12+60, 190, 22)];
     [passwordField setBezeled:YES];
     [passwordField setBezelStyle:NSTextFieldSquareBezel];
     [passwordField setEditable:YES];
@@ -891,10 +937,24 @@ void signalHandler(int sig) {
     [passwordField setDelegate:self];
     [contentView addSubview:passwordField];
 
+    // --- Language dropdown ---
+    languageDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(50, 115+12+60, 135, 24)];
+    [self populateLanguageDropdown];
+    [languageDropdown setTarget:self];
+    [languageDropdown setAction:@selector(languageChanged:)];
+    [contentView addSubview:languageDropdown];
+
+    // --- Keyboard layout dropdown ---
+    keyboardDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(210, 115+12+60, 140, 24)];
+    [self populateKeyboardDropdown];
+    [keyboardDropdown setTarget:self];
+    [keyboardDropdown setAction:@selector(keyboardLayoutChanged:)];
+    [contentView addSubview:keyboardDropdown];
+
     // Session dropdown
     BOOL showDropdown = [availableSessions count] > 1;
     if (showDropdown) {
-        sessionDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(50, 110+12, 300, 24)];
+        sessionDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(50, 80+12+60, 300, 24)];
         [sessionDropdown addItemsWithTitles:availableSessions];
         
         // Load last chosen session and select it
@@ -913,9 +973,9 @@ void signalHandler(int sig) {
         [sessionDropdown setTarget:self];
         [sessionDropdown setAction:@selector(sessionChanged:)];
         [contentView addSubview:sessionDropdown];
-        statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 40+12, 300, 20)];
+        statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 40+12+60, 300, 20)];
     } else {
-        statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 60+12, 300, 20)];
+        statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 60+12+60, 300, 20)];
     }
     [statusLabel setStringValue:@""];
     [statusLabel setAlignment:NSCenterTextAlignment];
@@ -2305,6 +2365,125 @@ static bool isDetachedDaemon(const char *comm)
     } else {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Invalid session index: %ld (count: %lu)", (long)idx, (unsigned long)[availableSessionExecs count]);
     }
+}
+
+- (void)populateLanguageDropdown
+{
+    // Clear existing items
+    [languageDropdown removeAllItems];
+
+    // List all available .lproj language directories
+    NSArray *languageNames = @[
+        @"English", @"German", @"French", @"Spanish"
+    ];
+    [languageDropdown addItemsWithTitles:languageNames];
+
+    // Select auto-detected language
+    NSString *detected = [self detectedGSLanguage];
+    if (detected) {
+        [languageDropdown selectItemWithTitle:detected];
+    }
+}
+
+- (void)populateKeyboardDropdown
+{
+    [keyboardDropdown removeAllItems];
+
+    // Common keyboard layouts with display names
+    static const char *commonLayouts[][2] = {
+        {"us", "US"}, {"de", "German"}, {"fr", "French"},
+        {"es", "Spanish"}, {"it", "Italian"}, {"pt", "Portuguese"},
+        {"ru", "Russian"}, {"nl", "Dutch"}, {"dk", "Danish"},
+        {"se", "Swedish"}, {"no", "Norwegian"}, {"fi", "Finnish"},
+        {"jp", "Japanese"}, {"kr", "Korean"}, {"cn", "Chinese"},
+        {"cz", "Czech"}, {"hu", "Hungarian"}, {"pl", "Polish"},
+        {"gb", "UK"}, {"br", "Brazilian"}, {"ca", "Canadian"},
+        {"tr", "Turkish"}, {"il", "Hebrew"}, {"gr", "Greek"},
+        {NULL, NULL}
+    };
+
+    for (int i = 0; commonLayouts[i][0]; i++) {
+        NSString *label = [NSString stringWithFormat:@"%s (%s)",
+            commonLayouts[i][1], commonLayouts[i][0]];
+        [keyboardDropdown addItemWithTitle:label];
+
+        // Tag the item with its layout code
+        [[keyboardDropdown lastItem] setRepresentedObject:
+            [NSString stringWithUTF8String:commonLayouts[i][0]]];
+    }
+
+    // Select auto-detected layout
+    NSString *detected = _keyboardManager.layout;
+    if (detected) {
+        for (NSMenuItem *item in [keyboardDropdown itemArray]) {
+            NSString *obj = [item representedObject];
+            if ([obj isEqualToString:detected]) {
+                [keyboardDropdown selectItem:item];
+                break;
+            }
+        }
+    }
+}
+
+- (void)languageChanged:(id)sender
+{
+    NSString *selected = [[languageDropdown selectedItem] title];
+    if (!selected) return;
+
+    // Map GNUstep language name back to a locale string
+    static const char *gsToLocale[][2] = {
+        {"English","en_US.UTF-8"},  {"German","de_DE.UTF-8"},
+        {"French","fr_FR.UTF-8"},  {"Spanish","es_ES.UTF-8"},
+        {"Italian","it_IT.UTF-8"}, {"Portuguese","pt_PT.UTF-8"},
+        {"Russian","ru_RU.UTF-8"}, {"Dutch","nl_NL.UTF-8"},
+        {"Danish","da_DK.UTF-8"},  {"Swedish","sv_SE.UTF-8"},
+        {"Norwegian","nb_NO.UTF-8"},{"Finnish","fi_FI.UTF-8"},
+        {"Japanese","ja_JP.UTF-8"},{"Korean","ko_KR.UTF-8"},
+        {"Chinese","zh_CN.UTF-8"}, {"Czech","cs_CZ.UTF-8"},
+        {"Hungarian","hu_HU.UTF-8"},{"Polish","pl_PL.UTF-8"},
+        {NULL,NULL}
+    };
+    NSString *localeStr = nil;
+    for (int i = 0; gsToLocale[i][0]; i++) {
+        if ([[NSString stringWithUTF8String:gsToLocale[i][0]]
+                isEqualToString:selected]) {
+            localeStr = [NSString stringWithUTF8String:gsToLocale[i][1]];
+            break;
+        }
+    }
+
+    // Set the language preference for NSLocalizedString
+    [[NSUserDefaults standardUserDefaults] setObject:
+        @[selected, @"English"] forKey:@"Languages"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+
+    // Update environment for child processes
+    if (localeStr) {
+        setenv("LANG", [localeStr UTF8String], 1);
+        NSString *langNo = [[localeStr componentsSeparatedByString:@"."]
+            firstObject];
+        if (langNo) {
+            setenv("LANGUAGE", [langNo UTF8String], 1);
+            setenv("LC_ALL", [localeStr UTF8String], 1);
+        }
+    }
+
+    // Refresh all UI strings
+    [self updateLocalizedStrings];
+
+    NSLog(@"[LoginWindow] Language changed to \"%@\"", selected);
+}
+
+- (void)keyboardLayoutChanged:(id)sender
+{
+    id item = [keyboardDropdown selectedItem];
+    NSString *layout = [item representedObject];
+    if (!layout) return;
+
+    // Apply the new layout immediately to the X server
+    [_keyboardManager applyLayout:layout variant:nil];
+
+    NSLog(@"[LoginWindow] Keyboard layout changed to \"%@\"", layout);
 }
 
 - (void)resetLoginWindow

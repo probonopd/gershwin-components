@@ -1202,6 +1202,15 @@ static void writeLocaleConfigFile(const char *lang)
                                   [_variant UTF8String],
                                   [_options UTF8String]);
 }
+- (BOOL)applyLayout:(NSString *)layout variant:(NSString *)variant
+{
+    if (!layout || [layout length] == 0) {
+        return NO;
+    }
+    return applyKeyboardToXServer([layout UTF8String],
+                                  [variant UTF8String],
+                                  [_options UTF8String]);
+}
 - (BOOL)setupWithPasswd:(const struct passwd *)pwd
 {
     if (![self detectKeyboardWithPasswd:pwd]) return NO;
