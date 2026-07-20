@@ -53,6 +53,16 @@ ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include -I/Developer/Library/Sources/ger
 #
 ADDITIONAL_GUI_LIBS += -lwhisper -lSoundBackend
 
+# libcurl (cross-platform: pkg-config with fallback)
+WHISPER_CURL_CFLAGS := $(shell pkg-config --cflags libcurl 2>/dev/null)
+WHISPER_CURL_LIBS   := $(shell pkg-config --libs libcurl 2>/dev/null)
+ifeq ($(strip $(WHISPER_CURL_LIBS)),)
+WHISPER_CURL_CFLAGS :=
+WHISPER_CURL_LIBS   := -lcurl
+endif
+ADDITIONAL_INCLUDE_DIRS += $(WHISPER_CURL_CFLAGS)
+ADDITIONAL_GUI_LIBS += $(WHISPER_CURL_LIBS)
+
 -include GNUmakefile.preamble
 
 include $(GNUSTEP_MAKEFILES)/application.make

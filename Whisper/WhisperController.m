@@ -36,8 +36,10 @@
 #import <whisper.h>
 #include <stdlib.h>
 #include <strings.h>
+#include <curl/curl.h>
 
-
+// ── xdotool path (resolved once from PATH at first use) ────────────
+static NSString *xdoPath = nil;
 
 // ── Floating window: always on top, no keyboard input ──────────────
 @interface WhisperFloatingWindow : NSWindow
@@ -263,13 +265,16 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         recordTimer = nil;
         streamTimer = nil;
         showTimestamps = NO;
-        showNewlines = [[NSUserDefaults standardUserDefaults] boolForKey:@"ShowNewlines"];
         copyDefaultConsumed = NO;
         typedText = nil;
         vocabularyPrompt = [[[NSUserDefaults standardUserDefaults]
             stringForKey:@"VocabularyPrompt"] retain];
         if (!vocabularyPrompt) {
             vocabularyPrompt = [@"GNUstep AppImage" retain];
+        }
+        if (!xdoPath) {
+            xdoPath = [[self findTool:@"xdotool"] retain];
+            if (!xdoPath) xdoPath = @"/usr/bin/xdotool";
         }
         currentThreads = 8;
 
@@ -348,7 +353,6 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
 
     showTimestamps = [[NSUserDefaults standardUserDefaults] boolForKey:@"ShowTimestamps"];
     [showTimestampsCheckbox setState:(showTimestamps ? NSOnState : NSOffState)];
-    [newlinesCheckbox setState:(showNewlines ? NSOnState : NSOffState)];
 
     [self updateUIForState];
 
@@ -516,6 +520,26 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     }
 }
 
+// ── libcurl helpers ───────────────────────────────────────────
+static size_t write_file_cb(void *ptr, size_t size, size_t nmemb, void *stream)
+{
+    return fwrite(ptr, size, nmemb, (FILE *)stream);
+}
+
+static int download_progress_cb(void *clientp,
+                                curl_off_t dltotal, curl_off_t dlnow,
+                                curl_off_t ultotal, curl_off_t ulnow)
+{
+    WhisperController *self = (WhisperController *)clientp;
+    if (dltotal > 0) {
+        double pct = (double)dlnow / (double)dltotal * 100.0;
+        [self performSelectorOnMainThread:@selector(downloadProgressUpdated:)
+                               withObject:[NSNumber numberWithDouble:pct]
+                            waitUntilDone:NO];
+    }
+    return 0;
+}
+
 - (void)downloadModelWithName:(NSString *)name
 {
     NSString *dir = [self modelDirPath];
@@ -546,37 +570,71 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         @"Downloading %@", name]];
     [self setState:WhisperStateLoadingModel];
 
-    firstRealProgress = NO;
     [downloadingModel release];
     downloadingModel = [name retain];
 
-    [downloadData release];
-    downloadData = [[NSMutableData alloc] init];
+    [self performSelectorInBackground:@selector(downloadThread:)
+                           withObject:@[urlStr, destPath, name]];
+}
 
-    NSPipe *stderrPipe = [NSPipe pipe];
-    downloadFH = [[stderrPipe fileHandleForReading] retain];
+- (void)downloadThread:(NSArray *)params
+{
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    NSString *urlStr  = [params objectAtIndex:0];
+    NSString *destPath = [params objectAtIndex:1];
+    NSString *name    = [params objectAtIndex:2];
 
-    downloadTask = [[NSTask alloc] init];
-    [downloadTask setLaunchPath:@"/usr/bin/curl"];
-    [downloadTask setArguments:[NSArray arrayWithObjects:
-        @"-L", @"-o", destPath, @"-C", @"-", @"--progress-bar", urlStr, nil]];
-    [downloadTask setStandardError:stderrPipe];
-    [downloadTask setStandardOutput:[NSFileHandle fileHandleWithNullDevice]];
+    static BOOL curlInit = NO;
+    if (!curlInit) { curl_global_init(CURL_GLOBAL_DEFAULT); curlInit = YES; }
 
-    [[NSNotificationCenter defaultCenter]
-        addObserver:self
-           selector:@selector(downloadFinished:)
-               name:NSTaskDidTerminateNotification
-             object:downloadTask];
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        NSLog(@"downloadThread: curl_easy_init failed");
+        [self performSelectorOnMainThread:@selector(downloadFinishedWithError:)
+                               withObject:@"Failed to initialize download"
+                            waitUntilDone:NO];
+        [pool release];
+        return;
+    }
 
-    [[NSNotificationCenter defaultCenter]
-        addObserver:self
-           selector:@selector(downloadStderrData:)
-               name:NSFileHandleReadCompletionNotification
-             object:downloadFH];
+    FILE *f = fopen([destPath fileSystemRepresentation], "wb");
+    if (!f) {
+        NSLog(@"downloadThread: cannot open %@ for writing", destPath);
+        curl_easy_cleanup(curl);
+        [self performSelectorOnMainThread:@selector(downloadFinishedWithError:)
+                               withObject:[NSString stringWithFormat:@"Cannot write to %@", destPath]
+                            waitUntilDone:NO];
+        [pool release];
+        return;
+    }
 
-    [downloadFH readInBackgroundAndNotify];
-    [downloadTask launch];
+    curl_easy_setopt(curl, CURLOPT_URL, [urlStr UTF8String]);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_file_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, f);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_RESUME_FROM, 0L);
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, download_progress_cb);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, self);
+
+    NSLog(@"downloadThread: starting transfer...");
+    CURLcode res = curl_easy_perform(curl);
+    fclose(f);
+
+    if (res == CURLE_OK) {
+        NSLog(@"downloadThread: download complete");
+        [self performSelectorOnMainThread:@selector(downloadFinishedWithName:)
+                               withObject:name waitUntilDone:NO];
+    } else {
+        NSLog(@"downloadThread: curl error %d", res);
+        NSString *err = [NSString stringWithUTF8String:curl_easy_strerror(res)];
+        [self performSelectorOnMainThread:@selector(downloadFinishedWithError:)
+                               withObject:err waitUntilDone:NO];
+    }
+
+    curl_easy_cleanup(curl);
+    [pool release];
 }
 
 // Minimum expected file size (in bytes) for each model, at 90 % of declared
@@ -605,72 +663,9 @@ static const unsigned long long modelMinSizes[] = {
     return 0;
 }
 
-- (void)downloadStderrData:(NSNotification *)notif
-{
-    NSData *data = [[notif userInfo] objectForKey:NSFileHandleNotificationDataItem];
-    NSFileHandle *fh = [notif object];
-
-    if ([data length] > 0) {
-        [downloadData appendData:data];
-
-        // Find the last percentage in the accumulated buffer
-        const char *bytes = [downloadData bytes];
-        NSUInteger len = [downloadData length];
-        NSUInteger i;
-
-        // Work backwards from the end, looking for a percentage pattern
-        for (i = len; i > 0; i--) {
-            if (bytes[i - 1] == '%') {
-                // Found a '%', now find the start of the number
-                NSUInteger start = i - 1;
-                while (start > 0) {
-                    start--;
-                    char c = bytes[start];
-                    if (!(c == ' ' || c == '\r' || c == '\n' ||
-                          c == '.' || (c >= '0' && c <= '9'))) {
-                        start++;
-                        break;
-                    }
-                }
-                if (start < i) {
-                    // Extract the number
-                    char buf[16];
-                    NSUInteger n = i - start;
-                    if (n > 0 && n < sizeof(buf)) {
-                        memcpy(buf, bytes + start, n);
-                        buf[n] = '\0';
-                        // Trim leading spaces
-                        char *p = buf;
-                        while (*p == ' ') p++;
-                        if (*p) {
-                            double pct = atof(p);
-                            [self performSelectorOnMainThread:@selector(downloadProgressUpdated:)
-                                                   withObject:[NSNumber numberWithDouble:pct]
-                                                waitUntilDone:NO];
-                        }
-                    }
-                }
-                break;
-            }
-        }
-
-        // Trim buffer: keep only the last ~200 bytes to avoid unbounded growth
-        if (len > 200) {
-            NSRange tail = NSMakeRange(len - 200, 200);
-            [downloadData setData:[downloadData subdataWithRange:tail]];
-        }
-    }
-
-    [fh readInBackgroundAndNotify];
-}
-
 - (void)downloadProgressUpdated:(NSNumber *)pct
 {
     double v = [pct doubleValue];
-    // curl emits a fake 100% line after resolving redirects.
-    // Skip it — real progress always starts below 100.
-    if (v >= 100.0 && !firstRealProgress) return;
-    if (v < 100.0) firstRealProgress = YES;
     [downloadProgress setDoubleValue:v];
     [downloadProgress displayIfNeeded];
     [progressBar setIndeterminate:NO];
@@ -680,40 +675,33 @@ static const unsigned long long modelMinSizes[] = {
         @"Downloading %@ — %.0f%%", downloadingModel, v]];
 }
 
-- (void)downloadFinished:(NSNotification *)notif
+- (void)downloadFinishedWithName:(NSString *)name
 {
-    int status = [[notif object] terminationStatus];
-    [[NSNotificationCenter defaultCenter] removeObserver:self
-                                                    name:NSTaskDidTerminateNotification
-                                                  object:[notif object]];
-    [[NSNotificationCenter defaultCenter] removeObserver:self
-                                                    name:NSFileHandleReadCompletionNotification
-                                                  object:downloadFH];
-
     [downloadProgress setDoubleValue:100.0];
     [downloadProgress setHidden:YES];
     [progressBar stopAnimation:nil];
     [progressBar setIndeterminate:NO];
     [progressBar setDoubleValue:0.0];
-    [downloadData release];
-    downloadData = nil;
-    [downloadFH release];
-    downloadFH = nil;
-    [downloadTask release];
-    downloadTask = nil;
 
-    if (status == 0) {
-        NSLog(@"downloadFinished: successfully downloaded %@", downloadingModel);
-        [statusLabel setStringValue:[NSString stringWithFormat:
-            @"Downloaded %@", downloadingModel]];
-        NSString *modelPath = [self modelPathForName:downloadingModel];
-        [self loadModel:modelPath];
-    } else {
-        NSLog(@"downloadFinished: FAILED (status=%d) for %@", status, downloadingModel);
-        [statusLabel setStringValue:[NSString stringWithFormat:
-            @"Download failed for %@", downloadingModel]];
-        [self setState:WhisperStateError];
-    }
+    NSLog(@"downloadFinishedWithName: successfully downloaded %@", name);
+    [statusLabel setStringValue:[NSString stringWithFormat:@"Downloaded %@", name]];
+    [self loadModel:[self modelPathForName:name]];
+
+    [downloadingModel release];
+    downloadingModel = nil;
+}
+
+- (void)downloadFinishedWithError:(NSString *)error
+{
+    [downloadProgress setDoubleValue:100.0];
+    [downloadProgress setHidden:YES];
+    [progressBar stopAnimation:nil];
+    [progressBar setIndeterminate:NO];
+    [progressBar setDoubleValue:0.0];
+
+    NSLog(@"downloadFinishedWithError: %@", error);
+    [statusLabel setStringValue:[NSString stringWithFormat:@"Download failed: %@", error]];
+    [self setState:WhisperStateError];
 
     [downloadingModel release];
     downloadingModel = nil;
@@ -1034,7 +1022,7 @@ static const unsigned long long modelMinSizes[] = {
     id<SoundBackend> snd = nil;
     NSString *devPath = nil;  // ALSA: "plughw:N,M" — OSS: "/dev/dspN"
 
-#if defined(__FreeBSD__) || defined(__DragonFly__)
+#if defined(__FreeBSD__) || defined(__DragonFly__) || defined(__OpenBSD__) || defined(__NetBSD__)
     OSSBackend *oss = [[OSSBackend alloc] init];
     if ([oss isAvailable]) {
         snd = oss;
@@ -1061,7 +1049,7 @@ static const unsigned long long modelMinSizes[] = {
             [alsa release];
         }
     }
-#if !defined(__FreeBSD__) && !defined(__DragonFly__) && !defined(__OpenBSD__)
+#if !defined(__FreeBSD__) && !defined(__DragonFly__) && !defined(__OpenBSD__) && !defined(__NetBSD__)
     if (!snd) {
         OSSBackend *oss = [[OSSBackend alloc] init];
         if ([oss isAvailable]) {
@@ -1090,8 +1078,6 @@ static const unsigned long long modelMinSizes[] = {
         [alert release];
         return;
     }
-
-    [self playSubmarineSound];
 
     // Ensure model is loaded before recording
     if (!whisperCtx) {
@@ -1134,6 +1120,7 @@ static const unsigned long long modelMinSizes[] = {
     }
 
     NSLog(@"recordAudio: capture started, handle=%p", captureHandle);
+    [self playSubmarineSound];
     copyDefaultConsumed = NO;
     [typedText release]; typedText = nil;
 
@@ -1468,8 +1455,6 @@ static const unsigned long long modelMinSizes[] = {
     NSString *modelPath = [self modelPathForName:name];
     if (![[NSFileManager defaultManager] fileExistsAtPath:modelPath]) {
         [self downloadModelWithName:name];
-    } else {
-        [self loadModel:modelPath];
     }
 
     // Models ending in .en only support English
@@ -1576,15 +1561,6 @@ static const unsigned long long modelMinSizes[] = {
     [self rebuildTextView];
 }
 
-- (IBAction)newlinesToggled:(id)sender
-{
-    showNewlines = ([sender state] == NSOnState);
-    [[NSUserDefaults standardUserDefaults] setBool:showNewlines
-                                            forKey:@"ShowNewlines"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
-    [self rebuildTextView];
-}
-
 #pragma mark - Vocabulary
 
 - (IBAction)editVocabulary:(id)sender
@@ -1658,7 +1634,6 @@ static const unsigned long long modelMinSizes[] = {
 
 - (NSString *)displayTextFromSegments
 {
-    NSString *sep = showNewlines ? @"\n" : @" ";
     NSMutableString *result = [NSMutableString string];
     NSCharacterSet *ws = [NSCharacterSet whitespaceCharacterSet];
     for (NSDictionary *seg in segments) {
@@ -1675,11 +1650,11 @@ static const unsigned long long modelMinSizes[] = {
             NSString *ts = [NSString stringWithFormat:@"[%@ --> %@] ",
                               [self formatTimestamp:t0],
                               [self formatTimestamp:t1]];
-            if ([result length] > 0) [result appendString:sep];
+            if ([result length] > 0) [result appendString:@" "];
             [result appendString:ts];
             [result appendString:txt];
         } else {
-            if ([result length] > 0) [result appendString:sep];
+            if ([result length] > 0) [result appendString:@" "];
             [result appendString:txt];
         }
     }
@@ -2104,16 +2079,6 @@ static const unsigned long long modelMinSizes[] = {
     [showTimestampsCheckbox setState:NSOffState];
     [contentView addSubview:showTimestampsCheckbox];
 
-    newlinesCheckbox = [[NSButton alloc] initWithFrame:NSZeroRect];
-    [newlinesCheckbox setButtonType:NSSwitchButton];
-    [newlinesCheckbox setTitle:@"Newlines"];
-    [newlinesCheckbox setTarget:self];
-    [newlinesCheckbox setAction:@selector(newlinesToggled:)];
-    [newlinesCheckbox setFont:METRICS_FONT_SYSTEM_REGULAR_11];
-    [newlinesCheckbox sizeToFit];
-    [newlinesCheckbox setState:NSOffState];
-    [contentView addSubview:newlinesCheckbox];
-
     [self layoutSubviews];
 }
 
@@ -2164,15 +2129,12 @@ static const unsigned long long modelMinSizes[] = {
     // ---- Bottom row: checkboxes (left) + action buttons (right) ----
     NSSize copySz = [copyTextButton frame].size;
     NSSize tsSz   = [showTimestampsCheckbox frame].size;
-    NSSize nlSz   = [newlinesCheckbox frame].size;
     CGFloat bottomRowY = mb + s8;
     CGFloat textY      = bottomRowY + bh + s8;
     [resultScrollView setFrame:NSMakeRect(mx, textY, w, y - textY)];
     [[resultTextView textContainer] setContainerSize:
         NSMakeSize([resultScrollView contentSize].width, FLT_MAX)];
     [showTimestampsCheckbox setFrame:NSMakeRect(mx, bottomRowY, tsSz.width, bh)];
-    [newlinesCheckbox setFrame:NSMakeRect(mx + tsSz.width + s8, bottomRowY,
-                                          nlSz.width, bh)];
     [copyTextButton setFrame:NSMakeRect(mx + w - copySz.width, bottomRowY,
                                         copySz.width, bh)];
 
@@ -2190,17 +2152,17 @@ static const unsigned long long modelMinSizes[] = {
 
 - (NSString *)plainTextFromSegments
 {
-    NSString *sep = showNewlines ? @"\n" : @" ";
     NSMutableString *result = [NSMutableString string];
     NSCharacterSet *ws = [NSCharacterSet whitespaceCharacterSet];
     for (NSDictionary *seg in segments) {
         NSString *txt = [seg objectForKey:@"text"];
         if (!txt) continue;
+        // Strip leading whitespace whisper often prepends
         NSUInteger i = 0;
         while (i < [txt length] && [ws characterIsMember:[txt characterAtIndex:i]])
             i++;
         if (i < [txt length]) {
-            if ([result length] > 0) [result appendString:sep];
+            if ([result length] > 0) [result appendString:@" "];
             [result appendString:[txt substringFromIndex:i]];
         }
     }
@@ -2242,7 +2204,7 @@ static const unsigned long long modelMinSizes[] = {
 {
     if (count <= 0) return;
     NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:@"/usr/bin/xdotool"];
+    [task setLaunchPath:xdoPath];
     NSString *winArg = [NSString stringWithFormat:@"%lu", targetWindowID];
     NSMutableArray *args = [NSMutableArray arrayWithObjects:
         @"key", @"--clearmodifiers", @"--window", winArg, nil];
@@ -2258,7 +2220,7 @@ static const unsigned long long modelMinSizes[] = {
 {
     if ([text length] == 0) return;
     NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:@"/usr/bin/xdotool"];
+    [task setLaunchPath:xdoPath];
     NSString *winArg = [NSString stringWithFormat:@"%lu", targetWindowID];
     [task setArguments:[NSArray arrayWithObjects:
         @"type", @"--clearmodifiers", @"--delay", @"0",

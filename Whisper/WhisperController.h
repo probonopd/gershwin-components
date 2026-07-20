@@ -51,9 +51,7 @@ typedef NS_ENUM(NSInteger, WhisperState) {
     // Export
     NSButton *copyTextButton;
     NSButton *showTimestampsCheckbox;
-    NSButton *newlinesCheckbox;
     BOOL showTimestamps;
-    BOOL showNewlines;
     BOOL copyDefaultConsumed;
     NSString *typedText;
     unsigned long targetWindowID;
@@ -120,7 +118,6 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 - (IBAction)saveAsVtt:(id)sender;
 - (IBAction)copyText:(id)sender;
 - (IBAction)timestampsToggled:(id)sender;
-- (IBAction)newlinesToggled:(id)sender;
 - (IBAction)editVocabulary:(id)sender;
 
 // Transcription
