@@ -25,6 +25,7 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import "LoginWindow.h"
+#import "KeyboardManager.h"
 #include <X11/Xlib.h>
 #include <X11/Xauth.h>
 #include <signal.h>
@@ -592,6 +593,64 @@ int main(int argc, const char *argv[])
     // Set DISPLAY environment variable to ensure GUI apps can connect
     setenv("DISPLAY", ":0", 1);
     
+    // Detect keyboard layout BEFORE NSApplication initializes the bundle
+    // system, so that the UI language can be set before any NSLocalizedString
+    // call.
+    {
+        KeyboardManager *km = [[KeyboardManager alloc] init];
+        [km detectKeyboardWithPasswd:NULL];
+
+        // Map locale to GNUstep .lproj language name and set preference.
+        // Same mapping as -[LoginWindow applyDetectedLanguage].
+        static const char *langMap[][2] = {
+            {"de","German"},{"fr","French"},{"es","Spanish"},
+            {"it","Italian"},{"pt","Portuguese"},{"ru","Russian"},
+            {"nl","Dutch"},{"tr","Turkish"},{"il","Hebrew"},
+            {"dk","Danish"},{"se","Swedish"},{"no","Norwegian"},
+            {"fi","Finnish"},{"jp","Japanese"},{"kr","Korean"},
+            {"cn","Chinese"},{"cz","Czech"},{"hu","Hungarian"},
+            {"pl","Polish"},{"sk","Slovak"},{"bg","Bulgarian"},
+            {"ua","Ukrainian"},{"hr","Croatian"},{"ro","Romanian"},
+            {"si","Slovenian"},{"ee","Estonian"},{"lv","Latvian"},
+            {"lt","Lithuanian"},{"is","Icelandic"},{"gr","Greek"},
+            {"vn","Vietnamese"},{"th","Thai"},{"by","Belarusian"},
+            {"mk","Macedonian"},{"mt","Maltese"},{"ca","French"},
+            {"gb","English"},{"us","English"},{"br","Portuguese"},
+            {NULL,NULL}
+        };
+        NSString *localeStr = km.language;  // e.g. "de_DE.UTF-8"
+        if (localeStr) {
+            NSString *langCode = nil;
+            NSRange underscore = [localeStr rangeOfString:@"_"];
+            if (underscore.location != NSNotFound)
+                langCode = [localeStr substringToIndex:underscore.location];
+            else {
+                NSRange dot = [localeStr rangeOfString:@"."];
+                if (dot.location != NSNotFound)
+                    langCode = [localeStr substringToIndex:dot.location];
+                else
+                    langCode = localeStr;
+            }
+            if (langCode && [langCode length] >= 2) {
+                NSString *gsLanguage = nil;
+                for (int i = 0; langMap[i][0]; i++) {
+                    if ([[NSString stringWithUTF8String:langMap[i][0]]
+                            isEqualToString:langCode]) {
+                        gsLanguage = [NSString stringWithUTF8String:
+                            langMap[i][1]];
+                        break;
+                    }
+                }
+                if (gsLanguage) {
+                    [[NSUserDefaults standardUserDefaults] setObject:
+                        @[gsLanguage, @"English"] forKey:@"Languages"];
+                    [[NSUserDefaults standardUserDefaults] synchronize];
+                }
+            }
+        }
+        [km release];
+    }
+
     // Additional delay before starting GUI application
     NSDebugLLog(@"gwcomp", @"[DEBUG] Starting LoginWindow GUI application");
     

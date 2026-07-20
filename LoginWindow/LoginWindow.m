@@ -267,7 +267,11 @@ void signalHandler(int sig) {
     // the subsequent user session use the correct layout.
     _keyboardManager = [[KeyboardManager alloc] init];
     [_keyboardManager setupWithPasswd:NULL];
-    
+
+    // Set the UI language on NSUserDefaults based on detected keyboard
+    // layout before any NSLocalizedString call is made.
+    [self applyDetectedLanguage];
+
     [self createLogWindow];
     [self createLoginWindow];
 
@@ -309,6 +313,79 @@ void signalHandler(int sig) {
         XFlush(display);
         XCloseDisplay(display);
     }
+}
+
+- (void)applyDetectedLanguage
+{
+    // Map ISO 639-1 language codes to GNUstep .lproj directory names.
+    static const char *langMap[][2] = {
+        {"de", "German"},    {"fr", "French"},    {"es", "Spanish"},
+        {"it", "Italian"},   {"pt", "Portuguese"}, {"ru", "Russian"},
+        {"nl", "Dutch"},     {"tr", "Turkish"},   {"il", "Hebrew"},
+        {"dk", "Danish"},    {"se", "Swedish"},   {"no", "Norwegian"},
+        {"fi", "Finnish"},   {"jp", "Japanese"},  {"kr", "Korean"},
+        {"cn", "Chinese"},   {"cz", "Czech"},     {"hu", "Hungarian"},
+        {"pl", "Polish"},    {"sk", "Slovak"},    {"bg", "Bulgarian"},
+        {"ua", "Ukrainian"}, {"hr", "Croatian"},  {"ro", "Romanian"},
+        {"si", "Slovenian"}, {"ee", "Estonian"},  {"lv", "Latvian"},
+        {"lt", "Lithuanian"},{"is", "Icelandic"}, {"gr", "Greek"},
+        {"vn", "Vietnamese"},{"th", "Thai"},      {"by", "Belarusian"},
+        {"mk", "Macedonian"},{"mt", "Maltese"},   {"ca", "French"},
+        {"gb", "English"},   {"us", "English"},   {"br", "Portuguese"},
+        {NULL, NULL}
+    };
+
+    NSString *localeStr = _keyboardManager.language;  // e.g. "de_DE.UTF-8"
+    if (!localeStr) {
+        NSLog(@"[LoginWindow] Language: no locale from keyboard detection");
+        return;
+    }
+
+    // Extract the two-letter language code: "de_DE.UTF-8" → "de"
+    NSString *langCode = nil;
+    NSRange underscore = [localeStr rangeOfString:@"_"];
+    if (underscore.location != NSNotFound) {
+        langCode = [localeStr substringToIndex:underscore.location];
+    } else {
+        // No region part — try stripping encoding: "de.UTF-8" → "de"
+        NSRange dot = [localeStr rangeOfString:@"."];
+        if (dot.location != NSNotFound) {
+            langCode = [localeStr substringToIndex:dot.location];
+        } else {
+            langCode = localeStr;
+        }
+    }
+
+    if (!langCode || [langCode length] < 2) {
+        NSLog(@"[LoginWindow] Language: could not parse locale \"%@\"",
+              localeStr);
+        return;
+    }
+
+    // Look up GNUstep language name from the two-letter code
+    NSString *gsLanguage = nil;
+    for (int i = 0; langMap[i][0]; i++) {
+        if ([[NSString stringWithUTF8String:langMap[i][0]]
+                isEqualToString:langCode]) {
+            gsLanguage = [NSString stringWithUTF8String:langMap[i][1]];
+            break;
+        }
+    }
+
+    if (!gsLanguage) {
+        NSLog(@"[LoginWindow] Language: no mapping for \"%@\", keeping default",
+              langCode);
+        return;
+    }
+
+    // Set the language preference so NSLocalizedString picks it up.
+    // English is the fallback if the chosen language has no .lproj.
+    [[NSUserDefaults standardUserDefaults] setObject:
+        @[gsLanguage, @"English"] forKey:@"Languages"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+
+    NSLog(@"[LoginWindow] Language: set UI language to \"%@\" (from locale %@)",
+          gsLanguage, localeStr);
 }
 
 - (void)loadDesktopBackground
@@ -820,13 +897,13 @@ void signalHandler(int sig) {
     CGFloat rightX = windowFrame.size.width - buttonWidth - METRICS_CONTENT_SIDE_MARGIN;
 
     shutdownButton = [[NSButton alloc] initWithFrame:NSMakeRect(leftX, buttonY, buttonWidth, buttonHeight)];
-    [shutdownButton setTitle:NSLocalizedString(NSLocalizedString(@"Shut Down", @"Shutdown button"), @"Shutdown button")];
+    [shutdownButton setTitle:NSLocalizedString(@"Shut Down", @"Shutdown button")];
     [shutdownButton setTarget:self];
     [shutdownButton setAction:@selector(shutdownButtonPressed:)];
     [contentView addSubview:shutdownButton];
 
     restartButton = [[NSButton alloc] initWithFrame:NSMakeRect(leftX + buttonWidth + buttonSpacing, buttonY, buttonWidth, buttonHeight)];
-    [restartButton setTitle:NSLocalizedString(NSLocalizedString(@"Restart", @"Restart button"), @"Restart button")];
+    [restartButton setTitle:NSLocalizedString(@"Restart", @"Restart button")];
     [restartButton setTarget:self];
     [restartButton setAction:@selector(restartButtonPressed:)];
     [contentView addSubview:restartButton];
@@ -3089,9 +3166,10 @@ static bool isDetachedDaemon(const char *comm)
         as = [[NSAttributedString alloc] initWithString:log attributes:attrs];
     } else {
         as = [[NSAttributedString alloc] initWithString:
-            @"No keyboard layout detection data available.\n"
-            @"The layout was detected before the logging\n"
-            @"infrastructure was initialized."
+            NSLocalizedString(@"No keyboard layout detection data available.\n"
+                              @"The layout was detected before the logging\n"
+                              @"infrastructure was initialized.",
+                              @"Fallback log message when no detection data")
                                             attributes:attrs];
     }
     [[_logTextView textStorage] setAttributedString:as];
