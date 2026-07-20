@@ -43,8 +43,7 @@ Whisper_OBJC_FILES = \
 
 Whisper_C_FILES = \
 	WAudioLoader.c \
-	WCapture.c \
-	ma_impl.c
+	WCapture.c
 
 ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include -I/Developer/Library/Sources/gershwin-components/Sound
 

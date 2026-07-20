@@ -11,85 +11,53 @@
 #include <string.h>
 #include <math.h>
 
-#include "miniaudio.h"
-
 WAudioData *waudio_load(const char *path)
 {
     if (!path) return NULL;
 
-    ma_decoder decoder;
-    ma_result result;
+    // Use ffmpeg to decode any audio file to 16 kHz mono float PCM
+    char cmd[4096];
+    int n = snprintf(cmd, sizeof(cmd),
+        "ffmpeg -i '%s' -f f32le -acodec pcm_f32le -ar 16000 -ac 1 pipe:1 2>/dev/null",
+        path);
+    if (n < 0 || (size_t)n >= sizeof(cmd)) return NULL;
 
-    result = ma_decoder_init_file(path, NULL, &decoder);
-    if (result != MA_SUCCESS) {
-        fprintf(stderr, "waudio_load: failed to open %s (%s)\n",
-                path, ma_result_description(result));
-        return NULL;
-    }
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return NULL;
 
-    ma_uint64 frame_count;
-    result = ma_decoder_get_length_in_pcm_frames(&decoder, &frame_count);
-    if (result != MA_SUCCESS) {
-        fprintf(stderr, "waudio_load: failed to get length (%s)\n",
-                ma_result_description(result));
-        ma_decoder_uninit(&decoder);
-        return NULL;
-    }
+    // Read raw float samples (grow as needed)
+    size_t cap = 65536;
+    float *samples = (float *)malloc(cap * sizeof(float));
+    size_t len = 0;
 
-    ma_uint32 channels = decoder.outputChannels;
-    ma_uint32 sample_rate = decoder.outputSampleRate;
+    if (!samples) { pclose(fp); return NULL; }
 
-    float *pcm = (float *)calloc(frame_count * channels, sizeof(float));
-    if (!pcm) {
-        ma_decoder_uninit(&decoder);
-        return NULL;
-    }
-
-    ma_uint64 frames_read;
-    result = ma_decoder_read_pcm_frames(&decoder, pcm, frame_count, &frames_read);
-    if (result != MA_SUCCESS) {
-        fprintf(stderr, "waudio_load: failed to read PCM (%s)\n",
-                ma_result_description(result));
-        free(pcm);
-        ma_decoder_uninit(&decoder);
-        return NULL;
-    }
-
-    ma_decoder_uninit(&decoder);
-
-    // Downmix to mono if needed
-    float *mono;
-    int n_samples;
-
-    if (channels == 1) {
-        mono = pcm;
-        n_samples = (int)frames_read;
-    } else {
-        n_samples = (int)frames_read;
-        mono = (float *)calloc(n_samples, sizeof(float));
-        if (!mono) {
-            free(pcm);
-            return NULL;
+    while (1) {
+        size_t space = cap - len;
+        if (space < 4096) {
+            cap *= 2;
+            float *tmp = (float *)realloc(samples, cap * sizeof(float));
+            if (!tmp) { free(samples); pclose(fp); return NULL; }
+            samples = tmp;
+            space = cap - len;
         }
-        for (int i = 0; i < n_samples; i++) {
-            double sum = 0.0;
-            for (ma_uint64 c = 0; c < channels; c++) {
-                sum += pcm[i * channels + c];
-            }
-            mono[i] = (float)(sum / channels);
-        }
-        free(pcm);
+        size_t got = fread(samples + len, sizeof(float), space, fp);
+        if (got == 0) break;
+        len += got;
+    }
+
+    int status = pclose(fp);
+    if (status != 0 || len == 0) {
+        free(samples);
+        return NULL;
     }
 
     WAudioData *audio = (WAudioData *)calloc(1, sizeof(WAudioData));
-    if (!audio) {
-        free(mono);
-        return NULL;
-    }
+    if (!audio) { free(samples); return NULL; }
 
-    audio->samples = mono;
-    audio->n_samples = n_samples;
-    audio->sample_rate = (int)sample_rate;
+    audio->samples     = samples;
+    audio->n_samples   = (int)len;
+    audio->sample_rate = 16000;
 
     return audio;
 }
