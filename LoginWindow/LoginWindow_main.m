@@ -593,15 +593,18 @@ int main(int argc, const char *argv[])
     // Set DISPLAY environment variable to ensure GUI apps can connect
     setenv("DISPLAY", ":0", 1);
     
-    // Detect keyboard layout BEFORE NSApplication initializes the bundle
-    // system, so that the UI language can be set before any NSLocalizedString
-    // call.
+    // Additional delay before starting GUI application
+    NSDebugLLog(@"gwcomp", @"[DEBUG] Starting LoginWindow GUI application");
+    
+    [NSApplication sharedApplication];
+
+    // Detect keyboard layout and set the UI language BEFORE the first
+    // NSLocalizedString call (which happens when the delegate runs).
+    // NSUserDefaults is fully initialized by now.
     {
         KeyboardManager *km = [[KeyboardManager alloc] init];
         [km detectKeyboardWithPasswd:NULL];
 
-        // Map locale to GNUstep .lproj language name and set preference.
-        // Same mapping as -[LoginWindow applyDetectedLanguage].
         static const char *langMap[][2] = {
             {"de","German"},{"fr","French"},{"es","Spanish"},
             {"it","Italian"},{"pt","Portuguese"},{"ru","Russian"},
@@ -618,7 +621,7 @@ int main(int argc, const char *argv[])
             {"gb","English"},{"us","English"},{"br","Portuguese"},
             {NULL,NULL}
         };
-        NSString *localeStr = km.language;  // e.g. "de_DE.UTF-8"
+        NSString *localeStr = km.language;
         if (localeStr) {
             NSString *langCode = nil;
             NSRange underscore = [localeStr rangeOfString:@"_"];
@@ -646,15 +649,20 @@ int main(int argc, const char *argv[])
                         @[gsLanguage, @"English"] forKey:@"Languages"];
                     [[NSUserDefaults standardUserDefaults] synchronize];
                 }
+                setenv("LANG", [localeStr UTF8String], 1);
+                setenv("LANGUAGE",
+                    [[[localeStr componentsSeparatedByString:@"."]
+                        firstObject] UTF8String], 1);
+                setenv("LC_ALL", [localeStr UTF8String], 1);
             }
         }
         [km release];
     }
 
-    // Additional delay before starting GUI application
-    NSDebugLLog(@"gwcomp", @"[DEBUG] Starting LoginWindow GUI application");
-    
-    [NSApplication sharedApplication];
+    NSDebugLLog(@"gwcomp", @"[DEBUG] Language setup: LANG=%s, Languages=%@",
+          getenv("LANG") ?: "(unset)",
+          [[NSUserDefaults standardUserDefaults] arrayForKey:@"Languages"]);
+
     [NSApp setDelegate: [[LoginWindow alloc] init]];
     [NSApp run];
     
