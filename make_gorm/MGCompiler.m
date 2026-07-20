@@ -73,21 +73,33 @@ static uint32_t w32(uint32_t v) {
   unsigned nCls = [self _countUniqueClasses:sorted];
   if (nCls < 1) nCls = 1;
 
-  BOOL hasHexData = ([root.namedProperties objectForKey:@"data"] != nil);
+  BOOL hasHexData = NO;
+  for (MGArchiveObject *o in sorted) {
+    if ([o.namedProperties objectForKey:@"data"]) { hasHexData = YES; break; }
+  }
 
   NSString *hdr = [NSString stringWithFormat:
     @"GNUstep archive%08x:%08x:%08x:%08x:",
     archive.systemVersion, nCls, (unsigned)[sorted count], 0];
   [data appendData:[hdr dataUsingEncoding:NSASCIIStringEncoding]];
 
-  /* Write each object with its class hierarchy and hex data */
-  for (MGArchiveObject *obj in sorted) {
-    [self _writeId:(uint32_t)obj.objectId data:data];
-    [self _writeClassHierarchy:obj.className data:data];
-    uint8_t none = 0; [data appendBytes:&none length:1];
-    id raw = [obj.namedProperties objectForKey:@"data"];
-    if ([raw isKindOfClass:[NSData class]])
-      [data appendData:(NSData *)raw];
+  if (hasHexData) {
+    /* Write each object with its class hierarchy and hex data */
+    for (MGArchiveObject *obj in sorted) {
+      [self _writeId:(uint32_t)obj.objectId data:data];
+      [self _writeClassHierarchy:obj.className data:data];
+      uint8_t none = 0; [data appendBytes:&none length:1];
+      id raw = [obj.namedProperties objectForKey:@"data"];
+      if ([raw isKindOfClass:[NSData class]])
+        [data appendData:(NSData *)raw];
+    }
+  } else {
+    /* No hex: convert named properties to MGValue trees and write recursively */
+    for (MGArchiveObject *obj in sorted) {
+      [obj.encodedValues removeAllObjects];
+      [self _namedPropsToValues:obj];
+    }
+    [self _writeObjectRecursive:root allObjects:archive.objects data:data written:[[NSMutableSet alloc] init]];
   }
 
   return data;

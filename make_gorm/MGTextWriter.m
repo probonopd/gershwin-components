@@ -669,7 +669,7 @@ static NSString *_formatValue(id val, NSUInteger indent)
                           [output appendFormat:@"    _%lu = %@;\n", (unsigned long)vi, s];
                         }
                     }
-                  /* Raw data for compilation */
+                  /* Raw data for lossless round-trip compilation */
                   [output appendFormat:@"    data = %@;\n", _formatRawData(raw, 1)];
                 }
               else
