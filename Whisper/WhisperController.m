@@ -383,9 +383,7 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         if (mn) {
             NSString *mp = [self modelPathForName:mn];
             if (![[NSFileManager defaultManager] fileExistsAtPath:mp])
-                fail = [NSString stringWithFormat:
-                    @"The %@ model has not been downloaded yet.\n\n"
-                    @"Select a model from the Whisper menu and download it.", mn];
+                [self downloadModelWithName:mn];
         }
     }
 
