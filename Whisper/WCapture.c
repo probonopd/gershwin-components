@@ -2,6 +2,9 @@
  * Copyright (c) 2026 Simon Peter
  *
  * SPDX-License-Identifier: BSD-2-Clause
+ *
+ * Audio capture using arecord via pipe (no miniaudio dependency).
+ * Launches arecord as a child process and reads raw PCM data.
  */
 
 #include "WCapture.h"
@@ -9,95 +12,83 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <dlfcn.h>
+#include <unistd.h>
+#include <signal.h>
 #include <pthread.h>
+#include <sys/wait.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <math.h>
-
-#include "miniaudio.h"
 
 #define INITIAL_CAPACITY (16000 * 10) // 10 seconds at 16kHz
 #define CAPACITY_GROWTH  16000        // grow by 1-second chunks
+#define READ_BUF_SIZE    4096         // pipe read buffer (in samples)
 
 typedef struct {
-    ma_device   device;
+    pid_t       pid;
+    int         fd;
     float      *buffer;
     int         capacity;
     int         n_samples;
     int         sample_rate;
     int         running;
+    pthread_t   thread;
     pthread_mutex_t mutex;
 } WCapture;
 
-static int callback_count = 0;
+static int log_counter = 0;
 
-static void capture_callback(ma_device *pDevice, void *pOutput,
-                             const void *pInput, ma_uint32 frameCount)
+static void *reader_thread(void *arg)
 {
-    WCapture *cap = (WCapture *)pDevice->pUserData;
-    if (!cap || !cap->running) return;
+    WCapture *cap = (WCapture *)arg;
+    short ibuf[READ_BUF_SIZE];
 
-    if (pInput == NULL) {
-        fprintf(stderr, "[WCapture] capture_callback: pInput is NULL!\n");
-        return;
-    }
+    while (cap->running) {
+        ssize_t n = read(cap->fd, ibuf, sizeof(ibuf));
+        if (n <= 0) {
+            if (n == 0) break; // EOF
+            if (errno == EINTR || errno == EAGAIN) continue;
+            break;
+        }
 
-    callback_count++;
+        int n_frames = (int)(n / sizeof(short));
 
-    pthread_mutex_lock(&cap->mutex);
+        pthread_mutex_lock(&cap->mutex);
 
-    int new_n = cap->n_samples + (int)frameCount;
+        int new_n = cap->n_samples + n_frames;
+        if (new_n > cap->capacity) {
+            int new_cap = cap->capacity + CAPACITY_GROWTH;
+            while (new_cap < new_n) new_cap += CAPACITY_GROWTH;
+            float *nb = (float *)realloc(cap->buffer, new_cap * sizeof(float));
+            if (!nb) { pthread_mutex_unlock(&cap->mutex); break; }
+            cap->buffer = nb;
+            cap->capacity = new_cap;
+        }
 
-    if (new_n > cap->capacity) {
-        int new_cap = cap->capacity + CAPACITY_GROWTH;
-        while (new_cap < new_n) new_cap += CAPACITY_GROWTH;
-        float *nb = (float *)realloc(cap->buffer, new_cap * sizeof(float));
-        if (!nb) { pthread_mutex_unlock(&cap->mutex); return; }
-        cap->buffer = nb;
-        cap->capacity = new_cap;
-    }
+        for (int i = 0; i < n_frames; i++) {
+            cap->buffer[cap->n_samples + i] = ibuf[i] / 32768.0f;
+        }
+        cap->n_samples = new_n;
 
-    const float *in = (const float *)pInput;
-    if (pDevice->capture.channels == 1) {
-        memcpy(cap->buffer + cap->n_samples, in,
-               frameCount * sizeof(float));
-    } else {
-        for (ma_uint32 i = 0; i < frameCount; i++) {
-            double sum = 0.0;
-            for (ma_uint32 c = 0; c < pDevice->capture.channels; c++) {
-                sum += in[i * pDevice->capture.channels + c];
+        pthread_mutex_unlock(&cap->mutex);
+
+        log_counter++;
+        if (log_counter % 100 == 1) {
+            float peak = 0.0f;
+            for (int i = 0; i < n_frames; i++) {
+                float absv = fabsf(ibuf[i] / 32768.0f);
+                if (absv > peak) peak = absv;
             }
-            cap->buffer[cap->n_samples + i] = (float)(sum / pDevice->capture.channels);
+            fprintf(stderr, "[WCapture] read %d frames, peak=%.6f, total=%d\n",
+                    n_frames, peak, cap->n_samples);
         }
     }
 
-    cap->n_samples = new_n;
-    pthread_mutex_unlock(&cap->mutex);
-
-    // Log periodically (every 100th callback ≈ every 3s at 512 frames/16kHz)
-    if (callback_count % 100 == 1) {
-        // Check peak amplitude in this chunk
-        float peak = 0.0f;
-        for (ma_uint32 i = 0; i < frameCount; i++) {
-            float absv = fabsf(in[i]);
-            if (absv > peak) peak = absv;
-        }
-        fprintf(stderr, "[WCapture] callback #%d: %u frames, "
-                "channels=%u, peak=%.6f, total_samples=%d\n",
-                callback_count, frameCount,
-                pDevice->capture.channels, peak, cap->n_samples);
-    }
+    return NULL;
 }
 
-void *wcapture_start(int sample_rate)
+void *wcapture_start(int sample_rate, const char *alsa_device)
 {
-    // Suppress ALSA error spew when no capture device is available
-    void *alsah = dlopen("libasound.so", RTLD_LAZY | RTLD_NOLOAD);
-    if (alsah) {
-        void (*set_handler)(void *) = dlsym(alsah, "snd_lib_error_set_handler");
-        if (set_handler) set_handler(NULL);
-        dlclose(alsah);
-    }
-
     WCapture *cap = (WCapture *)calloc(1, sizeof(WCapture));
     if (!cap) return NULL;
 
@@ -109,41 +100,83 @@ void *wcapture_start(int sample_rate)
     cap->running = 1;
     pthread_mutex_init(&cap->mutex, NULL);
 
-    ma_device_config config = ma_device_config_init(ma_device_type_capture);
-    config.capture.format   = ma_format_f32;
-    config.capture.channels = 1;
-    config.sampleRate       = (ma_uint32)sample_rate;
-    config.dataCallback     = capture_callback;
-    config.pUserData        = cap;
-
-    ma_result result = ma_device_init(NULL, &config, &cap->device);
-    if (result != MA_SUCCESS) {
-        fprintf(stderr, "[WCapture] ma_device_init failed (%s)\n",
-                ma_result_description(result));
-        free(cap->buffer);
-        free(cap);
-        return NULL;
+    int pfd[2];
+    if (pipe(pfd) != 0) {
+        free(cap->buffer); free(cap); return NULL;
     }
 
-    fprintf(stderr, "[WCapture] device initialized: capture format=%d, "
-            "channels=%d, sample_rate=%d\n",
-            cap->device.capture.internalFormat,
-            cap->device.capture.internalChannels,
-            cap->device.sampleRate);
-
-    result = ma_device_start(&cap->device);
-    if (result != MA_SUCCESS) {
-        fprintf(stderr, "[WCapture] ma_device_start failed (%s)\n",
-                ma_result_description(result));
-        ma_device_uninit(&cap->device);
-        free(cap->buffer);
-        free(cap);
-        return NULL;
+    cap->pid = fork();
+    if (cap->pid == -1) {
+        close(pfd[0]); close(pfd[1]);
+        free(cap->buffer); free(cap); return NULL;
     }
 
-    fprintf(stderr, "[WCapture] capture started successfully\n");
-    callback_count = 0;
+    if (cap->pid == 0) {
+        // Child: exec arecord
+        close(pfd[0]);
+        dup2(pfd[1], STDOUT_FILENO);
+        close(pfd[1]);
+
+        char rate_str[16];
+        snprintf(rate_str, sizeof(rate_str), "%d", sample_rate);
+
+        // Build argv with optional -D device
+        char *argv[12];
+        int ai = 0;
+        argv[ai++] = "arecord";
+        if (alsa_device && alsa_device[0]) {
+            argv[ai++] = "-D";
+            argv[ai++] = (char *)alsa_device;
+        }
+        argv[ai++] = "-r";
+        argv[ai++] = rate_str;
+        argv[ai++] = "-c";
+        argv[ai++] = "1";
+        argv[ai++] = "-f";
+        argv[ai++] = "S16_LE";
+        argv[ai++] = "-t";
+        argv[ai++] = "raw";
+        argv[ai] = NULL;
+
+        execvp("arecord", argv);
+        // If exec fails, try without device flag
+        if (alsa_device && alsa_device[0]) {
+            fprintf(stderr, "[WCapture] arecord failed with device %s, "
+                    "retrying without -D\n", alsa_device);
+            argv[1] = argv[3]; // shift args to omit -D <device>
+            argv[2] = argv[4];
+            argv[3] = argv[5];
+            argv[4] = argv[6];
+            argv[5] = argv[7];
+            argv[6] = argv[8];
+            argv[7] = argv[9];
+            argv[8] = NULL;
+            execvp("arecord", argv);
+        }
+        _exit(1);
+    }
+
+    // Parent
+    close(pfd[1]);
+    cap->fd = pfd[0];
+
+    pthread_create(&cap->thread, NULL, reader_thread, cap);
+
+    fprintf(stderr, "[WCapture] started arecord (pid=%d, rate=%d, device=%s)\n",
+            cap->pid, sample_rate,
+            alsa_device ? alsa_device : "default");
+    log_counter = 0;
     return cap;
+}
+
+static void kill_arecord(WCapture *cap)
+{
+    if (cap->pid > 0) {
+        kill(cap->pid, SIGTERM);
+        int status;
+        waitpid(cap->pid, &status, WNOHANG);
+        cap->pid = 0;
+    }
 }
 
 WCaptureData *wcapture_stop(void *capture)
@@ -152,8 +185,9 @@ WCaptureData *wcapture_stop(void *capture)
     WCapture *cap = (WCapture *)capture;
 
     cap->running = 0;
-    ma_device_stop(&cap->device);
-    ma_device_uninit(&cap->device);
+    pthread_join(cap->thread, NULL);
+    kill_arecord(cap);
+    if (cap->fd >= 0) close(cap->fd);
 
     pthread_mutex_lock(&cap->mutex);
 
@@ -166,16 +200,14 @@ WCaptureData *wcapture_stop(void *capture)
         return NULL;
     }
 
-    // Compute peak amplitude across entire buffer
     float peak = 0.0f;
     for (int i = 0; i < cap->n_samples; i++) {
         float absv = fabsf(cap->buffer[i]);
         if (absv > peak) peak = absv;
     }
 
-    fprintf(stderr, "[WCapture] stop: %d samples at %d Hz, "
-            "peak=%.6f, callback_count=%d\n",
-            cap->n_samples, cap->sample_rate, peak, callback_count);
+    fprintf(stderr, "[WCapture] stop: %d samples at %d Hz, peak=%.6f\n",
+            cap->n_samples, cap->sample_rate, peak);
 
     WCaptureData *data = (WCaptureData *)calloc(1, sizeof(WCaptureData));
     if (!data) {
@@ -202,8 +234,10 @@ void wcapture_cancel(void *capture)
     WCapture *cap = (WCapture *)capture;
 
     cap->running = 0;
-    ma_device_stop(&cap->device);
-    ma_device_uninit(&cap->device);
+    pthread_join(cap->thread, NULL);
+    kill_arecord(cap);
+    if (cap->fd >= 0) close(cap->fd);
+
     pthread_mutex_destroy(&cap->mutex);
     free(cap->buffer);
     free(cap);
@@ -231,13 +265,11 @@ int wcapture_snapshot(void *capture, float **out_samples)
     pthread_mutex_lock(&cap->mutex);
     int n = cap->n_samples;
     if (n == 0) {
-        fprintf(stderr, "[WCapture] snapshot: no samples yet\n");
         pthread_mutex_unlock(&cap->mutex);
         *out_samples = NULL;
         return 0;
     }
 
-    // Check peak
     float peak = 0.0f;
     for (int i = 0; i < n; i++) {
         float absv = fabsf(cap->buffer[i]);

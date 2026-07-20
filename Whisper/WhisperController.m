@@ -8,6 +8,7 @@
 #import "AppearanceMetrics.h"
 #import "WAudioLoader.h"
 #import "WCapture.h"
+#import "ALSABackend.h"
 
 #import <AppKit/NSApplication.h>
 #import <AppKit/NSWindow.h>
@@ -179,6 +180,7 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         currentLangCode = nil;
         recordTimer = nil;
         streamTimer = nil;
+        showTimestamps = NO;
 
         [self populateModelList];
     }
@@ -222,19 +224,33 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         }
     }
 
-    // Restore last selected language
-    NSString *savedLang = [[NSUserDefaults standardUserDefaults]
-        stringForKey:@"LastLanguage"];
-    if (savedLang) {
+    // .en models only support English — force it and disable the popup
+    BOOL enModel = [savedModel hasSuffix:@".en"];
+    if (enModel) {
         for (NSMenuItem *item in [languagePopup itemArray]) {
-            if ([[item representedObject] isEqualToString:savedLang]) {
+            if ([[item representedObject] isEqualToString:@"en"]) {
                 [languagePopup selectItem:item];
                 break;
             }
         }
+        [languagePopup setEnabled:NO];
+        [currentLangCode release];
+        currentLangCode = [@"en" copy];
+    } else {
+        // Restore last selected language
+        NSString *savedLang = [[NSUserDefaults standardUserDefaults]
+            stringForKey:@"LastLanguage"];
+        if (savedLang) {
+            for (NSMenuItem *item in [languagePopup itemArray]) {
+                if ([[item representedObject] isEqualToString:savedLang]) {
+                    [languagePopup selectItem:item];
+                    break;
+                }
+            }
+        }
+        [currentLangCode release];
+        currentLangCode = [[[languagePopup selectedItem] representedObject] copy];
     }
-    [currentLangCode release];
-    currentLangCode = [[[languagePopup selectedItem] representedObject] copy];
 
     [self updateUIForState];
 
@@ -462,6 +478,8 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
 
     [downloadProgress setDoubleValue:0.0];
     [downloadProgress setHidden:NO];
+    [progressBar setIndeterminate:YES];
+    [progressBar startAnimation:nil];
     [downloadButton setTitle:@"Cancel"];
     [statusLabel setStringValue:[NSString stringWithFormat:
         @"Downloading %@", name]];
@@ -589,6 +607,9 @@ static const unsigned long long modelMinSizes[] = {
     double v = [pct doubleValue];
     [downloadProgress setDoubleValue:v];
     [downloadProgress displayIfNeeded];
+    [progressBar setIndeterminate:NO];
+    [progressBar setDoubleValue:v];
+    [progressBar displayIfNeeded];
     [statusLabel setStringValue:[NSString stringWithFormat:
         @"Downloading %@ — %.0f%%", downloadingModel, v]];
 }
@@ -605,6 +626,9 @@ static const unsigned long long modelMinSizes[] = {
 
     [downloadProgress setDoubleValue:100.0];
     [downloadProgress setHidden:YES];
+    [progressBar stopAnimation:nil];
+    [progressBar setIndeterminate:NO];
+    [progressBar setDoubleValue:0.0];
     [downloadButton setTitle:@"Download"];
     [downloadData release];
     downloadData = nil;
@@ -863,9 +887,7 @@ static const unsigned long long modelMinSizes[] = {
     [statusLabel setStringValue:[NSString stringWithFormat:
         @"Done (%.1f s)", elapsed]];
 
-    if (resultTextView) {
-        [resultTextView setString:result];
-    }
+    [self rebuildTextView];
 }
 
 - (void)transcriptionFailed:(NSString *)error
@@ -890,20 +912,19 @@ static const unsigned long long modelMinSizes[] = {
 
     if (isRecording) {
         [recordSpinner startAnimation:nil];
+        [progressBar setIndeterminate:YES];
+        [progressBar startAnimation:nil];
+        [stopButton setKeyEquivalent:@"\r"];
     } else {
         [recordSpinner stopAnimation:nil];
+        [progressBar stopAnimation:nil];
+        [progressBar setIndeterminate:NO];
+        if (!isWorking) {
+            [progressBar setDoubleValue:0.0];
+        }
+        [stopButton setKeyEquivalent:@""];
     }
 
-    // Check whether a model file is available (even if not yet loaded)
-    BOOL modelAvailable = NO;
-    NSString *selModel = [[modelPopup selectedItem] representedObject];
-    if (selModel) {
-        NSString *mp = [self modelPathForName:selModel];
-        if (mp) modelAvailable = [[NSFileManager defaultManager] fileExistsAtPath:mp];
-    }
-    [transcribeButton setEnabled:(!isWorking && !isRecording &&
-                                  (currentFilePath != nil) &&
-                                  modelAvailable)];
     [openButton setEnabled:(!isWorking && !isRecording)];
     [modelPopup setEnabled:(!isWorking && !isRecording)];
     [languagePopup setEnabled:(!isWorking && !isRecording)];
@@ -919,11 +940,6 @@ static const unsigned long long modelMinSizes[] = {
     [saveVttButton setEnabled:hasResults];
     [copyTextButton setEnabled:hasResults];
 
-    if (state == WhisperStateTranscribing) {
-        [transcribeButton setTitle:@"Transcribing..."];
-    } else {
-        [transcribeButton setTitle:@"Transcribe"];
-    }
 }
 
 #pragma mark - Actions
@@ -937,7 +953,19 @@ static const unsigned long long modelMinSizes[] = {
 
     NSLog(@"recordAudio: starting capture at 16kHz");
     int sr = 16000;
-    captureHandle = wcapture_start(sr);
+    // Use SoundBackend to find the default input device
+    ALSABackend *snd = [[ALSABackend alloc] init];
+    AudioDevice *dev = [snd defaultInputDevice];
+    NSString *alsaDev = nil;
+    if (dev) {
+        alsaDev = [NSString stringWithFormat:@"plughw:%d,%d",
+                             [dev cardIndex], [dev deviceIndex]];
+        NSLog(@"recordAudio: using SoundBackend device '%@' -> %@",
+              [dev name], alsaDev);
+    }
+    [snd release];
+
+    captureHandle = wcapture_start(sr, [alsaDev UTF8String]);
     if (!captureHandle) {
         NSLog(@"recordAudio: wcapture_start returned NULL");
         [statusLabel setStringValue:@"No microphone found"];
@@ -1226,25 +1254,9 @@ static const unsigned long long modelMinSizes[] = {
         return NSOrderedSame;
     }];
 
-    // Rebuild the entire text view from the cleaned-up segments array.
-    if (resultTextView) {
-        NSMutableString *full = [NSMutableString string];
-        for (NSDictionary *seg in segments) {
-            int64_t t0 = [[seg objectForKey:@"t0"] longLongValue];
-            int64_t t1 = [[seg objectForKey:@"t1"] longLongValue];
-            NSString *txt = [seg objectForKey:@"text"];
-            [full appendFormat:@"[%@ --> %@] %@\n",
-                [self formatTimestamp:t0],
-                [self formatTimestamp:t1],
-                txt];
-        }
-        [resultTextView setString:full];
-        [resultTextView scrollRangeToVisible:
-            NSMakeRange([full length], 0)];
-        [resultTextView displayIfNeeded];
-        NSLog(@"appendStreamingResult: rebuilt text view (%lu segments, %lu chars)",
-              (unsigned long)[segments count], (unsigned long)[full length]);
-    }
+    [self rebuildTextView];
+    NSLog(@"appendStreamingResult: rebuilt text view (%lu segments)",
+          (unsigned long)[segments count]);
 }
 
 // Transcribe raw PCM data and append only new segments to the UI.
@@ -1266,6 +1278,7 @@ static const unsigned long long modelMinSizes[] = {
         [self setCurrentFilePath:path];
         [filePathLabel setStringValue:path];
         [self setState:WhisperStateIdle];
+        [self transcribe:nil];
     }
 }
 
@@ -1276,6 +1289,21 @@ static const unsigned long long modelMinSizes[] = {
         [[NSUserDefaults standardUserDefaults] setObject:name forKey:@"LastModel"];
         [[NSUserDefaults standardUserDefaults] synchronize];
         NSLog(@"modelChanged: saved '%@' as last model", name);
+    }
+
+    // Models ending in .en only support English — lock language to English
+    BOOL isEN = [name hasSuffix:@".en"];
+    [languagePopup setEnabled:!isEN];
+    if (isEN) {
+        // Select English
+        for (NSMenuItem *item in [languagePopup itemArray]) {
+            if ([[item representedObject] isEqualToString:@"en"]) {
+                [languagePopup selectItem:item];
+                break;
+            }
+        }
+        [currentLangCode release];
+        currentLangCode = [@"en" copy];
     }
 }
 
@@ -1341,6 +1369,44 @@ static const unsigned long long modelMinSizes[] = {
     NSPasteboard *pb = [NSPasteboard generalPasteboard];
     [pb declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
     [pb setString:stripped forType:NSStringPboardType];
+}
+
+- (IBAction)timestampsToggled:(id)sender
+{
+    showTimestamps = ([showTimestampsCheckbox state] == NSOnState);
+    [self rebuildTextView];
+}
+
+- (NSString *)displayTextFromSegments
+{
+    NSMutableString *result = [NSMutableString string];
+    for (NSDictionary *seg in segments) {
+        NSString *txt = [seg objectForKey:@"text"];
+        if (!txt) continue;
+        if (showTimestamps) {
+            int64_t t0 = [[seg objectForKey:@"t0"] longLongValue];
+            int64_t t1 = [[seg objectForKey:@"t1"] longLongValue];
+            [result appendFormat:@"[%@ --> %@] %@\n",
+                [self formatTimestamp:t0],
+                [self formatTimestamp:t1],
+                txt];
+        } else {
+            [result appendFormat:@"%@\n", txt];
+        }
+    }
+    // Remove trailing newline
+    if ([result hasSuffix:@"\n"]) {
+        [result deleteCharactersInRange:NSMakeRange([result length] - 1, 1)];
+    }
+    return result;
+}
+
+- (void)rebuildTextView
+{
+    if (!resultTextView) return;
+    NSString *text = [self displayTextFromSegments];
+    [resultTextView setString:text];
+    [resultTextView scrollRangeToVisible:NSMakeRange([text length], 0)];
 }
 
 #pragma mark - Export
@@ -1551,6 +1617,7 @@ static const unsigned long long modelMinSizes[] = {
     [recordStatusLabel setEditable:NO];
     [recordStatusLabel setBordered:NO];
     [recordStatusLabel setDrawsBackground:NO];
+    [recordStatusLabel setBezeled:NO];
     [recordStatusLabel setFont:METRICS_FONT_SYSTEM_REGULAR_11];
     [recordStatusLabel setTextColor:[NSColor grayColor]];
     [recordStatusLabel setStringValue:@""];
@@ -1574,9 +1641,10 @@ static const unsigned long long modelMinSizes[] = {
 
     filePathLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
     [filePathLabel setEditable:NO];
-    [filePathLabel setSelectable:YES];
+    [filePathLabel setSelectable:NO];
     [filePathLabel setBordered:NO];
     [filePathLabel setDrawsBackground:NO];
+    [filePathLabel setBezeled:NO];
     [filePathLabel setFont:METRICS_FONT_SYSTEM_REGULAR_11];
     [filePathLabel setTextColor:[NSColor grayColor]];
     [filePathLabel setStringValue:@"No file selected"];
@@ -1587,6 +1655,7 @@ static const unsigned long long modelMinSizes[] = {
     [modelLabel setEditable:NO];
     [modelLabel setBordered:NO];
     [modelLabel setDrawsBackground:NO];
+    [modelLabel setBezeled:NO];
     [modelLabel setFont:METRICS_FONT_SYSTEM_REGULAR_13];
     [modelLabel setStringValue:@"Model:"];
     [modelLabel sizeToFit];
@@ -1628,6 +1697,7 @@ static const unsigned long long modelMinSizes[] = {
     [langLabel setEditable:NO];
     [langLabel setBordered:NO];
     [langLabel setDrawsBackground:NO];
+    [langLabel setBezeled:NO];
     [langLabel setFont:METRICS_FONT_SYSTEM_REGULAR_13];
     [langLabel setStringValue:@"Language:"];
     [langLabel sizeToFit];
@@ -1659,6 +1729,7 @@ static const unsigned long long modelMinSizes[] = {
     [threadsLabel setEditable:NO];
     [threadsLabel setBordered:NO];
     [threadsLabel setDrawsBackground:NO];
+    [threadsLabel setBezeled:NO];
     [threadsLabel setFont:METRICS_FONT_SYSTEM_REGULAR_13];
     [threadsLabel setStringValue:@"Threads:"];
     [threadsLabel sizeToFit];
@@ -1687,15 +1758,7 @@ static const unsigned long long modelMinSizes[] = {
     [threadsStepper sizeToFit];
     [contentView addSubview:threadsStepper];
 
-    // Transcribe button & progress
-    transcribeButton = [[NSButton alloc] initWithFrame:NSZeroRect];
-    [transcribeButton setTitle:@"Transcribe"];
-    [transcribeButton setTarget:self];
-    [transcribeButton setAction:@selector(transcribe:)];
-    [transcribeButton setBezelStyle:NSRoundedBezelStyle];
-    [transcribeButton sizeToFit];
-    [contentView addSubview:transcribeButton];
-
+    // Progress bar
     progressBar = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
     [progressBar setStyle:NSProgressIndicatorBarStyle];
     [progressBar setIndeterminate:NO];
@@ -1708,6 +1771,7 @@ static const unsigned long long modelMinSizes[] = {
     [statusLabel setEditable:NO];
     [statusLabel setBordered:NO];
     [statusLabel setDrawsBackground:NO];
+    [statusLabel setBezeled:NO];
     [statusLabel setFont:METRICS_FONT_SYSTEM_REGULAR_11];
     [statusLabel setTextColor:[NSColor grayColor]];
     [statusLabel setStringValue:@"Ready"];
@@ -1768,6 +1832,16 @@ static const unsigned long long modelMinSizes[] = {
     [copyTextButton sizeToFit];
     [copyTextButton setEnabled:NO];
     [contentView addSubview:copyTextButton];
+
+    showTimestampsCheckbox = [[NSButton alloc] initWithFrame:NSZeroRect];
+    [showTimestampsCheckbox setButtonType:NSSwitchButton];
+    [showTimestampsCheckbox setTitle:@"Show Timestamps"];
+    [showTimestampsCheckbox setTarget:self];
+    [showTimestampsCheckbox setAction:@selector(timestampsToggled:)];
+    [showTimestampsCheckbox setFont:METRICS_FONT_SYSTEM_REGULAR_11];
+    [showTimestampsCheckbox sizeToFit];
+    [showTimestampsCheckbox setState:NSOffState];
+    [contentView addSubview:showTimestampsCheckbox];
 
     [self layoutSubviews];
 }
@@ -1851,15 +1925,17 @@ static const unsigned long long modelMinSizes[] = {
                                         tSW, METRICS_TEXT_INPUT_FIELD_HEIGHT)];
     y -= bh + s16;
 
-    // ---- Row 5: Transcribe button + progress ----
-    CGFloat tBW = 100;
-    [transcribeButton setFrame:NSMakeRect(mx, y - 2, tBW, bh + 4)];
-    [progressBar setFrame:NSMakeRect(mx + tBW + s8, y,
-                                     w - tBW - s8, bh)];
+    // ---- Row 5: Progress bar ----
+    [progressBar setFrame:NSMakeRect(mx, y, w, bh)];
     y -= bh + s8;
 
-    // ---- Status label ----
-    [statusLabel setFrame:NSMakeRect(mx, y - bh, w, bh)];
+    // ---- Status label + timestamps checkbox ----
+    NSSize tsSz = [showTimestampsCheckbox frame].size;
+    CGFloat statusW2 = w - tsSz.width - s8;
+    if (statusW2 < 50) statusW2 = 50;
+    [statusLabel setFrame:NSMakeRect(mx, y - bh, statusW2, bh)];
+    [showTimestampsCheckbox setFrame:NSMakeRect(mx + statusW2 + s8, y - bh,
+                                                 tsSz.width, bh)];
     y -= s8;
 
     // ---- Results (fills remaining) ----

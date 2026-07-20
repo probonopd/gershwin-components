@@ -15,7 +15,7 @@ typedef struct {
     int    sample_rate;
 } WCaptureData;
 
-void   *wcapture_start(int sample_rate);
+void   *wcapture_start(int sample_rate, const char *alsa_device);
 WCaptureData *wcapture_stop(void *capture);
 void    wcapture_cancel(void *capture);
 void    wcapture_free_data(WCaptureData *data);

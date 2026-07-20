@@ -53,7 +53,6 @@ typedef NS_ENUM(NSInteger, WhisperState) {
     NSStepper *threadsStepper;
 
     // Action
-    NSButton *transcribeButton;
     NSProgressIndicator *progressBar;
     NSTextField *statusLabel;
 
@@ -66,6 +65,8 @@ typedef NS_ENUM(NSInteger, WhisperState) {
     NSButton *saveSrtButton;
     NSButton *saveVttButton;
     NSButton *copyTextButton;
+    NSButton *showTimestampsCheckbox;
+    BOOL showTimestamps;
 
     // Whisper state
     struct whisper_context *whisperCtx;
@@ -115,7 +116,6 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 - (IBAction)recordAudio:(id)sender;
 - (IBAction)stopRecording:(id)sender;
 - (IBAction)openFile:(id)sender;
-- (IBAction)transcribe:(id)sender;
 - (IBAction)downloadModel:(id)sender;
 - (IBAction)modelChanged:(id)sender;
 - (IBAction)languageChanged:(id)sender;
@@ -124,6 +124,7 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 - (IBAction)saveAsSrt:(id)sender;
 - (IBAction)saveAsVtt:(id)sender;
 - (IBAction)copyText:(id)sender;
+- (IBAction)timestampsToggled:(id)sender;
 
 // Transcription
 - (void)transcriptionThread:(id)object;
@@ -148,6 +149,10 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 // State
 - (void)setState:(WhisperState)newState;
 - (void)updateUIForState;
+
+// Display
+- (NSString *)displayTextFromSegments;
+- (void)rebuildTextView;
 
 @end
 #endif

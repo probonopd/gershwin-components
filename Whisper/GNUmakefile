@@ -46,18 +46,12 @@ Whisper_C_FILES = \
 	WCapture.c \
 	ma_impl.c
 
-#
-# Include paths for whisper.h and miniaudio.h
-#
-WHISPER_INCLUDE_DIR = /usr/local/include
-WHISPER_EXAMPLES_DIR = /tmp/opencode/whisper.cpp/examples
-
-ADDITIONAL_INCLUDE_DIRS += -I$(WHISPER_INCLUDE_DIR) -I$(WHISPER_EXAMPLES_DIR)
+ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include -I/Developer/Library/Sources/gershwin-components/Sound
 
 #
 # Link with libwhisper
 #
-ADDITIONAL_GUI_LIBS += -lwhisper
+ADDITIONAL_GUI_LIBS += -lwhisper -lSoundBackend
 
 -include GNUmakefile.preamble
 
