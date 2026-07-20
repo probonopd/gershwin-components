@@ -34,10 +34,10 @@
 
 #import <whisper.h>
 
-#define DEFAULT_WINDOW_WIDTH  720.0
-#define DEFAULT_WINDOW_HEIGHT 520.0
-#define CONTENT_MIN_WIDTH     620.0
-#define CONTENT_MIN_HEIGHT    400.0
+#define DEFAULT_WINDOW_WIDTH  480.0
+#define DEFAULT_WINDOW_HEIGHT 347.0
+#define CONTENT_MIN_WIDTH     413.0
+#define CONTENT_MIN_HEIGHT    267.0
 
 #define WHISPER_SAMPLE_RATE 16000
 
@@ -182,6 +182,7 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         streamTimer = nil;
         showTimestamps = NO;
         copyDefaultConsumed = NO;
+        currentThreads = 8;
 
         [self populateModelList];
     }
@@ -213,44 +214,40 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     [self createUI];
     [self createMenu];
 
-    // Restore last selected model
+    // Restore last selected model (default: base.en) and set checkmark
     NSString *savedModel = [[NSUserDefaults standardUserDefaults]
         stringForKey:@"LastModel"];
-    if (savedModel) {
-        for (NSMenuItem *item in [modelPopup itemArray]) {
-            if ([[item representedObject] isEqualToString:savedModel]) {
-                [modelPopup selectItem:item];
-                break;
+    if (!savedModel) savedModel = @"ggml-base.en.bin";
+    NSMenu *mainMenu = [NSApp mainMenu];
+    NSMenuItem *appItem = [[mainMenu itemArray] objectAtIndex:0];
+    NSMenu *appMenu = [appItem submenu];
+    for (NSMenuItem *item in [appMenu itemArray]) {
+        if ([[item title] isEqualToString:@"Model"]) {
+            for (NSMenuItem *mi in [[item submenu] itemArray]) {
+                if ([[mi representedObject] isEqualToString:savedModel]) {
+                    [mi setState:NSOnState];
+                } else {
+                    [mi setState:NSOffState];
+                }
             }
+            break;
         }
     }
 
-    // .en models only support English — force it and disable the popup
+    // Restore last selected language (default: English)
+    NSString *savedLang = [[NSUserDefaults standardUserDefaults]
+        stringForKey:@"LastLanguage"];
+    if (!savedLang) savedLang = @"en";
     BOOL enModel = [savedModel hasSuffix:@".en"];
-    if (enModel) {
-        for (NSMenuItem *item in [languagePopup itemArray]) {
-            if ([[item representedObject] isEqualToString:@"en"]) {
-                [languagePopup selectItem:item];
-                break;
-            }
-        }
-        [languagePopup setEnabled:NO];
-        [currentLangCode release];
-        currentLangCode = [@"en" copy];
-    } else {
-        // Restore last selected language
-        NSString *savedLang = [[NSUserDefaults standardUserDefaults]
-            stringForKey:@"LastLanguage"];
-        if (savedLang) {
-            for (NSMenuItem *item in [languagePopup itemArray]) {
-                if ([[item representedObject] isEqualToString:savedLang]) {
-                    [languagePopup selectItem:item];
-                    break;
-                }
-            }
-        }
-        [currentLangCode release];
-        currentLangCode = [[[languagePopup selectedItem] representedObject] copy];
+    NSString *langCode = enModel ? @"en" : savedLang;
+    [currentLangCode release];
+    currentLangCode = [langCode copy];
+
+    // Restore thread count
+    NSInteger savedThreads = [[NSUserDefaults standardUserDefaults]
+        integerForKey:@"ThreadCount"];
+    if (savedThreads >= 1 && savedThreads <= 32) {
+        currentThreads = (int)savedThreads;
     }
 
     [self updateUIForState];
@@ -387,7 +384,8 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
                 [[NSFileManager defaultManager] removeItemAtPath:modelPath
                                                           error:NULL];
                 [self downloadModelWithName:
-                    [[modelPopup selectedItem] representedObject]];
+                    [[NSUserDefaults standardUserDefaults]
+                        stringForKey:@"LastModel"]];
             }
             [alert release];
         } else {
@@ -416,45 +414,6 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     }
 }
 
-- (IBAction)downloadModel:(id)sender
-{
-    if (downloadTask && [downloadTask isRunning]) {
-        [downloadTask terminate];
-        [downloadTask release];
-        downloadTask = nil;
-        [downloadProgress setDoubleValue:0.0];
-        [downloadProgress setHidden:YES];
-        [downloadData release];
-        downloadData = nil;
-        [downloadFH release];
-        downloadFH = nil;
-        [downloadButton setTitle:@"Download"];
-        [self setState:WhisperStateIdle];
-        return;
-    }
-
-    NSString *selectedName = [[modelPopup selectedItem] representedObject];
-    if (!selectedName) return;
-
-    if ([self modelExists:selectedName]) {
-        NSString *urlStr = [NSString stringWithFormat:
-            @"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/%@",
-            selectedName];
-        NSLog(@"downloadModel: '%@' already exists at %@",
-              selectedName, [self modelPathForName:selectedName]);
-        NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:@"Model already exists"];
-        [alert setInformativeText:[NSString stringWithFormat:
-            @"%@ is already downloaded.\n\n%@", selectedName, urlStr]];
-        [alert addButtonWithTitle:@"OK"];
-        [alert runModal];
-        [alert release];
-        return;
-    }
-
-    [self downloadModelWithName:selectedName];
-}
-
 - (void)downloadModelWithName:(NSString *)name
 {
     NSString *dir = [self modelDirPath];
@@ -481,7 +440,6 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     [downloadProgress setHidden:NO];
     [progressBar setIndeterminate:YES];
     [progressBar startAnimation:nil];
-    [downloadButton setTitle:@"Cancel"];
     [statusLabel setStringValue:[NSString stringWithFormat:
         @"Downloading %@", name]];
     [self setState:WhisperStateLoadingModel];
@@ -630,7 +588,6 @@ static const unsigned long long modelMinSizes[] = {
     [progressBar stopAnimation:nil];
     [progressBar setIndeterminate:NO];
     [progressBar setDoubleValue:0.0];
-    [downloadButton setTitle:@"Download"];
     [downloadData release];
     downloadData = nil;
     [downloadFH release];
@@ -642,28 +599,7 @@ static const unsigned long long modelMinSizes[] = {
         NSLog(@"downloadFinished: successfully downloaded %@", downloadingModel);
         [statusLabel setStringValue:[NSString stringWithFormat:
             @"Downloaded %@", downloadingModel]];
-        // Refresh model popup
-        NSString *selected = [[modelPopup selectedItem] representedObject];
-        [modelPopup removeAllItems];
-        for (int i = 0; modelNames[i] != NULL; i++) {
-            NSString *label = [NSString stringWithUTF8String:modelSizes[i]];
-            NSString *name = [NSString stringWithUTF8String:modelNames[i]];
-            [modelPopup addItemWithTitle:label];
-            [[modelPopup lastItem] setRepresentedObject:name];
-        }
-        // Restore selection
-        for (NSMenuItem *item in [modelPopup itemArray]) {
-            if ([[item representedObject] isEqualToString:selected]) {
-                [modelPopup selectItem:item];
-                break;
-            }
-        }
-        // Persist restored selection
-        if (selected) {
-            [[NSUserDefaults standardUserDefaults] setObject:selected
-                                                      forKey:@"LastModel"];
-            [[NSUserDefaults standardUserDefaults] synchronize];
-        }
+        // Model menu already built in createMenu
     } else {
         NSLog(@"downloadFinished: FAILED (status=%d) for %@", status, downloadingModel);
         [statusLabel setStringValue:[NSString stringWithFormat:
@@ -744,14 +680,15 @@ static const unsigned long long modelMinSizes[] = {
     }
 
     if (!whisperCtx) {
-        NSString *selectedName = [[modelPopup selectedItem] representedObject];
+        NSString *selectedName = [[NSUserDefaults standardUserDefaults]
+            stringForKey:@"LastModel"];
         if (!selectedName) {
-            [statusLabel setStringValue:@"Please select a model"];
+            [statusLabel setStringValue:@"Please select a model from the Whisper menu"];
             return;
         }
         NSString *modelPath = [self modelPathForName:selectedName];
         if (![[NSFileManager defaultManager] fileExistsAtPath:modelPath]) {
-            [statusLabel setStringValue:@"Model not downloaded. Click Download first."];
+            [statusLabel setStringValue:@"Model not downloaded — select from Whisper menu"];
             return;
         }
         [self loadModel:modelPath];
@@ -794,9 +731,7 @@ static const unsigned long long modelMinSizes[] = {
     struct whisper_full_params wparams = whisper_full_default_params(
         WHISPER_SAMPLING_GREEDY);
 
-    wparams.n_threads = [threadsField intValue];
-    if (wparams.n_threads < 1) wparams.n_threads = 1;
-    if (wparams.n_threads > 32) wparams.n_threads = 32;
+    wparams.n_threads = currentThreads;
 
     NSString *langCode = currentLangCode;
     if (langCode && ![langCode isEqualToString:@"auto"]) {
@@ -905,21 +840,12 @@ static const unsigned long long modelMinSizes[] = {
         }
     }
 
-    [openButton setEnabled:(!isWorking && !isRecording)];
-    [modelPopup setEnabled:(!isWorking && !isRecording)];
-    NSString *curModel = [[modelPopup selectedItem] representedObject];
-    BOOL enModel = [curModel hasSuffix:@".en"];
-    [languagePopup setEnabled:(!isWorking && !isRecording && !enModel)];
+    // enModel check is done in modelSelected:
     // [translateCheckbox setEnabled:(!isWorking && !isRecording)];
-    [threadsField setEnabled:(!isWorking && !isRecording)];
-    [threadsStepper setEnabled:(!isWorking && !isRecording)];
     [recordButton setEnabled:(!isRecording && !isWorking)];
     [stopButton setEnabled:isRecording];
 
     BOOL hasResults = [segments count] > 0;
-    [saveTxtButton setEnabled:hasResults];
-    [saveSrtButton setEnabled:hasResults];
-    [saveVttButton setEnabled:hasResults];
     [copyTextButton setEnabled:hasResults];
 
     // Allow editing the result text when idle
@@ -938,6 +864,38 @@ static const unsigned long long modelMinSizes[] = {
         [recordButton setKeyEquivalent:@"\r"];
     }
 
+}
+
+#pragma mark - Menu validation
+
+- (void)copy:(id)sender
+{
+    // If there is a selection in the text view, copy only that.
+    NSRange sel = [resultTextView selectedRange];
+    if (sel.length > 0) {
+        [resultTextView copy:sender];
+        return;
+    }
+    // Otherwise copy all recognised text without timestamps.
+    [self copyText:sender];
+}
+
+- (BOOL)validateMenuItem:(NSMenuItem *)item
+{
+    SEL a = [item action];
+    if (a == NULL) return YES; // Submenu title
+    BOOL hasRes = [segments count] > 0;
+    if (a == @selector(saveAsTxt:) ||
+        a == @selector(saveAsSrt:) ||
+        a == @selector(saveAsVtt:)) {
+        return hasRes;
+    }
+    // Standard edit actions are handled by the text view responder
+    if (a == @selector(cut:) || a == @selector(copy:) ||
+        a == @selector(paste:) || a == @selector(selectAll:)) {
+        return [resultTextView isEditable];
+    }
+    return YES;
 }
 
 #pragma mark - Actions
@@ -979,12 +937,13 @@ static const unsigned long long modelMinSizes[] = {
     // Ensure model is loaded before recording
     if (!whisperCtx) {
         NSLog(@"recordAudio: no model loaded, loading now...");
-        NSString *selectedName = [[modelPopup selectedItem] representedObject];
+        NSString *selectedName = [[NSUserDefaults standardUserDefaults]
+            stringForKey:@"LastModel"];
         if (!selectedName) {
             NSLog(@"recordAudio: no model selected, canceling capture");
             wcapture_cancel(captureHandle);
             captureHandle = NULL;
-            [statusLabel setStringValue:@"Please select a model"];
+            [statusLabel setStringValue:@"Please select a model from the Whisper menu"];
             return;
         }
         NSString *modelPath = [self modelPathForName:selectedName];
@@ -1179,9 +1138,7 @@ static const unsigned long long modelMinSizes[] = {
     struct whisper_full_params wparams = whisper_full_default_params(
         WHISPER_SAMPLING_GREEDY);
 
-    wparams.n_threads = [threadsField intValue];
-    if (wparams.n_threads < 1) wparams.n_threads = 1;
-    if (wparams.n_threads > 32) wparams.n_threads = 32;
+    wparams.n_threads = currentThreads;
 
     // Read language from ivar (set on main thread, safe for background read)
     NSString *langCode = currentLangCode;
@@ -1282,48 +1239,68 @@ static const unsigned long long modelMinSizes[] = {
     }
 }
 
-- (IBAction)modelChanged:(id)sender
+- (IBAction)modelSelected:(id)sender
 {
-    NSString *name = [[modelPopup selectedItem] representedObject];
-    if (name) {
-        [[NSUserDefaults standardUserDefaults] setObject:name forKey:@"LastModel"];
-        [[NSUserDefaults standardUserDefaults] synchronize];
-        NSLog(@"modelChanged: saved '%@' as last model", name);
+    NSString *name = [sender representedObject];
+    if (!name) return;
+
+    [[NSUserDefaults standardUserDefaults] setObject:name forKey:@"LastModel"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    NSLog(@"modelSelected: saved '%@' as last model", name);
+
+    // Update checkmarks in the Model menu
+    NSMenu *modelMenu = [sender menu];
+    for (NSMenuItem *item in [modelMenu itemArray]) {
+        [item setState:([[item representedObject] isEqualToString:name]
+                        ? NSOnState : NSOffState)];
     }
 
-    // Models ending in .en only support English — lock language to English
+    // Auto-download if not present
+    NSString *modelPath = [self modelPathForName:name];
+    if (![[NSFileManager defaultManager] fileExistsAtPath:modelPath]) {
+        [self downloadModelWithName:name];
+    }
+
+    // Models ending in .en only support English
     BOOL isEN = [name hasSuffix:@".en"];
-    [languagePopup setEnabled:!isEN];
     if (isEN) {
-        // Select English
-        for (NSMenuItem *item in [languagePopup itemArray]) {
-            if ([[item representedObject] isEqualToString:@"en"]) {
-                [languagePopup selectItem:item];
-                break;
-            }
-        }
         [currentLangCode release];
         currentLangCode = [@"en" copy];
+        [[NSUserDefaults standardUserDefaults] setObject:@"en"
+                                                   forKey:@"LastLanguage"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
     }
 }
 
 - (IBAction)languageChanged:(id)sender
 {
-    NSString *code = [[languagePopup selectedItem] representedObject];
-    if (code) {
-        [currentLangCode release];
-        currentLangCode = [code copy];
-        [[NSUserDefaults standardUserDefaults] setObject:code
-                                                  forKey:@"LastLanguage"];
-        [[NSUserDefaults standardUserDefaults] synchronize];
-        NSLog(@"languageChanged: saved '%@'", code);
+    NSString *code = [sender representedObject];
+    if (!code) return;
+    [currentLangCode release];
+    currentLangCode = [code copy];
+    [[NSUserDefaults standardUserDefaults] setObject:code
+                                               forKey:@"LastLanguage"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    NSLog(@"languageChanged: saved '%@'", code);
+    // Update checkmarks
+    NSMenu *parent = [sender menu];
+    for (NSMenuItem *item in [parent itemArray]) {
+        [item setState:([[item representedObject] isEqualToString:code]
+                        ? NSOnState : NSOffState)];
     }
 }
 
-- (IBAction)threadsChanged:(id)sender
+- (IBAction)threadSelected:(id)sender
 {
-    int val = [threadsStepper intValue];
-    [threadsField setIntValue:val];
+    currentThreads = (int)[sender tag];
+    [[NSUserDefaults standardUserDefaults] setInteger:currentThreads
+                                               forKey:@"ThreadCount"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    // Update checkmark in the Threads submenu
+    NSMenu *parent = [sender menu];
+    for (NSMenuItem *item in [parent itemArray]) {
+        [item setState:([item tag] == currentThreads ? NSOnState : NSOffState)];
+    }
 }
 
 - (IBAction)saveAsTxt:(id)sender
@@ -1538,9 +1515,10 @@ static const unsigned long long modelMinSizes[] = {
 {
     NSMenu *mainMenu = [[NSMenu alloc] init];
 
-    NSMenu *appMenu = [[NSMenu alloc] init];
+    // Application menu
+    NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"Whisper"];
     NSMenuItem *appItem = [[NSMenuItem alloc] initWithTitle:@"Whisper"
-                                                     action:nil
+                                                     action:NULL
                                               keyEquivalent:@""];
     [appItem setSubmenu:appMenu];
     [mainMenu addItem:appItem];
@@ -1550,17 +1528,116 @@ static const unsigned long long modelMinSizes[] = {
                                                 keyEquivalent:@""];
     [aboutItem setTarget:NSApp];
     [appMenu addItem:aboutItem];
+
+    [appMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *openItem = [[NSMenuItem alloc] initWithTitle:@"Transcribe file..."
+                                                      action:@selector(openFile:)
+                                               keyEquivalent:@"o"];
+    [appMenu addItem:openItem];
+
+    [appMenu addItem:[NSMenuItem separatorItem]];
+
+    // Model submenu
+    NSMenu *modelMenu = [[NSMenu alloc] initWithTitle:@"Model"];
+    NSMenuItem *modelMenuItem = [[NSMenuItem alloc] initWithTitle:@"Model"
+                                                           action:NULL
+                                                    keyEquivalent:@""];
+    [modelMenuItem setSubmenu:modelMenu];
+    [appMenu addItem:modelMenuItem];
+
+    for (int i = 0; modelNames[i] != NULL; i++) {
+        NSString *label = [NSString stringWithUTF8String:modelSizes[i]];
+        NSString *name = [NSString stringWithUTF8String:modelNames[i]];
+        NSMenuItem *mi = [[NSMenuItem alloc] initWithTitle:label
+                                                    action:@selector(modelSelected:)
+                                             keyEquivalent:@""];
+        [mi setRepresentedObject:name];
+        [mi setTarget:self];
+        [modelMenu addItem:mi];
+        [mi release];
+    }
+
+    // Threads submenu
+    int threadValues[] = {1, 2, 4, 8, 16, 32};
+    NSMenu *threadMenu = [[NSMenu alloc] initWithTitle:@"Threads"];
+    NSMenuItem *threadMenuItem = [[NSMenuItem alloc] initWithTitle:@"Threads"
+                                                            action:NULL
+                                                     keyEquivalent:@""];
+    [threadMenuItem setSubmenu:threadMenu];
+    [appMenu addItem:threadMenuItem];
+    for (int i = 0; i < 6; i++) {
+        int tv = threadValues[i];
+        NSString *title = [NSString stringWithFormat:@"%d", tv];
+        NSMenuItem *ti = [[NSMenuItem alloc] initWithTitle:title
+                                                    action:@selector(threadSelected:)
+                                             keyEquivalent:@""];
+        [ti setTag:tv];
+        [ti setTarget:self];
+        [ti setState:(tv == currentThreads ? NSOnState : NSOffState)];
+        [threadMenu addItem:ti];
+        [ti release];
+    }
+    [threadMenuItem release];
+    [threadMenu release];
+
+    // Language submenu
+    NSMenu *langMenu = [[NSMenu alloc] initWithTitle:@"Language"];
+    NSMenuItem *langMenuItem = [[NSMenuItem alloc] initWithTitle:@"Language"
+                                                          action:NULL
+                                                   keyEquivalent:@""];
+    [langMenuItem setSubmenu:langMenu];
+    [appMenu addItem:langMenuItem];
+    for (int i = 0; langCodes[i] != NULL; i++) {
+        NSString *label = [NSString stringWithUTF8String:langNames[i]];
+        NSString *code = [NSString stringWithUTF8String:langCodes[i]];
+        NSMenuItem *li = [[NSMenuItem alloc] initWithTitle:label
+                                                    action:@selector(languageChanged:)
+                                             keyEquivalent:@""];
+        [li setRepresentedObject:code];
+        [li setTarget:self];
+        [li setState:[code isEqualToString:currentLangCode]
+            ? NSOnState : NSOffState];
+        [langMenu addItem:li];
+        [li release];
+    }
+    [langMenuItem release];
+    [langMenu release];
+
+    [appMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *saveTxtItem = [[NSMenuItem alloc] initWithTitle:@"Save as TXT"
+                                                         action:@selector(saveAsTxt:)
+                                                  keyEquivalent:@"s"];
+    [saveTxtItem setTarget:self];
+    [appMenu addItem:saveTxtItem];
+    [saveTxtItem release];
+
+    NSMenuItem *saveSrtItem = [[NSMenuItem alloc] initWithTitle:@"Save as SRT"
+                                                         action:@selector(saveAsSrt:)
+                                                  keyEquivalent:@""];
+    [saveSrtItem setTarget:self];
+    [appMenu addItem:saveSrtItem];
+    [saveSrtItem release];
+
+    NSMenuItem *saveVttItem = [[NSMenuItem alloc] initWithTitle:@"Save as VTT"
+                                                         action:@selector(saveAsVtt:)
+                                                  keyEquivalent:@""];
+    [saveVttItem setTarget:self];
+    [appMenu addItem:saveVttItem];
+    [saveVttItem release];
+
     [appMenu addItem:[NSMenuItem separatorItem]];
 
     NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit Whisper"
                                                       action:@selector(terminate:)
                                                keyEquivalent:@"q"];
-    [quitItem setTarget:NSApp];
     [appMenu addItem:quitItem];
 
+    // Edit menu
     NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
     NSMenuItem *editItem = [[NSMenuItem alloc] initWithTitle:@"Edit"
-                                                      action:nil
+                                                      action:NULL
                                                keyEquivalent:@""];
     [editItem setSubmenu:editMenu];
     [mainMenu addItem:editItem];
@@ -1570,11 +1647,22 @@ static const unsigned long long modelMinSizes[] = {
     [editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
     [editMenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
 
+    // Cmd+, also copies all text without timestamps (when no selection)
+    NSMenuItem *copyAllItem = [[NSMenuItem alloc] initWithTitle:@"Copy All Text"
+                                                         action:@selector(copyText:)
+                                                  keyEquivalent:@","];
+    [copyAllItem setTarget:self];
+    [editMenu addItem:copyAllItem];
+    [copyAllItem release];
+
     [NSApp setMainMenu:mainMenu];
 
     [editItem release];
     [editMenu release];
     [quitItem release];
+    [modelMenuItem release];
+    [modelMenu release];
+    [openItem release];
     [aboutItem release];
     [appMenu release];
     [appItem release];
@@ -1629,46 +1717,6 @@ static const unsigned long long modelMinSizes[] = {
     [recordSpinner setDisplayedWhenStopped:NO];
     [contentView addSubview:recordSpinner];
 
-    openButton = [[NSButton alloc] initWithFrame:NSZeroRect];
-    [openButton setTitle:@"Open File..."];
-    [openButton setTarget:self];
-    [openButton setAction:@selector(openFile:)];
-    [openButton setBezelStyle:NSRoundedBezelStyle];
-    [openButton sizeToFit];
-    [contentView addSubview:openButton];
-
-    // Model row
-    modelLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
-    [modelLabel setEditable:NO];
-    [modelLabel setBordered:NO];
-    [modelLabel setDrawsBackground:NO];
-    [modelLabel setBezeled:NO];
-    [modelLabel setFont:METRICS_FONT_SYSTEM_REGULAR_13];
-    [modelLabel setStringValue:@"Model:"];
-    [modelLabel sizeToFit];
-    [contentView addSubview:modelLabel];
-    [modelLabel release];
-
-    modelPopup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect];
-    [modelPopup removeAllItems];
-    for (int i = 0; modelNames[i] != NULL; i++) {
-        NSString *label = [NSString stringWithUTF8String:modelSizes[i]];
-        NSString *name = [NSString stringWithUTF8String:modelNames[i]];
-        [modelPopup addItemWithTitle:label];
-        [[modelPopup lastItem] setRepresentedObject:name];
-    }
-    [modelPopup setTarget:self];
-    [modelPopup setAction:@selector(modelChanged:)];
-    [contentView addSubview:modelPopup];
-
-    downloadButton = [[NSButton alloc] initWithFrame:NSZeroRect];
-    [downloadButton setTitle:@"Download"];
-    [downloadButton setTarget:self];
-    [downloadButton setAction:@selector(downloadModel:)];
-    [downloadButton setBezelStyle:NSRoundedBezelStyle];
-    [downloadButton sizeToFit];
-    [contentView addSubview:downloadButton];
-
     downloadProgress = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
     [downloadProgress setStyle:NSProgressIndicatorBarStyle];
     [downloadProgress setIndeterminate:NO];
@@ -1679,30 +1727,6 @@ static const unsigned long long modelMinSizes[] = {
     [downloadProgress setDisplayedWhenStopped:NO];
     [contentView addSubview:downloadProgress];
 
-    // Settings row
-    langLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
-    [langLabel setEditable:NO];
-    [langLabel setBordered:NO];
-    [langLabel setDrawsBackground:NO];
-    [langLabel setBezeled:NO];
-    [langLabel setFont:METRICS_FONT_SYSTEM_REGULAR_13];
-    [langLabel setStringValue:@"Language:"];
-    [langLabel sizeToFit];
-    [contentView addSubview:langLabel];
-    [langLabel release];
-
-    languagePopup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect];
-    [languagePopup removeAllItems];
-    for (int i = 0; langCodes[i] != NULL; i++) {
-        NSString *label = [NSString stringWithUTF8String:langNames[i]];
-        NSString *code = [NSString stringWithUTF8String:langCodes[i]];
-        [languagePopup addItemWithTitle:label];
-        [[languagePopup lastItem] setRepresentedObject:code];
-    }
-    [languagePopup setTarget:self];
-    [languagePopup setAction:@selector(languageChanged:)];
-    [contentView addSubview:languagePopup];
-
     /*
     translateCheckbox = [[NSButton alloc] initWithFrame:NSZeroRect];
     [translateCheckbox setButtonType:NSSwitchButton];
@@ -1711,39 +1735,6 @@ static const unsigned long long modelMinSizes[] = {
     [translateCheckbox sizeToFit];
     [contentView addSubview:translateCheckbox];
     */
-
-    threadsLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
-    [threadsLabel setEditable:NO];
-    [threadsLabel setBordered:NO];
-    [threadsLabel setDrawsBackground:NO];
-    [threadsLabel setBezeled:NO];
-    [threadsLabel setFont:METRICS_FONT_SYSTEM_REGULAR_13];
-    [threadsLabel setStringValue:@"Threads:"];
-    [threadsLabel sizeToFit];
-    [contentView addSubview:threadsLabel];
-    [threadsLabel release];
-
-    int defaultThreads = (int)[[NSProcessInfo processInfo] processorCount];
-    if (defaultThreads < 1) defaultThreads = 4;
-
-    threadsField = [[NSTextField alloc] initWithFrame:NSZeroRect];
-    [threadsField setIntValue:defaultThreads];
-    [threadsField setFont:METRICS_FONT_SYSTEM_REGULAR_13];
-    [threadsField setAlignment:NSRightTextAlignment];
-    [threadsField setBezeled:YES];
-    [threadsField setEditable:YES];
-    [threadsField setTarget:self];
-    [threadsField setAction:@selector(threadsChanged:)];
-    [contentView addSubview:threadsField];
-
-    threadsStepper = [[NSStepper alloc] initWithFrame:NSZeroRect];
-    [threadsStepper setMinValue:1];
-    [threadsStepper setMaxValue:32];
-    [threadsStepper setIntValue:defaultThreads];
-    [threadsStepper setTarget:self];
-    [threadsStepper setAction:@selector(threadsChanged:)];
-    [threadsStepper sizeToFit];
-    [contentView addSubview:threadsStepper];
 
     // Progress bar
     progressBar = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
@@ -1766,8 +1757,7 @@ static const unsigned long long modelMinSizes[] = {
 
     // Results text view
     resultScrollView = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-    [resultScrollView setHasVerticalScroller:YES];
-    [resultScrollView setAutohidesScrollers:YES];
+    [resultScrollView setHasVerticalScroller:NO];
     [resultScrollView setBorderType:NSBezelBorder];
     [resultScrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [contentView addSubview:resultScrollView];
@@ -1782,34 +1772,6 @@ static const unsigned long long modelMinSizes[] = {
     // scroll view now owns resultTextView; we keep a zero-ing ivar so it
     // must NOT be released here (non-ARC: the scroll view retains it).
     // (We deliberately do NOT send extra release to keep the ivar valid.)
-
-    // Export buttons
-    saveTxtButton = [[NSButton alloc] initWithFrame:NSZeroRect];
-    [saveTxtButton setTitle:@"Save as TXT"];
-    [saveTxtButton setTarget:self];
-    [saveTxtButton setAction:@selector(saveAsTxt:)];
-    [saveTxtButton setBezelStyle:NSRoundedBezelStyle];
-    [saveTxtButton sizeToFit];
-    [saveTxtButton setEnabled:NO];
-    [contentView addSubview:saveTxtButton];
-
-    saveSrtButton = [[NSButton alloc] initWithFrame:NSZeroRect];
-    [saveSrtButton setTitle:@"Save as SRT"];
-    [saveSrtButton setTarget:self];
-    [saveSrtButton setAction:@selector(saveAsSrt:)];
-    [saveSrtButton setBezelStyle:NSRoundedBezelStyle];
-    [saveSrtButton sizeToFit];
-    [saveSrtButton setEnabled:NO];
-    [contentView addSubview:saveSrtButton];
-
-    saveVttButton = [[NSButton alloc] initWithFrame:NSZeroRect];
-    [saveVttButton setTitle:@"Save as VTT"];
-    [saveVttButton setTarget:self];
-    [saveVttButton setAction:@selector(saveAsVtt:)];
-    [saveVttButton setBezelStyle:NSRoundedBezelStyle];
-    [saveVttButton sizeToFit];
-    [saveVttButton setEnabled:NO];
-    [contentView addSubview:saveVttButton];
 
     copyTextButton = [[NSButton alloc] initWithFrame:NSZeroRect];
     [copyTextButton setTitle:@"Copy to Clipboard"];
@@ -1853,88 +1815,41 @@ static const unsigned long long modelMinSizes[] = {
     // ---- Row 1: Recording + file open ----
     NSSize recSize  = [recordButton frame].size;
     NSSize stopSize = [stopButton frame].size;
-    NSSize openSize = [openButton frame].size;
 
     [recordButton setFrame:NSMakeRect(mx, y - bh, recSize.width, bh)];
     [stopButton setFrame:NSMakeRect(mx + recSize.width + s8, y - bh,
                                     stopSize.width, bh)];
 
+    [statusLabel setAlignment:NSRightTextAlignment];
+
     CGFloat spinnerW = [recordSpinner frame].size.width;
-    CGFloat statusX  = mx + recSize.width + s8 + stopSize.width + s8;
-    [recordSpinner setFrame:NSMakeRect(statusX, y - bh + (bh - spinnerW) / 2,
+    CGFloat afterStop = mx + recSize.width + s8 + stopSize.width + s8;
+    [recordSpinner setFrame:NSMakeRect(afterStop, y - bh + (bh - spinnerW) / 2,
                                         spinnerW, spinnerW)];
-    CGFloat statusW  = w - (recSize.width + s8 + stopSize.width + s8 +
-                            spinnerW + s8 + openSize.width + s8);
-    if (statusW < 20) statusW = 20;
-    [openButton setFrame:NSMakeRect(statusX + statusW + s8, y - bh,
-                                    openSize.width, bh)];
+    CGFloat statusX2 = afterStop + spinnerW + s8;
+    CGFloat statusW2 = w - (statusX2 - mx);
+    if (statusW2 < 60) statusW2 = 60;
+    [statusLabel setFrame:NSMakeRect(statusX2, y - bh, statusW2, bh)];
     y -= bh + s16;
 
-    // ---- Row 3: Model ----
-    CGFloat mLW = [modelLabel frame].size.width + 4;
-    NSSize dlSz = [downloadButton frame].size;
-    CGFloat prW = 80;
-    CGFloat popW = w - mLW - s8 - dlSz.width - s8 - prW;
-    if (popW < 120) popW = 120;
-
-    [modelLabel setFrame:NSMakeRect(mx, y - bh, mLW, bh)];
-    [modelPopup setFrame:NSMakeRect(mx + mLW, y - 2, popW, bh + 4)];
-    [downloadButton setFrame:NSMakeRect(mx + mLW + popW + s8, y - 2,
-                                        dlSz.width, bh + 4)];
-    [downloadProgress setFrame:NSMakeRect(
-        mx + mLW + popW + s8 + dlSz.width + s8,
-        y, w - (mLW + popW + s8 + dlSz.width + s8), bh)];
-    y -= bh + s16 + 4;
-
     // ---- Row 4: Settings ----
-    CGFloat lLW = [langLabel frame].size.width + 4;
-    CGFloat lPW = 130;
-
-    // Threads section: right-aligned
-    CGFloat tLW = [threadsLabel frame].size.width + 4;
-    CGFloat tFW = 40;
-    CGFloat tSW = [threadsStepper frame].size.width;
-    CGFloat threadsWidth = tLW + s8 + tFW + s8 + tSW;
-    CGFloat threadsX  = mx + w - threadsWidth;
-
-    [langLabel setFrame:NSMakeRect(mx, y - bh + 24, lLW, bh)];
-    [languagePopup setFrame:NSMakeRect(mx + lLW, y + 22, lPW, bh + 4)];
-    [threadsLabel setFrame:NSMakeRect(threadsX, y - bh + 24, tLW, bh)];
-    [threadsField setFrame:NSMakeRect(threadsX + tLW + s8, y + 23,
-                                      tFW, METRICS_TEXT_INPUT_FIELD_HEIGHT)];
-    [threadsStepper setFrame:NSMakeRect(threadsX + tLW + s8 + tFW + s8, y + 23,
-                                        tSW, METRICS_TEXT_INPUT_FIELD_HEIGHT)];
     y -= bh + s16;
 
     // ---- Row 5: Progress bar ----
     [progressBar setFrame:NSMakeRect(mx, y, w, bh)];
     y -= bh + s8;
 
-    // ---- Status label ----
-    [statusLabel setFrame:NSMakeRect(mx, y - bh, w, bh)];
-    y -= s8;
-
-    // ---- Copy button (right-aligned below results) ----
-    NSSize copySz = [copyTextButton frame].size;
-    // Reserve space for bottom row (checkbox + copy) above export row
-    CGFloat bottomRowH = bh + s8;
-    CGFloat exportH   = bottomRowH + bh + METRICS_SPACE_12;
-    CGFloat textY     = mb + exportH + s8;
-    CGFloat bottomRowY = mb + bh + s8;
-    [resultScrollView setFrame:NSMakeRect(mx, textY, w, y - textY)];
-
     // ---- Bottom row: show timestamps checkbox (left) + copy button (right) ----
+    NSSize copySz = [copyTextButton frame].size;
     NSSize tsSz = [showTimestampsCheckbox frame].size;
+    CGFloat bottomRowY = mb + s8;
+    CGFloat textY      = bottomRowY + bh + s8;
+    [resultScrollView setFrame:NSMakeRect(mx, textY, w, y - textY)];
     [showTimestampsCheckbox setFrame:NSMakeRect(mx, bottomRowY, tsSz.width, bh)];
     [copyTextButton setFrame:NSMakeRect(mx + w - copySz.width, bottomRowY,
                                         copySz.width, bh)];
 
-    // ---- Export buttons ----
-    CGFloat btnW = 100;
-    CGFloat btnGap = 8;
-    [saveTxtButton  setFrame:NSMakeRect(mx, mb, btnW, bh)];
-    [saveSrtButton  setFrame:NSMakeRect(mx + (btnW + btnGap), mb, btnW, bh)];
-    [saveVttButton  setFrame:NSMakeRect(mx + (btnW + btnGap) * 2, mb, btnW, bh)];
+    // Export buttons removed — now in Whisper menu
 }
 
 - (void)windowDidResize:(NSNotification *)notification

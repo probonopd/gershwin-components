@@ -24,7 +24,6 @@ typedef NS_ENUM(NSInteger, WhisperState) {
     NSWindow *mainWindow;
 
     // File selection
-    NSButton *openButton;
     NSString *currentFilePath;
 
     // Recording
@@ -32,23 +31,14 @@ typedef NS_ENUM(NSInteger, WhisperState) {
     NSButton *stopButton;
     NSProgressIndicator *recordSpinner;
 
-    // Labels (needed for layout)
-    NSTextField *modelLabel;
-    NSTextField *langLabel;
-    NSTextField *threadsLabel;
-
     // Model management
-    NSPopUpButton *modelPopup;
-    NSButton *downloadButton;
-    NSProgressIndicator *downloadProgress;
     NSString *modelDir;
+    NSProgressIndicator *downloadProgress;
     NSArray *availableModels;
 
     // Settings
-    NSPopUpButton *languagePopup;
     // NSButton *translateCheckbox;
-    NSTextField *threadsField;
-    NSStepper *threadsStepper;
+    int currentThreads;
 
     // Action
     NSProgressIndicator *progressBar;
@@ -59,9 +49,6 @@ typedef NS_ENUM(NSInteger, WhisperState) {
     NSScrollView *resultScrollView;
 
     // Export
-    NSButton *saveTxtButton;
-    NSButton *saveSrtButton;
-    NSButton *saveVttButton;
     NSButton *copyTextButton;
     NSButton *showTimestampsCheckbox;
     BOOL showTimestamps;
@@ -115,10 +102,9 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 - (IBAction)recordAudio:(id)sender;
 - (IBAction)stopRecording:(id)sender;
 - (IBAction)openFile:(id)sender;
-- (IBAction)downloadModel:(id)sender;
-- (IBAction)modelChanged:(id)sender;
+- (IBAction)modelSelected:(id)sender;
 - (IBAction)languageChanged:(id)sender;
-- (IBAction)threadsChanged:(id)sender;
+- (IBAction)threadSelected:(id)sender;
 - (IBAction)saveAsTxt:(id)sender;
 - (IBAction)saveAsSrt:(id)sender;
 - (IBAction)saveAsVtt:(id)sender;
