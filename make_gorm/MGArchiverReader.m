@@ -374,14 +374,19 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
     if (!cn) cn = @"(null)";
     p = ce;
     /* Data from here to EOF (flat parse stores raw for round-trip) */
-    /* Find data boundary: next _GSC_ID. Include its tag+crossref
-     * in data (it's a reference to a sub-object). Stop before class hier. */
+    /* Find data boundary: next _GSC_ID followed by _GSC_CLASS (real object def).
+     * Include its tag+crossref in data. */
     unsigned ds = p, de = len, scan = p;
     while (scan < len) {
       uint8_t ct = b[scan];
       if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) {
-        unsigned xl = ((ct & 0x60) == 0x20) ? 1 : ((ct & 0x60) == 0x40) ? 2 : ((ct & 0x60) == 0x60) ? 4 : 1;
-        de = scan + 1 + xl; break;
+        unsigned xl = (ct & 0x60) == 0x20 ? 1 : (ct & 0x60) == 0x40 ? 2 : (ct & 0x60) == 0x60 ? 4 : 0;
+        /* Validate: next byte after crossref should be CLASS tag (real object) */
+        unsigned next = scan + 1 + xl;
+        if (next < len && (b[next] & 0x1f) == 0x11) {
+          de = scan + 1 + xl; break;
+        }
+        scan = next; continue;
       }
       unsigned old = scan;
       scan = cSkipOne(b, len, scan);
