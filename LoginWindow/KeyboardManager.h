@@ -32,6 +32,7 @@
 - (BOOL)applyLanguage;
 - (BOOL)applyToXServer;
 - (BOOL)applyLayout:(NSString *)layout variant:(NSString *)variant;
+- (BOOL)applyUserLanguage:(NSString *)localeString;
 - (BOOL)setupWithPasswd:(const struct passwd *)pwd;
 @end
 #endif

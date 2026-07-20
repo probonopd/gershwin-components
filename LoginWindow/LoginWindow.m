@@ -2606,15 +2606,10 @@ static bool isDetachedDaemon(const char *comm)
         @[selected, @"English"] forKey:@"Languages"];
     [[NSUserDefaults standardUserDefaults] synchronize];
 
-    // Update environment for child processes
+    // Persist language and update environment for the upcoming session.
+    // The dropdown always has the last word.
     if (localeStr) {
-        setenv("LANG", [localeStr UTF8String], 1);
-        NSString *langNo = [[localeStr componentsSeparatedByString:@"."]
-            firstObject];
-        if (langNo) {
-            setenv("LANGUAGE", [langNo UTF8String], 1);
-            setenv("LC_ALL", [localeStr UTF8String], 1);
-        }
+        [_keyboardManager applyUserLanguage:localeStr];
     }
 
     // Refresh all UI strings

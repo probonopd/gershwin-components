@@ -1202,6 +1202,17 @@ static void writeLocaleConfigFile(const char *lang)
                                   [_variant UTF8String],
                                   [_options UTF8String]);
 }
+- (BOOL)applyUserLanguage:(NSString *)localeString
+{
+    if (!localeString || [localeString length] == 0) {
+        return NO;
+    }
+    [_language release];
+    _language = [localeString copy];
+
+    [self applyLanguage];
+    return YES;
+}
 - (BOOL)applyLayout:(NSString *)layout variant:(NSString *)variant
 {
     if (!layout || [layout length] == 0) {
@@ -1214,8 +1225,9 @@ static void writeLocaleConfigFile(const char *lang)
 - (BOOL)setupWithPasswd:(const struct passwd *)pwd
 {
     if (![self detectKeyboardWithPasswd:pwd]) return NO;
-    [self persistConfiguration];
-    [self persistLanguage];
+    // Only apply env vars and X11 layout — do NOT persist config files.
+    // Persisting would override the user's dropdown choice when the
+    // session starts. The dropdown always has the last word.
     [self applyLanguage];
     [self applyToXServer];
     return YES;
