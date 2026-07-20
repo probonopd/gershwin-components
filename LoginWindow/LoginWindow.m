@@ -275,6 +275,11 @@ void signalHandler(int sig) {
     [self createLogWindow];
     [self createLoginWindow];
 
+    // Apply localized strings to the already-created UI elements.
+    // This ensures the correct language is displayed even if the
+    // bundle cached a different language before detection ran.
+    [self updateLocalizedStrings];
+
     // Validate LoginWindow.plist security BEFORE anything accesses it
     if (![self validateLoginWindowPreferencesFile]) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] LoginWindow.plist validation failed, skipping auto-login");
@@ -386,6 +391,39 @@ void signalHandler(int sig) {
 
     NSLog(@"[LoginWindow] Language: set UI language to \"%@\" (from locale %@)",
           gsLanguage, localeStr);
+}
+
+- (void)updateLocalizedStrings
+{
+    // Update all UI element strings to the currently selected language
+    // (as determined by NSUserDefaults/LANG).  This is called after
+    // applyDetectedLanguage so that the window reflects the correct
+    // language even if the bundle was initialised before the language
+    // was detected.
+    if (usernameLabel) {
+        [usernameLabel setStringValue:
+            NSLocalizedString(@"Username:", @"Label for username field")];
+    }
+    if (passwordLabel) {
+        [passwordLabel setStringValue:
+            NSLocalizedString(@"Password:", @"Label for password field")];
+    }
+    if (shutdownButton) {
+        [shutdownButton setTitle:
+            NSLocalizedString(@"Shut Down", @"Shutdown button")];
+    }
+    if (restartButton) {
+        [restartButton setTitle:
+            NSLocalizedString(@"Restart", @"Restart button")];
+    }
+    if (loginButton) {
+        [loginButton setTitle:
+            NSLocalizedString(@"Log In", @"Login button")];
+    }
+    if (_logWindow) {
+        [_logWindow setTitle:
+            NSLocalizedString(@"Keyboard Layout Log", @"Log window title")];
+    }
 }
 
 - (void)loadDesktopBackground
@@ -818,7 +856,7 @@ void signalHandler(int sig) {
     [contentView addSubview:titleLabel];
 
     // Username field
-    NSTextField *usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 180+12, 100, 20)];
+    usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 180+12, 100, 20)];
     [usernameLabel setStringValue:NSLocalizedString(@"Username:", @"Label for username field")];
     [usernameLabel setBezeled:NO];
     [usernameLabel setDrawsBackground:NO];

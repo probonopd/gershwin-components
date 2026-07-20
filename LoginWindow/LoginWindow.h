@@ -33,6 +33,7 @@
     NSWindow *loginWindow;
     NSTextField *usernameField;
     NSSecureTextField *passwordField;
+    NSTextField *usernameLabel;
     NSTextField *passwordLabel;
     NSButton *loginButton;
     NSButton *shutdownButton;
@@ -85,5 +86,6 @@
 - (void)clearFieldsAndShake;
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector;
 - (void)showKeyboardLayoutLog:(id)sender;
+- (void)updateLocalizedStrings;
 
 @end
