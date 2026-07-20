@@ -439,37 +439,184 @@ void signalHandler(int sig) {
     return nil;
 }
 
+// Parse a GNUstep .strings file and return a dictionary of key→value pairs.
+// Handles the format:  "key" = "value";  with /* comments */.
+static NSDictionary *parseStringsFile(NSString *path)
+{
+    if (!path) return nil;
+    NSString *content = [NSString stringWithContentsOfFile:path
+                                                  encoding:NSUTF8StringEncoding
+                                                     error:NULL];
+    if (!content) return nil;
+
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    NSUInteger len = [content length];
+    NSCharacterSet *ws = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+
+    NSUInteger i = 0;
+    while (i < len) {
+        unichar c = [content characterAtIndex:i];
+
+        // Skip whitespace
+        if ([ws characterIsMember:c]) { i++; continue; }
+
+        // Skip /* ... */ comments
+        if (c == '/' && i + 1 < len && [content characterAtIndex:i+1] == '*') {
+            i += 2;
+            while (i < len) {
+                if ([content characterAtIndex:i] == '*'
+                    && i + 1 < len
+                    && [content characterAtIndex:i+1] == '/') {
+                    i += 2;
+                    break;
+                }
+                i++;
+            }
+            continue;
+        }
+
+        // Expect opening quote of key
+        if (c != '"') { i++; continue; }
+        i++; // skip opening quote
+
+        // Read key string
+        NSMutableString *key = [NSMutableString string];
+        while (i < len) {
+            c = [content characterAtIndex:i];
+            if (c == '"') { i++; break; }  // end of key
+            if (c == '\\' && i + 1 < len) {
+                i++;
+                unichar esc = [content characterAtIndex:i];
+                switch (esc) {
+                    case 'n': [key appendString:@"\n"]; break;
+                    case 't': [key appendString:@"\t"]; break;
+                    case 'r': [key appendString:@"\r"]; break;
+                    case '"': [key appendString:@"\""]; break;
+                    case '\\':[key appendString:@"\\"]; break;
+                    case 'u': {
+                        // \uXXXX — read 4 hex digits
+                        if (i + 4 < len) {
+                            NSString *hex = [content substringWithRange:
+                                NSMakeRange(i+1, 4)];
+                            unsigned int code;
+                            [[NSScanner scannerWithString:hex] scanHexInt:&code];
+                            [key appendFormat:@"%C", (unichar)code];
+                            i += 4;
+                        }
+                        break;
+                    }
+                    default:
+                        [key appendFormat:@"%C", esc];
+                        break;
+                }
+                i++;
+            } else {
+                [key appendFormat:@"%C", c];
+                i++;
+            }
+        }
+
+        // Skip whitespace and =
+        while (i < len && [ws characterIsMember:[content characterAtIndex:i]]) i++;
+        if (i < len && [content characterAtIndex:i] == '=') {
+            i++;
+            while (i < len && [ws characterIsMember:[content characterAtIndex:i]]) i++;
+        }
+
+        // Expect opening quote of value
+        if (i >= len || [content characterAtIndex:i] != '"') continue;
+        i++; // skip opening quote
+
+        // Read value string (same escape handling)
+        NSMutableString *value = [NSMutableString string];
+        while (i < len) {
+            c = [content characterAtIndex:i];
+            if (c == '"') { i++; break; }
+            if (c == '\\' && i + 1 < len) {
+                i++;
+                unichar esc = [content characterAtIndex:i];
+                switch (esc) {
+                    case 'n': [value appendString:@"\n"]; break;
+                    case 't': [value appendString:@"\t"]; break;
+                    case 'r': [value appendString:@"\r"]; break;
+                    case '"': [value appendString:@"\""]; break;
+                    case '\\':[value appendString:@"\\"]; break;
+                    case 'u': {
+                        if (i + 4 < len) {
+                            NSString *hex = [content substringWithRange:
+                                NSMakeRange(i+1, 4)];
+                            unsigned int code;
+                            [[NSScanner scannerWithString:hex] scanHexInt:&code];
+                            [value appendFormat:@"%C", (unichar)code];
+                            i += 4;
+                        }
+                        break;
+                    }
+                    default:
+                        [value appendFormat:@"%C", esc];
+                        break;
+                }
+                i++;
+            } else {
+                [value appendFormat:@"%C", c];
+                i++;
+            }
+        }
+
+        // Skip whitespace and ;
+        while (i < len && [ws characterIsMember:[content characterAtIndex:i]]) i++;
+        if (i < len && [content characterAtIndex:i] == ';') i++;
+
+        if ([key length] > 0) {
+            [result setObject:value forKey:key];
+        }
+    }
+
+    return result;
+}
+
 - (void)updateLocalizedStrings
 {
-    // Update all UI element strings to the currently selected language
-    // (as determined by NSUserDefaults/LANG).  This is called after
-    // applyDetectedLanguage so that the window reflects the correct
-    // language even if the bundle was initialised before the language
-    // was detected.
-    if (usernameLabel) {
-        [usernameLabel setStringValue:
-            NSLocalizedString(@"Username:", @"Label for username field")];
+    // Determine the currently selected language from NSUserDefaults.
+    NSArray *langs = [[NSUserDefaults standardUserDefaults]
+        arrayForKey:@"Languages"];
+    NSString *langName = ([langs count] > 0) ? [langs objectAtIndex:0] : @"English";
+
+    // Read the .strings file for the selected language.
+    NSString *path = [[NSBundle mainBundle] pathForResource:@"Localizable"
+                                                     ofType:@"strings"
+                                                inDirectory:
+        [NSString stringWithFormat:@"%@.lproj", langName]];
+    NSDictionary *strings = parseStringsFile(path);
+    if (!strings) {
+        // Fallback to English
+        path = [[NSBundle mainBundle] pathForResource:@"Localizable"
+                                               ofType:@"strings"
+                                          inDirectory:@"English.lproj"];
+        strings = parseStringsFile(path);
     }
-    if (passwordLabel) {
-        [passwordLabel setStringValue:
-            NSLocalizedString(@"Password:", @"Label for password field")];
-    }
-    if (shutdownButton) {
-        [shutdownButton setTitle:
-            NSLocalizedString(@"Shut Down", @"Shutdown button")];
-    }
-    if (restartButton) {
-        [restartButton setTitle:
-            NSLocalizedString(@"Restart", @"Restart button")];
-    }
-    if (loginButton) {
-        [loginButton setTitle:
-            NSLocalizedString(@"Log In", @"Login button")];
-    }
-    if (_logWindow) {
-        [_logWindow setTitle:
-            NSLocalizedString(@"Keyboard Layout Log", @"Log window title")];
-    }
+    if (!strings) return;
+
+    // Apply all known keys to UI elements.
+    NSString *val;
+
+    val = [strings objectForKey:@"Username:"];
+    if (val && usernameLabel) [usernameLabel setStringValue:val];
+
+    val = [strings objectForKey:@"Password:"];
+    if (val && passwordLabel) [passwordLabel setStringValue:val];
+
+    val = [strings objectForKey:@"Shut Down"];
+    if (val && shutdownButton) [shutdownButton setTitle:val];
+
+    val = [strings objectForKey:@"Restart"];
+    if (val && restartButton) [restartButton setTitle:val];
+
+    val = [strings objectForKey:@"Log In"];
+    if (val && loginButton) [loginButton setTitle:val];
+
+    val = [strings objectForKey:@"Keyboard Layout Log"];
+    if (val && _logWindow) [_logWindow setTitle:val];
 }
 
 - (void)loadDesktopBackground
