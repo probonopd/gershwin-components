@@ -181,6 +181,7 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         recordTimer = nil;
         streamTimer = nil;
         showTimestamps = NO;
+        copyDefaultConsumed = NO;
 
         [self populateModelList];
     }
@@ -276,8 +277,8 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
 - (BOOL)application:(NSApplication *)application openFile:(NSString *)filename
 {
     [self setCurrentFilePath:filename];
-    if (filePathLabel) {
-        [filePathLabel setStringValue:filename];
+    if (statusLabel) {
+        [statusLabel setStringValue:filename];
     }
     return YES;
 }
@@ -812,11 +813,14 @@ static const unsigned long long modelMinSizes[] = {
         }
     }
 
-    // wparams.translate = [translateCheckbox state] == NSOnState ? true : false;
     wparams.no_timestamps = false;
     wparams.print_progress = false;
     wparams.print_realtime = false;
     wparams.print_special = false;
+
+    // Stream segments live as whisper decodes them
+    wparams.new_segment_callback = whisper_new_segment_cb;
+    wparams.new_segment_callback_user_data = self;
 
     wparams.progress_callback = whisper_progress_cb;
     wparams.progress_callback_user_data = self;
@@ -833,32 +837,10 @@ static const unsigned long long modelMinSizes[] = {
         return;
     }
 
-    int n_segments = whisper_full_n_segments(whisperCtx);
-    NSMutableString *result = [NSMutableString string];
-
-    for (int i = 0; i < n_segments; i++) {
-        const char *text = whisper_full_get_segment_text(whisperCtx, i);
-        int64_t t0 = whisper_full_get_segment_t0(whisperCtx, i);
-        int64_t t1 = whisper_full_get_segment_t1(whisperCtx, i);
-
-        NSString *segmentText = [NSString stringWithUTF8String:text];
-        if (!segmentText) continue;
-
-        NSDictionary *seg = [NSDictionary dictionaryWithObjectsAndKeys:
-            segmentText, @"text",
-            [NSNumber numberWithLongLong:t0], @"t0",
-            [NSNumber numberWithLongLong:t1], @"t1",
-            nil];
-        [segments addObject:seg];
-
-        [result appendFormat:@"[%@ --> %@] %@\n",
-            [self formatTimestamp:t0],
-            [self formatTimestamp:t1],
-            segmentText];
-    }
+    // Segments were added incrementally by whisper_new_segment_cb → appendStreamingResult:
 
     [self performSelectorOnMainThread:@selector(transcriptionFinished:)
-                           withObject:result
+                           withObject:nil
                         waitUntilDone:NO];
     [pool release];
 }
@@ -914,7 +896,6 @@ static const unsigned long long modelMinSizes[] = {
         [recordSpinner startAnimation:nil];
         [progressBar setIndeterminate:YES];
         [progressBar startAnimation:nil];
-        [stopButton setKeyEquivalent:@"\r"];
     } else {
         [recordSpinner stopAnimation:nil];
         [progressBar stopAnimation:nil];
@@ -922,12 +903,13 @@ static const unsigned long long modelMinSizes[] = {
         if (!isWorking) {
             [progressBar setDoubleValue:0.0];
         }
-        [stopButton setKeyEquivalent:@""];
     }
 
     [openButton setEnabled:(!isWorking && !isRecording)];
     [modelPopup setEnabled:(!isWorking && !isRecording)];
-    [languagePopup setEnabled:(!isWorking && !isRecording)];
+    NSString *curModel = [[modelPopup selectedItem] representedObject];
+    BOOL enModel = [curModel hasSuffix:@".en"];
+    [languagePopup setEnabled:(!isWorking && !isRecording && !enModel)];
     // [translateCheckbox setEnabled:(!isWorking && !isRecording)];
     [threadsField setEnabled:(!isWorking && !isRecording)];
     [threadsStepper setEnabled:(!isWorking && !isRecording)];
@@ -939,6 +921,22 @@ static const unsigned long long modelMinSizes[] = {
     [saveSrtButton setEnabled:hasResults];
     [saveVttButton setEnabled:hasResults];
     [copyTextButton setEnabled:hasResults];
+
+    // Allow editing the result text when idle
+    [resultTextView setEditable:(!isWorking && !isRecording)];
+
+    // Default button: exactly one responds to Enter — never more
+    [recordButton setKeyEquivalent:@""];
+    [stopButton setKeyEquivalent:@""];
+    [copyTextButton setKeyEquivalent:@""];
+    [mainWindow setDefaultButtonCell:nil];
+    if (isRecording) {
+        [stopButton setKeyEquivalent:@"\r"];
+    } else if (hasResults && !isWorking && !copyDefaultConsumed) {
+        [copyTextButton setKeyEquivalent:@"\r"];
+    } else {
+        [recordButton setKeyEquivalent:@"\r"];
+    }
 
 }
 
@@ -1018,10 +1016,11 @@ static const unsigned long long modelMinSizes[] = {
     }
 
     NSLog(@"recordAudio: capture started, handle=%p", captureHandle);
+    copyDefaultConsumed = NO;
     [self setState:WhisperStateRecording];
     recordStartTime = [NSDate timeIntervalSinceReferenceDate];
     lastSegmentCount = 0;
-    [recordStatusLabel setStringValue:@"Recording 00:00"];
+    [statusLabel setStringValue:@"Recording 00:00"];
 
     // Clear previous results
     [[self segments] removeAllObjects];
@@ -1079,13 +1078,13 @@ static const unsigned long long modelMinSizes[] = {
           capData->n_samples, capData->sample_rate);
 
     [self setState:WhisperStateIdle];
-    [recordStatusLabel setStringValue:@"Recording stopped"];
+    [statusLabel setStringValue:@"Recording stopped"];
 
     // Save as current file path for later reuse
     NSString *tmpDir = NSTemporaryDirectory();
     NSString *tmpPath = [tmpDir stringByAppendingPathComponent:@"whisper_recording.wav"];
     [self setCurrentFilePath:tmpPath];
-    [filePathLabel setStringValue:@"[Microphone]"];
+    [statusLabel setStringValue:@"[Microphone]"];
 
     // Do a final flush transcription
     if (whisperCtx && capData->n_samples > 0) {
@@ -1111,7 +1110,7 @@ static const unsigned long long modelMinSizes[] = {
     int sec = (int)elapsed;
     int min = sec / 60;
     sec %= 60;
-    [recordStatusLabel setStringValue:[NSString stringWithFormat:
+    [statusLabel setStringValue:[NSString stringWithFormat:
         @"Recording %02d:%02d", min, sec]];
 }
 
@@ -1257,6 +1256,7 @@ static const unsigned long long modelMinSizes[] = {
     [self rebuildTextView];
     NSLog(@"appendStreamingResult: rebuilt text view (%lu segments)",
           (unsigned long)[segments count]);
+    [self updateUIForState];
 }
 
 // Transcribe raw PCM data and append only new segments to the UI.
@@ -1276,7 +1276,7 @@ static const unsigned long long modelMinSizes[] = {
     if ([panel runModal] == NSOKButton) {
         NSString *path = [[panel URL] path];
         [self setCurrentFilePath:path];
-        [filePathLabel setStringValue:path];
+        [statusLabel setStringValue:path];
         [self setState:WhisperStateIdle];
         [self transcribe:nil];
     }
@@ -1329,16 +1329,22 @@ static const unsigned long long modelMinSizes[] = {
 - (IBAction)saveAsTxt:(id)sender
 {
     [self saveTranscriptionWithFormat:@"txt"];
+    copyDefaultConsumed = YES;
+    [self updateUIForState];
 }
 
 - (IBAction)saveAsSrt:(id)sender
 {
     [self saveTranscriptionWithFormat:@"srt"];
+    copyDefaultConsumed = YES;
+    [self updateUIForState];
 }
 
 - (IBAction)saveAsVtt:(id)sender
 {
     [self saveTranscriptionWithFormat:@"vtt"];
+    copyDefaultConsumed = YES;
+    [self updateUIForState];
 }
 
 - (IBAction)copyText:(id)sender
@@ -1369,6 +1375,8 @@ static const unsigned long long modelMinSizes[] = {
     NSPasteboard *pb = [NSPasteboard generalPasteboard];
     [pb declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
     [pb setString:stripped forType:NSStringPboardType];
+    copyDefaultConsumed = YES;
+    [self updateUIForState];
 }
 
 - (IBAction)timestampsToggled:(id)sender
@@ -1613,16 +1621,6 @@ static const unsigned long long modelMinSizes[] = {
     [stopButton sizeToFit];
     [contentView addSubview:stopButton];
 
-    recordStatusLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
-    [recordStatusLabel setEditable:NO];
-    [recordStatusLabel setBordered:NO];
-    [recordStatusLabel setDrawsBackground:NO];
-    [recordStatusLabel setBezeled:NO];
-    [recordStatusLabel setFont:METRICS_FONT_SYSTEM_REGULAR_11];
-    [recordStatusLabel setTextColor:[NSColor grayColor]];
-    [recordStatusLabel setStringValue:@""];
-    [contentView addSubview:recordStatusLabel];
-
     recordSpinner = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
     [recordSpinner setStyle:NSProgressIndicatorSpinningStyle];
     [recordSpinner setIndeterminate:YES];
@@ -1638,17 +1636,6 @@ static const unsigned long long modelMinSizes[] = {
     [openButton setBezelStyle:NSRoundedBezelStyle];
     [openButton sizeToFit];
     [contentView addSubview:openButton];
-
-    filePathLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
-    [filePathLabel setEditable:NO];
-    [filePathLabel setSelectable:NO];
-    [filePathLabel setBordered:NO];
-    [filePathLabel setDrawsBackground:NO];
-    [filePathLabel setBezeled:NO];
-    [filePathLabel setFont:METRICS_FONT_SYSTEM_REGULAR_11];
-    [filePathLabel setTextColor:[NSColor grayColor]];
-    [filePathLabel setStringValue:@"No file selected"];
-    [contentView addSubview:filePathLabel];
 
     // Model row
     modelLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
@@ -1786,11 +1773,11 @@ static const unsigned long long modelMinSizes[] = {
     [contentView addSubview:resultScrollView];
 
     resultTextView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
-    [resultTextView setEditable:NO];
     [resultTextView setFont:[NSFont userFixedPitchFontOfSize:12]];
     [resultTextView setVerticallyResizable:YES];
     [resultTextView setHorizontallyResizable:NO];
     [resultTextView setAutoresizingMask:NSViewWidthSizable];
+    [[resultTextView textContainer] setWidthTracksTextView:YES];
     [resultScrollView setDocumentView:resultTextView];
     // scroll view now owns resultTextView; we keep a zero-ing ivar so it
     // must NOT be released here (non-ARC: the scroll view retains it).
@@ -1875,18 +1862,12 @@ static const unsigned long long modelMinSizes[] = {
     CGFloat spinnerW = [recordSpinner frame].size.width;
     CGFloat statusX  = mx + recSize.width + s8 + stopSize.width + s8;
     [recordSpinner setFrame:NSMakeRect(statusX, y - bh + (bh - spinnerW) / 2,
-                                       spinnerW, spinnerW)];
+                                        spinnerW, spinnerW)];
     CGFloat statusW  = w - (recSize.width + s8 + stopSize.width + s8 +
                             spinnerW + s8 + openSize.width + s8);
     if (statusW < 20) statusW = 20;
-    [recordStatusLabel setFrame:NSMakeRect(statusX + spinnerW + s8,
-                                           y - bh, statusW, bh)];
     [openButton setFrame:NSMakeRect(statusX + statusW + s8, y - bh,
                                     openSize.width, bh)];
-    y -= bh + s8;
-
-    // ---- Row 2: File path ----
-    [filePathLabel setFrame:NSMakeRect(mx, y - bh, w, bh)];
     y -= bh + s16;
 
     // ---- Row 3: Model ----
@@ -1916,12 +1897,12 @@ static const unsigned long long modelMinSizes[] = {
     CGFloat threadsWidth = tLW + s8 + tFW + s8 + tSW;
     CGFloat threadsX  = mx + w - threadsWidth;
 
-    [langLabel setFrame:NSMakeRect(mx, y - bh, lLW, bh)];
-    [languagePopup setFrame:NSMakeRect(mx + lLW, y - 2, lPW, bh + 4)];
-    [threadsLabel setFrame:NSMakeRect(threadsX, y - bh, tLW, bh)];
-    [threadsField setFrame:NSMakeRect(threadsX + tLW + s8, y - 1,
+    [langLabel setFrame:NSMakeRect(mx, y - bh + 24, lLW, bh)];
+    [languagePopup setFrame:NSMakeRect(mx + lLW, y + 22, lPW, bh + 4)];
+    [threadsLabel setFrame:NSMakeRect(threadsX, y - bh + 24, tLW, bh)];
+    [threadsField setFrame:NSMakeRect(threadsX + tLW + s8, y + 23,
                                       tFW, METRICS_TEXT_INPUT_FIELD_HEIGHT)];
-    [threadsStepper setFrame:NSMakeRect(threadsX + tLW + s8 + tFW + s8, y - 1,
+    [threadsStepper setFrame:NSMakeRect(threadsX + tLW + s8 + tFW + s8, y + 23,
                                         tSW, METRICS_TEXT_INPUT_FIELD_HEIGHT)];
     y -= bh + s16;
 
@@ -1929,19 +1910,24 @@ static const unsigned long long modelMinSizes[] = {
     [progressBar setFrame:NSMakeRect(mx, y, w, bh)];
     y -= bh + s8;
 
-    // ---- Status label + timestamps checkbox ----
-    NSSize tsSz = [showTimestampsCheckbox frame].size;
-    CGFloat statusW2 = w - tsSz.width - s8;
-    if (statusW2 < 50) statusW2 = 50;
-    [statusLabel setFrame:NSMakeRect(mx, y - bh, statusW2, bh)];
-    [showTimestampsCheckbox setFrame:NSMakeRect(mx + statusW2 + s8, y - bh,
-                                                 tsSz.width, bh)];
+    // ---- Status label ----
+    [statusLabel setFrame:NSMakeRect(mx, y - bh, w, bh)];
     y -= s8;
 
-    // ---- Results (fills remaining) ----
-    CGFloat exportH = bh + METRICS_SPACE_12;
-    CGFloat textY   = mb + exportH + s8;
+    // ---- Copy button (right-aligned below results) ----
+    NSSize copySz = [copyTextButton frame].size;
+    // Reserve space for bottom row (checkbox + copy) above export row
+    CGFloat bottomRowH = bh + s8;
+    CGFloat exportH   = bottomRowH + bh + METRICS_SPACE_12;
+    CGFloat textY     = mb + exportH + s8;
+    CGFloat bottomRowY = mb + bh + s8;
     [resultScrollView setFrame:NSMakeRect(mx, textY, w, y - textY)];
+
+    // ---- Bottom row: show timestamps checkbox (left) + copy button (right) ----
+    NSSize tsSz = [showTimestampsCheckbox frame].size;
+    [showTimestampsCheckbox setFrame:NSMakeRect(mx, bottomRowY, tsSz.width, bh)];
+    [copyTextButton setFrame:NSMakeRect(mx + w - copySz.width, bottomRowY,
+                                        copySz.width, bh)];
 
     // ---- Export buttons ----
     CGFloat btnW = 100;
@@ -1949,10 +1935,6 @@ static const unsigned long long modelMinSizes[] = {
     [saveTxtButton  setFrame:NSMakeRect(mx, mb, btnW, bh)];
     [saveSrtButton  setFrame:NSMakeRect(mx + (btnW + btnGap), mb, btnW, bh)];
     [saveVttButton  setFrame:NSMakeRect(mx + (btnW + btnGap) * 2, mb, btnW, bh)];
-
-    NSSize copySz = [copyTextButton frame].size;
-    [copyTextButton setFrame:NSMakeRect(mx + (btnW + btnGap) * 3, mb,
-                                        copySz.width, bh)];
 }
 
 - (void)windowDidResize:(NSNotification *)notification

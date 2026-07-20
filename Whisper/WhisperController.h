@@ -25,13 +25,11 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 
     // File selection
     NSButton *openButton;
-    NSTextField *filePathLabel;
     NSString *currentFilePath;
 
     // Recording
     NSButton *recordButton;
     NSButton *stopButton;
-    NSTextField *recordStatusLabel;
     NSProgressIndicator *recordSpinner;
 
     // Labels (needed for layout)
@@ -67,6 +65,7 @@ typedef NS_ENUM(NSInteger, WhisperState) {
     NSButton *copyTextButton;
     NSButton *showTimestampsCheckbox;
     BOOL showTimestamps;
+    BOOL copyDefaultConsumed;
 
     // Whisper state
     struct whisper_context *whisperCtx;
