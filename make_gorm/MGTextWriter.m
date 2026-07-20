@@ -664,11 +664,12 @@ static NSString *_formatValue(id val, NSUInteger indent)
                     {
                       for (NSUInteger vi = 0; vi < [parsed count]; vi++)
                         {
+                          idToClass[@(obj.objectId)] = obj.className;
                           NSString *s = _formatMGValue([parsed objectAtIndex:vi], 1, idToClass);
                           [output appendFormat:@"    _%lu = %@;\n", (unsigned long)vi, s];
                         }
                     }
-                  /* Always include raw data for round-trip compilation */
+                  /* Raw data for compilation */
                   [output appendFormat:@"    data = %@;\n", _formatRawData(raw, 1)];
                 }
               else

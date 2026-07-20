@@ -103,11 +103,24 @@ static unsigned cSkipOne(const uint8_t *b, unsigned len, unsigned p) {
     case 0x15: {
       if (p + 4 > len) return len;
       unsigned cnt = r32(b + p); p += 4;
-      for (unsigned i = 0; i < cnt && p < len; i++) {
-        unsigned old = p;
-        p = cSkipOne(b, len, p);
-        if (p <= old) break;
+      /* Read element type tag to determine byte size per element */
+      if (p >= len) return len;
+      uint8_t et = b[p]; p++;
+      unsigned esz = 0;
+      switch (et & 0x1f) {
+        case 0x01: case 0x02: case 0x0d: esz = 1; break;
+        case 0x03: case 0x04: esz = 2; break;
+        case 0x05: case 0x06: case 0x07: case 0x08:
+          esz = ((et & 0x60) == 0x00) ? 2 : ((et & 0x60) == 0x20) ? 4 : ((et & 0x60) == 0x40) ? 8 : 4;
+          break;
+        case 0x09: case 0x0a: esz = 8; break;
+        case 0x0b: esz = 4; break;
+        case 0x0c: esz = 8; break;
+        default: esz = 1; break;
       }
+      unsigned total = cnt * esz;
+      if (p + total > len) total = len - p;
+      p += total;
       return p;
     }
     case 0x16: {
@@ -229,11 +242,26 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
       if (p + 4 <= len) {
         unsigned cnt = r32(b + p); p += 4;
         val.children = [NSMutableArray array];
-        for (unsigned i = 0; i < cnt && p < len; i++) {
-          MGValue *child = readRawValue(b, len, &p);
-          if (child) [val.children addObject:child];
-          else break;
+        /* Read element type tag and skip elements as raw bytes */
+        if (p >= len) break;
+        uint8_t et = b[p]; p++;
+        unsigned esz = 0;
+        switch (et & 0x1f) {
+          case 0x01: case 0x02: case 0x0d: esz = 1; break;
+          case 0x03: case 0x04: esz = 2; break;
+          case 0x05: case 0x06: case 0x07: case 0x08:
+            esz = ((et & 0x60) == 0x00) ? 2 : ((et & 0x60) == 0x20) ? 4 : 8;
+            break;
+          case 0x09: case 0x0a: esz = 8; break;
+          case 0x0b: esz = 4; break;
+          case 0x0c: esz = 8; break;
+          default: esz = 1; break;
         }
+        unsigned total = cnt * esz;
+        if (p + total > len) total = len - p;
+        /* Store as raw data blob */
+        val.objectValue = [NSData dataWithBytes:b+p length:total];
+        p += total;
       }
       break;
     }
@@ -317,7 +345,18 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
     if (!cn) cn = @"(null)";
     p = ce;
     /* Data from here to EOF (flat parse stores raw for round-trip) */
-    unsigned ds = p, de = len;
+    /* Find data boundary: next _GSC_ID without xref.
+     * Use cSkipOne (NOT cSkipFull) to avoid skipping nested defs. */
+    unsigned ds = p;
+    unsigned de = len;
+    unsigned scan = p;
+    while (scan < len) {
+      uint8_t ct = b[scan];
+      if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) { de = scan; break; }
+      unsigned old = scan;
+      scan = cSkipOne(b, len, scan);
+      if (scan <= old) { scan++; break; }
+    }
     MGArchiveObject *obj = [[MGArchiveObject alloc] init];
     obj.objectId = (int32_t)oid;
     obj.className = cn;
@@ -328,7 +367,7 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
       [obj.encodedValues addObject:rv];
     }
     [archive.objects addObject:obj]; RELEASE(obj);
-    break; /* only root */
+    p = de;
   }
 }
 
