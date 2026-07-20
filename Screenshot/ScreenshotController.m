@@ -20,6 +20,7 @@
 #import <Foundation/NSProcessInfo.h>
 #import <Foundation/NSFileManager.h>
 #import <Foundation/NSTimer.h>
+#import <Foundation/NSTask.h>
 #import <unistd.h>
 
 @implementation ScreenshotController
@@ -45,6 +46,18 @@
         delayCountdown = 0;
     }
     return self;
+}
+
+- (NSString *)findTool:(NSString *)name
+{
+    NSString *pathEnv = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
+    if (!pathEnv) return nil;
+    for (NSString *dir in [pathEnv componentsSeparatedByString:@":"]) {
+        NSString *full = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:full])
+            return full;
+    }
+    return nil;
 }
 
 - (void)dealloc {
@@ -502,6 +515,7 @@
     [alert setInformativeText:@"What would you like to do with the screenshot?"];
     [alert addButtonWithTitle:@"Save to File"];
     [alert addButtonWithTitle:@"Copy to Clipboard"];
+    [alert addButtonWithTitle:@"Copy text (OCR)"];
     [alert addButtonWithTitle:@"Cancel"];
     [alert setAlertStyle:NSInformationalAlertStyle];
     
@@ -515,10 +529,7 @@
         // Copy to clipboard - show window and stay open
         if ([self copyImageToClipboardAndReturnSuccess]) {
             [self updateStatus:@"Screenshot copied to clipboard"];
-            // Make sure main window is visible
-            if (mainWindow) {
-                [mainWindow makeKeyAndOrderFront:self];
-            }
+            if (mainWindow) [mainWindow makeKeyAndOrderFront:self];
         } else {
             NSAlert *errorAlert = [[NSAlert alloc] init];
             [errorAlert setMessageText:@"Copy Failed"];
@@ -526,11 +537,12 @@
             [errorAlert setAlertStyle:NSWarningAlertStyle];
             [errorAlert runModal];
             [errorAlert release];
-            // Stay open after copy failure
-            if (mainWindow) {
-                [mainWindow makeKeyAndOrderFront:self];
-            }
+            if (mainWindow) [mainWindow makeKeyAndOrderFront:self];
         }
+    } else if (response == NSAlertThirdButtonReturn) {
+        // OCR
+        [self performOCRAndCopyToClipboard];
+        if (mainWindow) [mainWindow makeKeyAndOrderFront:self];
     } else {
         // Cancel - stay open for next capture
         [self updateStatus:@"Ready to take screenshot"];
@@ -597,6 +609,81 @@
     } @catch (NSException *exception) {
         NSDebugLLog(@"gwcomp", @"EXCEPTION in setData: %@", exception);
         return NO;
+    }
+}
+
+- (void)performOCRAndCopyToClipboard {
+    if (!capturedImagePNG) {
+        [self updateStatus:@"No screenshot data for OCR"];
+        return;
+    }
+    NSString *tesseract = [self findTool:@"tesseract"];
+    if (!tesseract) {
+        NSAlert *a = [[NSAlert alloc] init];
+        [a setMessageText:@"Tesseract not found"];
+        [a setInformativeText:@"Install tesseract with your package manager:\n\n"
+            @"  Debian/Ubuntu:  sudo apt install tesseract-ocr\n"
+            @"  Arch:           sudo pacman -S tesseract\n"
+            @"  FreeBSD:        sudo pkg install tesseract\n"
+            @"  OpenBSD:        doas pkg_add tesseract"];
+        [a addButtonWithTitle:@"OK"];
+        [a runModal];
+        [a release];
+        [self updateStatus:@"OCR failed — tesseract not installed"];
+        return;
+    }
+
+    // Write PNG to a temp file
+    NSString *tmp = NSTemporaryDirectory();
+    NSString *tmpPath = [tmp stringByAppendingPathComponent:@"screenshot_ocr.png"];
+    if (![capturedImagePNG writeToFile:tmpPath atomically:NO]) {
+        [self updateStatus:@"OCR failed — could not write temp file"];
+        return;
+    }
+
+    // Run: tesseract <input> stdout 2>/dev/null
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:tesseract];
+    [task setArguments:@[tmpPath, @"stdout"]];
+
+    NSPipe *outPipe = [NSPipe pipe];
+    [task setStandardOutput:outPipe];
+    [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+
+    @try {
+        [task launch];
+        [task waitUntilExit];
+    } @catch (NSException *e) {
+        [[NSFileManager defaultManager] removeItemAtPath:tmpPath error:NULL];
+        [task release];
+        [self updateStatus:@"OCR failed"];
+        return;
+    }
+
+    // Read OCR output
+    NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
+    NSString *text = [[[NSString alloc] initWithData:outData
+                                            encoding:NSUTF8StringEncoding] autorelease];
+    [[NSFileManager defaultManager] removeItemAtPath:tmpPath error:NULL];
+    [task release];
+
+    if (!text || [text length] == 0) {
+        [self updateStatus:@"OCR returned no text"];
+        return;
+    }
+
+    // Trim trailing newline
+    if ([text hasSuffix:@"\n"])
+        text = [text substringToIndex:[text length] - 1];
+
+    // Copy text to clipboard
+    NSPasteboard *pb = [NSPasteboard generalPasteboard];
+    [pb declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+    if ([pb setString:text forType:NSStringPboardType]) {
+        [self updateStatus:[NSString stringWithFormat:@"OCR: %lu chars copied",
+                            (unsigned long)[text length]]];
+    } else {
+        [self updateStatus:@"OCR failed — clipboard error"];
     }
 }
 
