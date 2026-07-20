@@ -34,9 +34,6 @@
 #import <Foundation/NSFileHandle.h>
 
 #import <whisper.h>
-#include <X11/Xlib.h>
-#include <X11/Xatom.h>
-#include <strings.h>
 
 
 
@@ -44,8 +41,7 @@
 @interface WhisperFloatingWindow : NSWindow
 @end
 @implementation WhisperFloatingWindow
-- (BOOL)canBecomeKeyWindow { return NO; }
-- (BOOL)canBecomeMainWindow { return NO; }
+- (BOOL)canBecomeKeyWindow { return YES; }
 @end
 
 #define DEFAULT_WINDOW_WIDTH  480.0
@@ -198,6 +194,8 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         autoTypeEnabled = NO;
         copyDefaultConsumed = NO;
         typedText = nil;
+        vocabularyPrompt = [[[NSUserDefaults standardUserDefaults]
+            stringForKey:@"VocabularyPrompt"] retain];
         currentThreads = 8;
 
         [self populateModelList];
@@ -222,6 +220,8 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     if (captureHandle) wcapture_cancel(captureHandle);
     [autoTypeCheckbox release];
     [typedText release];
+    [vocabularyPrompt release];
+    [vocabPanel release];
     [super dealloc];
 }
 
@@ -268,12 +268,18 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         currentThreads = (int)savedThreads;
     }
 
+    // Restore persistent toggles
+    showTimestamps = [[NSUserDefaults standardUserDefaults] boolForKey:@"ShowTimestamps"];
+    autoTypeEnabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"AutoTypeEnabled"];
+    [showTimestampsCheckbox setState:(showTimestamps ? NSOnState : NSOffState)];
+    [autoTypeCheckbox setState:(autoTypeEnabled ? NSOnState : NSOffState)];
+
     [self updateUIForState];
 
     [mainWindow center];
     [mainWindow makeKeyAndOrderFront:self];
+    [NSApp activateIgnoringOtherApps:YES];
 
-    [self performSelector:@selector(makeWindowFloating) withObject:nil afterDelay:0.5];
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification
@@ -781,6 +787,11 @@ static const unsigned long long modelMinSizes[] = {
     wparams.progress_callback = whisper_progress_cb;
     wparams.progress_callback_user_data = self;
 
+    if (vocabularyPrompt) {
+        wparams.initial_prompt = [vocabularyPrompt UTF8String];
+        wparams.carry_initial_prompt = true;
+    }
+
     int ret = whisper_full(whisperCtx, wparams, samples, n_samples);
 
     free(samples);
@@ -877,7 +888,6 @@ static const unsigned long long modelMinSizes[] = {
 
     BOOL hasResults = [segments count] > 0;
     [copyTextButton setEnabled:hasResults];
-    [typeOutputButton setEnabled:hasResults];
 
     // Default button: exactly one responds to Enter — never more
     [recordButton setKeyEquivalent:@""];
@@ -1231,6 +1241,11 @@ static const unsigned long long modelMinSizes[] = {
     wparams.new_segment_callback = whisper_new_segment_cb;
     wparams.new_segment_callback_user_data = self;
 
+    if (vocabularyPrompt) {
+        wparams.initial_prompt = [vocabularyPrompt UTF8String];
+        wparams.carry_initial_prompt = true;
+    }
+
     NSLog(@"transcribeStreamingChunk: calling whisper_full (segments appear via callback)...");
     int ret = whisper_full(whisperCtx, wparams, samples, n);
     NSLog(@"transcribeStreamingChunk: whisper_full returned %d", ret);
@@ -1449,8 +1464,82 @@ static const unsigned long long modelMinSizes[] = {
 
 - (IBAction)timestampsToggled:(id)sender
 {
-    showTimestamps = ([showTimestampsCheckbox state] == NSOnState);
+    showTimestamps = ([sender state] == NSOnState);
+    [[NSUserDefaults standardUserDefaults] setBool:showTimestamps
+                                            forKey:@"ShowTimestamps"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
     [self rebuildTextView];
+}
+
+#pragma mark - Vocabulary
+
+- (IBAction)editVocabulary:(id)sender
+{
+    if (!vocabPanel) {
+        vocabPanel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 420, 320)
+                                                styleMask:NSTitledWindowMask
+                                                          | NSClosableWindowMask
+                                                          | NSResizableWindowMask
+                                                  backing:NSBackingStoreBuffered
+                                                    defer:NO];
+        [vocabPanel setTitle:@"Custom Vocabulary"];
+        [vocabPanel setFloatingPanel:NO];
+        [vocabPanel setHidesOnDeactivate:NO];
+        [vocabPanel setDelegate:self];
+
+        NSView *cv = [vocabPanel contentView];
+        [cv setAutoresizesSubviews:YES];
+
+        NSScrollView *sv = [[NSScrollView alloc] initWithFrame:NSMakeRect(10, 40, 400, 260)];
+        [sv setHasVerticalScroller:YES];
+        [sv setBorderType:NSBezelBorder];
+        [sv setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+
+        vocabTextView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 400, 260)];
+        [vocabTextView setFont:[NSFont userFixedPitchFontOfSize:12]];
+        [vocabTextView setVerticallyResizable:YES];
+        [vocabTextView setHorizontallyResizable:NO];
+        [[vocabTextView textContainer] setWidthTracksTextView:YES];
+        [sv setDocumentView:vocabTextView];
+        [cv addSubview:sv];
+        [sv release];
+
+        NSButton *saveBtn = [[NSButton alloc] initWithFrame:NSMakeRect(320, 10, 90, 24)];
+        [saveBtn setTitle:@"Save"];
+        [saveBtn setBezelStyle:NSRoundedBezelStyle];
+        [saveBtn setTarget:self];
+        [saveBtn setAction:@selector(saveVocabulary:)];
+        [saveBtn setAutoresizingMask:NSViewMinXMargin];
+        [cv addSubview:saveBtn];
+        [saveBtn release];
+
+        NSButton *cancelBtn = [[NSButton alloc] initWithFrame:NSMakeRect(230, 10, 80, 24)];
+        [cancelBtn setTitle:@"Cancel"];
+        [cancelBtn setBezelStyle:NSRoundedBezelStyle];
+        [cancelBtn setTarget:self];
+        [cancelBtn setAction:@selector(cancelVocabulary:)];
+        [cancelBtn setAutoresizingMask:NSViewMinXMargin];
+        [cv addSubview:cancelBtn];
+        [cancelBtn release];
+    }
+
+    [vocabTextView setString:vocabularyPrompt ? vocabularyPrompt : @""];
+    [vocabPanel makeKeyAndOrderFront:self];
+}
+
+- (void)saveVocabulary:(id)sender
+{
+    NSString *text = [vocabTextView string];
+    [vocabularyPrompt release];
+    vocabularyPrompt = [text retain];
+    [[NSUserDefaults standardUserDefaults] setObject:text forKey:@"VocabularyPrompt"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    [vocabPanel close];
+}
+
+- (void)cancelVocabulary:(id)sender
+{
+    [vocabPanel close];
 }
 
 - (NSString *)displayTextFromSegments
@@ -1694,6 +1783,13 @@ static const unsigned long long modelMinSizes[] = {
     [langMenuItem release];
     [langMenu release];
 
+    NSMenuItem *vocabItem = [[NSMenuItem alloc] initWithTitle:@"Vocabulary..."
+                                                       action:@selector(editVocabulary:)
+                                                keyEquivalent:@""];
+    [vocabItem setTarget:self];
+    [appMenu addItem:vocabItem];
+    [vocabItem release];
+
     [appMenu addItem:[NSMenuItem separatorItem]];
 
     NSMenuItem *saveTxtItem = [[NSMenuItem alloc] initWithTitle:@"Save as TXT"
@@ -1766,7 +1862,8 @@ static const unsigned long long modelMinSizes[] = {
     NSUInteger styleMask = NSTitledWindowMask |
                            NSClosableWindowMask |
                            NSMiniaturizableWindowMask |
-                           NSResizableWindowMask;
+                           NSResizableWindowMask |
+                           NSUtilityWindowMask;
 
     mainWindow = [[WhisperFloatingWindow alloc] initWithContentRect:NSMakeRect(0, 0,
                                                        DEFAULT_WINDOW_WIDTH,
@@ -1854,7 +1951,7 @@ static const unsigned long long modelMinSizes[] = {
     [resultScrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [contentView addSubview:resultScrollView];
 
-    resultTextView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
+    resultTextView = [[NSTextView alloc] initWithFrame:NSZeroRect];
     [resultTextView setFont:[NSFont userFixedPitchFontOfSize:12]];
     [resultTextView setVerticallyResizable:YES];
     [resultTextView setHorizontallyResizable:NO];
@@ -1874,14 +1971,7 @@ static const unsigned long long modelMinSizes[] = {
     [copyTextButton setEnabled:NO];
     [contentView addSubview:copyTextButton];
 
-    typeOutputButton = [[NSButton alloc] initWithFrame:NSZeroRect];
-    [typeOutputButton setTitle:@"Type to App"];
-    [typeOutputButton setTarget:self];
-    [typeOutputButton setAction:@selector(typeOutput:)];
-    [typeOutputButton setBezelStyle:NSRoundedBezelStyle];
-    [typeOutputButton sizeToFit];
-    [typeOutputButton setEnabled:NO];
-    [contentView addSubview:typeOutputButton];
+
 
     showTimestampsCheckbox = [[NSButton alloc] initWithFrame:NSZeroRect];
     [showTimestampsCheckbox setButtonType:NSSwitchButton];
@@ -1952,17 +2042,16 @@ static const unsigned long long modelMinSizes[] = {
 
     // ---- Bottom row: checkboxes (left) + action buttons (right) ----
     NSSize copySz = [copyTextButton frame].size;
-    NSSize typeSz = [typeOutputButton frame].size;
     NSSize tsSz   = [showTimestampsCheckbox frame].size;
     NSSize atSz   = [autoTypeCheckbox frame].size;
     CGFloat bottomRowY = mb + s8;
     CGFloat textY      = bottomRowY + bh + s8;
     [resultScrollView setFrame:NSMakeRect(mx, textY, w, y - textY)];
+    [[resultTextView textContainer] setContainerSize:
+        NSMakeSize([resultScrollView contentSize].width, FLT_MAX)];
     [showTimestampsCheckbox setFrame:NSMakeRect(mx, bottomRowY, tsSz.width, bh)];
     [autoTypeCheckbox setFrame:NSMakeRect(mx + tsSz.width + s8, bottomRowY,
                                           atSz.width, bh)];
-    [typeOutputButton setFrame:NSMakeRect(mx + w - typeSz.width - copySz.width - s8,
-                                          bottomRowY, typeSz.width, bh)];
     [copyTextButton setFrame:NSMakeRect(mx + w - copySz.width, bottomRowY,
                                         copySz.width, bh)];
 
@@ -1976,61 +2065,14 @@ static const unsigned long long modelMinSizes[] = {
 
 #pragma mark - Window
 
-- (void)makeWindowFloating
-{
-    Display *dpy = XOpenDisplay(NULL);
-    if (!dpy) return;
-
-    Atom wmName  = XInternAtom(dpy, "_NET_WM_NAME", False);
-    Atom utf8    = XInternAtom(dpy, "UTF8_STRING", False);
-    Atom netWmState = XInternAtom(dpy, "_NET_WM_STATE", False);
-    Atom above   = XInternAtom(dpy, "_NET_WM_STATE_ABOVE", False);
-
-    Window root = DefaultRootWindow(dpy);
-    Window actualRoot, parent;
-    Window *children;
-    unsigned int nChildren;
-    if (!XQueryTree(dpy, root, &actualRoot, &parent, &children, &nChildren) || !children) {
-        XCloseDisplay(dpy);
-        return;
-    }
-
-    for (unsigned int i = 0; i < nChildren; i++) {
-        Atom actualType; int actualFormat;
-        unsigned long nItems, bytesAfter; unsigned char *data = NULL;
-        if (XGetWindowProperty(dpy, children[i], wmName, 0, 256, False, utf8,
-                               &actualType, &actualFormat,
-                               &nItems, &bytesAfter, &data) == Success && data) {
-            if (strstr((const char *)data, "Whisper Speech-to-Text")) {
-                XFree(data);
-                if (netWmState != None && above != None) {
-                    XChangeProperty(dpy, children[i], netWmState, XA_ATOM, 32,
-                                    PropModeReplace, (unsigned char *)&above, 1);
-                    XFlush(dpy);
-                }
-                break;
-            }
-            XFree(data);
-        }
-    }
-    XFree(children);
-    XCloseDisplay(dpy);
-}
-
 #pragma mark - Auto-type
-
-- (IBAction)typeOutput:(id)sender
-{
-    NSString *text = [resultTextView string];
-    if ([text length] == 0) return;
-    [typedText release];
-    typedText = [text retain];
-    [self typeTextToApp:text];
-}
 
 - (IBAction)autoTypeToggled:(id)sender
 {
     autoTypeEnabled = ([sender state] == NSOnState);
+    [[NSUserDefaults standardUserDefaults] setBool:autoTypeEnabled
+                                            forKey:@"AutoTypeEnabled"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
     if (autoTypeEnabled) {
         if ([segments count] > 0) [self syncTypedText];
     } else {

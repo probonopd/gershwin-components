@@ -51,7 +51,7 @@ ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include -I/Developer/Library/Sources/ger
 #
 # Link libraries
 #
-ADDITIONAL_GUI_LIBS += -lwhisper -lSoundBackend -lX11
+ADDITIONAL_GUI_LIBS += -lwhisper -lSoundBackend
 
 -include GNUmakefile.preamble
 
