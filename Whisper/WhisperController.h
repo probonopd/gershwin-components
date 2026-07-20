@@ -48,7 +48,7 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 
     // Settings
     NSPopUpButton *languagePopup;
-    NSButton *translateCheckbox;
+    // NSButton *translateCheckbox;
     NSTextField *threadsField;
     NSStepper *threadsStepper;
 
@@ -65,6 +65,7 @@ typedef NS_ENUM(NSInteger, WhisperState) {
     NSButton *saveTxtButton;
     NSButton *saveSrtButton;
     NSButton *saveVttButton;
+    NSButton *copyTextButton;
 
     // Whisper state
     struct whisper_context *whisperCtx;
@@ -122,6 +123,7 @@ typedef NS_ENUM(NSInteger, WhisperState) {
 - (IBAction)saveAsTxt:(id)sender;
 - (IBAction)saveAsSrt:(id)sender;
 - (IBAction)saveAsVtt:(id)sender;
+- (IBAction)copyText:(id)sender;
 
 // Transcription
 - (void)transcriptionThread:(id)object;

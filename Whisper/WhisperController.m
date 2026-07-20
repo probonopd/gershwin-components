@@ -788,7 +788,7 @@ static const unsigned long long modelMinSizes[] = {
         }
     }
 
-    wparams.translate = [translateCheckbox state] == NSOnState ? true : false;
+    // wparams.translate = [translateCheckbox state] == NSOnState ? true : false;
     wparams.no_timestamps = false;
     wparams.print_progress = false;
     wparams.print_realtime = false;
@@ -907,7 +907,7 @@ static const unsigned long long modelMinSizes[] = {
     [openButton setEnabled:(!isWorking && !isRecording)];
     [modelPopup setEnabled:(!isWorking && !isRecording)];
     [languagePopup setEnabled:(!isWorking && !isRecording)];
-    [translateCheckbox setEnabled:(!isWorking && !isRecording)];
+    // [translateCheckbox setEnabled:(!isWorking && !isRecording)];
     [threadsField setEnabled:(!isWorking && !isRecording)];
     [threadsStepper setEnabled:(!isWorking && !isRecording)];
     [recordButton setEnabled:(!isRecording && !isWorking)];
@@ -917,6 +917,7 @@ static const unsigned long long modelMinSizes[] = {
     [saveTxtButton setEnabled:hasResults];
     [saveSrtButton setEnabled:hasResults];
     [saveVttButton setEnabled:hasResults];
+    [copyTextButton setEnabled:hasResults];
 
     if (state == WhisperStateTranscribing) {
         [transcribeButton setTitle:@"Transcribing..."];
@@ -1173,7 +1174,7 @@ static const unsigned long long modelMinSizes[] = {
         NSLog(@"transcribeStreamingChunk: auto-detected language=%s", wparams.language);
     }
 
-    wparams.translate = [translateCheckbox state] == NSOnState ? true : false;
+    // wparams.translate = [translateCheckbox state] == NSOnState ? true : false;
     wparams.no_timestamps = false;
     wparams.print_progress = false;
     wparams.print_realtime = false;
@@ -1310,6 +1311,36 @@ static const unsigned long long modelMinSizes[] = {
 - (IBAction)saveAsVtt:(id)sender
 {
     [self saveTranscriptionWithFormat:@"vtt"];
+}
+
+- (IBAction)copyText:(id)sender
+{
+    NSString *text = [resultTextView string];
+    if ([text length] == 0) return;
+
+    NSMutableString *stripped = [NSMutableString string];
+    NSScanner *scanner = [NSScanner scannerWithString:text];
+    while (![scanner isAtEnd]) {
+        NSString *line;
+        [scanner scanUpToString:@"\n" intoString:&line];
+        if (![scanner isAtEnd]) [scanner scanString:@"\n" intoString:NULL];
+
+        // Strip leading timestamp [HH:MM:SS.mm --> HH:MM:SS.mm]
+        NSRange tsRange = [line rangeOfString:@"] "];
+        if (tsRange.location != NSNotFound) {
+            line = [line substringFromIndex:tsRange.location + 2];
+        }
+        [stripped appendString:line];
+        [stripped appendString:@"\n"];
+    }
+    // Remove trailing newline
+    if ([stripped hasSuffix:@"\n"]) {
+        [stripped deleteCharactersInRange:NSMakeRange([stripped length] - 1, 1)];
+    }
+
+    NSPasteboard *pb = [NSPasteboard generalPasteboard];
+    [pb declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+    [pb setString:stripped forType:NSStringPboardType];
 }
 
 #pragma mark - Export
@@ -1615,12 +1646,14 @@ static const unsigned long long modelMinSizes[] = {
     [languagePopup setAction:@selector(languageChanged:)];
     [contentView addSubview:languagePopup];
 
+    /*
     translateCheckbox = [[NSButton alloc] initWithFrame:NSZeroRect];
     [translateCheckbox setButtonType:NSSwitchButton];
     [translateCheckbox setTitle:@"Translate to English"];
     [translateCheckbox setFont:METRICS_FONT_SYSTEM_REGULAR_13];
     [translateCheckbox sizeToFit];
     [contentView addSubview:translateCheckbox];
+    */
 
     threadsLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
     [threadsLabel setEditable:NO];
@@ -1727,6 +1760,15 @@ static const unsigned long long modelMinSizes[] = {
     [saveVttButton setEnabled:NO];
     [contentView addSubview:saveVttButton];
 
+    copyTextButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+    [copyTextButton setTitle:@"Copy to Clipboard"];
+    [copyTextButton setTarget:self];
+    [copyTextButton setAction:@selector(copyText:)];
+    [copyTextButton setBezelStyle:NSRoundedBezelStyle];
+    [copyTextButton sizeToFit];
+    [copyTextButton setEnabled:NO];
+    [contentView addSubview:copyTextButton];
+
     [self layoutSubviews];
 }
 
@@ -1798,22 +1840,10 @@ static const unsigned long long modelMinSizes[] = {
     CGFloat tFW = 40;
     CGFloat tSW = [threadsStepper frame].size.width;
     CGFloat threadsWidth = tLW + s8 + tFW + s8 + tSW;
-    CGFloat cbW = [[translateCheckbox cell] cellSize].width;
-    CGFloat gapForCheckbox = w - (lLW + lPW + s16 + threadsWidth);
-    if (gapForCheckbox < cbW) {
-        // Not enough room — shrink language popup
-        lPW = 100;
-        gapForCheckbox = w - (lLW + 100 + s16 + threadsWidth);
-        if (gapForCheckbox < cbW) gapForCheckbox = cbW;
-    }
-    CGFloat lPopupEnd = mx + lLW + lPW;
     CGFloat threadsX  = mx + w - threadsWidth;
 
     [langLabel setFrame:NSMakeRect(mx, y - bh, lLW, bh)];
     [languagePopup setFrame:NSMakeRect(mx + lLW, y - 2, lPW, bh + 4)];
-    [translateCheckbox setFrame:NSMakeRect(lPopupEnd + s16, y,
-                                           gapForCheckbox,
-                                           METRICS_RADIO_BUTTON_LINE_SPACING)];
     [threadsLabel setFrame:NSMakeRect(threadsX, y - bh, tLW, bh)];
     [threadsField setFrame:NSMakeRect(threadsX + tLW + s8, y - 1,
                                       tFW, METRICS_TEXT_INPUT_FIELD_HEIGHT)];
@@ -1838,9 +1868,15 @@ static const unsigned long long modelMinSizes[] = {
     [resultScrollView setFrame:NSMakeRect(mx, textY, w, y - textY)];
 
     // ---- Export buttons ----
-    [saveTxtButton  setFrame:NSMakeRect(mx, mb, 100, bh)];
-    [saveSrtButton  setFrame:NSMakeRect(mx + 108, mb, 100, bh)];
-    [saveVttButton  setFrame:NSMakeRect(mx + 216, mb, 100, bh)];
+    CGFloat btnW = 100;
+    CGFloat btnGap = 8;
+    [saveTxtButton  setFrame:NSMakeRect(mx, mb, btnW, bh)];
+    [saveSrtButton  setFrame:NSMakeRect(mx + (btnW + btnGap), mb, btnW, bh)];
+    [saveVttButton  setFrame:NSMakeRect(mx + (btnW + btnGap) * 2, mb, btnW, bh)];
+
+    NSSize copySz = [copyTextButton frame].size;
+    [copyTextButton setFrame:NSMakeRect(mx + (btnW + btnGap) * 3, mb,
+                                        copySz.width, bh)];
 }
 
 - (void)windowDidResize:(NSNotification *)notification
