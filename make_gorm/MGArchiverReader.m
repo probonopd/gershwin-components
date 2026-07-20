@@ -2,12 +2,13 @@
  * Copyright (c) 2026 Simon Peter
  *
  * SPDX-License-Identifier: BSD-2-Clause
- * NSArchiver binary parser.
- * GSC-tagged value parser for structured output (zero hex).
+ * NSArchiver binary parser using NSUnarchiver with real display.
+ * Decompile uses X11 display; compile is headless (MGCompiler).
  */
 #import "MGArchiverReader.h"
 #import "MGTypes.h"
 #import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 #import <objc/runtime.h>
 
 #define PREFIX "GNUstep archive"
@@ -20,294 +21,18 @@ static inline uint32_t r32(const uint8_t *b) {
        | (uint32_t)b[2] << 8  | (uint32_t)b[3];
 }
 
-static unsigned cSkipOne(const uint8_t *b, unsigned len, unsigned p);
-static unsigned cSkipFull(const uint8_t *b, unsigned len, unsigned p);
-
-/* cSkipFull: skip a complete value, recursing for _GSC_ID without xref
- * (skips class hierarchy + nested data). */
-static unsigned cSkipFull(const uint8_t *b, unsigned len, unsigned p) {
-  if (p >= len) return p;
-  uint8_t t = b[p];
-  if ((t & 0x1f) == 0x10 && !(t & 0x80)) {
-    p++; /* skip ID tag */
-    unsigned xl = (t & 0x60) == 0x20 ? 1 : (t & 0x60) == 0x40 ? 2 : (t & 0x60) == 0x60 ? 4 : 0;
-    p += xl;
-    /* Skip class hierarchy */
-    while (p < len) {
-      uint8_t ct = b[p];
-      if ((ct & 0x1f) != 0x11) break;
-      p++;
-      unsigned cl = (ct & 0x60) == 0x20 ? 1 : (ct & 0x60) == 0x40 ? 2 : (ct & 0x60) == 0x60 ? 4 : 0;
-      p += cl;
-      if (p + 2 > len) return len;
-      unsigned nl = r16(b + p); p += 2 + nl + 4;
-    }
-    if (p < len && b[p] == 0) p++;
-    /* Skip data: skip values and recursively handle nested _GSC_ID defs */
-    int limit = 10000000;
-    while (p < len && limit-- > 0) {
-      uint8_t ct = b[p];
-      if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) {
-        unsigned old = p;
-        p = cSkipFull(b, len, p);
-        if (p <= old) { p++; break; }
-        continue;
-      }
-      unsigned old = p;
-      p = cSkipOne(b, len, p);
-      if (p <= old) { p++; break; }
-    }
-    return p;
-  }
-  return cSkipOne(b, len, p);
-}
-
-/* cSkipOne: skip a single GSC-tagged value (no _GSC_ID recursion). */
-static unsigned cSkipOne(const uint8_t *b, unsigned len, unsigned p) {
-  if (p >= len) return p;
-  uint8_t t = b[p++];
-  uint8_t m = t & 0x1f;
-  uint8_t sz = t & 0x60;
-  if (t & 0x80) {
-    if (sz == 0x20) return p + 1;
-    if (sz == 0x40) return p + 2;
-    if (sz == 0x60) return p + 4;
-    return p;
-  }
-  switch (m) {
-    case 0x00: return p + 1;
-    case 0x01: case 0x02: case 0x0d: return p + 1;
-    case 0x03: case 0x04: return p + 2;
-    case 0x05: case 0x06: case 0x07: case 0x08:
-      if (sz == 0x00) return p + 2;
-      if (sz == 0x20) return p + 4;
-      if (sz == 0x40) return p + 8;
-      return p + 4;
-    case 0x09: case 0x0a: return p + 8;
-    case 0x0b: return p + 4;
-    case 0x0c: return p + 8;
-    case 0x10: case 0x11: case 0x17: {
-      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
-      return p + xl;
-    }
-    case 0x12: case 0x14: {
-      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
-      if (p + xl + 2 > len) return len;
-      p += xl;
-      return p + 2 + r16(b + p);
-    }
-    case 0x13: {
-      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
-      return p + xl;
-    }
-    case 0x15: {
-      if (p + 4 > len) return len;
-      unsigned cnt = r32(b + p); p += 4;
-      /* Read element type tag to determine byte size per element */
-      if (p >= len) return len;
-      uint8_t et = b[p]; p++;
-      unsigned esz = 0;
-      switch (et & 0x1f) {
-        case 0x01: case 0x02: case 0x0d: esz = 1; break;
-        case 0x03: case 0x04: esz = 2; break;
-        case 0x05: case 0x06: case 0x07: case 0x08:
-          esz = ((et & 0x60) == 0x00) ? 2 : ((et & 0x60) == 0x20) ? 4 : ((et & 0x60) == 0x40) ? 8 : 4;
-          break;
-        case 0x09: case 0x0a: esz = 8; break;
-        case 0x0b: esz = 4; break;
-        case 0x0c: esz = 8; break;
-        default: esz = 1; break;
-      }
-      unsigned total = cnt * esz;
-      if (p + total > len) total = len - p;
-      p += total;
-      return p;
-    }
-    case 0x16: {
-      while (p < len) {
-        uint8_t ct = b[p];
-        if (ct == 0) { p++; break; }
-        if ((ct & 0x1f) == 0x15) break;
-        unsigned old = p;
-        p = cSkipOne(b, len, p);
-        if (p <= old) break;
-      }
-      return p;
-    }
-    default: return p;
-  }
-}
-
-/* Read one MGValue from GSC-tagged stream. For _GSC_ID without xref,
- * reads crossref, skips class hierarchy + data via cSkipFull, returns ref MGValue. */
-static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
-  if (*posp >= len) return nil;
-  unsigned p = *posp;
-  uint8_t tag = b[p++];
-  uint8_t base = tag & 0x1f;
-  uint8_t sz = tag & 0x60;
-  MGValue *val = [[MGValue alloc] init];
-  val.tag = tag;
-
-  if (tag & 0x80) {
-    if (sz != 0x00) {
-      if (sz == 0x20) { val.xref = b[p]; p += 1; }
-      else if (sz == 0x40) { val.xref = (b[p]<<8)|b[p+1]; p += 2; }
-      else if (sz == 0x60) { val.xref = r32(b + p); p += 4; }
-    }
-    *posp = p; return AUTORELEASE(val);
-  }
-
-  switch (base) {
-    case 0x00: break;
-    case 0x01: if (p < len) { val.intValue = (int64_t)(int8_t)b[p]; p++; } break;
-    case 0x02: if (p < len) { val.uintValue = b[p]; p++; } break;
-    case 0x0d: if (p < len) { val.boolValue = b[p] != 0; p++; } break;
-    case 0x03: case 0x04: {
-      if (p + 2 <= len) {
-        unsigned v = (b[p]<<8)|b[p+1];
-        if (base == 0x03) val.intValue = (int64_t)(int16_t)v;
-        else val.uintValue = v;
-        p += 2;
-      }
-      break;
-    }
-    case 0x05: case 0x06: case 0x07: case 0x08: {
-      unsigned nb = (sz == 0x00) ? 2 : (sz == 0x20) ? 4 : (sz == 0x40) ? 8 : 4;
-      if (p + nb <= len) {
-        uint64_t v = 0;
-        for (unsigned i = 0; i < nb; i++) v = (v << 8) | b[p + i];
-        p += nb;
-        if (base == 0x05 || base == 0x07) {
-          if (nb == 2) v = (uint64_t)(int64_t)(int16_t)(uint16_t)v;
-          else if (nb == 4) v = (uint64_t)(int64_t)(int32_t)(uint32_t)v;
-          val.intValue = (int64_t)v;
-        } else val.uintValue = v;
-      }
-      break;
-    }
-    case 0x09: if (p + 8 <= len) {
-      uint64_t raw = (uint64_t)b[p]<<56|(uint64_t)b[p+1]<<48|(uint64_t)b[p+2]<<40
-                   |(uint64_t)b[p+3]<<32|(uint64_t)b[p+4]<<24|(uint64_t)b[p+5]<<16
-                   |(uint64_t)b[p+6]<<8|(uint64_t)b[p+7];
-      val.intValue = (int64_t)raw; p += 8;
-    } break;
-    case 0x0a: if (p + 8 <= len) {
-      uint64_t raw = (uint64_t)b[p]<<56|(uint64_t)b[p+1]<<48|(uint64_t)b[p+2]<<40
-                   |(uint64_t)b[p+3]<<32|(uint64_t)b[p+4]<<24|(uint64_t)b[p+5]<<16
-                   |(uint64_t)b[p+6]<<8|(uint64_t)b[p+7];
-      val.uintValue = raw; p += 8;
-    } break;
-    case 0x0b: if (p + 4 <= len) {
-      uint32_t bits = r32(b + p); float f; memcpy(&f, &bits, 4);
-      val.floatValue = f; p += 4;
-    } break;
-    case 0x0c: if (p + 8 <= len) {
-      uint64_t bits = (uint64_t)b[p]<<56|(uint64_t)b[p+1]<<48|(uint64_t)b[p+2]<<40
-                     |(uint64_t)b[p+3]<<32|(uint64_t)b[p+4]<<24|(uint64_t)b[p+5]<<16
-                     |(uint64_t)b[p+6]<<8|(uint64_t)b[p+7];
-      double d; memcpy(&d, &bits, 8); val.doubleValue = d; p += 8;
-    } break;
-    case 0x10: case 0x11: case 0x17: {
-      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
-      if (xl > 0 && p + xl <= len) {
-        if (xl == 1) val.xref = b[p];
-        else if (xl == 2) val.xref = (b[p]<<8)|b[p+1];
-        else if (xl == 4) val.xref = r32(b + p);
-        p += xl;
-      }
-      /* _GSC_ID without xref: skip via cSkipFull (handles class hierarchy + nested data) */
-      if (base == 0x10 && !(tag & 0x80)) {
-        p = cSkipFull(b, len, p);
-      }
-      break;
-    }
-    case 0x12: case 0x14: {
-      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
-      p += xl;
-      if (p + 2 <= len) {
-        unsigned sl = r16(b + p); p += 2;
-        if (sl > 0 && p + sl <= len) {
-          val.stringValue = [[[NSString alloc] initWithBytes:b+p length:sl encoding:NSUTF8StringEncoding] autorelease];
-          p += sl;
-        }
-      }
-      break;
-    }
-    case 0x13: {
-      unsigned xl = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 0;
-      p += xl; break;
-    }
-    case 0x15: {
-      if (p + 4 <= len) {
-        unsigned cnt = r32(b + p); p += 4;
-        val.children = [NSMutableArray array];
-        if (p >= len) break;
-        uint8_t et = b[p]; p++;
-        uint8_t eb = et & 0x1f, esz = et & 0x60;
-        for (unsigned i = 0; i < cnt && p < len; i++) {
-          MGValue *child = [[MGValue alloc] init];
-          child.tag = et;
-          switch (eb) {
-            case 0x01: if (p < len) { child.intValue = (int64_t)(int8_t)b[p]; p++; } break;
-            case 0x02: case 0x0d: if (p < len) { child.uintValue = b[p]; p++; } break;
-            case 0x03: case 0x04: {
-              if (p + 2 <= len) { unsigned v = (b[p]<<8)|b[p+1];
-                if (eb == 0x03) child.intValue = (int64_t)(int16_t)v;
-                else child.uintValue = v; p += 2; } break;
-            }
-            case 0x05: case 0x06: case 0x07: case 0x08: {
-              unsigned nb = (esz == 0x00) ? 2 : (esz == 0x20) ? 4 : (esz == 0x40) ? 8 : 4;
-              if (p + nb <= len) {
-                uint64_t v = 0;
-                for (unsigned j = 0; j < nb; j++) v = (v << 8) | b[p + j];
-                p += nb;
-                if (eb == 0x05 || eb == 0x07) child.intValue = (int64_t)v;
-                else child.uintValue = v;
-              } break;
-            }
-            case 0x09: case 0x0a: if (p + 8 <= len) {
-              uint64_t raw = (uint64_t)b[p]<<56|(uint64_t)b[p+1]<<48|(uint64_t)b[p+2]<<40|(uint64_t)b[p+3]<<32|(uint64_t)b[p+4]<<24|(uint64_t)b[p+5]<<16|(uint64_t)b[p+6]<<8|(uint64_t)b[p+7];
-              if (eb == 0x09) child.intValue = (int64_t)raw;
-              else child.uintValue = raw; p += 8;
-            } break;
-            case 0x0b: if (p + 4 <= len) {
-              uint32_t bits = r32(b+p); float f; memcpy(&f,&bits,4); child.floatValue = f; p += 4;
-            } break;
-            case 0x0c: if (p + 8 <= len) {
-              uint64_t bits = (uint64_t)b[p]<<56|(uint64_t)b[p+1]<<48|(uint64_t)b[p+2]<<40|(uint64_t)b[p+3]<<32|(uint64_t)b[p+4]<<24|(uint64_t)b[p+5]<<16|(uint64_t)b[p+6]<<8|(uint64_t)b[p+7];
-              double d; memcpy(&d,&bits,8); child.doubleValue = d; p += 8;
-            } break;
-            default: break;
-          }
-          [val.children addObject:child]; RELEASE(child);
-        }
-      }
-      break;
-    }
-    case 0x16: {
-      val.children = [NSMutableArray array];
-      int limit = 10000;
-      while (p < len && limit-- > 0) {
-        uint8_t ct = b[p];
-        if (ct == 0) { p++; break; }
-        if ((ct & 0x1f) == 0x15) break;
-        unsigned old = p;
-        MGValue *child = readRawValue(b, len, &p);
-        if (child && !([child.objectValue isKindOfClass:[NSData class]] && [(NSData *)child.objectValue length] == 0)) {
-          [val.children addObject:child];
-        }
-        if (p <= old) { p++; break; }
-      }
-      break;
-    }
-    default: break;
-  }
-  *posp = p;
-  return AUTORELEASE(val);
-}
-
 @implementation MGArchiverReader
+
+/* Initialize NSApp with the real X11 display server */
++ (void)ensureApp
+{
+  static BOOL ready = NO;
+  if (ready) return;
+  ready = YES;
+  [[NSUserDefaults standardUserDefaults] setObject:@"xlib" forKey:@"GSBackend"];
+  [[NSUserDefaults standardUserDefaults] synchronize];
+  [NSApplication sharedApplication];
+}
 
 - (MGArchive *)parseArchiveFromData:(NSData *)data error:(NSError **)error
 {
@@ -341,22 +66,153 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
   archive.classDefs = [NSMutableArray array];
   archive.objects = [NSMutableArray array];
 
-  /* Flat parse with MGValue tree extraction (zero hex output) */
-  [self _flatParse:data into:archive];
+  [[self class] ensureApp];
+
+  /* Try NSUnarchiver. On failure (unknown classes), fall back to flat parse. */
+  BOOL usedUnarchiver = NO;
+  @try {
+    NSUnarchiver *unarchiver;
+    unarchiver = [[NSUnarchiver alloc] initForReadingWithData:data];
+    id root = [unarchiver decodeObject];
+    RELEASE(unarchiver);
+
+    if (root) {
+      usedUnarchiver = YES;
+      NSMutableDictionary *ptrToId = [NSMutableDictionary dictionary];
+      NSMutableArray *objList = [NSMutableArray array];
+      [self _walk:root map:ptrToId list:objList];
+
+      for (id decoded in objList) {
+        MGArchiveObject *ao = [[MGArchiveObject alloc] init];
+        ao.objectId = (int32_t)([objList indexOfObject:decoded] + 1);
+        ao.decodedObject = decoded;
+        ao.className = decoded ? NSStringFromClass([decoded class]) : @"(null)";
+        ao.namedProperties = [NSMutableDictionary dictionary];
+        if (decoded)
+          [self _extractProperties:decoded into:ao.namedProperties ptrToId:ptrToId];
+        [archive.objects addObject:ao];
+        RELEASE(ao);
+      }
+
+      NSMutableSet *seen = [NSMutableSet set];
+      for (MGArchiveObject *ao in archive.objects) {
+        if (ao.className && ![seen containsObject:ao.className]) {
+          [seen addObject:ao.className];
+          MGClassDef *cd = [[MGClassDef alloc] init];
+          cd.name = ao.className; cd.version = 0;
+          [archive.classDefs addObject:cd]; RELEASE(cd);
+        }
+      }
+    }
+  } @catch (NSException *e) {
+    /* NSUnarchiver failed — fall through to flat parse */
+  }
+
+  if (!usedUnarchiver) {
+    [self _flatParse:data into:archive];
+  }
 
   return AUTORELEASE(archive);
 }
 
+/* Walk decoded objects via ivar introspection, assign IDs in encounter order */
+- (void)_walk:(id)obj map:(NSMutableDictionary *)map list:(NSMutableArray *)list
+{
+  if (!obj) return;
+  NSValue *key = [NSValue valueWithPointer:(const void *)obj];
+  if ([map objectForKey:key]) return;
+  [map setObject:@([list count] + 1) forKey:key];
+  [list addObject:obj];
+
+  unsigned cnt = 0;
+  Ivar *ivars = class_copyIvarList([obj class], &cnt);
+  for (unsigned i = 0; i < cnt; i++) {
+    const char *type = ivar_getTypeEncoding(ivars[i]);
+    if (type && *type == _C_ID) {
+      id val = object_getIvar(obj, ivars[i]);
+      [self _walk:val map:map list:list];
+    }
+  }
+  free(ivars);
+  if ([obj isKindOfClass:[NSArray class]]) {
+    for (id e in (NSArray *)obj) [self _walk:e map:map list:list];
+  } else if ([obj isKindOfClass:[NSDictionary class]]) {
+    for (id k in [(NSDictionary *)obj allKeys]) {
+      [self _walk:[(NSDictionary *)obj objectForKey:k] map:map list:list];
+      [self _walk:k map:map list:list];
+    }
+  } else if ([obj isKindOfClass:[NSSet class]]) {
+    for (id e in (NSSet *)obj) [self _walk:e map:map list:list];
+  }
+}
+
+/* Extract ivar values as named properties with @N references */
+- (void)_extractProperties:(id)obj into:(NSMutableDictionary *)props
+                    ptrToId:(NSDictionary *)ptrToId
+{
+  unsigned cnt = 0;
+  Ivar *ivars = class_copyIvarList([obj class], &cnt);
+  for (unsigned i = 0; i < cnt; i++) {
+    NSString *name = [NSString stringWithUTF8String:ivar_getName(ivars[i])];
+    const char *type = ivar_getTypeEncoding(ivars[i]);
+    if (!type) continue;
+    id value = nil;
+    ptrdiff_t off = ivar_getOffset(ivars[i]);
+    void *ptr = (char *)obj + off;
+    switch (*type) {
+      case _C_ID: {
+        id iv = object_getIvar(obj, ivars[i]);
+        if (!iv) { value = [NSNull null]; break; }
+        NSValue *k = [NSValue valueWithPointer:(const void *)iv];
+        NSNumber *rid = [ptrToId objectForKey:k];
+        value = rid ? [NSString stringWithFormat:@"@%d", [rid intValue]] : [iv description];
+        break;
+      }
+      case _C_CLASS: { Class c = *(Class *)ptr; value = c ? NSStringFromClass(c) : (id)[NSNull null]; break; }
+      case _C_SEL:   { SEL s = *(SEL *)ptr; value = s ? NSStringFromSelector(s) : (id)[NSNull null]; break; }
+      case _C_CHR:  value = [NSNumber numberWithChar:*(char *)ptr]; break;
+      case _C_UCHR: value = [NSNumber numberWithUnsignedChar:*(unsigned char *)ptr]; break;
+      case _C_SHT:  value = [NSNumber numberWithShort:*(short *)ptr]; break;
+      case _C_USHT: value = [NSNumber numberWithUnsignedShort:*(unsigned short *)ptr]; break;
+      case _C_INT:  value = [NSNumber numberWithInt:*(int *)ptr]; break;
+      case _C_UINT: value = [NSNumber numberWithUnsignedInt:*(unsigned int *)ptr]; break;
+      case _C_LNG:  value = [NSNumber numberWithLong:*(long *)ptr]; break;
+      case _C_ULNG: value = [NSNumber numberWithUnsignedLong:*(unsigned long *)ptr]; break;
+      case _C_LNG_LNG:  value = [NSNumber numberWithLongLong:*(long long *)ptr]; break;
+      case _C_ULNG_LNG: value = [NSNumber numberWithUnsignedLongLong:*(unsigned long long *)ptr]; break;
+      case _C_FLT:  value = [NSNumber numberWithFloat:*(float *)ptr]; break;
+      case _C_DBL:  value = [NSNumber numberWithDouble:*(double *)ptr]; break;
+      case _C_BOOL: { BOOL bv = *(BOOL *)ptr; value = [[[MGBoolBox alloc] initWithBool:bv] autorelease]; break; }
+      case _C_CHARPTR: {
+        char *s = *(char **)ptr;
+        value = s ? [NSString stringWithUTF8String:s] : (id)[NSNull null];
+        break;
+      }
+      default: {
+        NSUInteger size = 0, align = 0;
+        NSGetSizeAndAlignment(type, &size, &align);
+        if (size > 0 && size < 4096)
+          value = [NSData dataWithBytes:ptr length:size];
+        break;
+      }
+    }
+    if (value) [props setObject:value forKey:name];
+  }
+  free(ivars);
+}
+
+/* Flat parse fallback: finds objects via GSC_ID scanning */
 - (void)_flatParse:(NSData *)data into:(MGArchive *)archive
 {
   const uint8_t *b = [data bytes];
   unsigned len = (unsigned)[data length];
   unsigned p = strlen(PREFIX) + 36;
-
-  NSMutableSet *seenIds = [NSMutableSet set];
+  unsigned first = 1;
   while (p < len) {
     uint8_t bt = b[p];
     if (bt != 0x30 && bt != 0x50 && bt != 0x70) { p++; continue; }
+    if (!first) break;
+    first = 0;
     uint8_t tag = b[p]; p++;
     uint32_t oid = 0;
     switch (tag & 0x60) {
@@ -367,67 +223,36 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
     }
     unsigned ce = p;
     NSString *cn = [self _readClsName:b len:len pos:p end:&ce];
-    if (cn && [seenIds containsObject:@(oid)]) {
-      p = ce; p = cSkipFull(b, len, p); continue;
-    }
-    if (cn && oid > 0) [seenIds addObject:@(oid)];
     if (!cn) cn = @"(null)";
     p = ce;
-    /* Data from here to EOF (flat parse stores raw for round-trip) */
-    /* Find data boundary: next _GSC_ID followed by _GSC_CLASS (real object def).
-     * Include its tag+crossref in data. */
-    unsigned ds = p, de = len, scan = p;
-    while (scan < len) {
-      uint8_t ct = b[scan];
-      if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) {
-        unsigned xl = (ct & 0x60) == 0x20 ? 1 : (ct & 0x60) == 0x40 ? 2 : (ct & 0x60) == 0x60 ? 4 : 0;
-        /* Validate: next byte after crossref should be CLASS tag (real object) */
-        unsigned next = scan + 1 + xl;
-        if (next < len && (b[next] & 0x1f) == 0x11) {
-          de = scan + 1 + xl; break;
-        }
-        scan = next; continue;
-      }
-      unsigned old = scan;
-      scan = cSkipOne(b, len, scan);
-      if (scan <= old) { scan = old + 1; }
-    }
+    unsigned ds = p, de = len;
     MGArchiveObject *obj = [[MGArchiveObject alloc] init];
     obj.objectId = (int32_t)oid;
     obj.className = cn;
     obj.encodedValues = [NSMutableArray array];
     if (de > ds) {
-      /* Parse raw data into MGValue trees immediately (NO hex storage) */
       NSData *raw = [data subdataWithRange:NSMakeRange(ds, de - ds)];
-      NSError *pe = nil;
-      NSArray *parsed = [[self class] parseValuesFromRawData:raw error:&pe];
-      if (parsed && [parsed count] > 0) {
-        [obj.encodedValues addObjectsFromArray:parsed];
+      if ([raw length] > 0 && [raw length] < 5000) {
+        NSError *pe = nil;
+        NSArray *vals = [[self class] parseValuesFromRawData:raw error:&pe];
+        if (vals) [obj.encodedValues addObjectsFromArray:vals];
       }
     }
     [archive.objects addObject:obj]; RELEASE(obj);
-    /* Skip sub-object's full definition if our data was just a reference */
-    if (de - ds > 0 && de - ds < 10 && p < len) {
-      uint8_t ct = b[p];
-      if ((ct & 0x1f) == 0x11) { /* starts with CLASS = sub-object definition */
-        p = cSkipFull(b, len, p);
-      }
-    } else {
-      p = de;
-    }
+    break;
   }
 }
 
 - (NSString *)_readClsName:(const uint8_t *)b len:(unsigned)len pos:(unsigned)p end:(unsigned *)end
 {
   if (p >= len || (b[p] & 0x1f) != 0x11) { *end = p; return nil; }
-  NSString *firstName = nil;
+  NSString *fn = nil;
   while (p < len && (b[p] & 0x1f) == 0x11) {
     uint8_t tag = b[p]; p++;
     switch (tag & 0x60) {
       case 0x20: p += 1; break;
-      case 0x40: r16(b + p); p += 2; break;
-      case 0x60: r32(b + p); p += 4; break;
+      case 0x40: p += 2; break;
+      case 0x60: p += 4; break;
     }
     if (p + 2 > len) { *end = len; return nil; }
     uint16_t nl = (b[p]<<8)|b[p+1]; p += 2;
@@ -435,31 +260,69 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp) {
     char buf[nl + 1];
     memcpy(buf, b + p, nl); buf[nl] = '\0';
     p += nl + 4;
-    if (!firstName) firstName = [NSString stringWithUTF8String:buf];
+    if (!fn) fn = [NSString stringWithUTF8String:buf];
   }
   if (p < len && b[p] == 0) p++;
   *end = p;
-  return firstName;
+  return fn;
 }
 
-+ (NSArray *)parseValuesFromRawData:(NSData *)data error:(NSError **)error
+/* Scan archive for GSC_CLASS entries and map unknown classes to NSObject.
+ * Walks the byte stream skipping _GSC_ID tags and class hierarchies. */
+- (void)_mapUnknownClasses:(NSData *)data unarchiver:(NSUnarchiver *)un
 {
   const uint8_t *b = [data bytes];
   unsigned len = (unsigned)[data length];
-  unsigned pos = 0;
-  NSMutableArray *result = [NSMutableArray array];
-
-  while (pos < len) {
-    unsigned saved = pos;
-    MGValue *val = readRawValue(b, len, &pos);
-    if (!val || pos <= saved) {
-      if (error) *error = [NSError errorWithDomain:@"MGReader"
-        code:1 userInfo:@{NSLocalizedDescriptionKey: @"Parse error"}];
-      return nil;
+  NSMutableSet *checked = [NSMutableSet set];
+  unsigned p = strlen(PREFIX) + 36;
+  while (p < len) {
+    uint8_t t = b[p];
+    if ((t & 0x1f) == 0x11) { /* GSC_CLASS tag */
+      p++;
+      unsigned xl = ((t & 0x60) == 0x20) ? 1 : ((t & 0x60) == 0x40) ? 2 : ((t & 0x60) == 0x60) ? 4 : 0;
+      p += xl;
+      if (p + 2 > len) break;
+      unsigned nl = (b[p]<<8)|b[p+1]; p += 2;
+      if (p + nl > len) break;
+      char buf[nl + 1];
+      memcpy(buf, b + p, nl); buf[nl] = '\0';
+      p += nl + 4;
+      NSString *cn = [NSString stringWithUTF8String:buf];
+      if (cn && ![checked containsObject:cn]) {
+        [checked addObject:cn];
+        if (NSClassFromString(cn) == nil)
+          [un decodeClassName:cn asClassName:@"NSObject"];
+      }
+      continue;
     }
-    [result addObject:val];
+    if ((t & 0x1f) == 0x10 && !(t & 0x80)) { /* GSC_ID without xref: skip class hierarchy */
+      p++;
+      unsigned xl = ((t & 0x60) == 0x20) ? 1 : ((t & 0x60) == 0x40) ? 2 : ((t & 0x60) == 0x60) ? 4 : 0;
+      p += xl;
+      while (p < len) {
+        uint8_t ct = b[p];
+        if ((ct & 0x1f) != 0x11) break;
+        p++;
+        unsigned cl = ((ct & 0x60) == 0x20) ? 1 : ((ct & 0x60) == 0x40) ? 2 : ((ct & 0x60) == 0x60) ? 4 : 0;
+        p += cl;
+        if (p + 2 > len) break;
+        unsigned nl = (b[p]<<8)|b[p+1]; p += 2;
+        if (p + nl > len) break;
+        char buf[nl + 1];
+        memcpy(buf, b + p, nl); buf[nl] = '\0';
+        p += nl + 4;
+        NSString *cn = [NSString stringWithUTF8String:buf];
+        if (cn && ![checked containsObject:cn]) {
+          [checked addObject:cn];
+          if (NSClassFromString(cn) == nil)
+            [un decodeClassName:cn asClassName:@"NSObject"];
+        }
+      }
+      if (p < len && b[p] == 0) p++; /* GSC_NONE */
+      continue;
+    }
+    p++;
   }
-  return AUTORELEASE([result copy]);
 }
 
 @end

@@ -643,6 +643,7 @@ static NSString *_formatValue(id val, NSUInteger indent)
             {
               id val = [obj.namedProperties objectForKey:key];
               if ([key isEqualToString:@"class"]) continue;
+              if ([val isKindOfClass:[NSData class]]) continue;
               [output appendFormat:@"    %@ = %@;\n",
                 key, _formatValue(val, 1)];
             }
