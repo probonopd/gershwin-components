@@ -354,7 +354,51 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     showTimestamps = [[NSUserDefaults standardUserDefaults] boolForKey:@"ShowTimestamps"];
     [showTimestampsCheckbox setState:(showTimestamps ? NSOnState : NSOffState)];
 
+    // Refresh checkmarks on model, language, and threads menus now that
+    // saved preferences have been loaded.
+    [self refreshMenuCheckmarks];
+
     [self updateUIForState];
+
+    // ── Start-up dependency checks (before showing window) ────
+    NSString *fail = nil;
+
+    if (![self findTool:@"whisper-cli"]) {
+        NSString *sp = [[NSBundle mainBundle] pathForResource:@"build-whisper" ofType:@"sh"];
+        if (!sp) sp = @"Whisper.app/Resources/build-whisper.sh";
+        fail = [NSString stringWithFormat:
+            @"The whisper.cpp speech recognition engine is not installed.\n\n"
+            @"Run the build script to build and install it:\n\n"
+            @"  sudo sh %@\n\n"
+            @"This will clone, build, and install whisper.cpp with GPU acceleration.", sp];
+    } else if (![self findTool:@"xdotool"]) {
+        fail = @"The xdotool tool is required for auto-typing into other windows.\n\n"
+               @"Install it with your package manager:\n\n"
+               @"  Debian/Ubuntu:  sudo apt install xdotool\n"
+               @"  Arch:           sudo pacman -S xdotool\n"
+               @"  FreeBSD:        sudo pkg install xdotool\n"
+               @"  OpenBSD:        doas pkg_add xdotool";
+    } else {
+        NSString *mn = [[NSUserDefaults standardUserDefaults] stringForKey:@"LastModel"];
+        if (mn) {
+            NSString *mp = [self modelPathForName:mn];
+            if (![[NSFileManager defaultManager] fileExistsAtPath:mp])
+                fail = [NSString stringWithFormat:
+                    @"The %@ model has not been downloaded yet.\n\n"
+                    @"Select a model from the Whisper menu and download it.", mn];
+        }
+    }
+
+    if (fail) {
+        NSAlert *a = [[NSAlert alloc] init];
+        [a setMessageText:@"Missing dependencies"];
+        [a setInformativeText:fail];
+        [a addButtonWithTitle:@"Quit"];
+        [a runModal];
+        [a release];
+        [NSApp terminate:nil];
+        return;
+    }
 
     [mainWindow center];
     [mainWindow makeKeyAndOrderFront:self];
@@ -1176,7 +1220,6 @@ static const unsigned long long modelMinSizes[] = {
     }
 
     NSLog(@"stopRecording: stopping capture...");
-    [self playSubmarineSound];
     [recordTimer invalidate];
     [recordTimer release];
     recordTimer = nil;
@@ -1186,6 +1229,7 @@ static const unsigned long long modelMinSizes[] = {
 
     WCaptureData *capData = wcapture_stop(captureHandle);
     captureHandle = NULL;
+    [self playSubmarineSound];
 
     if (!capData || capData->n_samples == 0) {
         NSLog(@"stopRecording: no audio captured");
@@ -1951,6 +1995,41 @@ static const unsigned long long modelMinSizes[] = {
     [mainMenu release];
 }
 
+#pragma mark - Menu Checkmarks
+
+- (void)refreshMenuCheckmarks
+{
+    NSString *savedModel = [[NSUserDefaults standardUserDefaults] stringForKey:@"LastModel"];
+    NSString *savedLang  = [[NSUserDefaults standardUserDefaults] stringForKey:@"LastLanguage"];
+
+    NSMenu *mainMenu = [NSApp mainMenu];
+    NSMenuItem *appItem = [[mainMenu itemArray] objectAtIndex:0];
+    NSMenu *appMenu = [appItem submenu];
+
+    for (NSMenuItem *item in [appMenu itemArray]) {
+        // Model submenu
+        if ([[item title] isEqualToString:@"Model"]) {
+            for (NSMenuItem *mi in [[item submenu] itemArray]) {
+                [mi setState:[[mi representedObject] isEqualToString:savedModel]
+                    ? NSOnState : NSOffState];
+            }
+        }
+        // Threads submenu
+        if ([[item title] isEqualToString:@"Threads"]) {
+            for (NSMenuItem *mi in [[item submenu] itemArray]) {
+                [mi setState:([mi tag] == currentThreads) ? NSOnState : NSOffState];
+            }
+        }
+        // Language submenu
+        if ([[item title] isEqualToString:@"Language"]) {
+            for (NSMenuItem *mi in [[item submenu] itemArray]) {
+                [mi setState:[[mi representedObject] isEqualToString:savedLang]
+                    ? NSOnState : NSOffState];
+            }
+        }
+    }
+}
+
 #pragma mark - UI Creation
 
 - (void)createUI
@@ -2223,7 +2302,7 @@ static const unsigned long long modelMinSizes[] = {
     [task setLaunchPath:xdoPath];
     NSString *winArg = [NSString stringWithFormat:@"%lu", targetWindowID];
     [task setArguments:[NSArray arrayWithObjects:
-        @"type", @"--clearmodifiers", @"--delay", @"0",
+        @"type", @"--clearmodifiers", @"--delay", @"12",
         @"--window", winArg, text, nil]];
     [task launch];
     [task waitUntilExit];
