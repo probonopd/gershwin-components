@@ -63,12 +63,22 @@ build_whisper() {
 
     cd "$tmpdir"
     echo "==> Configuring with Vulkan GPU support"
-    cmake -B build -S . \
+    if cmake -B build -S . \
         -DCMAKE_BUILD_TYPE=Release \
         -DGGML_VULKAN=ON \
         -DGGML_CUDA=OFF \
         -DGGML_METAL=OFF \
-        -DGGML_SYCL=OFF
+        -DGGML_SYCL=OFF 2>/dev/null; then
+        echo "==> Vulkan enabled"
+    else
+        echo "==> Vulkan not available, falling back to CPU-only"
+        cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_VULKAN=OFF \
+            -DGGML_CUDA=OFF \
+            -DGGML_METAL=OFF \
+            -DGGML_SYCL=OFF
+    fi
 
     echo "==> Building (${JOBS} jobs)"
     cmake --build build -j "$JOBS"
