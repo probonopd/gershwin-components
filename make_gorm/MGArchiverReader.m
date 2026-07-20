@@ -317,12 +317,50 @@ static inline uint32_t r32(const uint8_t *b) {
 
 #pragma mark - Raw data value parser
 
-/* C-level skip for a single GSC value (recurses into arrays/structs). */
+/* C-level skip for a single GSC value (recurses into arrays/structs).
+ * For _GSC_ID without xref, skips class hierarchy + data. */
+static unsigned cSkipOne(const uint8_t *b, unsigned len, unsigned p);
+static unsigned cSkipFull(const uint8_t *b, unsigned len, unsigned p) {
+  if (p >= len) return p;
+  uint8_t t = b[p];
+  if ((t & 0x1f) == 0x10 && !(t & 0x80)) {
+    p++; /* skip ID tag */
+    unsigned xl = (t & 0x60) == 0x20 ? 1 : (t & 0x60) == 0x40 ? 2 : (t & 0x60) == 0x60 ? 4 : 0;
+    p += xl; /* skip crossref */
+    /* Skip class hierarchy */
+    while (p < len) {
+      uint8_t ct = b[p];
+      if ((ct & 0x1f) != 0x11) break;
+      p++;
+      unsigned cl = ((ct & 0x60) == 0x20) ? 1 : ((ct & 0x60) == 0x40) ? 2 : ((ct & 0x60) == 0x60) ? 4 : 0;
+      p += cl;
+      if (p + 2 > len) return len;
+      unsigned nl = r16(b + p); p += 2 + nl + 4;
+    }
+    if (p < len && b[p] == 0) p++;
+    /* Skip data until next _GSC_ID without xref */
+    while (p < len) {
+      uint8_t ct = b[p];
+      if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) break;
+      unsigned old = p;
+      p = cSkipOne(b, len, p);
+      if (p <= old) { p++; break; }
+    }
+    return p;
+  }
+  return cSkipOne(b, len, p);
+}
+
 static unsigned cSkipOne(const uint8_t *b, unsigned len, unsigned p) {
   if (p >= len) return p;
   uint8_t t = b[p++];
   uint8_t m = t & 0x1f;
   uint8_t sz = t & 0x60;
+  /* _GSC_ID without xref: skip full object def via cSkipFull */
+  if (m == 0x10 && !(t & 0x80)) {
+    p--;
+    return cSkipFull(b, len, p);
+  }
   if (t & 0x80) {
     if (sz == 0x20) return p + 1;
     if (sz == 0x40) return p + 2;
@@ -330,12 +368,14 @@ static unsigned cSkipOne(const uint8_t *b, unsigned len, unsigned p) {
     return p;
   }
   switch (m) {
+    case 0x00: return p + 1;  /* skip GSC_NONE padding byte */
     case 0x01: case 0x02: case 0x0d: return p + 1;
     case 0x03: case 0x04: return p + 2;
     case 0x05: case 0x06: case 0x07: case 0x08:
-      if (sz == 0x20) return p + 1;
-      if (sz == 0x40) return p + 2;
-      if (sz == 0x60) return p + 4;
+      /* Integer width: I16=0x00→2 bytes, I32=0x20→4, I64=0x40→8 */
+      if (sz == 0x00) return p + 2;
+      if (sz == 0x20) return p + 4;
+      if (sz == 0x40) return p + 8;
       return p + 4;
     case 0x09: case 0x0a: return p + 8;
     case 0x0b: return p + 4;
@@ -357,15 +397,21 @@ static unsigned cSkipOne(const uint8_t *b, unsigned len, unsigned p) {
     case 0x15: {
       if (p + 4 > len) return len;
       unsigned cnt = r32(b + p); p += 4;
-      for (unsigned i = 0; i < cnt && p < len; i++)
+      for (unsigned i = 0; i < cnt && p < len; i++) {
+        unsigned old = p;
         p = cSkipOne(b, len, p);
+        if (p <= old) break;
+      }
       return p;
     }
     case 0x16: {
       while (p < len) {
         uint8_t ct = b[p];
-        if (ct == 0 || (ct & 0x1f) == 0x15) break;
+        if (ct == 0) { p++; break; }
+        if ((ct & 0x1f) == 0x15) break;
+        unsigned old = p;
         p = cSkipOne(b, len, p);
+        if (p <= old) break;
       }
       return p;
     }
@@ -409,7 +455,7 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp)
       break;
     }
     case 0x05: case 0x06: case 0x07: case 0x08: {
-      unsigned nb = (sz == 0x20) ? 1 : (sz == 0x40) ? 2 : (sz == 0x60) ? 4 : 4;
+      unsigned nb = (sz == 0x00) ? 2 : (sz == 0x20) ? 4 : (sz == 0x40) ? 8 : 4;
       if (p + nb <= len) {
         uint64_t v = 0;
         for (unsigned i = 0; i < nb; i++) v = (v << 8) | b[p + i];
@@ -471,7 +517,8 @@ static MGValue *readRawValue(const uint8_t *b, unsigned len, unsigned *posp)
         }
         if (end < len && b[end] == 0) end++;
         p = end;
-        /* Skip data by reading until next _GSC_ID without xref */
+        /* Skip data values using cSkipOne (handles _GSC_ID without
+         * xref by skipping class hierarchy + data recursively). */
         while (p < len) {
           uint8_t ct = b[p];
           if ((ct & 0x1f) == 0x10 && !(ct & 0x80)) break;
