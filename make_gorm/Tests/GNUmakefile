@@ -15,6 +15,6 @@ test_gorm2txt_OBJCFLAGS = -Wall
 test_txt2gorm_OBJCFLAGS = -Wall
 test_roundtrip_OBJCFLAGS = -Wall
 
-ADDITIONAL_TOOL_LIBS += -lgnustep-base -lgnustep-gui
+ADDITIONAL_TOOL_LIBS += -lgnustep-base
 
 include $(GNUSTEP_MAKEFILES)/test-tool.make

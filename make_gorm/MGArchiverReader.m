@@ -2,13 +2,13 @@
  * Copyright (c) 2026 Simon Peter
  *
  * SPDX-License-Identifier: BSD-2-Clause
- * NSArchiver binary parser that uses NSUnarchiver for correct
- * stream parsing, with raw data fallback for unknown classes.
+ * NSArchiver binary parser.
+ * Default mode: flat parse (no AppKit). NSUnarchiver path only
+ * with -DRECORDING_CODER (requires GUI).
  */
 #import "MGArchiverReader.h"
 #import "MGTypes.h"
 #import <Foundation/Foundation.h>
-#import <AppKit/AppKit.h>
 
 #define PREFIX "GNUstep archive"
 
@@ -47,34 +47,31 @@
   archive.classDefs = [NSMutableArray array];
   archive.objects = [NSMutableArray array];
 
-  /* Try to decode with NSUnarchiver */
+  /* Flat parse: no GUI dependency */
+  [self _flatParse:data into:archive];
+
+#if defined(RECORDING_CODER)
+  /* Optional NSUnarchiver path for named property extraction (requires GUI).
+   * Disabled by default to avoid window server dependency. */
   @try {
     [NSApplication sharedApplication];
     NSUnarchiver *unarchiver;
     unarchiver = [[NSUnarchiver alloc] initForReadingWithData:data];
     id root = [unarchiver decodeObject];
     RELEASE(unarchiver);
-
     if (root) {
-      /* Collect all decoded objects */
       NSMutableArray *allObjs = [NSMutableArray array];
       [self _collect:root into:allObjs];
-
-      /* Build a flat parse from the binary to get class names and IDs */
-      [self _flatParse:data into:archive];
-
-      /* Map decoded objects to archive objects by index */
       for (MGArchiveObject *obj in archive.objects) {
         int32_t idx = obj.objectId;
-        if (idx > 0 && (NSUInteger)(idx - 1) < [allObjs count]) {
+        if (idx > 0 && (NSUInteger)(idx - 1) < [allObjs count])
           obj.decodedObject = [allObjs objectAtIndex:(idx - 1)];
-        }
       }
     }
   } @catch (NSException *e) {
-    /* NSUnarchiver failed; fall back to flat binary parse */
-    [self _flatParse:data into:archive];
+    fprintf(stderr, "warning: NSUnarchiver: %s\n", [[e reason] UTF8String]);
   }
+#endif
 
   /* Ensure at least 1 object was found */
   if ([archive.objects count] == 0) {

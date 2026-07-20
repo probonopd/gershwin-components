@@ -5,7 +5,6 @@
  */
 
 #import <Foundation/Foundation.h>
-#import <AppKit/AppKit.h>
 #import "MGTypes.h"
 #import "MGArchiverReader.h"
 #import "MGArchiverWriter.h"
@@ -94,12 +93,11 @@ static int cmd_decompile(int argc, char *argv[])
     return 1;
   }
 
-  BOOL triedUnarchiver = NO;
+#ifdef RECORDING_CODER
   @try {
     [NSApplication sharedApplication];
     NSUnarchiver *unarchiver = [[NSUnarchiver alloc]
       initForReadingWithData:data];
-    triedUnarchiver = YES;
     id root = [unarchiver decodeObject];
     RELEASE(unarchiver);
 
@@ -117,6 +115,7 @@ static int cmd_decompile(int argc, char *argv[])
   @catch (NSException *e) {
     fprintf(stderr, "warning: NSUnarchiver: %s\n", [[e reason] UTF8String]);
   }
+#endif
 
   @try {
     if (![MGTextWriter writeArchive:archive toPath:outputPath error:&error]) {

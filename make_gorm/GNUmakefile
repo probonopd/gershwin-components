@@ -18,6 +18,8 @@ make_gorm_OBJC_FILES = \
 
 make_gorm_OBJCFLAGS = -Wall -O2
 
+# -lgnustep-gui needed for class table reconstruction (NSClassFromString)
+# -DRECORDING_CODER also needs it for NSApplication
 make_gorm_LDFLAGS = -lgnustep-base -lgnustep-gui \
 	-Wl,--disable-new-dtags \
 	-Wl,-rpath,/System/Library/Libraries \
