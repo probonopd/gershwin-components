@@ -292,5 +292,55 @@
 		<key>Description</key>
 		<string>World clock, alarms, stopwatch, and timer</string>
 	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MidiTalk</string>
+		<key>GitURL</key>
+		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
+		<key>Description</key>
+		<string>Scriptable MIDI/audio app using StepTalk and McLaren Synth Kit</string>
+		<key>MakefilePath</key>
+		<string>Applications/MidiTalk/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Synth80</string>
+		<key>GitURL</key>
+		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
+		<key>Description</key>
+		<string>Two-oscillator and sampling synth with patch save/restore</string>
+		<key>MakefilePath</key>
+		<string>Applications/Synth80/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MidiMon</string>
+		<key>GitURL</key>
+		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
+		<key>Description</key>
+		<string>Monitor MIDI system events</string>
+		<key>MakefilePath</key>
+		<string>Applications/MidiMon/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MskFilterDemo</string>
+		<key>GitURL</key>
+		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
+		<key>Description</key>
+		<string>Filter demonstration with real-time slider control</string>
+		<key>MakefilePath</key>
+		<string>Applications/Demos/MskFilterDemo/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MskOrganDemo</string>
+		<key>GitURL</key>
+		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
+		<key>Description</key>
+		<string>Drawbar organ with reverb and filter</string>
+		<key>MakefilePath</key>
+		<string>Applications/Demos/MskOrganDemo/GNUmakefile</string>
+	</dict>
 </array>
 </plist>
