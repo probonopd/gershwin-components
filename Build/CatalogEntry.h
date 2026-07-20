@@ -12,6 +12,7 @@
 @property (copy) NSString *gitURL;
 @property (copy) NSString *desc;
 @property (copy) NSString *makefilePath;
+@property (retain) NSArray *libraryMakefilePaths;
 
 + (NSArray *)loadCatalog;
 

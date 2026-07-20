@@ -9,6 +9,7 @@
 #import "WAudioLoader.h"
 #import "WCapture.h"
 #import "ALSABackend.h"
+#import "OSSBackend.h"
 
 #import <AppKit/NSApplication.h>
 #import <AppKit/NSWindow.h>
@@ -909,19 +910,55 @@ static const unsigned long long modelMinSizes[] = {
 
     NSLog(@"recordAudio: starting capture at 16kHz");
     int sr = 16000;
-    // Use SoundBackend to find the default input device
-    ALSABackend *snd = [[ALSABackend alloc] init];
-    AudioDevice *dev = [snd defaultInputDevice];
-    NSString *alsaDev = nil;
-    if (dev) {
-        alsaDev = [NSString stringWithFormat:@"plughw:%d,%d",
-                             [dev cardIndex], [dev deviceIndex]];
-        NSLog(@"recordAudio: using SoundBackend device '%@' -> %@",
-              [dev name], alsaDev);
+    // Find the active SoundBackend (same selection as Sound PrefPane)
+    id<SoundBackend> snd = nil;
+    NSString *devPath = nil;  // ALSA: "plughw:N,M" — OSS: "/dev/dspN"
+
+#if defined(__FreeBSD__) || defined(__DragonFly__)
+    OSSBackend *oss = [[OSSBackend alloc] init];
+    if ([oss isAvailable]) {
+        snd = oss;
+        AudioDevice *dev = [oss defaultInputDevice];
+        if (dev) {
+            devPath = [NSString stringWithFormat:@"/dev/dsp%d", [dev cardIndex]];
+        }
+        NSLog(@"recordAudio: using OSS backend, device=%@", devPath);
+    } else {
+        [oss release];
     }
+#endif
+    if (!snd) {
+        ALSABackend *alsa = [[ALSABackend alloc] init];
+        if ([alsa isAvailable]) {
+            snd = alsa;
+            AudioDevice *dev = [alsa defaultInputDevice];
+            if (dev) {
+                devPath = [NSString stringWithFormat:@"plughw:%d,%d",
+                                    [dev cardIndex], [dev deviceIndex]];
+            }
+            NSLog(@"recordAudio: using ALSA backend, device=%@", devPath);
+        } else {
+            [alsa release];
+        }
+    }
+#if !defined(__FreeBSD__) && !defined(__DragonFly__) && !defined(__OpenBSD__)
+    if (!snd) {
+        OSSBackend *oss = [[OSSBackend alloc] init];
+        if ([oss isAvailable]) {
+            snd = oss;
+            AudioDevice *dev = [oss defaultInputDevice];
+            if (dev) {
+                devPath = [NSString stringWithFormat:@"/dev/dsp%d", [dev cardIndex]];
+            }
+            NSLog(@"recordAudio: using OSS fallback backend, device=%@", devPath);
+        } else {
+            [oss release];
+        }
+    }
+#endif
     [snd release];
 
-    captureHandle = wcapture_start(sr, [alsaDev UTF8String]);
+    captureHandle = wcapture_start(sr, [devPath UTF8String]);
     if (!captureHandle) {
         NSLog(@"recordAudio: wcapture_start returned NULL");
         [statusLabel setStringValue:@"No microphone found"];

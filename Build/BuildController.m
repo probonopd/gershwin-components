@@ -473,6 +473,96 @@ static const CGFloat kSpace16 = 16.0;
     return path ?: [NSTask launchPathForTool:@"make"];
 }
 
+- (void)buildLibraryDependenciesInDirectory:(NSString *)directory makePath:(NSString *)makePath
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *libPath in self.libraryMakefilePaths)
+    {
+        NSString *fullLibPath = [directory stringByAppendingPathComponent:libPath];
+        if (![fm fileExistsAtPath:fullLibPath])
+        {
+            NSString *msg = [NSString stringWithFormat:@"Library GNUmakefile not found: %@\n", fullLibPath];
+            [self.buildOutput appendString:msg];
+            [_logController appendLog:msg];
+            continue;
+        }
+
+        NSString *libDir = [fullLibPath stringByDeletingLastPathComponent];
+        NSString *libName = [[libDir lastPathComponent] stringByDeletingPathExtension];
+        NSString *logMsg = [NSString stringWithFormat:@"=== Building library: %@ ===\n", libName];
+        [self.buildOutput appendString:logMsg];
+        [_logController appendLog:logMsg];
+        write(STDOUT_FILENO, [logMsg UTF8String], [logMsg length]);
+
+        NSTask *libTask = [[NSTask alloc] init];
+        [libTask setCurrentDirectoryPath:libDir];
+        [libTask setLaunchPath:makePath];
+        [libTask setArguments:@[@"-f", fullLibPath, @"clean", @"all"]];
+        [libTask setEnvironment:[[NSProcessInfo processInfo] environment]];
+
+        NSPipe *libPipe = [[NSPipe alloc] init];
+        [libTask setStandardOutput:libPipe];
+        [libTask setStandardError:libPipe];
+
+        @try {
+            [libTask launch];
+
+            NSFileHandle *handle = [libPipe fileHandleForReading];
+            while ([libTask isRunning]) {
+                NSData *data = [handle availableData];
+                if ([data length] > 0) {
+                    NSString *outStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                    [self.buildOutput appendString:outStr];
+                    [_logController appendLog:outStr];
+                    write(STDOUT_FILENO, [data bytes], [data length]);
+                }
+            }
+            NSData *remaining = [handle readDataToEndOfFile];
+            if ([remaining length] > 0) {
+                NSString *outStr = [[NSString alloc] initWithData:remaining encoding:NSUTF8StringEncoding];
+                [self.buildOutput appendString:outStr];
+                [_logController appendLog:outStr];
+                write(STDOUT_FILENO, [remaining bytes], [remaining length]);
+            }
+        } @catch (NSException *e) {
+            NSString *errMsg = [NSString stringWithFormat:@"Failed to build library %@: %@\n", libName, [e reason]];
+            [self.buildOutput appendString:errMsg];
+            [_logController appendLog:errMsg];
+            write(STDOUT_FILENO, [errMsg UTF8String], [errMsg length]);
+            return;
+        }
+
+        if ([libTask terminationStatus] != 0) {
+            NSString *errMsg = [NSString stringWithFormat:@"Library %@ build failed with status %d\n", libName, [libTask terminationStatus]];
+            [self.buildOutput appendString:errMsg];
+            [_logController appendLog:errMsg];
+            write(STDOUT_FILENO, [errMsg UTF8String], [errMsg length]);
+            return;
+        }
+
+        /* Install the library so the app build can find its headers */
+        NSTask *libInstallTask = [[NSTask alloc] init];
+        [libInstallTask setCurrentDirectoryPath:libDir];
+        [libInstallTask setLaunchPath:makePath];
+        [libInstallTask setArguments:@[@"-f", fullLibPath, @"install"]];
+        [libInstallTask setEnvironment:[[NSProcessInfo processInfo] environment]];
+        @try {
+            [libInstallTask launch];
+            [libInstallTask waitUntilExit];
+        } @catch (NSException *e) {
+            NSString *errMsg = [NSString stringWithFormat:@"Failed to install library %@: %@\n", libName, [e reason]];
+            [self.buildOutput appendString:errMsg];
+            [_logController appendLog:errMsg];
+            return;
+        }
+
+        NSString *doneMsg = [NSString stringWithFormat:@"=== Library %@ built and installed ===\n", libName];
+        [self.buildOutput appendString:doneMsg];
+        [_logController appendLog:doneMsg];
+        write(STDOUT_FILENO, [doneMsg UTF8String], [doneMsg length]);
+    }
+}
+
 - (void)runPrebuildStepsInDirectory:(NSString *)directory
 {
     NSFileManager *fm = [NSFileManager defaultManager];
@@ -639,6 +729,11 @@ static const CGFloat kSpace16 = 16.0;
 
     // Resolve GNUstep dependencies before building
     [self resolveDependenciesBeforeBuildInDirectory:directory];
+
+    // Build bundled libraries (e.g. AlsaSoundKit, McLarenSynthKit from same repo)
+    if (self.libraryMakefilePaths) {
+        [self buildLibraryDependenciesInDirectory:directory makePath:makePath];
+    }
 
     // Add main project as last progress segment
     NSString *mainTarget = [self productNameFromMakefile];

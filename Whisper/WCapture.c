@@ -19,6 +19,8 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <math.h>
+#include <sys/ioctl.h>
+#include <sys/soundcard.h>
 
 #define INITIAL_CAPACITY (16000 * 10) // 10 seconds at 16kHz
 #define CAPACITY_GROWTH  16000        // grow by 1-second chunks
@@ -27,6 +29,7 @@
 typedef struct {
     pid_t       pid;
     int         fd;
+    int         is_oss;        // 1 = OSS /dev/dsp, 0 = arecord pipe
     float      *buffer;
     int         capacity;
     int         n_samples;
@@ -87,7 +90,7 @@ static void *reader_thread(void *arg)
     return NULL;
 }
 
-void *wcapture_start(int sample_rate, const char *alsa_device)
+void *wcapture_start(int sample_rate, const char *device)
 {
     WCapture *cap = (WCapture *)calloc(1, sizeof(WCapture));
     if (!cap) return NULL;
@@ -98,8 +101,31 @@ void *wcapture_start(int sample_rate, const char *alsa_device)
     cap->capacity = INITIAL_CAPACITY;
     cap->n_samples = 0;
     cap->running = 1;
+    cap->is_oss = 0;
     pthread_mutex_init(&cap->mutex, NULL);
 
+    // OSS: open /dev/dspN directly
+    if (device && strncmp(device, "/dev/", 5) == 0) {
+        cap->fd = open(device, O_RDONLY);
+        if (cap->fd < 0) {
+            fprintf(stderr, "[WCapture] failed to open %s\n", device);
+            free(cap->buffer); free(cap); return NULL;
+        }
+        int fmt = AFMT_S16_LE;
+        int ch  = 1;
+        int sr  = sample_rate;
+        ioctl(cap->fd, SNDCTL_DSP_SETFMT, &fmt);
+        ioctl(cap->fd, SNDCTL_DSP_CHANNELS, &ch);
+        ioctl(cap->fd, SNDCTL_DSP_SPEED, &sr);
+        cap->is_oss = 1;
+        pthread_create(&cap->thread, NULL, reader_thread, cap);
+        fprintf(stderr, "[WCapture] OSS capture started (%s, rate=%d)\n",
+                device, sample_rate);
+        log_counter = 0;
+        return cap;
+    }
+
+    // ALSA: fork arecord and read from pipe
     int pfd[2];
     if (pipe(pfd) != 0) {
         free(cap->buffer); free(cap); return NULL;
@@ -112,7 +138,6 @@ void *wcapture_start(int sample_rate, const char *alsa_device)
     }
 
     if (cap->pid == 0) {
-        // Child: exec arecord
         close(pfd[0]);
         dup2(pfd[1], STDOUT_FILENO);
         close(pfd[1]);
@@ -120,13 +145,12 @@ void *wcapture_start(int sample_rate, const char *alsa_device)
         char rate_str[16];
         snprintf(rate_str, sizeof(rate_str), "%d", sample_rate);
 
-        // Build argv with optional -D device
         char *argv[12];
         int ai = 0;
         argv[ai++] = "arecord";
-        if (alsa_device && alsa_device[0]) {
+        if (device && device[0]) {
             argv[ai++] = "-D";
-            argv[ai++] = (char *)alsa_device;
+            argv[ai++] = (char *)device;
         }
         argv[ai++] = "-r";
         argv[ai++] = rate_str;
@@ -139,11 +163,10 @@ void *wcapture_start(int sample_rate, const char *alsa_device)
         argv[ai] = NULL;
 
         execvp("arecord", argv);
-        // If exec fails, try without device flag
-        if (alsa_device && alsa_device[0]) {
+        if (device && device[0]) {
             fprintf(stderr, "[WCapture] arecord failed with device %s, "
-                    "retrying without -D\n", alsa_device);
-            argv[1] = argv[3]; // shift args to omit -D <device>
+                    "retrying without -D\n", device);
+            argv[1] = argv[3];
             argv[2] = argv[4];
             argv[3] = argv[5];
             argv[4] = argv[6];
@@ -156,15 +179,11 @@ void *wcapture_start(int sample_rate, const char *alsa_device)
         _exit(1);
     }
 
-    // Parent
     close(pfd[1]);
     cap->fd = pfd[0];
-
     pthread_create(&cap->thread, NULL, reader_thread, cap);
-
     fprintf(stderr, "[WCapture] started arecord (pid=%d, rate=%d, device=%s)\n",
-            cap->pid, sample_rate,
-            alsa_device ? alsa_device : "default");
+            cap->pid, sample_rate, device ? device : "default");
     log_counter = 0;
     return cap;
 }
