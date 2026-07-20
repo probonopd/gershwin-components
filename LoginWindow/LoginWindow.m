@@ -939,6 +939,7 @@ void signalHandler(int sig) {
 
     // --- Language dropdown ---
     languageDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(50, 115+12+60, 135, 24)];
+    [languageDropdown setFont:METRICS_FONT_SYSTEM_REGULAR_11];
     [self populateLanguageDropdown];
     [languageDropdown setTarget:self];
     [languageDropdown setAction:@selector(languageChanged:)];
@@ -946,6 +947,7 @@ void signalHandler(int sig) {
 
     // --- Keyboard layout dropdown ---
     keyboardDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(210, 115+12+60, 140, 24)];
+    [keyboardDropdown setFont:METRICS_FONT_SYSTEM_REGULAR_11];
     [self populateKeyboardDropdown];
     [keyboardDropdown setTarget:self];
     [keyboardDropdown setAction:@selector(keyboardLayoutChanged:)];
