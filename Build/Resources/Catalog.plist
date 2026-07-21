@@ -294,6 +294,22 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>Gorm</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-gorm</string>
+		<key>Description</key>
+		<string>GNUstep Interface Builder - design UI visually, wire outlets/actions, create .gorm/.nib archives</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>ProjectCenter</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-projectcenter</string>
+		<key>Description</key>
+		<string>IDE for GNUstep - manage code, builds apps/frameworks, integrated with Gorm</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>MidiTalk</string>
 		<key>GitURL</key>
 		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
