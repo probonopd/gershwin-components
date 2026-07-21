@@ -268,6 +268,7 @@
     // If we still don't have serviceName/objectPath, check X11 properties as fallback
     // Also override placeholder "unknown" service names that come from the
     // Registrar's RegisterWindow handler when the sender's bus name is unavailable.
+tryFallbacks:
     if (!serviceName || !objectPath || [serviceName isEqualToString:@"unknown"]) {
         // Check X11 properties as fallback - applications might have set them
         // without registering through DBus yet, or the DBus registration may
@@ -309,7 +310,32 @@
             }
         }
     }
-    
+
+    // Verify the service is still alive before trying to load the menu.
+    // If the service disconnected (app quit/crashed), clean the stale
+    // registration and let the fallback paths (X11 props, registrar
+    // query) rediscover the new service on next call.
+    if (serviceName && objectPath && ![serviceName isEqualToString:@"unknown"]) {
+        BOOL serviceExists = NO;
+        id hasOwner = [self.dbusConnection callMethod:@"NameHasOwner"
+                                            onService:@"org.freedesktop.DBus"
+                                          objectPath:@"/org/freedesktop/DBus"
+                                           interface:@"org.freedesktop.DBus"
+                                           arguments:@[serviceName]];
+        if ([hasOwner respondsToSelector:@selector(boolValue)]) {
+            serviceExists = [hasOwner boolValue];
+        }
+        if (!serviceExists) {
+            NSDebugLog(@"DBusMenuImporter: Service %@ is no longer alive — unregistering stale window %lu",
+                  serviceName, windowId);
+            [self unregisterWindow:windowId];
+            // Retry with fallbacks below (X11 properties, registrar query)
+            serviceName = nil;
+            objectPath = nil;
+            goto tryFallbacks;
+        }
+    }
+
     NSDebugLog(@"DBusMenuImporter: Loading menu for window %lu from %@%@", windowId, serviceName, objectPath);
     
     // Get the menu layout from DBus
