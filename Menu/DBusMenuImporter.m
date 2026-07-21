@@ -90,9 +90,6 @@
         // clean up stale registrations when an application quits without
         // sending UnregisterWindow.  This is equivalent to KDE's
         // QDBusServiceWatcher + slotServiceUnregistered pattern.
-        [self.dbusConnection registerObjectPath:@"/org/freedesktop/DBus"
-                                     interface:@"org.freedesktop.DBus"
-                                       handler:self];
         void *rawConn = self.dbusConnection.connection;
         if (rawConn) {
             dbus_bus_add_match((DBusConnection *)rawConn,
@@ -101,6 +98,11 @@
                 "path='/org/freedesktop/DBus'", NULL);
             dbus_connection_flush((DBusConnection *)rawConn);
         }
+        // NOTE: without registering as handler for /org/freedesktop/DBus,
+        // NameOwnerChanged signals are received but not dispatched through
+        // handleDBusMethodCall.  We rely on the cleanupStaleEntries timer
+        // to re-check stale registrations, and on the GetMenuForWindow
+        // registrar fallback in has/getMenuForWindow to rediscover menus.
         
         // Now that we're connected and the run loop is running, set up the cleanup timer
         if (!self.cleanupTimer) {
