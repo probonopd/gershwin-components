@@ -37,7 +37,7 @@ usage(const char *prog)
   fprintf(stderr, "Common values:\n");
   for (int i = 0; knownValues[i]; i++)
     fprintf(stderr, "  %s\n", knownValues[i]);
-  fprintf(stderr, "\nFull mapping: https://github.com/helloSystem/hello/wiki/EFI-NVRAM\n");
+  fprintf(stderr, "\nSee efivar(1) for the full list of values.\n");
 }
 
 static void

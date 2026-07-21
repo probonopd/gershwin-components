@@ -251,8 +251,7 @@ de:3|de_DE|de
 sv:7|se|
 .TE
 .SH EXAMPLES
-.PP
-Read the current keyboard layout setting:
+Read the current value:
 .PP
 .nf
 .RS
@@ -260,59 +259,13 @@ efivar
 .RE
 .fi
 .PP
-Set German keyboard layout:
-.PP
-.nf
-.RS
-efivar de:3
-.RE
-.fi
-.PP
-Set US English keyboard layout:
+Set the value:
 .PP
 .nf
 .RS
 efivar en_US:0
-.RE
-.fi
-.PP
-Set French AZERTY layout:
-.PP
-.nf
-.RS
+efivar de:3
 efivar fr:1
-.RE
-.fi
-.PP
-Set Russian layout:
-.PP
-.nf
-.RS
-efivar ru:19456
-.RE
-.fi
-.PP
-Set Japanese KANA layout:
-.PP
-.nf
-.RS
-efivar ja:16384
-.RE
-.fi
-.PP
-Set Brazilian ABNT2 layout:
-.PP
-.nf
-.RS
-efivar pt_BR:128
-.RE
-.fi
-.PP
-Set Swedish layout:
-.PP
-.nf
-.RS
-efivar sv:7
 .RE
 .fi
 .PP
@@ -320,7 +273,7 @@ View version information:
 .PP
 .nf
 .RS
-efivar \-\-version
+efivar --version
 .RE
 .fi
 .SH EXIT STATUS
