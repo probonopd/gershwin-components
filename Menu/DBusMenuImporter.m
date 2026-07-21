@@ -248,6 +248,27 @@
         } else {
             NSDebugLog(@"DBusMenuImporter: No service/path found for window %lu (checked both DBus registry and X11 properties)", windowId);
 
+            // Last resort: query the AppMenu.Registrar directly.  It knows about
+            // every registered window even when we missed the RegisterWindow
+            // signal (e.g. second launch of an app that reconnected to DBus
+            // without re-sending RegisterWindow).
+            NSArray *reply = [self.dbusConnection callMethod:@"GetMenuForWindow"
+                                                   onService:@"com.canonical.AppMenu.Registrar"
+                                                 objectPath:@"/com/canonical/AppMenu/Registrar"
+                                                  interface:@"com.canonical.AppMenu.Registrar"
+                                                  arguments:@[@(windowId)]];
+            if (reply && [reply count] >= 2) {
+                NSString *regService = [reply objectAtIndex:0];
+                NSString *regPath = [reply objectAtIndex:1];
+                if ([regService isKindOfClass:[NSString class]] && [regService length] > 0 &&
+                    [regPath isKindOfClass:[NSString class]] && [regPath length] > 0) {
+                    NSDebugLog(@"DBusMenuImporter: Registrar returned service=%@ path=%@ for window %lu",
+                          regService, regPath, windowId);
+                    [self registerWindow:windowId serviceName:regService objectPath:regPath];
+                    serviceName = regService;
+                    objectPath = regPath;
+                }
+            }
         }
     }
     
