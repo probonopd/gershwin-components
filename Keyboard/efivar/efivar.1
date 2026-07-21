@@ -1,0 +1,365 @@
+.TH EFIVAR 1 "July 2026" "Gershwin Desktop Environment" "User Commands"
+.SH NAME
+efivar \- read and set EFI NVRAM keyboard layout variables
+.SH SYNOPSIS
+.B efivar
+[\fIVALUE\fR]
+.SH DESCRIPTION
+.B efivar
+reads or sets the Apple
+.B prev-lang:kbd
+EFI NVRAM variable
+(GUID \fI7c436110-ab2a-4bbb-a880-fe41995c9f82\fR).
+This variable persists the keyboard layout preference across different boot
+volumes, enabling operating systems to preselect a matching keyboard layout.
+.PP
+On Linux, the tool accesses the
+.B efivarfs
+filesystem at
+.IR /sys/firmware/efi/efivars/ ,
+automatically loading the kernel module and mounting the filesystem if needed.
+On FreeBSD, it uses the
+.IR efivar (8)
+command.
+.PP
+Without arguments,
+.B efivar
+prints the current value.
+With a
+.I VALUE
+argument (e.g.,
+.BR de:3 ),
+it sets the variable.
+.SH VALUES
+The value format is
+.IB locale : number ,
+where
+.I locale
+is a language/region code (e.g.,
+.BR de ,
+.BR en_US )
+and
+.I number
+is a numeric keyboard layout identifier.
+.SS Western European
+.TS
+box tab(|);
+lw(2.5c) | lw(2.5c) | lw(6c) | lw(2.5c) | lw(2.5c).
+Value|Nice Name|xkbmap layout|xkbmap model|locale
+_
+de:253|ABC-QWERTZ|||
+en:252|ABC|||
+en_US:0|U.S|||en_US
+en_US:15000|USInternational-PC|||en_US
+en_GB:2|British|||en_GB
+en_GB:250|British-PC|||
+en_CA:29|Canadian|||
+en_AU:15|Australian|||
+en:50|Irish|||
+en:16300|Dvorak|||
+en:16301|DVORAK - QWERTY CMD|||
+en:16302|Dvorak - Left|||
+en:16303|Dvorak - Right|||
+en:12825|Colemak|||
+en:-2|US Extended|||
+fr:1|French|fr||fr_FR
+fr:251|ABC-AZERTY|||
+fr:60|French-PC|||
+fr:1111|French - numerical|||
+fr_CA:80|Canadian - CSA|||
+de:3|German|de|pc105|de_DE
+de_CH:19|Swiss German|||de_CH
+it:4|Italian|it||it_IT
+it:223|Italian - Pro|||
+es:8|Spanish|es||
+es:87|Spanish - ISO|||
+pt_PT:10|Portuguese|||pt_PT
+pt_BR:71|Brazilian||pt_BR
+pt_BR:72|Brazilian - Pro|||
+pt_BR:128|Brazilian-ABNT2|||
+nl:26|Dutch|||
+nl_BE:6|Belgian|||
+da:9|Danish|||
+fi:17|Finnish||fi
+sv:7|Swedish||se
+sv:224|Swedish - Pro|||
+nb:12|Norwegian||nb
+.TE
+.SS Central and Eastern European
+.TS
+box tab(|);
+lw(2.5c) | lw(2.5c) | lw(6c).
+Value|Nice Name|xkbmap layout
+_
+cs:30778|Czech-QWERTY|cs
+cs:30776|Czech|
+et:30764|Estonian|
+hu:30767|Hungarian-QWERTY|
+hu:30763|Hungarian|
+lv:30765|Latvian|
+lt:30761|Lithuanian|
+pl:30788|Polish Pro|
+pl:30762|Polish|
+sk:30777|Slovak|
+sk:30779|Slovak-QWERTY|
+hr:-68|Croatian|
+hr:-69|Croatian-PC|
+sl:-66|Slovenian|
+ro:-38|Romanian-Standard|
+ro:-39|Romanian|
+is:-21|Icelandic|
+fo:-47|Faroese|
+mt:-501|Maltese|
+.TE
+.SS Cyrillic
+.TS
+box tab(|);
+lw(2.5c) | lw(2.5c) | lw(6c).
+Value|Nice Name|xkbmap layout
+_
+bg:19529|Bulgarian - Phonetic|
+bg:19528|Bulgarian|
+be:19517|Byelorussian|
+mk:19523|Macedonian|
+ru:19457|Russian - Phonetic|
+ru:19456|Russian|
+ru:19458|RussianWin|
+sr-Cyrl:19521|Serbian|
+uk:195138|Ukrainian-PC|
+uk:19518|Ukrainian|
+.TE
+.SS East Asian
+.TS
+box tab(|);
+lw(2.5c) | lw(2.5c) | lw(6c).
+Value|Nice Name|xkbmap layout
+_
+ja:16384|KANA|
+ko:-17409|2SetHangul|
+zh-Hant:-16899|CangjieKeyboard|
+zh-Hant:-16900|Zhuyin Bopomofo|
+.TE
+.SS South and Southeast Asian
+.TS
+box tab(|);
+lw(2.5c) | lw(2.5c) | lw(6c).
+Value|Nice Name|xkbmap layout
+_
+bn:-22529|Bangla-QWERTY|
+bn:-22528|Bangla|
+gu:-21505|Gujarati-QWERTY|
+gu:-21504|Gujarati|
+hi:-20481|Devanagari-QWERTY|
+hi:-20480|Devanagari|
+kn:-24065|Kannada-QWERTY|
+kn:-24064|Kannada|
+ml:-24577|Malayalam-QWERTY|
+ml:-24576|Malayalam|
+my:-25601|Myanmar-QWERTY|
+ne:-20484|Nepali|
+or:-22017|Oriya-QWERTY|
+or:-22016|Oriya|
+pa:-20993|Gurmukhi-QWERTY|
+pa:-20992|Gurmukhi|
+si:-25089|Sinhala-QWERTY|
+si:-25088|Sinhala|
+ta:-20000|Anjal|
+ta:-20001|Tamil99|
+te:-23553|Telugu-QWERTY|
+te:-23552|Telugu|
+th:-26626|Thai-PattaChote|
+th:-26624|Thai|
+bo:-26628|TibetanOtaniUS|
+bo:-26625|Tibetan-QWERTY|
+bo:-2398|Tibetan-Wylie|
+km:-26114|Khmer|
+.TE
+.SS Middle Eastern
+.TS
+box tab(|);
+lw(2.5c) | lw(2.5c) | lw(6c).
+Value|Nice Name|xkbmap layout
+_
+ar:-17940|Arabic-AZERTY|
+ar:-17923|Arabic-North_Africa|
+ar:-18000|Arabic-QWERTY|
+ar:-17920|Arabic|
+ar:-17921|Arabic PC|
+fa:-1959|Persian-QWERTY|
+fa:-17960|Persian|
+fa:-2901|Persian-ISIRI 2901|
+fa:-2902|Afghan Dari|
+ps:-2904|Afghan Pashto|
+uz-Arab:-2903|Afghan Uzbek|
+he:-18500|Hebrew-QWERTY|
+he:-18432|Hebrew|
+he:-18433|Hebrew-PC|
+ckb:-17926|Kurdish-Sorani|
+ur:-17925|Urdu|
+ug:-27000|Uyghur|
+.TE
+.SS Other
+.TS
+box tab(|);
+lw(2.5c) | lw(2.5c) | lw(6c).
+Value|Nice Name|xkbmap layout
+_
+az-Latn:-49|Azeri|
+chr:-26112|Cherokee-Nation|
+chr:-26113|Cherokee-QWERTY|
+cy:-790|Welsh|
+el:-18944|Greek|
+el:-18945|Greek Polytonic|
+ga:-500|Irish Extended|
+haw:-50|Hawaiian|
+hy:-28161|Armenian-HM QWERTY|
+hy:-28164|Armenian-Western QWERTY|
+iu:-30604|Inuktitut-Nunavut|
+iu:-30602|Inuktitut-Nutaaq|
+iu:-30600|Inuktitut-QWERTY|
+iu:-30603|Inuttitut Nunavik|
+ka:-27650|Georgian-QWERTY|
+kk:-19501|Kazakh|
+mi:-51|Maori|
+ms-Arab:-19000|Jawi-QWERTY|
+se:-1200|Northern Sami|
+se:-1201|Sami-PC|
+sr-Latn:-19521|Serbian-Latin|
+to:88|Tongan|
+tr:-36|Turkish-QWERTY-PC|
+tr:-35|Turkish-QWERTY|
+tr:-23|Turkish-Standard|
+tr:-24|Turkish|
+vi:-31232|Vietnamese|
+<null>:-1|Unicode Hex Input|
+.TE
+.SS Distribution default values
+The following values correspond to distribution defaults where the locale and
+xkbmap layout match automatically:
+.TS
+box tab(|);
+lw(2.5c) | lw(2c) | lw(2c).
+Value|locale|xkbmap layout
+_
+fi:17|fi|
+nb:12|nb|
+fr:1|fr_FR|fr
+it:4|it_IT|it
+es:8||es
+pt_BR:71|pt_BR|
+de:3|de_DE|de
+sv:7|se|
+.TE
+.SH EXAMPLES
+.PP
+Read the current keyboard layout setting:
+.PP
+.nf
+.RS
+efivar
+.RE
+.fi
+.PP
+Set German keyboard layout:
+.PP
+.nf
+.RS
+efivar de:3
+.RE
+.fi
+.PP
+Set US English keyboard layout:
+.PP
+.nf
+.RS
+efivar en_US:0
+.RE
+.fi
+.PP
+Set French AZERTY layout:
+.PP
+.nf
+.RS
+efivar fr:1
+.RE
+.fi
+.PP
+Set Russian layout:
+.PP
+.nf
+.RS
+efivar ru:19456
+.RE
+.fi
+.PP
+Set Japanese KANA layout:
+.PP
+.nf
+.RS
+efivar ja:16384
+.RE
+.fi
+.PP
+Set Brazilian ABNT2 layout:
+.PP
+.nf
+.RS
+efivar pt_BR:128
+.RE
+.fi
+.PP
+Set Swedish layout:
+.PP
+.nf
+.RS
+efivar sv:7
+.RE
+.fi
+.PP
+View version information:
+.PP
+.nf
+.RS
+efivar \-\-version
+.RE
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Successful completion.
+.TP
+.B 1
+An error occurred (e.g., unsupported platform, write failure).
+.SH FILES
+.TP
+.I /sys/firmware/efi/efivars/prev-lang:kbd-7c436110-ab2a-4bbb-a880-fe41995c9f82
+The EFI NVRAM variable file on Linux (efivarfs).
+.SH ENVIRONMENT
+.TP
+.B SUDO_ASKPASS
+If set, used when the tool needs to elevate privileges. The tool automatically
+uses sudo when not running as root.
+.SH NOTES
+The xkbmap equivalents and locale column are best guesses for interoperability.
+Not all EFI values have a corresponding xkbmap layout or locale mapping.
+.PP
+On some Linux systems, the
+.B efivarfs
+kernel module may need to be loaded:
+.IR "sudo modprobe efivarfs" .
+The tool attempts this automatically.
+.PP
+On FreeBSD, the
+.I sysutils/efivar
+port or package must be installed:
+.IR "pkg install efivar" .
+.SH SEE ALSO
+.BR setxkbmap (1),
+.BR efivar (8),
+.BR modprobe (8),
+.BR mount (8)
+.PP
+.SH COPYRIGHT
+Copyright (c) 2026 Simon Peter
+.br
+License BSD-2-Clause

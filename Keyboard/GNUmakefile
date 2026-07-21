@@ -1,5 +1,7 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
+SUBPROJECTS = efivar
+
 # Compiler flags for production builds
 Keyboard_OBJCFLAGS += -Wall -Wextra -Werror -O2
 
