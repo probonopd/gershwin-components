@@ -2607,7 +2607,8 @@ static const CGFloat kStatusAreaHeight = 60;
     [alert setMessageText:@"Captive Portal Detected"];
     [alert setInformativeText:[NSString stringWithFormat:
         @"The WLAN network requires you to sign in before accessing the internet.\n\n"
-        @"Would you like to open the login page in your browser?"]];
+        @"Redirect URL: %@\n\n"
+        @"Would you like to open this page in your browser?", redirectURL]];
     [alert setAlertStyle:NSInformationalAlertStyle];
     [alert addButtonWithTitle:@"Open in Browser"];
     [alert addButtonWithTitle:@"Cancel"];

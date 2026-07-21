@@ -453,9 +453,10 @@ static NSString *findTool(NSString *name)
 
     NSAlert *alert = [[NSAlert alloc] init];
     [alert setMessageText:@"Captive Portal Detected"];
-    [alert setInformativeText:@"The WLAN network requires you to sign in "
-        @"before accessing the internet. Would you like to open "
-        @"the login page in your browser?"];
+    [alert setInformativeText:[NSString stringWithFormat:
+        @"The WLAN network requires you to sign in before accessing the internet.\n\n"
+        @"Redirect URL: %@\n\n"
+        @"Would you like to open this page in your browser?", redirectURL]];
     [alert setAlertStyle:NSInformationalAlertStyle];
     [alert addButtonWithTitle:@"Open in Browser"];
     [alert addButtonWithTitle:@"Cancel"];
