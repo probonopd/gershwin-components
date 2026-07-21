@@ -93,6 +93,11 @@
     // Refresh timer
     NSTimer *refreshTimer;
     BOOL isEditing;
+    
+    // Captive portal detection
+    NSString *previousWLANSSID;
+    volatile int32_t captivePortalCheckPending;
+    NSTimeInterval lastCaptivePortalCheckTime;
 }
 
 // View creation
@@ -164,5 +169,10 @@
 - (void)showErrorAlert:(NSString *)message informativeText:(NSString *)info;
 - (void)showWarningAlert:(NSString *)message informativeText:(NSString *)info;
 - (BOOL)validateSelectedInterface;
+
+// Captive portal detection
+- (void)checkForCaptivePortalAfterWLANChange:(NSString *)ssid;
+- (void)checkCaptivePortalInBackground;
+- (void)captivePortalDetected:(NSString *)redirectURL;
 
 @end
