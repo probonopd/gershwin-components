@@ -241,11 +241,10 @@ static NSString *findTool(NSString *name)
 
 - (NSMenu *)menu
 {
-    NSLog(@"WLANExtra: LAZY LOAD — reading fresh state from backend");
-    BOOL wlanOn = [_backend isWLANEnabled];
-    NSArray *nets = wlanOn ? [_backend scanForWLANs] : @[];
-    WLAN *connected = wlanOn ? [_backend connectedWLAN] : nil;
-    int signal = [connected signalStrength];
+    BOOL wlanOn = _wlanEnabled;
+    NSArray *nets = _networkList ?: @[];
+    WLAN *connected = _connectedWLAN;
+    int signal = _signalStrength;
     NSString *connectedSSID = [connected ssid];
     NSLog(@"WLANExtra: menu building — wlanOn=%d connected=%@ signal=%d nets=%lu",
           wlanOn, connectedSSID, signal, (unsigned long)[nets count]);
@@ -395,12 +394,29 @@ static NSString *findTool(NSString *name)
 
 - (void)menuExtraWillOpenMenu
 {
-    [self updateState];
+    _backendAvailable = [_backend isAvailable];
+    if (_backendAvailable) {
+        _wlanEnabled = [_backend isWLANEnabled];
+        if (_wlanEnabled) {
+            _networkList = [_backend scanForWLANs];
+            _connectedWLAN = [_backend connectedWLAN];
+            _signalStrength = [_connectedWLAN signalStrength];
+        } else {
+            _networkList = @[];
+            _connectedWLAN = nil;
+            _signalStrength = 0;
+        }
+    } else {
+        _wlanEnabled = NO;
+        _networkList = @[];
+        _connectedWLAN = nil;
+        _signalStrength = 0;
+    }
 }
 
 - (void)refreshMenuItems:(NSMenu *)submenu
 {
-    NSString *connectedSSID = [[_backend connectedWLAN] ssid];
+    NSString *connectedSSID = [_connectedWLAN ssid];
     for (NSMenuItem *item in [submenu itemArray]) {
         NSString *ssid = [item representedObject];
         if ([ssid isKindOfClass:[NSString class]]) {
@@ -419,28 +435,39 @@ static NSString *findTool(NSString *name)
 - (void)refreshTimerFired:(NSTimer *)timer
 {
     (void)timer;
-    BOOL wasAvailable = _backendAvailable;
-    _backendAvailable = [_backend isAvailable];
-    if (!_backendAvailable) {
-        _signalStrength = 0;
-        _networkList = @[];
-        _connectedWLAN = nil;
-        if (wasAvailable) {
-            [_context invalidatePresentation];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        BOOL wasAvailable = _backendAvailable;
+        BOOL available = [_backend isAvailable];
+        if (!available) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                _backendAvailable = NO;
+                _signalStrength = 0;
+                _networkList = @[];
+                _connectedWLAN = nil;
+                if (wasAvailable) {
+                    [_context invalidatePresentation];
+                }
+            });
+            return;
         }
-        return;
-    }
-    if (!_wlanEnabled) return;
-    int oldSignal = _signalStrength;
-    WLAN *oldConnected = _connectedWLAN;
-    NSUInteger oldCount = [_networkList count];
-    _networkList = [_backend scanForWLANs];
-    _connectedWLAN = [_backend connectedWLAN];
-    _signalStrength = _connectedWLAN ? [_connectedWLAN signalStrength] : 0;
-    if (oldSignal != _signalStrength || oldCount != [_networkList count] ||
-        (!oldConnected && _connectedWLAN) || (oldConnected && !_connectedWLAN)) {
-        [_context invalidatePresentation];
-    }
+        if (!_wlanEnabled) return;
+        int oldSignal = _signalStrength;
+        WLAN *oldConnected = _connectedWLAN;
+        NSUInteger oldCount = [_networkList count];
+        NSArray *nets = [_backend scanForWLANs];
+        WLAN *connected = [_backend connectedWLAN];
+        int signal = connected ? [connected signalStrength] : 0;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            _backendAvailable = YES;
+            _networkList = nets;
+            _connectedWLAN = connected;
+            _signalStrength = signal;
+            if (oldSignal != signal || oldCount != [nets count] ||
+                (!oldConnected && connected) || (oldConnected && !connected)) {
+                [_context invalidatePresentation];
+            }
+        });
+    });
 }
 
 #pragma mark - Captive Portal
