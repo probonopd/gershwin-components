@@ -319,6 +319,7 @@
     // For now, return a placeholder menu
     // The actual GTK menu parsing is handled by GTKMenuImporter
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Application"];
+    [menu setAutoenablesItems:NO];
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Menu Loading..." action:nil keyEquivalent:@""];
     [item setEnabled:NO];
     [menu addItem:item];

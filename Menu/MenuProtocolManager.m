@@ -175,6 +175,7 @@
 
     /* Build a merged menu: stub items first, then DBus items */
     NSMenu *merged = [[NSMenu alloc] initWithTitle:[dbusMenu title]];
+    [merged setAutoenablesItems:NO];
 
     for (NSInteger i = 0; i < [stubMenu numberOfItems]; i++)
         [merged addItem:[[stubMenu itemAtIndex:i] copy]];
