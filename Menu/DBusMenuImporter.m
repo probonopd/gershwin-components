@@ -419,24 +419,6 @@ tryFallbacks:
     
     // Wrap DBus calls in try/catch to handle service disappearing mid-call
     @try {
-        // First, try to introspect the service to see what interfaces it supports
-        id introspectResult = [self.dbusConnection callMethod:@"Introspect"
-                                                onService:serviceName
-                                               objectPath:objectPath
-                                                interface:@"org.freedesktop.DBus.Introspectable"
-                                                arguments:nil];
-    
-        if (introspectResult) {
-            NSDebugLog(@"DBusMenuImporter: Service introspection successful");
-            if ([introspectResult isKindOfClass:[NSString class]]) {
-                NSDebugLog(@"DBusMenuImporter: Introspection XML:\n%@", introspectResult);
-            } else {
-                NSDebugLog(@"DBusMenuImporter: Introspection result (non-string): %@", introspectResult);
-            }
-        } else {
-            NSDebugLog(@"DBusMenuImporter: Service introspection failed - service may not be available");
-        }
-    
         // Call GetLayout method on the dbusmenu interface
         // The DBus menu spec requires: GetLayout(parentId: int32, recursionDepth: int32, propertyNames: array of strings)
         NSArray *arguments = [NSArray arrayWithObjects:
