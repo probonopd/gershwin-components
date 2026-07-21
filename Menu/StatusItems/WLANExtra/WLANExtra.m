@@ -8,6 +8,7 @@
 #import "NMBackend.h"
 #import "BSDBackend.h"
 #import "NetworkBackend.h"
+#import "CaptivePortalDetector.h"
 #import "GSMenuExtraContext.h"
 #import "AppearanceMetrics.h"
 #include <sys/utsname.h>
@@ -75,6 +76,7 @@ static id<NetworkBackend> CreateNetworkBackend(void)
     NSArray<WLAN *> *_networkList;
     GSMenuExtraContext *_context;
     NSTimer *_timer;
+    NSString *_previousConnectedSSID;
 }
 
 static NSString *findTool(NSString *name)
@@ -142,6 +144,19 @@ static NSString *findTool(NSString *name)
         (oldConnected && !_connectedWLAN) ||
         (oldConnected && _connectedWLAN && ![[oldConnected ssid] isEqualToString:[_connectedWLAN ssid]])) {
         [_context invalidatePresentation];
+    }
+
+    // Captive portal detection on WLAN SSID change
+    NSString *currentSSID = [_connectedWLAN ssid];
+    if (currentSSID && ![currentSSID isEqualToString:_previousConnectedSSID]) {
+        _previousConnectedSSID = currentSSID;
+        [CaptivePortalDetector checkForCaptivePortalWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
+            if (isCaptive && redirectURL) {
+                [self showCaptivePortalAlert:redirectURL];
+            }
+        }];
+    } else if (!currentSSID) {
+        _previousConnectedSSID = nil;
     }
 }
 
@@ -425,6 +440,33 @@ static NSString *findTool(NSString *name)
     if (oldSignal != _signalStrength || oldCount != [_networkList count] ||
         (!oldConnected && _connectedWLAN) || (oldConnected && !_connectedWLAN)) {
         [_context invalidatePresentation];
+    }
+}
+
+#pragma mark - Captive Portal
+
+- (void)showCaptivePortalAlert:(NSString *)redirectURL
+{
+    if (!redirectURL || [redirectURL length] == 0) return;
+
+    NSDebugLLog(@"gwcomp", @"[WLANExtra] Captive portal detected, redirect to: %@", redirectURL);
+
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:@"Captive Portal Detected"];
+    [alert setInformativeText:@"The WLAN network requires you to sign in "
+        @"before accessing the internet. Would you like to open "
+        @"the login page in your browser?"];
+    [alert setAlertStyle:NSInformationalAlertStyle];
+    [alert addButtonWithTitle:@"Open in Browser"];
+    [alert addButtonWithTitle:@"Cancel"];
+
+    NSInteger result = [alert runModal];
+
+    if (result == NSAlertFirstButtonReturn) {
+        NSURL *url = [NSURL URLWithString:redirectURL];
+        if (url) {
+            [[NSWorkspace sharedWorkspace] openURL:url];
+        }
     }
 }
 

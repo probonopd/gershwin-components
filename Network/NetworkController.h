@@ -96,8 +96,6 @@
     
     // Captive portal detection
     NSString *previousWLANSSID;
-    volatile int32_t captivePortalCheckPending;
-    NSTimeInterval lastCaptivePortalCheckTime;
 }
 
 // View creation
@@ -171,8 +169,6 @@
 - (BOOL)validateSelectedInterface;
 
 // Captive portal detection
-- (void)checkForCaptivePortalAfterWLANChange:(NSString *)ssid;
-- (void)checkCaptivePortalInBackground;
 - (void)captivePortalDetected:(NSString *)redirectURL;
 
 @end

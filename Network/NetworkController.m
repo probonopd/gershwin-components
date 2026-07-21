@@ -9,7 +9,7 @@
 #import "NetworkController.h"
 #import "NMBackend.h"
 #import "BSDBackend.h"
-#include <curl/curl.h>
+#import "CaptivePortalDetector.h"
 #include <sys/utsname.h>
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 #include <sys/sysctl.h>
@@ -34,46 +34,6 @@ static const CGFloat kButtonMinWidth = 69.0;
 static const CGFloat kFieldHeight = 22.0;
 static const CGFloat kLabelWidth = 110;
 static const CGFloat kStatusAreaHeight = 60;
-
-// Captive portal probe URL
-#define CAPTIVE_PORTAL_PROBE_URL "http://nmcheck.gnome.org"
-
-#pragma mark - C Callbacks for Captive Portal Detection
-
-struct CaptivePortalResponse {
-    char *location;
-    size_t location_len;
-};
-
-static size_t captivePortalWriteCallback(char *ptr, size_t size, size_t nmemb, void *userdata)
-{
-    return size * nmemb;
-}
-
-static size_t captivePortalHeaderCallback(char *buffer, size_t size, size_t nitems, void *userdata)
-{
-    size_t total = size * nitems;
-    struct CaptivePortalResponse *resp = (struct CaptivePortalResponse *)userdata;
-
-    const char *prefix = "Location: ";
-    size_t prefixLen = strlen(prefix);
-    if (total >= prefixLen && strncasecmp(buffer, prefix, prefixLen) == 0) {
-        size_t valueLen = total - prefixLen;
-        char *loc = malloc(valueLen + 1);
-        if (loc) {
-            memcpy(loc, buffer + prefixLen, valueLen);
-            loc[valueLen] = '\0';
-            char *nl = strchr(loc, '\r');
-            if (nl) *nl = '\0';
-            nl = strchr(loc, '\n');
-            if (nl) *nl = '\0';
-            if (resp->location) free(resp->location);
-            resp->location = loc;
-            resp->location_len = strlen(loc);
-        }
-    }
-    return total;
-}
 
 @implementation NetworkController
 
@@ -2465,7 +2425,12 @@ static size_t captivePortalHeaderCallback(char *buffer, size_t size, size_t nite
         if (currentWLANSSID && ![currentWLANSSID isEqualToString:previousWLANSSID]) {
             [previousWLANSSID release];
             previousWLANSSID = [currentWLANSSID retain];
-            [self checkForCaptivePortalAfterWLANChange:currentWLANSSID];
+            [[self retain] autorelease];
+            [CaptivePortalDetector checkForCaptivePortalWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
+                if (isCaptive && redirectURL) {
+                    [self captivePortalDetected:redirectURL];
+                }
+            }];
         } else if (!currentWLANSSID) {
             [previousWLANSSID release];
             previousWLANSSID = nil;
@@ -2629,106 +2594,6 @@ static size_t captivePortalHeaderCallback(char *buffer, size_t size, size_t nite
 }
 
 #pragma mark - Captive Portal Detection
-
-#define CAPTIVE_PORTAL_PROBE_BASE_URL @"http://nmcheck.gnome.org"
-#define CAPTIVE_PORTAL_MIN_INTERVAL 60.0
-
-- (void)checkForCaptivePortalAfterWLANChange:(NSString *)ssid
-{
-    if (!ssid || [ssid length] == 0) {
-        return;
-    }
-
-    // Rate limit: no more often than once per 60 seconds
-    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-    if (now - lastCaptivePortalCheckTime < CAPTIVE_PORTAL_MIN_INTERVAL) {
-        return;
-    }
-    lastCaptivePortalCheckTime = now;
-
-    // Thread-safe check-and-set pending flag
-    if (__sync_lock_test_and_set(&captivePortalCheckPending, 1)) {
-        return;
-    }
-
-    [self performSelectorInBackground:@selector(checkCaptivePortalInBackground) withObject:nil];
-}
-
-- (void)checkCaptivePortalInBackground
-{
-    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-
-    CURL *curl = curl_easy_init();
-    if (!curl) {
-        __sync_lock_release(&captivePortalCheckPending);
-        [pool release];
-        return;
-    }
-
-    struct CaptivePortalResponse resp;
-    memset(&resp, 0, sizeof(resp));
-
-    curl_easy_setopt(curl, CURLOPT_URL, CAPTIVE_PORTAL_PROBE_URL);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, captivePortalWriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
-    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, captivePortalHeaderCallback);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &resp);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "CaptivePortalDetector/1.0");
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-
-    CURLcode res = curl_easy_perform(curl);
-
-    BOOL isCaptive = NO;
-    NSString *redirectURL = nil;
-
-    if (res == CURLE_OK) {
-        long httpCode = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
-
-        if (httpCode >= 300 && httpCode < 400) {
-            // 3xx redirect: clear sign of captive portal
-            if (resp.location) {
-                // Resolve relative Location URLs against probe base
-                NSString *loc = [NSString stringWithUTF8String:resp.location];
-                NSURL *probeURL = [NSURL URLWithString:CAPTIVE_PORTAL_PROBE_BASE_URL];
-                NSURL *absURL = [NSURL URLWithString:loc relativeToURL:probeURL];
-                if (absURL) {
-                    redirectURL = [[absURL absoluteString] retain];
-                }
-            }
-            isCaptive = YES;
-        } else if (httpCode == 200) {
-            // 200 OK when we expect 204 means possible portal login page
-            isCaptive = YES;
-            redirectURL = [[NSString alloc] initWithUTF8String:CAPTIVE_PORTAL_PROBE_URL];
-        }
-        // 204 No Content = open internet, do nothing
-    } else if (res == CURLE_GOT_NOTHING) {
-        // Server closed connection without response: common with captive portals
-        isCaptive = YES;
-        redirectURL = [[NSString alloc] initWithUTF8String:CAPTIVE_PORTAL_PROBE_URL];
-    }
-    // CURLE_COULDNT_RESOLVE_HOST, CURLE_OPERATION_TIMEDOUT, etc = no network, not captive portal
-
-    if (resp.location) {
-        free(resp.location);
-    }
-    curl_easy_cleanup(curl);
-
-    if (isCaptive && redirectURL) {
-        [self performSelectorOnMainThread:@selector(captivePortalDetected:)
-                               withObject:redirectURL
-                            waitUntilDone:NO];
-    } else {
-        [redirectURL release];
-    }
-
-    __sync_lock_release(&captivePortalCheckPending);
-    [pool release];
-}
 
 - (void)captivePortalDetected:(NSString *)redirectURL
 {

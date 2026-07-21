@@ -8,7 +8,7 @@ Network_OBJC_FILES = \
 
 Network_RESOURCE_FILES = Network.png NetworkInfo.plist
 Network_BUNDLE_LIBS = -lPreferencePanes -lNetworkBackend -lcurl
-ADDITIONAL_OBJCFLAGS += -I/System/Library/Headers/NetworkBackend
+ADDITIONAL_OBJCFLAGS += -I/System/Library/Headers/NetworkBackend -I../Libraries/NetworkBackend
 Network_PRINCIPAL_CLASS = NetworkPane
 
 # For dlopen() used to load NetworkManager library. dlopen/dlsym are in libc on
