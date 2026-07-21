@@ -426,9 +426,17 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     self.lastSwitchTime = [NSDate timeIntervalSinceReferenceDate];
 
-    /* Same window already showing a menu — still need to check for DBus service changes. */
+    /* Same window already showing a menu.  Rebuild only when PID changes
+       (process restart) to avoid stale DBus service names.  Skip when the
+       structure is unchanged to prevent infinite retry loops when the menu
+       load transiently returns nil (e.g. slow DBus response). */
     if (windowId == self.currentWindowId && self.currentMenu && self.menuView && ![self.menuView isHidden]) {
         if (![self.protocolManager hasMenuForWindow:windowId]) {
+            return;
+        }
+        pid_t newPID = [MenuUtils getWindowPID:windowId];
+        if (newPID != 0 && newPID == self.currentWindowPID) {
+            NSDebugLLog(@"gwcomp", @"AppMenuWidget: Same PID %d — assuming menu unchanged", (int)newPID);
             return;
         }
     }
