@@ -85,6 +85,22 @@
         }
         
         NSDebugLLog(@"gwcomp", @"DBusMenuImporter: Successfully connected to DBus and registered service");
+
+        // Watch for service disconnections via NameOwnerChanged so we can
+        // clean up stale registrations when an application quits without
+        // sending UnregisterWindow.  This is equivalent to KDE's
+        // QDBusServiceWatcher + slotServiceUnregistered pattern.
+        [self.dbusConnection registerObjectPath:@"/org/freedesktop/DBus"
+                                     interface:@"org.freedesktop.DBus"
+                                       handler:self];
+        void *rawConn = self.dbusConnection.connection;
+        if (rawConn) {
+            dbus_bus_add_match((DBusConnection *)rawConn,
+                "type='signal',sender='org.freedesktop.DBus',"
+                "interface='org.freedesktop.DBus',member='NameOwnerChanged',"
+                "path='/org/freedesktop/DBus'", NULL);
+            dbus_connection_flush((DBusConnection *)rawConn);
+        }
         
         // Now that we're connected and the run loop is running, set up the cleanup timer
         if (!self.cleanupTimer) {
@@ -168,6 +184,26 @@
         // Register this window with the discovered properties
         [self registerWindow:windowId serviceName:x11Service objectPath:x11Path];
         return YES;
+    }
+    
+    // Last resort: query the AppMenu.Registrar directly.  The registrar keeps
+    // an authoritative list of (windowId → service, path) for every registered
+    // application, even when we missed the RegisterWindow signal.
+    NSArray *reply = [self.dbusConnection callMethod:@"GetMenuForWindow"
+                                           onService:@"com.canonical.AppMenu.Registrar"
+                                         objectPath:@"/com/canonical/AppMenu/Registrar"
+                                          interface:@"com.canonical.AppMenu.Registrar"
+                                          arguments:@[@(windowId)]];
+    if (reply && [reply count] >= 2) {
+        NSString *regService = [reply objectAtIndex:0];
+        NSString *regPath = [reply objectAtIndex:1];
+        if ([regService isKindOfClass:[NSString class]] && [regService length] > 0 &&
+            [regPath isKindOfClass:[NSString class]] && [regPath length] > 0) {
+            NSDebugLog(@"DBusMenuImporter: Registrar returned service=%@ path=%@ for window %lu (hasMenu check)",
+                  regService, regPath, windowId);
+            [self registerWindow:windowId serviceName:regService objectPath:regPath];
+            return YES;
+        }
     }
     
     return NO;
@@ -635,6 +671,15 @@
     
     NSDebugLog(@"DBusMenuImporter: Handling method call: %@.%@", interface, method);
     
+    // Handle NameOwnerChanged signals (service disconnect detection).
+    // This is the DBus equivalent of KDE's QDBusServiceWatcher.
+    if ([interface isEqualToString:@"org.freedesktop.DBus"] &&
+        [method isEqualToString:@"NameOwnerChanged"]) {
+        [self handleNameOwnerChanged:callInfo];
+        MENU_PROFILE_END(handleDBusMethodCall);
+        return;
+    }
+    
     if (![interface isEqualToString:@"com.canonical.AppMenu.Registrar"]) {
         NSDebugLog(@"DBusMenuImporter: Unknown interface: %@", interface);
         MENU_PROFILE_END(handleDBusMethodCall);
@@ -749,6 +794,63 @@
     }
 
     MENU_PROFILE_END(handleDBusMethodCall);
+}
+
+- (void)handleNameOwnerChanged:(NSDictionary *)callInfo
+{
+    DBusMessage *message = (DBusMessage *)[[callInfo objectForKey:@"message"] pointerValue];
+    if (!message) return;
+
+    DBusMessageIter iter;
+    if (!dbus_message_iter_init(message, &iter)) return;
+
+    // NameOwnerChanged signal has three string arguments: name, old_owner, new_owner
+    const char *name = nil, *oldOwner = nil, *newOwner = nil;
+    int type;
+    type = dbus_message_iter_get_arg_type(&iter);
+    if (type == DBUS_TYPE_STRING) {
+        dbus_message_iter_get_basic(&iter, &name);
+        dbus_message_iter_next(&iter);
+    }
+    type = dbus_message_iter_get_arg_type(&iter);
+    if (type == DBUS_TYPE_STRING) {
+        dbus_message_iter_get_basic(&iter, &oldOwner);
+        dbus_message_iter_next(&iter);
+    }
+    type = dbus_message_iter_get_arg_type(&iter);
+    if (type == DBUS_TYPE_STRING) {
+        dbus_message_iter_get_basic(&iter, &newOwner);
+    }
+
+    if (!name || !oldOwner) return;
+
+    NSString *serviceName = [NSString stringWithUTF8String:name];
+    NSString *oldOwnerStr = [NSString stringWithUTF8String:oldOwner];
+    NSString *newOwnerStr = newOwner ? [NSString stringWithUTF8String:newOwner] : @"";
+
+    // We only care about services that DISCONNECTED (oldOwner is set, newOwner is empty)
+    if ([oldOwnerStr length] == 0 || [newOwnerStr length] > 0) return;
+
+    // Check if any of our registered windows use this service
+    NSMutableArray *windowsToRemove = [NSMutableArray array];
+    @synchronized(_windowRegistryLock) {
+        for (NSNumber *windowKey in self.registeredWindows) {
+            NSString *svc = [self.registeredWindows objectForKey:windowKey];
+            if ([svc isEqualToString:serviceName] ||
+                [svc isEqualToString:oldOwnerStr]) {
+                [windowsToRemove addObject:windowKey];
+            }
+        }
+    }
+
+    if ([windowsToRemove count] > 0) {
+        NSDebugLog(@"DBusMenuImporter: Service %@ disconnected — removing %lu stale windows", 
+              serviceName, (unsigned long)[windowsToRemove count]);
+        for (NSNumber *windowKey in windowsToRemove) {
+            unsigned long wid = [windowKey unsignedLongValue];
+            [self unregisterWindow:wid];
+        }
+    }
 }
 
 - (void)handleRegisterWindow:(NSArray *)arguments
