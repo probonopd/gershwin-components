@@ -67,10 +67,20 @@ disable_automounter() {
             service devd onestop 2>/dev/null || true
         fi
     fi
-    # Forceful fallback if service stop didn't work
-    if pgrep -q devd 2>/dev/null; then
+    # Wait until devd is really gone (with timeout)
+    if [ -n "$AUTOMOUNTER_DEVD" ] || pgrep -q devd 2>/dev/null; then
         AUTOMOUNTER_DEVD=1
-        killall -q devd 2>/dev/null || true
+        echo "Waiting for devd to stop..."
+        waited=0
+        while pgrep -q devd 2>/dev/null && [ "$waited" -lt 10 ]; do
+            killall -q devd 2>/dev/null || true
+            sleep 1
+            waited=$((waited + 1))
+        done
+        if pgrep -q devd 2>/dev/null; then
+            killall -9 devd 2>/dev/null || true
+            sleep 1
+        fi
     fi
     # Stop automountd too if present
     if command -v service >/dev/null 2>&1; then
