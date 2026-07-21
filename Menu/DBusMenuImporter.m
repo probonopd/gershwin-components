@@ -699,15 +699,6 @@ tryFallbacks:
     
     NSDebugLog(@"DBusMenuImporter: Handling method call: %@.%@", interface, method);
     
-    // Handle NameOwnerChanged signals (service disconnect detection).
-    // This is the DBus equivalent of KDE's QDBusServiceWatcher.
-    if ([interface isEqualToString:@"org.freedesktop.DBus"] &&
-        [method isEqualToString:@"NameOwnerChanged"]) {
-        [self handleNameOwnerChanged:callInfo];
-        MENU_PROFILE_END(handleDBusMethodCall);
-        return;
-    }
-    
     if (![interface isEqualToString:@"com.canonical.AppMenu.Registrar"]) {
         NSDebugLog(@"DBusMenuImporter: Unknown interface: %@", interface);
         MENU_PROFILE_END(handleDBusMethodCall);
@@ -822,63 +813,6 @@ tryFallbacks:
     }
 
     MENU_PROFILE_END(handleDBusMethodCall);
-}
-
-- (void)handleNameOwnerChanged:(NSDictionary *)callInfo
-{
-    DBusMessage *message = (DBusMessage *)[[callInfo objectForKey:@"message"] pointerValue];
-    if (!message) return;
-
-    DBusMessageIter iter;
-    if (!dbus_message_iter_init(message, &iter)) return;
-
-    // NameOwnerChanged signal has three string arguments: name, old_owner, new_owner
-    const char *name = nil, *oldOwner = nil, *newOwner = nil;
-    int type;
-    type = dbus_message_iter_get_arg_type(&iter);
-    if (type == DBUS_TYPE_STRING) {
-        dbus_message_iter_get_basic(&iter, &name);
-        dbus_message_iter_next(&iter);
-    }
-    type = dbus_message_iter_get_arg_type(&iter);
-    if (type == DBUS_TYPE_STRING) {
-        dbus_message_iter_get_basic(&iter, &oldOwner);
-        dbus_message_iter_next(&iter);
-    }
-    type = dbus_message_iter_get_arg_type(&iter);
-    if (type == DBUS_TYPE_STRING) {
-        dbus_message_iter_get_basic(&iter, &newOwner);
-    }
-
-    if (!name || !oldOwner) return;
-
-    NSString *serviceName = [NSString stringWithUTF8String:name];
-    NSString *oldOwnerStr = [NSString stringWithUTF8String:oldOwner];
-    NSString *newOwnerStr = newOwner ? [NSString stringWithUTF8String:newOwner] : @"";
-
-    // We only care about services that DISCONNECTED (oldOwner is set, newOwner is empty)
-    if ([oldOwnerStr length] == 0 || [newOwnerStr length] > 0) return;
-
-    // Check if any of our registered windows use this service
-    NSMutableArray *windowsToRemove = [NSMutableArray array];
-    @synchronized(_windowRegistryLock) {
-        for (NSNumber *windowKey in self.registeredWindows) {
-            NSString *svc = [self.registeredWindows objectForKey:windowKey];
-            if ([svc isEqualToString:serviceName] ||
-                [svc isEqualToString:oldOwnerStr]) {
-                [windowsToRemove addObject:windowKey];
-            }
-        }
-    }
-
-    if ([windowsToRemove count] > 0) {
-        NSDebugLog(@"DBusMenuImporter: Service %@ disconnected — removing %lu stale windows", 
-              serviceName, (unsigned long)[windowsToRemove count]);
-        for (NSNumber *windowKey in windowsToRemove) {
-            unsigned long wid = [windowKey unsignedLongValue];
-            [self unregisterWindow:wid];
-        }
-    }
 }
 
 - (void)handleRegisterWindow:(NSArray *)arguments
