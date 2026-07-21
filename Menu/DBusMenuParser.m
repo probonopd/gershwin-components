@@ -543,10 +543,14 @@ static void cacheShortcut(NSString *service, NSNumber *itemId,
     // Store the DBus item ID in representedObject for later use in activation
     [menuItem setRepresentedObject:itemId];
     
-    // Set enabled state BEFORE setting shortcuts
-    if (enabled) {
+    // Set enabled state BEFORE setting shortcuts.
+    // Top-level items with submenus must NEVER be disabled — they always
+    // open their dropdown regardless of the app's transient enabled state.
+    if (enabled && !isSubmenu) {
         [menuItem setEnabled:[enabled boolValue]];
         NSDebugLog(@"DBusMenuParser: Set enabled state to: %@", [enabled boolValue] ? @"YES" : @"NO");
+    } else if (enabled && isSubmenu) {
+        NSDebugLog(@"DBusMenuParser: Ignoring enabled=false for submenu item (always enabled)");
     } else {
         NSDebugLog(@"DBusMenuParser: No enabled property, using default");
     }
