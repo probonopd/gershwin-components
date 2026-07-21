@@ -771,6 +771,7 @@ static int x11ErrorHandler(Display *display, XErrorEvent *error) {
     if (!menu) {
         NSDebugLog(@"GTKMenuImporter: Failed to parse GTK menu structure, creating placeholder");
         menu = [[NSMenu alloc] initWithTitle:@"GTK App Menu"];
+        [menu setAutoenablesItems:NO];
         
         // Add placeholder items to indicate this is a GTK app
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"GTK Application" 

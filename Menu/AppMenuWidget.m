@@ -426,16 +426,9 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     self.lastSwitchTime = [NSDate timeIntervalSinceReferenceDate];
 
-    /* Same window, same menu already displayed? Nothing to do. */
+    /* Same window already showing a menu — still need to check for DBus service changes. */
     if (windowId == self.currentWindowId && self.currentMenu && self.menuView && ![self.menuView isHidden]) {
-        if ([self.protocolManager hasMenuForWindow:windowId]) {
-            NSMenu *incoming = [self.protocolManager getMenuForWindow:windowId];
-            if (incoming && [self topLevelMenusMatch:self.currentMenu with:incoming]) {
-                NSDebugLLog(@"gwcomp", @"AppMenuWidget: Window 0x%lx menu unchanged — skipping", windowId);
-                return;
-            }
-        } else {
-            /* Same window, still has its menu shown — nothing to do. */
+        if (![self.protocolManager hasMenuForWindow:windowId]) {
             return;
         }
     }
@@ -623,19 +616,28 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     [self cancelMenuRetry];
 
-    /* Skip no-op rebuilds: same window, same top-level structure. */
-    if (self.currentWindowId == windowId && self.currentMenu && self.menuView &&
+    pid_t newPID = [MenuUtils getWindowPID:windowId];
+
+    /* Skip rebuild when same window AND same PID — safe because only
+       process restarts (which change PID) can leave stale DBus service
+       names embedded in menu items.  Window-ID reuse across restarts
+       is rare but would also be caught by the PID change. */
+    if (newPID != 0 && self.currentWindowPID == newPID &&
+        self.currentWindowId == windowId && self.currentMenu && self.menuView &&
         ![self.menuView isHidden] && [self.menuView menu] == self.currentMenu &&
         [self topLevelMenusMatch:self.currentMenu with:menu]) {
-        NSDebugLLog(@"gwcomp", @"AppMenuWidget: Skipping menu rebuild for 0x%lx (unchanged)", windowId);
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: Skipping menu rebuild for 0x%lx (same PID %d, unchanged)", windowId, newPID);
         MENU_PROFILE_END(loadMenuForWindow);
         return;
+    }
+    if (newPID == 0) {
+        NSLog(@"AppMenuWidget: _NET_WM_PID not set on window 0x%lx — falling back to full rebuild", windowId);
     }
 
     unsigned long previousWindowId = self.currentWindowId;
     pid_t previousPID = self.currentWindowPID;
     self.currentWindowId = windowId;
-    self.currentWindowPID = [MenuUtils getWindowPID:windowId];
+    self.currentWindowPID = newPID;
     self.lastDisplayedPID = self.currentWindowPID;
     self.needsRedraw = YES;
 

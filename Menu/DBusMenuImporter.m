@@ -444,12 +444,12 @@
     }
     
     // Send Event method call to activate the menu item
-    // In a real implementation, we would track menu item IDs from the DBus structure
+    int menuItemId = (int)[menuItem tag];
     NSArray *arguments = [NSArray arrayWithObjects:
-                         [NSNumber numberWithInt:0],    // menu item ID (placeholder)
-                         @"clicked",                     // event type
-                         @"",                           // event data (empty)
-                         [NSNumber numberWithUnsignedInt:0], // timestamp
+                         [NSNumber numberWithInt:menuItemId],
+                         @"clicked",
+                         @"",
+                         [NSNumber numberWithUnsignedInt:0],
                          nil];
     
     [self.dbusConnection callMethod:@"Event"

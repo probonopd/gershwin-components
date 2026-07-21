@@ -234,6 +234,7 @@ static void cacheShortcut(NSString *service, NSNumber *itemId,
         }
         NSDebugLog(@"DBusMenuParser: Creating root menu with title: '%@'", menuTitle);
         menu = [[NSMenu alloc] initWithTitle:menuTitle];
+        [menu setAutoenablesItems:NO];
 
         // Process children of root item
         NSDebugLog(@"DBusMenuParser: Processing %lu children of root item", (unsigned long)[children count]);
@@ -333,6 +334,7 @@ static void cacheShortcut(NSString *service, NSNumber *itemId,
         }
         NSDebugLog(@"DBusMenuParser: Creating root menu with title: '%@'", menuTitle);
         menu = [[NSMenu alloc] initWithTitle:menuTitle];
+        [menu setAutoenablesItems:NO];
         
         // Process children of root item
         NSDebugLog(@"DBusMenuParser: Processing %lu children of root item", (unsigned long)[children count]);
@@ -633,6 +635,7 @@ static void cacheShortcut(NSString *service, NSNumber *itemId,
         NSDebugLog(@"DBusMenuParser: Submenu detected - dbus connection: %@", dbusConnection ? @"available" : @"none");
         
         NSMenu *submenu = [[NSMenu alloc] initWithTitle:label ? label : @""];
+        [submenu setAutoenablesItems:NO];
         NSDebugLog(@"DBusMenuParser: Created NSMenu object for submenu: %@", submenu);
         
         // Create submenu items - but mark that we may need to refresh them via AboutToShow
