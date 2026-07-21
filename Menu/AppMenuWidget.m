@@ -435,7 +435,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
             return;
         }
         pid_t newPID = [MenuUtils getWindowPID:windowId];
-        if (newPID != 0 && newPID == self.currentWindowPID) {
+        if (newPID != 0 && self.currentWindowPID != 0 && newPID == self.currentWindowPID) {
             NSDebugLLog(@"gwcomp", @"AppMenuWidget: Same PID %d — assuming menu unchanged", (int)newPID);
             return;
         }
@@ -626,11 +626,12 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     pid_t newPID = [MenuUtils getWindowPID:windowId];
 
-    /* Skip rebuild when same window AND same PID — safe because only
+    /* Skip rebuild when same window AND same known PID — safe because only
        process restarts (which change PID) can leave stale DBus service
-       names embedded in menu items.  Window-ID reuse across restarts
-       is rare but would also be caught by the PID change. */
-    if (newPID != 0 && self.currentWindowPID == newPID &&
+       names embedded in menu items.  If either PID is 0 (unknown) we must
+       rebuild, because the window might belong to a restarted app whose
+       DBus connection name has changed. */
+    if (newPID != 0 && self.currentWindowPID != 0 && self.currentWindowPID == newPID &&
         self.currentWindowId == windowId && self.currentMenu && self.menuView &&
         ![self.menuView isHidden] && [self.menuView menu] == self.currentMenu &&
         [self topLevelMenusMatch:self.currentMenu with:menu]) {
@@ -639,7 +640,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         return;
     }
     if (newPID == 0) {
-        NSLog(@"AppMenuWidget: _NET_WM_PID not set on window 0x%lx — falling back to full rebuild", windowId);
+        NSLog(@"AppMenuWidget: _NET_WM_PID not set on window 0x%lx — forcing full rebuild", windowId);
     }
 
     unsigned long previousWindowId = self.currentWindowId;

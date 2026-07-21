@@ -265,6 +265,29 @@
         legacyCachedMenu = [self.menuCache objectForKey:windowKey];
     }
     
+    // If we have a cached menu, verify the service is still alive before
+    // returning it.  A stale cached menu carries old DBus service names
+    // that will cause Event calls to fail after an app restart.
+    if (legacyCachedMenu && serviceName && ![serviceName isEqualToString:@"unknown"]) {
+        BOOL serviceExists = NO;
+        id hasOwner = [self.dbusConnection callMethod:@"NameHasOwner"
+                                            onService:@"org.freedesktop.DBus"
+                                          objectPath:@"/org/freedesktop/DBus"
+                                           interface:@"org.freedesktop.DBus"
+                                           arguments:@[serviceName]];
+        if ([hasOwner respondsToSelector:@selector(boolValue)]) {
+            serviceExists = [hasOwner boolValue];
+        }
+        if (!serviceExists) {
+            NSDebugLog(@"DBusMenuImporter: Cached service %@ is dead — clearing cache for window %lu", serviceName, windowId);
+            [self unregisterWindow:windowId];
+            legacyCachedMenu = nil;
+            serviceName = nil;
+            objectPath = nil;
+            goto tryFallbacks;
+        }
+    }
+    
     if (legacyCachedMenu) {
         NSDebugLog(@"DBusMenuImporter: Returning cached menu for window %lu", windowId);
         
