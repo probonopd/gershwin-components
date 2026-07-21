@@ -68,6 +68,7 @@
     if (!rootMenu) {
         NSDebugLog(@"GTKMenuParser: Could not create root menu, creating placeholder");
         rootMenu = [[NSMenu alloc] initWithTitle:@"GTK App Menu"];
+        [rootMenu setAutoenablesItems:NO];
     }
     
     return rootMenu;
@@ -90,6 +91,7 @@
     
     NSString *menuTitle = ([labelList count] > 0) ? [labelList lastObject] : @"GTK Menu";
     NSMenu *menu = [[NSMenu alloc] initWithTitle:menuTitle];
+    [menu setAutoenablesItems:NO];
     
     NSDebugLog(@"GTKMenuParser: Processing %lu menu items for menu %@", 
           (unsigned long)[menuItems count], menuId);
@@ -275,9 +277,10 @@
                                 [item setSubmenu:submenu];
                                 NSDebugLog(@"GTKMenuParser: Added loaded submenu to item '%@'", displayLabel);
                             } else {
-                                NSDebugLog(@"GTKMenuParser: Failed to create loaded submenu for item '%@', falling back to lazy loading", displayLabel);
+                                 NSDebugLog(@"GTKMenuParser: Failed to create loaded submenu for item '%@', falling back to lazy loading", displayLabel);
                                 // Fall back to lazy loading
                                 NSMenu *lazySubmenu = [[NSMenu alloc] initWithTitle:displayLabel];
+                                [lazySubmenu setAutoenablesItems:NO];
                                 [GTKSubmenuManager setupSubmenu:lazySubmenu
                                                      forMenuItem:item
                                                      serviceName:serviceName
@@ -288,9 +291,10 @@
                                                         menuDict:menuDict];
                             }
                         } else {
-                            NSDebugLog(@"GTKMenuParser: Failed to load additional menu group %@, setting up lazy loading", groupId);
+                             NSDebugLog(@"GTKMenuParser: Failed to load additional menu group %@, setting up lazy loading", groupId);
                             // Set up lazy loading as fallback
                             NSMenu *lazySubmenu = [[NSMenu alloc] initWithTitle:displayLabel];
+                            [lazySubmenu setAutoenablesItems:NO];
                             [GTKSubmenuManager setupSubmenu:lazySubmenu
                                                  forMenuItem:item
                                                  serviceName:serviceName
@@ -351,6 +355,7 @@
     NSArray *itemArray = (NSArray *)modelItem;
     NSString *menuTitle = isRoot ? @"GTK Menu" : @"Submenu";
     NSMenu *menu = [[NSMenu alloc] initWithTitle:menuTitle];
+    [menu setAutoenablesItems:NO];
     
     for (id item in itemArray) {
         NSMenuItem *menuItem = [self createMenuItemFromGModelItem:item 
@@ -493,6 +498,7 @@
         if (!submenu) {
             // Create placeholder submenu
             submenu = [[NSMenu alloc] initWithTitle:label];
+            [submenu setAutoenablesItems:NO];
         }
         
         [menuItem setSubmenu:submenu];

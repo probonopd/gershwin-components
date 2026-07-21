@@ -428,6 +428,7 @@
         // Fallback: create a simple placeholder menu if parsing fails
         NSDebugLog(@"DBusMenuImporter: Failed to parse menu structure, creating placeholder");
         menu = [[NSMenu alloc] initWithTitle:@"App Menu"];
+        [menu setAutoenablesItems:NO];
         
         // Add some placeholder menu items
         NSMenuItem *fileItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"File", @"File menu")
