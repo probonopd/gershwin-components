@@ -64,23 +64,28 @@ disable_automounter() {
         if service devd onestatus 2>/dev/null; then
             AUTOMOUNTER_DEVD=1
             echo "Stopping devd..."
-            service devd onestop 2>/dev/null || true
+            service devd stop || true
+            sleep 2
         fi
     fi
-    # Wait until devd is really gone (with timeout)
-    if [ -n "$AUTOMOUNTER_DEVD" ] || pgrep -q devd 2>/dev/null; then
+    # If still alive, escalate
+    if pgrep -q devd 2>/dev/null; then
         AUTOMOUNTER_DEVD=1
-        echo "Waiting for devd to stop..."
-        waited=0
-        while pgrep -q devd 2>/dev/null && [ "$waited" -lt 10 ]; do
-            killall -q devd 2>/dev/null || true
-            sleep 1
-            waited=$((waited + 1))
-        done
-        if pgrep -q devd 2>/dev/null; then
-            killall -9 devd 2>/dev/null || true
-            sleep 1
-        fi
+        echo "devd still running, trying killall..."
+        killall devd 2>/dev/null || true
+        sleep 2
+    fi
+    if pgrep -q devd 2>/dev/null; then
+        AUTOMOUNTER_DEVD=1
+        echo "devd still running, forcing kill..."
+        killall -9 devd 2>/dev/null || true
+        sleep 1
+    fi
+    # Refuse to proceed if devd is still alive
+    if pgrep -q devd 2>/dev/null; then
+        echo "ERROR: Cannot stop devd. It may be automatically respawning."
+        echo "Please stop it manually and try again."
+        exit 1
     fi
     # Stop automountd too if present
     if command -v service >/dev/null 2>&1; then
