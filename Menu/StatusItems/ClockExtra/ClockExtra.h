@@ -7,5 +7,9 @@
 #import <AppKit/AppKit.h>
 #import "GSMenuExtra.h"
 
-@interface ClockExtra : NSObject <GSMenuExtra>
+@protocol TimeConfigListener
+- (oneway void)timeConfigDidChange;
+@end
+
+@interface ClockExtra : NSObject <GSMenuExtra, TimeConfigListener>
 @end

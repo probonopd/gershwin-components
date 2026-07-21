@@ -14,6 +14,7 @@
     NSDateFormatter *_dateFormatter;
     NSMenuItem *_dateItem;
     GSMenuExtraContext *_context;
+    NSConnection *_doConn;
 }
 
 - (void)dealloc
@@ -71,12 +72,28 @@
                                             selector:@selector(refresh:)
                                             userInfo:nil
                                              repeats:YES];
+
+    _doConn = [[NSConnection alloc] init];
+    [_doConn setRootObject: self];
+    [_doConn registerName: @"org.gnustep.ClockExtraService"];
 }
 
 - (void)menuExtraWillUnload
 {
+    [_doConn invalidate];
+    RELEASE(_doConn);
+
     [_timer invalidate];
     _timer = nil;
+}
+
+- (oneway void)timeConfigDidChange
+{
+    [_context invalidatePresentation];
+
+    [_timer setFireDate: [NSDate date]];
+
+    [_dateItem setTitle: [_dateFormatter stringFromDate: [NSDate date]]];
 }
 
 - (void)refresh:(NSTimer *)timer
