@@ -114,6 +114,16 @@
                                                            repeats:YES];
             NSDebugLLog(@"gwcomp", @"DBusMenuImporter: Cleanup timer scheduled");
         }
+        // Periodically rescan for windows that gained menu properties after
+        // initial startup (e.g. second launch of an app that does not re-send
+        // RegisterWindow but did set _KDE_NET_WM_APPMENU_* on its window).
+        if (!self.rescanTimer) {
+            self.rescanTimer = [NSTimer scheduledTimerWithTimeInterval:15.0
+                                                                target:self
+                                                              selector:@selector(scanForExistingMenuServices)
+                                                              userInfo:nil
+                                                               repeats:YES];
+        }
         
         // DO NOT scan for menus here - it causes 15 seconds of blocking!
         // Menus will be discovered on-demand when windows become active
