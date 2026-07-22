@@ -7,15 +7,14 @@
 
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
-#import "GNUstepGUI/GSTheme.h"
 
 @interface MenuBarView : NSView
 {
-    NSColor *_cachedBackgroundColor;
+    NSGradient *_gradient;
     BOOL _needsRedraw;
 }
 
-@property (nonatomic, strong) NSColor *backgroundColor;
+@property (nonatomic, strong) NSGradient *gradient;
 
 - (void)drawRect:(NSRect)dirtyRect;
 - (void)setNeedsRedraw;

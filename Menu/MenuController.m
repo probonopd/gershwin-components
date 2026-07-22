@@ -938,7 +938,8 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     NSDebugLLog(@"gwcomp", @"MenuController: Created NSWindow: %@", self.menuBar);
     
     [self.menuBar setTitle:@"Menu"];
-    [self.menuBar setBackgroundColor:color];
+    [self.menuBar setBackgroundColor:[NSColor clearColor]];
+    [self.menuBar setOpaque:NO];
     [self.menuBar setAlphaValue:1.0];
     [self.menuBar setLevel:NSMainMenuWindowLevel + 1]; // Higher than main menu, but not floating
     [self.menuBar setCanHide:NO];
