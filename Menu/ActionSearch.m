@@ -8,6 +8,8 @@
 #import "ActionSearch.h"
 #import "AppMenuWidget.h"
 #import "X11ShortcutManager.h"
+#import "MenuUtils.h"
+#import "WindowMonitor.h"
 #import <GNUstepGUI/GSTheme.h>
 #import <objc/runtime.h>
 #import <pthread.h>
@@ -93,8 +95,11 @@ static const CGFloat kMaxResultsShown = 15;
 
 @end
 
+static const NSTimeInterval kFocusLossArmDelay = 0.05;
+
 @interface ActionSearchController ()
 @property (nonatomic, assign) BOOL resultsMenuTracking;
+@property (nonatomic, assign) BOOL focusLossArmed;
 @end
 
 @implementation ActionSearchController
@@ -164,6 +169,11 @@ static const CGFloat kMaxResultsShown = 15;
                                                selector:@selector(applicationDidResignActive:)
                                                    name:NSApplicationDidResignActiveNotification
                                                  object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                               selector:@selector(activeWindowChanged:)
+                                                   name:WindowMonitorActiveWindowChangedNotification
+                                                 object:nil];
+        _focusLossArmed = NO;
     }
     return self;
 }
@@ -283,6 +293,15 @@ static const CGFloat kMaxResultsShown = 15;
         [self _deferredFocusToSearchField];
     });
 
+    // Arm focus-loss detection after a grace period to avoid premature
+    // closing during the initial window-switch / focus-grab sequence.
+    self.focusLossArmed = NO;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kFocusLossArmDelay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if ([self.searchPanel isVisible]) {
+            self.focusLossArmed = YES;
+        }
+    });
+
     self.resultsMenuTracking = NO;
 
     NSDebugLLog(@"gwcomp", @"ActionSearchController: Showing search panel below menu bar");
@@ -290,6 +309,8 @@ static const CGFloat kMaxResultsShown = 15;
 
 - (void)hideSearchPopup
 {
+    self.focusLossArmed = NO;
+
     if (self.resultsMenuTracking) {
         if ([self.resultsMenu respondsToSelector:@selector(cancelTracking)]) {
             #pragma clang diagnostic push
@@ -579,15 +600,35 @@ static const CGFloat kMaxResultsShown = 15;
 - (void)searchPanelDidResignKey:(NSNotification *)notification
 {
     (void)notification;
-    if (self.resultsMenuTracking) {
-        return;
-    }
+    if (!self.focusLossArmed) return;
+    if (self.resultsMenuTracking) return;
     [self hideSearchPopup];
 }
 
 - (void)applicationDidResignActive:(NSNotification *)notification
 {
     (void)notification;
+    if (!self.focusLossArmed) return;
+    [self hideSearchPopup];
+}
+
+- (void)activeWindowChanged:(NSNotification *)notification
+{
+    if (!self.focusLossArmed) return;
+    if (![self.searchPanel isVisible]) return;
+
+    unsigned long newWindowId = [[notification.userInfo objectForKey:@"windowId"] unsignedLongValue];
+    if (newWindowId == 0) return;
+    if ((Window)newWindowId == (Window)[self.searchPanel windowNumber]) return;
+
+    // Check by NSApp first, then by PID (catches NSMenuWindow popups).
+    BOOL isMenuAppWindow = ([NSApp windowWithWindowNumber:newWindowId] != nil);
+    if (!isMenuAppWindow) {
+        pid_t windowPID = [MenuUtils getWindowPID:newWindowId];
+        isMenuAppWindow = (windowPID == [[NSProcessInfo processInfo] processIdentifier]);
+    }
+    if (isMenuAppWindow) return;
+
     [self hideSearchPopup];
 }
 
