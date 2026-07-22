@@ -77,6 +77,7 @@ static id<NetworkBackend> CreateNetworkBackend(void)
     GSMenuExtraContext *_context;
     NSTimer *_timer;
     NSString *_previousConnectedSSID;
+    BOOL _hasInternetAccess;
 }
 
 static NSString *findTool(NSString *name)
@@ -146,11 +147,16 @@ static NSString *findTool(NSString *name)
         [_context invalidatePresentation];
     }
 
-    // Captive portal detection on WLAN SSID change
+    // Captive portal / internet connectivity check on WLAN SSID change
     NSString *currentSSID = [_connectedWLAN ssid];
     if (currentSSID && ![currentSSID isEqualToString:_previousConnectedSSID]) {
         _previousConnectedSSID = currentSSID;
+        _hasInternetAccess = NO;
         [CaptivePortalDetector checkForCaptivePortalWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
+            if (!isCaptive) {
+                _hasInternetAccess = YES;
+                [_context invalidatePresentation];
+            }
             if (isCaptive && redirectURL) {
                 [self showCaptivePortalAlert:redirectURL];
             }
@@ -275,7 +281,12 @@ static NSString *findTool(NSString *name)
     }
 
     if (connectedSSID) {
-        NSString *label = [NSString stringWithFormat:@"Connected: %@", connectedSSID];
+        NSString *label;
+        if (_hasInternetAccess) {
+            label = [NSString stringWithFormat:@"Connected: %@", connectedSSID];
+        } else {
+            label = [NSString stringWithFormat:@"Connected: %@ (No Internet)", connectedSSID];
+        }
         NSMenuItem *conn = [[NSMenuItem alloc] initWithTitle:label
                                                        action:NULL
                                                 keyEquivalent:@""];
