@@ -775,6 +775,9 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
                 }
             }
             if ([provider respondsToSelector:@selector(menu)]) {
+                if ([provider respondsToSelector:@selector(menuWillOpen)]) {
+                    [provider menuWillOpen];
+                }
                 NSMenu *freshSubmenu = [provider menu];
                 if (freshSubmenu) {
                     NSMenu *existingSubmenu = [menuItem submenu];
@@ -804,17 +807,21 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     id<StatusItemProvider> provider = [self providerForIdentifier:identifier];
     if (!provider) { _needsUpdateGuard = NO; return; }
 
-    if ([provider respondsToSelector:@selector(menuWillOpen)]) {
-        [provider menuWillOpen];
-    }
-    if ([provider respondsToSelector:@selector(menu)]) {
-        NSMenu *freshMenu = [provider menu];
-        if (freshMenu && freshMenu != menu) {
-            [self replaceMenu:menu withMenu:freshMenu];
+    @try {
+        if ([provider respondsToSelector:@selector(menuWillOpen)]) {
+            [provider menuWillOpen];
         }
-    }
-    if ([provider respondsToSelector:@selector(refreshMenuItems:)]) {
-        [provider refreshMenuItems:menu];
+        if ([provider respondsToSelector:@selector(menu)]) {
+            NSMenu *freshMenu = [provider menu];
+            if (freshMenu && freshMenu != menu) {
+                [self replaceMenu:menu withMenu:freshMenu];
+            }
+        }
+        if ([provider respondsToSelector:@selector(refreshMenuItems:)]) {
+            [provider refreshMenuItems:menu];
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"StatusItemManager: exception in menuNeedsUpdate for %@: %@", identifier, exception);
     }
 
     _needsUpdateGuard = NO;
