@@ -23,8 +23,14 @@
     WindowSwitchContext *ctx = [[WindowSwitchContext alloc] init];
     ctx.windowId = windowId;
 
-    /* Check if this is a Menu.app-owned window (should be ignored) */
+    /* Check if this is a Menu.app-owned window (should be ignored).
+       Also match by PID to catch NSMenuWindow popups that [NSApp
+       windowWithWindowNumber:] does not track (e.g. results menu popup). */
     ctx.isSelfWindow = ([NSApp windowWithWindowNumber:windowId] != nil);
+    if (!ctx.isSelfWindow) {
+        pid_t windowPID = [MenuUtils getWindowPID:windowId];
+        ctx.isSelfWindow = (windowPID == [[NSProcessInfo processInfo] processIdentifier]);
+    }
     if (ctx.isSelfWindow) {
         return ctx;
     }

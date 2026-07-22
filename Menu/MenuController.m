@@ -1273,10 +1273,27 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         return;
     }
 
-    /* Ignore focus on Menu.app itself. */
-    if (windowId != 0 && [NSApp windowWithWindowNumber:windowId] != nil) {
-        MENU_PROFILE_END(activeWindowChangedNotification);
-        return;
+    /* Ignore focus on Menu.app itself — but still forward to AppMenuWidget to
+       cancel any stale coalesce timer left by a transient windowId==0 event.
+       The widget's handleFocusChange: will return early via isSelfWindow.
+
+       Also match windows by PID to catch NSMenuWindow popups created by our
+       own process that [NSApp windowWithWindowNumber:] does not track. */
+    if (windowId != 0) {
+        BOOL isSelfWindow = ([NSApp windowWithWindowNumber:windowId] != nil);
+        if (!isSelfWindow) {
+            isSelfWindow = ((pid_t)[MenuUtils getWindowPID:windowId]
+                            == [[NSProcessInfo processInfo] processIdentifier]);
+        }
+        if (isSelfWindow) {
+            if (self.appMenuWidget) {
+                [self.appMenuWidget updateForActiveWindowId:windowId];
+            }
+            self.lastProcessedWindowId = windowId;
+            self.lastProcessedTime = [[NSDate date] timeIntervalSince1970];
+            MENU_PROFILE_END(activeWindowChangedNotification);
+            return;
+        }
     }
 
     self.lastProcessedWindowId = windowId;

@@ -411,6 +411,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     /* Ignore focus on Menu.app itself. */
     if (ctx.isSelfWindow) {
         NSDebugLLog(@"gwcomp", @"AppMenuWidget: Focus on self (0x%lx) — keeping current menu", windowId);
+        self.lastSwitchTime = [NSDate timeIntervalSinceReferenceDate];
         return;
     }
 
@@ -865,6 +866,12 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
 - (void)clearToSystemOnly
 {
+    /* Don't clear while the search panel is visible — it needs the
+       current app menu items to search through. */
+    if ([[ActionSearchController sharedController] isSearchVisible]) {
+        return;
+    }
+
     // CRITICAL: Always unregister non-direct (app-registered) shortcuts when the menu is
     // cleared to system-only state.  Without this, shortcuts from a previously-focused
     // application (e.g. Chrome's Cmd+W) remain live in X11 after the user has switched to
