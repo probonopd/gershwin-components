@@ -152,11 +152,10 @@ static NSString *findTool(NSString *name)
     if (currentSSID && ![currentSSID isEqualToString:_previousConnectedSSID]) {
         _previousConnectedSSID = currentSSID;
         _hasInternetAccess = NO;
+        [_context invalidatePresentation];
         [CaptivePortalDetector checkForCaptivePortalWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
-            if (!isCaptive) {
-                _hasInternetAccess = YES;
-                [_context invalidatePresentation];
-            }
+            _hasInternetAccess = !isCaptive;
+            [_context invalidatePresentation];
             if (isCaptive && redirectURL) {
                 [self showCaptivePortalAlert:redirectURL];
             }
@@ -412,6 +411,14 @@ static NSString *findTool(NSString *name)
             _networkList = [_backend scanForWLANs];
             _connectedWLAN = [_backend connectedWLAN];
             _signalStrength = [_connectedWLAN signalStrength];
+            // Re-check internet / captive portal status when menu opens
+            if ([_connectedWLAN ssid]) {
+                _hasInternetAccess = NO;
+                [CaptivePortalDetector checkForCaptivePortalWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
+                    _hasInternetAccess = !isCaptive;
+                    [_context invalidatePresentation];
+                }];
+            }
         } else {
             _networkList = @[];
             _connectedWLAN = nil;
