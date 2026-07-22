@@ -408,9 +408,16 @@ static NSString *findTool(NSString *name)
     if (_backendAvailable) {
         _wlanEnabled = [_backend isWLANEnabled];
         if (_wlanEnabled) {
-            _networkList = [_backend scanForWLANs];
-            _connectedWLAN = [_backend connectedWLAN];
-            _signalStrength = [_connectedWLAN signalStrength];
+            NSArray *nets = [_backend scanForWLANs];
+            WLAN *connected = [_backend connectedWLAN];
+            int signal = [connected signalStrength];
+            // Only update cached values if backend returned valid data.
+            // A failing scan (nil/empty) should not erase a known connection.
+            if ([nets count] > 0 || connected) {
+                _networkList = nets;
+                _connectedWLAN = connected;
+                _signalStrength = signal;
+            }
             // Re-check internet / captive portal status when menu opens
             if ([_connectedWLAN ssid]) {
                 _hasInternetAccess = NO;
@@ -477,11 +484,13 @@ static NSString *findTool(NSString *name)
         int signal = connected ? [connected signalStrength] : 0;
         dispatch_async(dispatch_get_main_queue(), ^{
             _backendAvailable = YES;
-            _networkList = nets;
-            _connectedWLAN = connected;
-            _signalStrength = signal;
-            if (oldSignal != signal || oldCount != [nets count] ||
-                (!oldConnected && connected) || (oldConnected && !connected)) {
+            if ([nets count] > 0 || connected) {
+                _networkList = nets;
+                _connectedWLAN = connected;
+                _signalStrength = signal;
+            }
+            if (oldSignal != _signalStrength || oldCount != [_networkList count] ||
+                (!oldConnected && _connectedWLAN) || (oldConnected && !_connectedWLAN)) {
                 [_context invalidatePresentation];
             }
         });
