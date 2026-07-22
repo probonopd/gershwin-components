@@ -250,6 +250,21 @@ static NSString *findTool(NSString *name)
     NSArray *nets = _networkList ?: @[];
     WLAN *connected = _connectedWLAN;
     int signal = _signalStrength;
+
+    // If the cache is empty but the backend reports we are connected,
+    // do a live fetch.  This handles the case where the initial scan
+    // in updateState hasn't completed yet or returned transiently empty.
+    if ([nets count] == 0 && !connected && wlanOn && _backendAvailable) {
+        nets = [_backend scanForWLANs] ?: @[];
+        connected = [_backend connectedWLAN];
+        signal = [connected signalStrength];
+        if ([nets count] > 0 || connected) {
+            _networkList = nets;
+            _connectedWLAN = connected;
+            _signalStrength = signal;
+        }
+    }
+
     NSString *connectedSSID = [connected ssid];
     NSLog(@"WLANExtra: menu building — wlanOn=%d connected=%@ signal=%d nets=%lu",
           wlanOn, connectedSSID, signal, (unsigned long)[nets count]);
