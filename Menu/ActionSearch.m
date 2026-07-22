@@ -177,7 +177,7 @@ static const CGFloat kMaxResultsShown = 15;
                                                   styleMask:NSBorderlessWindowMask
                                                     backing:NSBackingStoreBuffered
                                                       defer:NO];
-    [self.searchPanel setLevel:NSPopUpMenuWindowLevel];
+    [self.searchPanel setLevel:NSStatusWindowLevel];
     [self.searchPanel setHasShadow:NO];
     [self.searchPanel setOpaque:NO];
     [self.searchPanel setBackgroundColor:[NSColor clearColor]];
