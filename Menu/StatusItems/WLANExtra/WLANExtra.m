@@ -13,6 +13,10 @@
 #import "AppearanceMetrics.h"
 #include <sys/utsname.h>
 #include <string.h>
+
+@interface WLANExtra (Private)
+- (NSString *)_activeWLANSsidFromNMCLI;
+@end
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 #include <sys/sysctl.h>
 #endif
@@ -78,6 +82,37 @@ static id<NetworkBackend> CreateNetworkBackend(void)
     NSTimer *_timer;
     NSString *_previousConnectedSSID;
     BOOL _hasInternetAccess;
+}
+
+- (NSString *)_activeWLANSsidFromNMCLI
+{
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/usr/bin/nmcli"];
+    [task setArguments:@[@"-t", @"-f", @"NAME,TYPE,DEVICE", @"connection", @"show", @"--active"]];
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    NSPipe *pipe = [NSPipe pipe];
+    [task setStandardOutput:pipe];
+    [task setStandardError:[NSPipe pipe]];
+    @try {
+        [task launch];
+        [task waitUntilExit];
+    } @catch (NSException *e) {
+        NSLog(@"WLANExtra: nmcli failed: %@", e);
+        return nil;
+    }
+    NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (!output) return nil;
+    for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
+        NSArray *fields = [line componentsSeparatedByString:@":"];
+        if ([fields count] >= 2 && [[fields objectAtIndex:1] isEqualToString:@"802-11-wireless"]) {
+            NSLog(@"WLANExtra: nmcli live SSID = '%@'", [fields objectAtIndex:0]);
+            return [fields objectAtIndex:0];
+        }
+    }
+    return nil;
 }
 
 static NSString *findTool(NSString *name)
@@ -256,6 +291,19 @@ static NSString *findTool(NSString *name)
             _connectedWLAN = connected;
             _signalStrength = signal;
         }
+        // Fallback: live nmcli query (bypasses privileged path) if scan
+        // cache missed the connected network (empty scan, stale cache...).
+        if (!_connectedWLAN) {
+            NSString *liveSSID = [self _activeWLANSsidFromNMCLI];
+            if (liveSSID) {
+                WLAN *live = [[WLAN alloc] init];
+                [live setSsid:liveSSID];
+                [live setIsConnected:YES];
+                [live setSignalStrength:0];
+                _connectedWLAN = live;
+                _signalStrength = 0;
+            }
+        }
     }
 
     NSArray *nets = _networkList ?: @[];
@@ -427,10 +475,26 @@ static NSString *findTool(NSString *name)
                 _connectedWLAN = connected;
                 _signalStrength = signal;
             }
+            // If the scan cache missed the connected network (empty scan,
+            // backend just started, etc.), try a live nmcli query (bypasses
+            // the privileged path that uses sudo/askpass and may hang).
+            if (!_connectedWLAN) {
+                NSString *liveSSID = [self _activeWLANSsidFromNMCLI];
+                if (liveSSID) {
+                    WLAN *live = [[WLAN alloc] init];
+                    [live setSsid:liveSSID];
+                    [live setIsConnected:YES];
+                    [live setSignalStrength:0];
+                    _connectedWLAN = live;
+                    _signalStrength = 0;
+                }
+            }
             // Re-check internet / captive portal status when menu opens
+            // Use force-check to bypass the 60s rate limiter — the user
+            // explicitly asked for fresh data by opening the menu.
             if ([_connectedWLAN ssid]) {
                 _hasInternetAccess = NO;
-                [CaptivePortalDetector checkForCaptivePortalWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
+                [CaptivePortalDetector checkForCaptivePortalForceWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
                     _hasInternetAccess = !isCaptive;
                     [_context invalidatePresentation];
                     if (isCaptive && redirectURL) {

@@ -6,18 +6,32 @@
 
 #import "CaptivePortalDetector.h"
 #include <curl/curl.h>
+#include <string.h>
 
-#define CAPTIVE_PORTAL_PROBE_URL "http://nmcheck.gnome.org"
-#define CAPTIVE_PORTAL_PROBE_BASE_URL @"http://nmcheck.gnome.org"
+#define CAPTIVE_PORTAL_PROBE_URL "http://example.com"
+#define CAPTIVE_PORTAL_PROBE_BASE_URL @"http://example.com"
 #define CAPTIVE_PORTAL_MIN_INTERVAL 60.0
+// example.com returns this string in the body on success
+#define EXPECTED_PROBE_MARKER "Example Domain"
 
 struct CaptivePortalResponse {
     char *location;
+    char *body;   // response body for content check
+    size_t bodyLen;
 };
 
 static size_t captivePortalWriteCallback(char *ptr, size_t size, size_t nmemb, void *userdata)
 {
-    return size * nmemb;
+    size_t total = size * nmemb;
+    struct CaptivePortalResponse *resp = (struct CaptivePortalResponse *)userdata;
+    char *newBody = realloc(resp->body, resp->bodyLen + total + 1);
+    if (newBody) {
+        memcpy(newBody + resp->bodyLen, ptr, total);
+        resp->bodyLen += total;
+        newBody[resp->bodyLen] = '\0';
+        resp->body = newBody;
+    }
+    return total;
 }
 
 static size_t captivePortalHeaderCallback(char *buffer, size_t size, size_t nitems, void *userdata)
@@ -74,6 +88,22 @@ static NSTimeInterval _lastCaptivePortalCheckTime = 0;
     }
 }
 
++ (void)checkForCaptivePortalForceWithCompletion:(void (^)(BOOL isCaptive, NSString *redirectURL))completion
+{
+    if (!completion) return;
+
+    @autoreleasepool {
+        if (__sync_lock_test_and_set(&_captivePortalCheckPending, 1)) {
+            return;
+        }
+
+        _lastCaptivePortalCheckTime = [NSDate timeIntervalSinceReferenceDate];
+
+        [self performSelectorInBackground:@selector(_runCheckWithCompletion:)
+                               withObject:[completion copy]];
+    }
+}
+
 + (void)_runCheckWithCompletion:(void (^)(BOOL, NSString *))completion
 {
     @autoreleasepool {
@@ -85,6 +115,8 @@ static NSTimeInterval _lastCaptivePortalCheckTime = 0;
 
         struct CaptivePortalResponse resp;
         memset(&resp, 0, sizeof(resp));
+        resp.body = NULL;
+        resp.bodyLen = 0;
 
         curl_easy_setopt(curl, CURLOPT_URL, CAPTIVE_PORTAL_PROBE_URL);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
@@ -117,16 +149,31 @@ static NSTimeInterval _lastCaptivePortalCheckTime = 0;
                 }
                 isCaptive = YES;
             } else if (httpCode == 200) {
-                isCaptive = YES;
-                redirectURL = [NSString stringWithUTF8String:CAPTIVE_PORTAL_PROBE_URL];
+                // Portal might return 200 with a login page. Check the
+                // response body: if it contains "Example Domain" we are
+                // talking to the real example.com and have internet.
+                if (resp.body && strstr(resp.body, EXPECTED_PROBE_MARKER) != NULL) {
+                    isCaptive = NO;  // real internet
+                } else {
+                    isCaptive = YES;
+                    redirectURL = [NSString stringWithUTF8String:CAPTIVE_PORTAL_PROBE_URL];
+                }
             }
-        } else if (res == CURLE_GOT_NOTHING) {
+        } else if (res == CURLE_GOT_NOTHING
+                   || res == CURLE_COULDNT_RESOLVE_HOST
+                   || res == CURLE_COULDNT_CONNECT
+                   || res == CURLE_OPERATION_TIMEDOUT) {
+            // These failures are common behind a captive portal that
+            // intercepts DNS, drops connections, or times out.
             isCaptive = YES;
             redirectURL = [NSString stringWithUTF8String:CAPTIVE_PORTAL_PROBE_URL];
         }
 
         if (resp.location) {
             free(resp.location);
+        }
+        if (resp.body) {
+            free(resp.body);
         }
         curl_easy_cleanup(curl);
 

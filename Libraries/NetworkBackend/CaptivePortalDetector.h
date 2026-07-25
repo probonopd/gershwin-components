@@ -9,5 +9,6 @@
 @interface CaptivePortalDetector : NSObject
 
 + (void)checkForCaptivePortalWithCompletion:(void (^)(BOOL isCaptive, NSString *redirectURL))completion;
++ (void)checkForCaptivePortalForceWithCompletion:(void (^)(BOOL isCaptive, NSString *redirectURL))completion;
 
 @end
