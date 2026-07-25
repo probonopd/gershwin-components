@@ -121,7 +121,8 @@ static NSTimeInterval _lastCaptivePortalCheckTime = 0;
         curl_easy_setopt(curl, CURLOPT_URL, CAPTIVE_PORTAL_PROBE_URL);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, captivePortalWriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
         curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, captivePortalHeaderCallback);
@@ -134,29 +135,24 @@ static NSTimeInterval _lastCaptivePortalCheckTime = 0;
         BOOL isCaptive = NO;
         NSString *redirectURL = nil;
 
-        if (res == CURLE_OK) {
-            long httpCode = 0;
-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+        char *effectiveURL = NULL;
+        curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effectiveURL);
 
-            if (httpCode >= 300 && httpCode < 400) {
-                if (resp.location) {
-                    NSString *loc = [NSString stringWithUTF8String:resp.location];
-                    NSURL *probeURL = [NSURL URLWithString:CAPTIVE_PORTAL_PROBE_BASE_URL];
-                    NSURL *absURL = [NSURL URLWithString:loc relativeToURL:probeURL];
-                    if (absURL) {
-                        redirectURL = [absURL absoluteString];
-                    }
-                }
+        if (res == CURLE_OK) {
+            if (effectiveURL
+                && strcasecmp(effectiveURL, CAPTIVE_PORTAL_PROBE_URL) != 0
+                && strcasecmp(effectiveURL, CAPTIVE_PORTAL_PROBE_URL "/") != 0) {
+                // The portal redirected us — the effective URL is the
+                // actual login page.
+                redirectURL = [NSString stringWithUTF8String:effectiveURL];
                 isCaptive = YES;
-            } else if (httpCode == 200) {
-                // Portal might return 200 with a login page. Check the
-                // response body: if it contains "Example Domain" we are
-                // talking to the real example.com and have internet.
+            } else {
+                // Same probe URL (no redirect). Check body for the
+                // expected marker to distinguish internet from portal.
                 if (resp.body && strstr(resp.body, EXPECTED_PROBE_MARKER) != NULL) {
-                    isCaptive = NO;  // real internet
+                    isCaptive = NO;
                 } else {
                     isCaptive = YES;
-                    redirectURL = [NSString stringWithUTF8String:CAPTIVE_PORTAL_PROBE_URL];
                 }
             }
         } else if (res == CURLE_GOT_NOTHING
@@ -166,7 +162,6 @@ static NSTimeInterval _lastCaptivePortalCheckTime = 0;
             // These failures are common behind a captive portal that
             // intercepts DNS, drops connections, or times out.
             isCaptive = YES;
-            redirectURL = [NSString stringWithUTF8String:CAPTIVE_PORTAL_PROBE_URL];
         }
 
         if (resp.location) {

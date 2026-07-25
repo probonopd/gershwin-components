@@ -190,9 +190,19 @@ static NSString *findTool(NSString *name)
         [_context invalidatePresentation];
         [CaptivePortalDetector checkForCaptivePortalWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
             _hasInternetAccess = !isCaptive;
-            [_context invalidatePresentation];
+            [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                                     selector:@selector(deferredInvalidatePresentation)
+                                                       object:nil];
+            [self performSelector:@selector(deferredInvalidatePresentation)
+                     withObject:nil
+                     afterDelay:0];
             if (isCaptive && redirectURL) {
-                [self showCaptivePortalAlert:redirectURL];
+                [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                                         selector:@selector(showCaptivePortalAlert:)
+                                                           object:nil];
+                [self performSelector:@selector(showCaptivePortalAlert:)
+                         withObject:redirectURL
+                         afterDelay:0];
             }
         }];
     } else if (!currentSSID) {
@@ -484,11 +494,12 @@ static NSString *findTool(NSString *name)
                 [CaptivePortalDetector checkForCaptivePortalForceWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
                     _hasInternetAccess = !isCaptive;
                     if (isCaptive && redirectURL) {
-                        // Dismiss the menu before showing a modal alert —
-                        // the menu tracking loop would otherwise swallow
-                        // all mouse events and the dialog would hang.
-                        [_context invalidatePresentation];
-                        [self showCaptivePortalAlert:redirectURL];
+                        [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                                                 selector:@selector(showCaptivePortalAlert:)
+                                                                   object:nil];
+                        [self performSelector:@selector(showCaptivePortalAlert:)
+                                 withObject:redirectURL
+                                 afterDelay:0];
                     }
                 }];
             }
@@ -565,6 +576,11 @@ static NSString *findTool(NSString *name)
 
 #pragma mark - Captive Portal
 
+- (void)deferredInvalidatePresentation
+{
+    [_context invalidatePresentation];
+}
+
 - (void)showCaptivePortalAlert:(NSString *)redirectURL
 {
     if (!redirectURL || [redirectURL length] == 0) return;
@@ -573,9 +589,10 @@ static NSString *findTool(NSString *name)
 
     NSAlert *alert = [[NSAlert alloc] init];
     [alert setMessageText:@"Captive Portal Detected"];
-    [alert setInformativeText:@"The WLAN network requires you to sign in "
-        @"before accessing the internet. Would you like to open "
-        @"the login page in your browser?"];
+    [alert setInformativeText:[NSString stringWithFormat:
+        @"Login page: %@\n\n"
+        @"The WLAN network requires you to sign in before accessing the internet.\n"
+        @"Would you like to open the login page in your browser?", redirectURL]];
     [alert setAlertStyle:NSInformationalAlertStyle];
     [alert addButtonWithTitle:@"Open in Browser"];
     [alert addButtonWithTitle:@"Cancel"];
