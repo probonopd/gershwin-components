@@ -433,6 +433,9 @@ static NSString *findTool(NSString *name)
                 [CaptivePortalDetector checkForCaptivePortalWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
                     _hasInternetAccess = !isCaptive;
                     [_context invalidatePresentation];
+                    if (isCaptive && redirectURL) {
+                        [self showCaptivePortalAlert:redirectURL];
+                    }
                 }];
             }
         } else {
