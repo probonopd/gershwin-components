@@ -291,19 +291,6 @@ static NSString *findTool(NSString *name)
             _connectedWLAN = connected;
             _signalStrength = signal;
         }
-        // Fallback: live nmcli query (bypasses privileged path) if scan
-        // cache missed the connected network (empty scan, stale cache...).
-        if (!_connectedWLAN) {
-            NSString *liveSSID = [self _activeWLANSsidFromNMCLI];
-            if (liveSSID) {
-                WLAN *live = [[WLAN alloc] init];
-                [live setSsid:liveSSID];
-                [live setIsConnected:YES];
-                [live setSignalStrength:0];
-                _connectedWLAN = live;
-                _signalStrength = 0;
-            }
-        }
     }
 
     NSArray *nets = _networkList ?: @[];
@@ -496,8 +483,11 @@ static NSString *findTool(NSString *name)
                 _hasInternetAccess = NO;
                 [CaptivePortalDetector checkForCaptivePortalForceWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
                     _hasInternetAccess = !isCaptive;
-                    [_context invalidatePresentation];
                     if (isCaptive && redirectURL) {
+                        // Dismiss the menu before showing a modal alert —
+                        // the menu tracking loop would otherwise swallow
+                        // all mouse events and the dialog would hang.
+                        [_context invalidatePresentation];
                         [self showCaptivePortalAlert:redirectURL];
                     }
                 }];
