@@ -261,7 +261,7 @@ static id<SoundBackend> CreateSoundBackend(void)
 {
     (void)sender;
     float vol = [_backend outputVolume];
-    vol += 0.05f;
+    vol += (1.0f - 0.01f) / 7.0f;
     if (vol > 1.0f) vol = 1.0f;
     [_backend setOutputVolume:vol];
     [self updateState];
@@ -271,8 +271,8 @@ static id<SoundBackend> CreateSoundBackend(void)
 {
     (void)sender;
     float vol = [_backend outputVolume];
-    vol -= 0.05f;
-    if (vol < 0.0f) vol = 0.0f;
+    vol -= (1.0f - 0.01f) / 7.0f;
+    if (vol < 0.01f) vol = 0.01f;
     [_backend setOutputVolume:vol];
     [self updateState];
 }

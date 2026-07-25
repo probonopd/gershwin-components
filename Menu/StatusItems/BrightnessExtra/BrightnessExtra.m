@@ -158,16 +158,22 @@ static const BOOL kShowTextInMenuBar = NO;
 - (void)brightnessUp:(id)sender
 {
     (void)sender;
-    int step = (_maximum > 20) ? (_maximum / 20) : 1;
-    [_backend set:(_current + step)];
+    int step = (_maximum - MAX(_maximum / 100, 1)) / 7;
+    if (step < 1) step = 1;
+    int newVal = _current + step;
+    if (newVal > _maximum) newVal = _maximum;
+    [_backend set:newVal];
     [self refreshBrightnessPresentation];
 }
 
 - (void)brightnessDown:(id)sender
 {
     (void)sender;
-    int step = (_maximum > 20) ? (_maximum / 20) : 1;
-    [_backend set:(_current - step)];
+    int step = (_maximum - MAX(_maximum / 100, 1)) / 7;
+    if (step < 1) step = 1;
+    int newVal = _current - step;
+    if (newVal < MAX(_maximum / 100, 1)) newVal = MAX(_maximum / 100, 1);
+    [_backend set:newVal];
     [self refreshBrightnessPresentation];
 }
 
