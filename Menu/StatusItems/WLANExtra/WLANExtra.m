@@ -565,21 +565,40 @@ static NSString *findTool(NSString *name)
         int oldSignal = _signalStrength;
         WLAN *oldConnected = _connectedWLAN;
         NSUInteger oldCount = [_networkList count];
-        NSArray *nets = [_backend scanForWLANs];
-        WLAN *connected = [_backend connectedWLAN];
-        int signal = connected ? [connected signalStrength] : 0;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            _backendAvailable = YES;
-            if ([nets count] > 0 || connected) {
-                _networkList = nets;
+
+        // When already connected, skip the full scan — just check if
+        // the connection is still alive and update signal strength.
+        WLAN *connected = nil;
+        NSArray *nets = nil;
+        if (oldConnected) {
+            connected = [_backend connectedWLAN];
+            int signal = connected ? [connected signalStrength] : 0;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                _backendAvailable = YES;
                 _connectedWLAN = connected;
                 _signalStrength = signal;
-            }
-            if (oldSignal != _signalStrength || oldCount != [_networkList count] ||
-                (!oldConnected && _connectedWLAN) || (oldConnected && !_connectedWLAN)) {
-                [_context invalidatePresentation];
-            }
-        });
+                if (oldSignal != _signalStrength ||
+                    (!oldConnected && _connectedWLAN) || (oldConnected && !_connectedWLAN)) {
+                    [_context invalidatePresentation];
+                }
+            });
+        } else {
+            nets = [_backend scanForWLANs];
+            connected = [_backend connectedWLAN];
+            int signal = connected ? [connected signalStrength] : 0;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                _backendAvailable = YES;
+                if ([nets count] > 0 || connected) {
+                    _networkList = nets;
+                    _connectedWLAN = connected;
+                    _signalStrength = signal;
+                }
+                if (oldSignal != _signalStrength || oldCount != [_networkList count] ||
+                    (!oldConnected && _connectedWLAN) || (oldConnected && !_connectedWLAN)) {
+                    [_context invalidatePresentation];
+                }
+            });
+        }
     });
 }
 
