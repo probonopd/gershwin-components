@@ -1053,6 +1053,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         } else {
             NSDebugLLog(@"gwcomp", @"MenuController: Failed to register Cmd-Space as global shortcut");
             // Notify user with alert so failure is visible
+            NSLog(@"NSAlert: Cannot register global shortcut");
             NSAlert *alert = [[NSAlert alloc] init];
             [alert setMessageText:NSLocalizedString(@"Cannot register global shortcut", @"Alert title for shortcut failure")];
             [alert setInformativeText:NSLocalizedString(@"Menu.app failed to register the Cmd-Space global shortcut. Please check for conflicts or permissions.", @"Alert text for shortcut failure")];
