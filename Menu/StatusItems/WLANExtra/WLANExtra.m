@@ -81,7 +81,10 @@ static id<NetworkBackend> CreateNetworkBackend(void)
     GSMenuExtraContext *_context;
     NSTimer *_timer;
     NSString *_previousConnectedSSID;
+    NSString *_captivePortalAlertShownSSID;
     BOOL _hasInternetAccess;
+    NSPanel *_captivePortalPanel;
+    NSString *_captivePortalRedirectURL;
 }
 
 - (NSString *)_activeWLANSsidFromNMCLI
@@ -186,6 +189,7 @@ static NSString *findTool(NSString *name)
     NSString *currentSSID = [_connectedWLAN ssid];
     if (currentSSID && ![currentSSID isEqualToString:_previousConnectedSSID]) {
         _previousConnectedSSID = currentSSID;
+        _captivePortalAlertShownSSID = nil;
         _hasInternetAccess = NO;
         [_context invalidatePresentation];
         [CaptivePortalDetector checkForCaptivePortalWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
@@ -196,7 +200,9 @@ static NSString *findTool(NSString *name)
             [self performSelector:@selector(deferredInvalidatePresentation)
                      withObject:nil
                      afterDelay:0];
-            if (isCaptive && redirectURL) {
+            if (isCaptive && redirectURL
+                && ![_captivePortalAlertShownSSID isEqualToString:currentSSID]) {
+                _captivePortalAlertShownSSID = currentSSID;
                 [NSObject cancelPreviousPerformRequestsWithTarget:self
                                                          selector:@selector(showCaptivePortalAlert:)
                                                            object:nil];
@@ -491,9 +497,12 @@ static NSString *findTool(NSString *name)
             // explicitly asked for fresh data by opening the menu.
             if ([_connectedWLAN ssid]) {
                 _hasInternetAccess = NO;
+                NSString *menuOpenSSID = [_connectedWLAN ssid];
                 [CaptivePortalDetector checkForCaptivePortalForceWithCompletion:^(BOOL isCaptive, NSString *redirectURL) {
                     _hasInternetAccess = !isCaptive;
-                    if (isCaptive && redirectURL) {
+                    if (isCaptive && redirectURL
+                        && ![_captivePortalAlertShownSSID isEqualToString:menuOpenSSID]) {
+                        _captivePortalAlertShownSSID = menuOpenSSID;
                         [NSObject cancelPreviousPerformRequestsWithTarget:self
                                                                  selector:@selector(showCaptivePortalAlert:)
                                                                    object:nil];
@@ -581,30 +590,123 @@ static NSString *findTool(NSString *name)
     [_context invalidatePresentation];
 }
 
+- (void)captivePortalOpenURL:(NSString *)url
+{
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/usr/bin/env"];
+    [task setArguments:@[@"open", url]];
+    [task launch];
+}
 - (void)showCaptivePortalAlert:(NSString *)redirectURL
 {
     if (!redirectURL || [redirectURL length] == 0) return;
 
     NSDebugLLog(@"gwcomp", @"[WLANExtra] Captive portal detected, redirect to: %@", redirectURL);
 
-    NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:@"Captive Portal Detected"];
-    [alert setInformativeText:[NSString stringWithFormat:
+    /*
+     * NSAlert dialog disabled because both -runModal and
+     * -beginSheetModalForWindow: (which calls runModalForWindow:
+     * internally) block the X11 event loop in GNUstep, making the
+     * entire system unresponsive.  A custom non-modal panel with the
+     * gershwin-eau-theme style (AppearanceMetrics.h) should be used
+     * here instead.
+     *
+     * For now we just open the browser directly.
+     *
+    // Build a non-modal floating panel to avoid blocking the X11 event loop
+    // that runModal / beginSheet (both call runModalForWindow: internally) cause.
+    CGFloat panelW = 460;
+    CGFloat panelH = 150;
+    NSPanel *panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, panelW, panelH)
+                                                styleMask:NSTitledWindowMask | NSClosableWindowMask
+                                                  backing:NSBackingStoreBuffered
+                                                    defer:NO];
+    [panel setTitle:@""];
+    [panel setFloatingPanel:YES];
+    [panel setReleasedWhenClosed:NO];
+
+    NSImage *icon = [NSImage imageNamed:NSImageNameInfo];
+    CGFloat iconSize = 32;
+    CGFloat iconX = 18;
+    CGFloat iconY = panelH - iconSize - 18;
+    if (icon) {
+        [icon setSize:NSMakeSize(iconSize, iconSize)];
+        NSImageView *iconView = [[NSImageView alloc] initWithFrame:NSMakeRect(iconX, iconY, iconSize, iconSize)];
+        [iconView setImage:icon];
+        [[panel contentView] addSubview:iconView];
+    }
+
+    CGFloat labelX = iconX + iconSize + 12;
+    CGFloat labelW = panelW - labelX - 18;
+
+    NSTextField *titleField = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX, iconY, labelW, 20)];
+    [titleField setStringValue:@"Captive Portal Detected"];
+    [titleField setEditable:NO];
+    [titleField setSelectable:NO];
+    [titleField setBordered:NO];
+    [titleField setDrawsBackground:NO];
+    [titleField setFont:[NSFont boldSystemFontOfSize:[NSFont systemFontSize]]];
+    [[panel contentView] addSubview:titleField];
+
+    NSTextField *msgField = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX, 42, labelW, 72)];
+    [msgField setStringValue:[NSString stringWithFormat:
         @"Login page: %@\n\n"
         @"The WLAN network requires you to sign in before accessing the internet.\n"
         @"Would you like to open the login page in your browser?", redirectURL]];
-    [alert setAlertStyle:NSInformationalAlertStyle];
-    [alert addButtonWithTitle:@"Open in Browser"];
-    [alert addButtonWithTitle:@"Cancel"];
+    [msgField setEditable:NO];
+    [msgField setSelectable:YES];
+    [msgField setBordered:NO];
+    [msgField setDrawsBackground:NO];
+    [msgField setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    [[panel contentView] addSubview:msgField];
 
-    NSInteger result = [alert runModal];
 
-    if (result == NSAlertFirstButtonReturn) {
-        NSURL *url = [NSURL URLWithString:redirectURL];
-        if (url) {
-            [[NSWorkspace sharedWorkspace] openURL:url];
-        }
+    NSButton *cancelBtn = [[NSButton alloc] initWithFrame:NSMakeRect(panelW - 180, 12, 80, 24)];
+    [cancelBtn setTitle:@"Cancel"];
+    [cancelBtn setTarget:self];
+    [cancelBtn setAction:@selector(_captivePortalCancel:)];
+
+    NSButton *openBtn = [[NSButton alloc] initWithFrame:NSMakeRect(panelW - 90, 12, 80, 24)];
+    [openBtn setTitle:@"Open"];
+    [openBtn setTarget:self];
+    [openBtn setAction:@selector(_captivePortalOpen:)];
+
+    [[panel contentView] addSubview:cancelBtn];
+    [[panel contentView] addSubview:openBtn];
+
+    _captivePortalPanel = panel;
+    _captivePortalRedirectURL = redirectURL;
+
+    [panel center];
+    [panel makeKeyAndOrderFront:self];
+     */
+
+    // Just open the browser directly — no modal dialog needed.
+    [self captivePortalOpenURL:redirectURL];
+}
+
+- (void)_captivePortalCancel:(id)sender
+{
+    (void)sender;
+    if (_captivePortalPanel) {
+        [_captivePortalPanel close];
+        _captivePortalPanel = nil;
     }
+    _captivePortalRedirectURL = nil;
+}
+
+- (void)_captivePortalOpen:(id)sender
+{
+    (void)sender;
+    NSString *url = _captivePortalRedirectURL;
+    if (url) {
+        [self captivePortalOpenURL:url];
+    }
+    if (_captivePortalPanel) {
+        [_captivePortalPanel close];
+        _captivePortalPanel = nil;
+    }
+    _captivePortalRedirectURL = nil;
 }
 
 @end
