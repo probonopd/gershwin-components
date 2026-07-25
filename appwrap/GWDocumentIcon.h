@@ -12,8 +12,12 @@
 + (NSString *)createDocumentIconInResources:(NSString *)resourcesPath
                                     appName:(NSString *)appName
                            appIconFilename:(NSString *)appIconFilename
-                                    mimeType:(NSString *)mimeType
-                                    typeName:(NSString *)typeName
-                                        size:(int)size;
+                                     mimeType:(NSString *)mimeType
+                                     typeName:(NSString *)typeName
+                                         size:(int)size;
+
++ (NSData *)createCombinedIconPNGWithAppIcon:(NSImage *)appIcon
+                              extensionText:(NSString *)extensionText
+                                       size:(int)size;
 
 @end

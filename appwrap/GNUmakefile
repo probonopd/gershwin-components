@@ -1,8 +1,8 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
-TOOL_NAME = appwrap
+TOOL_NAME = appwrap mkcombinedicon
 
-# Source files
+# Source files for appwrap
 appwrap_OBJC_FILES = \
 	appwrap.m \
 	GWBundleCreator.m \
@@ -10,8 +10,15 @@ appwrap_OBJC_FILES = \
 	DesktopFileParser.m \
 	GWUtils.m
 
+# Source files for mkcombinedicon
+mkcombinedicon_OBJC_FILES = \
+	mkcombinedicon.m \
+	GWDocumentIcon.m \
+	GWUtils.m
+
 # Install explicitly into the GNUstep Tools directory
 appwrap_INSTALL_DIR = $(GNUSTEP_TOOLS)
+mkcombinedicon_INSTALL_DIR = $(GNUSTEP_TOOLS)
 
 # Compiler and flags per project guidelines
 # Prefer clang19; fall back to clang or system cc if unavailable
