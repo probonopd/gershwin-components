@@ -78,6 +78,14 @@ static const BOOL kShowTextInMenuBar = NO;
     [dn setTarget:self];
     [m addItem:dn];
 
+    [m addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *prefs = [[NSMenuItem alloc] initWithTitle:@"Preferences"
+                                                    action:@selector(openDisplayPrefs:)
+                                             keyEquivalent:@""];
+    [prefs setTarget:self];
+    [m addItem:prefs];
+
     return m;
 }
 
@@ -175,6 +183,35 @@ static const BOOL kShowTextInMenuBar = NO;
     if (newVal < MAX(_maximum / 100, 1)) newVal = MAX(_maximum / 100, 1);
     [_backend set:newVal];
     [self refreshBrightnessPresentation];
+}
+
+- (void)openDisplayPrefs:(id)sender
+{
+    (void)sender;
+    NSString *prefPaneID = @"Display";
+    NSString *appPath = [[NSWorkspace sharedWorkspace] fullPathForApplication:@"SystemPreferences"];
+    if (!appPath) {
+        appPath = @"/Developer/Library/Sources/gershwin-systempreferences/SystemPreferences/SystemPreferences.app";
+    }
+    NSString *execPath = nil;
+    if (appPath) {
+        execPath = [appPath stringByAppendingPathComponent:@"SystemPreferences"];
+        if (![[NSFileManager defaultManager] isExecutableFileAtPath:execPath]) {
+            execPath = [[NSBundle bundleWithPath:appPath] executablePath];
+        }
+    }
+    if (execPath) {
+        NSTask *task = [[NSTask alloc] init];
+        [task setLaunchPath:execPath];
+        [task setArguments:@[prefPaneID]];
+        @try {
+            [task launch];
+            return;
+        } @catch (NSException *e) {
+            // Fall through to fallback
+        }
+    }
+    [[NSWorkspace sharedWorkspace] launchApplication:@"SystemPreferences"];
 }
 
 @end

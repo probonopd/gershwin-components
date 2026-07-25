@@ -1,0 +1,63 @@
+#!/bin/bash
+# dragtool - Interactive layout rearranger for running GNUstep apps.
+# Injects DragInject.so (libobjc-only) via LLDB dlopen.
+# Constructor auto-runs: swizzles NSView, opens delta file.
+# Usage: dragtool <pid|app_name>
+
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+INJECT_SO="${DIR}/DragInject.so"
+[ -f "$INJECT_SO" ] || { echo "Run build_inject.sh first" >&2; exit 1; }
+
+TARGET_PID="${1:-}"
+[[ "$TARGET_PID" =~ ^[0-9]+$ ]] && kill -0 "$TARGET_PID" 2>/dev/null ||
+  TARGET_PID="$(ps aux | grep -i "[${1:0:1}]${1:1}" | awk '{print $2}' | head -1)"
+[ -n "$TARGET_PID" ] || { echo "Usage: $0 <pid|name>" >&2; exit 1; }
+
+echo "Target PID: $TARGET_PID" >&2
+
+# dlopen → constructor auto-runs DTInit + DTOpenDump
+echo "Injecting DragInject.so ..." >&2
+lldb -p "$TARGET_PID" --batch \
+  -o "expr -o -- (void*)dlopen(\"$INJECT_SO\", 1)" \
+  -o quit >/dev/null 2>&1 || true
+
+sleep 0.3
+
+# Enable drag via direct variable access
+echo "Enabling drag mode..." >&2
+lldb -p "$TARGET_PID" --batch \
+  -o "expr -o -- DT_enabled = 1" \
+  -o quit >/dev/null 2>&1 || true
+
+sleep 0.3
+
+# Verify
+echo "Checking..." >&2
+lldb -p "$TARGET_PID" --batch \
+  -o "expr -o -- DT_enabled" \
+  -o quit 2>&1 | grep -E 'YES|NO' | tail -1
+
+DELTA_FILE="/tmp/dragtool_deltas_${TARGET_PID}.txt"
+echo "Deltas → $DELTA_FILE" >&2
+echo "" >&2
+echo "============================================================" >&2
+echo "  DRAG MODE ON — drag controls, then press ENTER" >&2
+echo "============================================================" >&2
+read -r
+
+# Disable
+lldb -p "$TARGET_PID" --batch \
+  -o "expr -o -- DT_enabled = 0" \
+  -o quit >/dev/null 2>&1 || true
+
+# Report
+echo "" >&2
+echo "============================================================" >&2
+echo "  REPORT" >&2
+echo "============================================================" >&2
+if [ -f "$DELTA_FILE" ] && [ -s "$DELTA_FILE" ]; then
+  cat "$DELTA_FILE"
+else
+  echo "(no movements)"
+fi

@@ -35,6 +35,10 @@ static const CGFloat kFieldHeight = 22.0;
 static const CGFloat kLabelWidth = 110;
 static const CGFloat kStatusAreaHeight = 60;
 
+@interface NetworkController ()
+- (void)updateClonedMacPopup;
+@end
+
 @implementation NetworkController
 
 #pragma mark - Initialization
@@ -147,25 +151,6 @@ static const CGFloat kStatusAreaHeight = 60;
     NSRect viewBounds = [mainView bounds];
     CGFloat viewWidth = NSWidth(viewBounds);
     CGFloat viewHeight = NSHeight(viewBounds);
-    
-    // Location popup at the top (HIG: 24px side margin, 15px top margin)
-    NSTextField *locationLabel = [[NSTextField alloc] initWithFrame:
-                                  NSMakeRect(kContentSideMargin, viewHeight - kContentTopMargin - kFieldHeight, 60, kFieldHeight)];
-    [locationLabel setStringValue:@"Location:"];
-    [locationLabel setBezeled:NO];
-    [locationLabel setDrawsBackground:NO];
-    [locationLabel setEditable:NO];
-    [locationLabel setSelectable:NO];
-    [locationLabel setFont:[NSFont systemFontOfSize:13]];
-    [mainView addSubview:locationLabel];
-    [locationLabel release];
-    
-    locationPopup = [[NSPopUpButton alloc] initWithFrame:
-                     NSMakeRect(kContentSideMargin + 65, viewHeight - kContentTopMargin - kFieldHeight - 2, 200, 26)];
-    [locationPopup addItemWithTitle:@"Automatic"];
-    [locationPopup setTarget:self];
-    [locationPopup setAction:@selector(locationChanged:)];
-    [mainView addSubview:locationPopup];
     
     // Create the split view area (HIG spacing)
     CGFloat splitTop = viewHeight - kContentTopMargin - 40;
@@ -288,20 +273,20 @@ static const CGFloat kStatusAreaHeight = 60;
     CGFloat buttonSpacing = 8;
     
     enableButton = [[NSButton alloc] initWithFrame:
-                    NSMakeRect(buttonSpacing, buttonY, buttonWidth, 24)];
+                    NSMakeRect(buttonSpacing, buttonY, buttonWidth, kButtonHeight)];
     [enableButton setBezelStyle:NSRoundedBezelStyle];
     [enableButton setTitle:@"Enable"];
-    [enableButton setFont:[NSFont systemFontOfSize:11]];
+    [enableButton setFont:[NSFont systemFontOfSize:12]];
     [enableButton setTarget:self];
     [enableButton setAction:@selector(enableInterface:)];
     [enableButton setEnabled:NO];
     [serviceBox addSubview:enableButton];
     
     disableButton = [[NSButton alloc] initWithFrame:
-                     NSMakeRect(buttonSpacing * 2 + buttonWidth, buttonY, buttonWidth, 24)];
+                     NSMakeRect(buttonSpacing * 2 + buttonWidth, buttonY, buttonWidth, kButtonHeight)];
     [disableButton setBezelStyle:NSRoundedBezelStyle];
     [disableButton setTitle:@"Disable"];
-    [disableButton setFont:[NSFont systemFontOfSize:11]];
+    [disableButton setFont:[NSFont systemFontOfSize:12]];
     [disableButton setTarget:self];
     [disableButton setAction:@selector(disableInterface:)];
     [disableButton setEnabled:NO];
@@ -707,13 +692,33 @@ static const CGFloat kStatusAreaHeight = 60;
     [disconnectButton setAutoresizingMask:NSViewMaxXMargin];
     [view addSubview:disconnectButton];
     
-    // Ask to join checkbox - use right-edge alignment
-    askToJoinCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(220, 5, 170, kButtonHeight)];
-    [askToJoinCheckbox setButtonType:NSSwitchButton];
-    [askToJoinCheckbox setTitle:@"Ask to join new networks"];
-    [askToJoinCheckbox setFont:[NSFont systemFontOfSize:11]];
-    [askToJoinCheckbox setAutoresizingMask:NSViewMinXMargin];
-    [view addSubview:askToJoinCheckbox];
+    // MAC Address cloning popup
+    clonedMacLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(210, 8, 55, kFieldHeight)];
+    [clonedMacLabel setStringValue:@"MAC:"];
+    [clonedMacLabel setBezeled:NO];
+    [clonedMacLabel setDrawsBackground:NO];
+    [clonedMacLabel setEditable:NO];
+    [clonedMacLabel setFont:[NSFont systemFontOfSize:11]];
+    [clonedMacLabel setAutoresizingMask:NSViewMinXMargin];
+    [view addSubview:clonedMacLabel];
+    [clonedMacLabel release];
+
+    clonedMacPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(255, 5, 135, kButtonHeight)];
+    [[clonedMacPopup menu] removeAllItems];
+    [clonedMacPopup addItemWithTitle:@"Default (Permanent)"];
+    [[clonedMacPopup lastItem] setRepresentedObject:@"permanent"];
+    [clonedMacPopup addItemWithTitle:@"Random"];
+    [[clonedMacPopup lastItem] setRepresentedObject:@"random"];
+    [clonedMacPopup addItemWithTitle:@"Stable"];
+    [[clonedMacPopup lastItem] setRepresentedObject:@"stable"];
+    [clonedMacPopup addItemWithTitle:@"Preserve"];
+    [[clonedMacPopup lastItem] setRepresentedObject:@"preserve"];
+    [clonedMacPopup setTarget:self];
+    [clonedMacPopup setAction:@selector(clonedMacChanged:)];
+    [clonedMacPopup setAutoresizingMask:NSViewMinXMargin];
+    [clonedMacPopup setEnabled:NO];
+    [view addSubview:clonedMacPopup];
+    [clonedMacPopup release];
     
     [tab setView:view];
 }
@@ -736,16 +741,6 @@ static const CGFloat kStatusAreaHeight = 60;
     [applyButton setEnabled:NO];
     [applyButton setAutoresizingMask:NSViewMinXMargin];
     [mainView addSubview:applyButton];
-    
-    // Assist me button (placeholder for future help)
-    NSButton *assistButton = [[NSButton alloc] initWithFrame:
-                              NSMakeRect(kContentSideMargin, y, kButtonMinWidth + 11, kButtonHeight)];
-    [assistButton setBezelStyle:NSRoundedBezelStyle];
-    [assistButton setTitle:@"Assist me..."];
-    [assistButton setEnabled:NO]; // Placeholder
-    [assistButton setAutoresizingMask:NSViewMaxXMargin];
-    [mainView addSubview:assistButton];
-    [assistButton release];
     
     // Revert button
     NSButton *revertButton = [[NSButton alloc] initWithFrame:
@@ -1085,9 +1080,14 @@ static const CGFloat kStatusAreaHeight = 60;
 
 - (void)wlanRefreshTimerFired:(NSTimer *)timer
 {
-    // Only refresh if WLAN tab is visible
-    if (selectedInterface && [selectedInterface type] == NetworkInterfaceTypeWLAN) {
-        [self refreshWLANNetworks];
+    @try {
+        if (selectedInterface && [selectedInterface type] == NetworkInterfaceTypeWLAN) {
+            [self refreshWLANNetworks];
+            [self updateClonedMacPopup];
+        }
+    } @catch (NSException *exception) {
+        NSDebugLLog(@"gwcomp", @"[Network] wlanRefreshTimerFired: EXCEPTION: %@ - %@",
+                    [exception name], [exception reason]);
     }
 }
 
@@ -1126,6 +1126,8 @@ static const CGFloat kStatusAreaHeight = 60;
         if (scanProgress) {
             [scanProgress stopAnimation:nil];
         }
+
+        [self updateClonedMacPopup];
         
         NSDebugLLog(@"gwcomp", @"[Network] wlanScanCompleted: done");
     }
@@ -1512,16 +1514,6 @@ static const CGFloat kStatusAreaHeight = 60;
     [menu release];
 }
 */
-
-- (IBAction)locationChanged:(id)sender
-{
-    NSString *location = [locationPopup titleOfSelectedItem];
-    NSDebugLLog(@"gwcomp", @"[Network] Location changed to: %@", location);
-    
-    if ([backend respondsToSelector:@selector(setLocation:)]) {
-        [backend setLocation:location];
-    }
-}
 
 - (IBAction)configureIPv4Changed:(id)sender
 {
@@ -1910,6 +1902,69 @@ static const CGFloat kStatusAreaHeight = 60;
     }
     @catch (NSException *exception) {
         NSDebugLLog(@"gwcomp", @"[Network] doRefreshAfterDisconnect: EXCEPTION: %@ - %@", [exception name], [exception reason]);
+    }
+}
+
+#pragma mark - MAC Address Cloning
+
+- (void)updateClonedMacPopup
+{
+    @try {
+        if (!clonedMacPopup) return;
+        NSString *ssid = nil;
+        NSInteger row = [wlanTable selectedRow];
+        if (wlanNetworks && row >= 0 && row < (NSInteger)[wlanNetworks count]) {
+            ssid = [[wlanNetworks objectAtIndex:row] ssid];
+        }
+        if (!ssid && selectedWLANNetwork) {
+            ssid = [selectedWLANNetwork ssid];
+        }
+        if (!ssid) {
+            ssid = [backend connectedWLANSSID];
+        }
+        if (!ssid) {
+            [clonedMacPopup setEnabled:NO];
+            return;
+        }
+        NSLog(@"[Network] updateClonedMacPopup: looking up cloned MAC for SSID '%@'", ssid);
+        NSString *current = [backend clonedMacAddressForSSID:ssid];
+        NSLog(@"[Network] updateClonedMacPopup: current value = '%@'", current);
+        for (NSMenuItem *item in [[clonedMacPopup menu] itemArray]) {
+            if ([[item representedObject] isEqualToString:current]) {
+                [clonedMacPopup selectItem:item];
+                break;
+            }
+        }
+        [clonedMacPopup setEnabled:YES];
+    } @catch (NSException *exception) {
+        NSLog(@"[Network] updateClonedMacPopup: EXCEPTION: %@ - %@",
+              [exception name], [exception reason]);
+        [clonedMacPopup setEnabled:NO];
+    }
+}
+
+- (IBAction)clonedMacChanged:(id)sender
+{
+    NSString *value = [[clonedMacPopup selectedItem] representedObject];
+    if (!value) return;
+    NSString *ssid = nil;
+    NSInteger row = [wlanTable selectedRow];
+    if (wlanNetworks && row >= 0 && row < (NSInteger)[wlanNetworks count]) {
+        ssid = [[wlanNetworks objectAtIndex:row] ssid];
+    }
+    if (!ssid && selectedWLANNetwork) {
+        ssid = [selectedWLANNetwork ssid];
+    }
+    if (!ssid) {
+        ssid = [[backend connectedWLAN] ssid];
+    }
+    if (!ssid) {
+        NSLog(@"[Network] clonedMacChanged: no SSID available, cannot set cloned MAC");
+        return;
+    }
+    NSLog(@"[Network] clonedMacChanged: setting cloned MAC for '%@' to '%@'", ssid, value);
+    if ([backend setClonedMacAddress:value forSSID:ssid]) {
+        NSLog(@"[Network] clonedMacChanged: successfully set cloned MAC for %@ to %@", ssid, value);
     }
 }
 
@@ -2357,6 +2412,7 @@ static const CGFloat kStatusAreaHeight = 60;
             } else {
                 selectedWLANNetwork = nil;
             }
+            [self updateClonedMacPopup];
         }
     }
     @catch (NSException *exception) {
@@ -2436,6 +2492,8 @@ static const CGFloat kStatusAreaHeight = 60;
             previousWLANSSID = nil;
         }
 
+        [self updateClonedMacPopup];
+        
         NSDebugLLog(@"gwcomp", @"[Network] handleUpdatedInterfaces: complete");
     }
     @catch (NSException *exception) {

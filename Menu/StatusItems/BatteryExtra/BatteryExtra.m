@@ -18,6 +18,7 @@ static const BOOL kShowTextInMenuBar = NO;
     NSString *_status;
     NSString *_source;
     BOOL _showPercentage;
+    int _timeRemainingMinutes;
 }
 
 - (void)dealloc
@@ -66,6 +67,7 @@ static const BOOL kShowTextInMenuBar = NO;
     _source = @"Unknown";
     _percent = -1;
     _status = @"";
+    _timeRemainingMinutes = -1;
 
 #if defined(__linux__)
     NSString *acOnline = [self readFile:@"/sys/class/power_supply/AC/online"];
@@ -75,6 +77,43 @@ static const BOOL kShowTextInMenuBar = NO;
     _source = [acOnline isEqualToString:@"1"] ? @"AC" : @"Battery";
     if ([battCap length] > 0) _percent = [battCap intValue];
     if ([battStatus length] > 0) _status = [battStatus capitalizedString];
+
+    // Time remaining
+    NSString *energyNow = [self readFile:@"/sys/class/power_supply/BAT0/energy_now"];
+    NSString *powerNow = [self readFile:@"/sys/class/power_supply/BAT0/power_now"];
+    if ([energyNow length] > 0 && [powerNow length] > 0) {
+        int pNow = [powerNow intValue];
+        if (pNow > 0) {
+            float hours;
+            if ([_status isEqualToString:@"Charging"]) {
+                NSString *energyFull = [self readFile:@"/sys/class/power_supply/BAT0/energy_full"];
+                hours = ([energyFull length] > 0)
+                    ? (float)([energyFull intValue] - [energyNow intValue]) / (float)pNow
+                    : -1;
+            } else {
+                hours = (float)[energyNow intValue] / (float)pNow;
+            }
+            if (hours >= 0) _timeRemainingMinutes = (int)(hours * 60.0f + 0.5f);
+        }
+    } else {
+        NSString *chargeNow = [self readFile:@"/sys/class/power_supply/BAT0/charge_now"];
+        NSString *currentNow = [self readFile:@"/sys/class/power_supply/BAT0/current_now"];
+        if ([chargeNow length] > 0 && [currentNow length] > 0) {
+            int iNow = [currentNow intValue];
+            if (iNow > 0) {
+                float hours;
+                if ([_status isEqualToString:@"Charging"]) {
+                    NSString *chargeFull = [self readFile:@"/sys/class/power_supply/BAT0/charge_full"];
+                    hours = ([chargeFull length] > 0)
+                        ? (float)([chargeFull intValue] - [chargeNow intValue]) / (float)iNow
+                        : -1;
+                } else {
+                    hours = (float)[chargeNow intValue] / (float)iNow;
+                }
+                if (hours >= 0) _timeRemainingMinutes = (int)(hours * 60.0f + 0.5f);
+            }
+        }
+    }
 
 #elif defined(__FreeBSD__)
     NSString *acline = [self runCommand:@"/sbin/sysctl"
@@ -94,6 +133,13 @@ static const BOOL kShowTextInMenuBar = NO;
                   (s == 0) ? @"Idle" : state;
     }
 
+    // Time remaining (FreeBSD provides minutes directly)
+    NSString *battTime = [self runCommand:@"/sbin/sysctl"
+                                     args:@[@"-n", @"hw.acpi.battery.time"]];
+    if ([battTime length] > 0) {
+        _timeRemainingMinutes = [battTime intValue];
+    }
+
 #elif defined(__OpenBSD__)
     NSString *acline = [self runCommand:@"/usr/sbin/apm" args:@[@"-a"]];
     NSString *life   = [self runCommand:@"/usr/sbin/apm" args:@[@"-l"]];
@@ -107,6 +153,12 @@ static const BOOL kShowTextInMenuBar = NO;
                   (s == 1) ? @"Low" :
                   (s == 2) ? @"Critical" :
                   (s == 3) ? @"Charging" : bstate;
+    }
+
+    // Time remaining (OpenBSD apm provides minutes)
+    NSString *apmMinutes = [self runCommand:@"/usr/sbin/apm" args:@[@"-m"]];
+    if ([apmMinutes length] > 0) {
+        _timeRemainingMinutes = [apmMinutes intValue];
     }
 
 #elif defined(__NetBSD__)
@@ -124,6 +176,13 @@ static const BOOL kShowTextInMenuBar = NO;
                   (s == 2) ? @"Charging" :
                   (s == 7) ? @"Charged" : state;
     }
+
+    // Time remaining (NetBSD provides minutes via sysctl)
+    NSString *battTime = [self runCommand:@"/sbin/sysctl"
+                                     args:@[@"-n", @"hw.acpi.battery.time"]];
+    if ([battTime length] > 0) {
+        _timeRemainingMinutes = [battTime intValue];
+    }
 #endif
 }
 
@@ -135,12 +194,43 @@ static const BOOL kShowTextInMenuBar = NO;
 
 - (void)openBatteryPrefs:(id)sender
 {
-    NSString *app = @"SystemPreferences";
-    if (![[NSWorkspace sharedWorkspace] launchApplication:app]) {
-        NSString *path = @"/Developer/Library/Sources/gershwin-systempreferences/SystemPreferences/SystemPreferences.app";
-        if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
-            [[NSWorkspace sharedWorkspace] openURL:[NSURL fileURLWithPath:path]];
+    (void)sender;
+    NSString *prefPaneID = @"Energy";
+    NSString *appPath = [[NSWorkspace sharedWorkspace] fullPathForApplication:@"SystemPreferences"];
+    if (!appPath) {
+        appPath = @"/Developer/Library/Sources/gershwin-systempreferences/SystemPreferences/SystemPreferences.app";
+    }
+    NSString *execPath = nil;
+    if (appPath) {
+        execPath = [appPath stringByAppendingPathComponent:@"SystemPreferences"];
+        if (![[NSFileManager defaultManager] isExecutableFileAtPath:execPath]) {
+            execPath = [[NSBundle bundleWithPath:appPath] executablePath];
         }
+    }
+    if (execPath) {
+        NSTask *task = [[NSTask alloc] init];
+        [task setLaunchPath:execPath];
+        [task setArguments:@[prefPaneID]];
+        @try {
+            [task launch];
+            return;
+        } @catch (NSException *e) {
+        }
+    }
+    [[NSWorkspace sharedWorkspace] launchApplication:@"SystemPreferences"];
+}
+
+- (NSString *)remainingTimeString
+{
+    if (_timeRemainingMinutes < 0) return nil;
+    int hours = _timeRemainingMinutes / 60;
+    int mins = _timeRemainingMinutes % 60;
+    if (hours > 0 && mins > 0) {
+        return [NSString stringWithFormat:@"%dh %dm", hours, mins];
+    } else if (hours > 0) {
+        return [NSString stringWithFormat:@"%dh", hours];
+    } else {
+        return [NSString stringWithFormat:@"%d min", mins];
     }
 }
 
@@ -157,6 +247,21 @@ static const BOOL kShowTextInMenuBar = NO;
     [m addItemWithTitle:[NSString stringWithFormat:@"Source: %@", _source] action:NULL keyEquivalent:@""];
     [[m itemAtIndex:1] setEnabled:NO];
 
+    if (_timeRemainingMinutes >= 0) {
+        NSString *timeStr = [self remainingTimeString];
+        if (timeStr) {
+            BOOL isCharging = [_status isEqualToString:@"Charging"];
+            NSString *timeLabel = isCharging
+                ? [NSString stringWithFormat:@"%@ until full", timeStr]
+                : [NSString stringWithFormat:@"%@ remaining", timeStr];
+            NSMenuItem *timeItem = [[NSMenuItem alloc] initWithTitle:timeLabel
+                                                              action:NULL
+                                                       keyEquivalent:@""];
+            [timeItem setEnabled:NO];
+            [m addItem:timeItem];
+        }
+    }
+
     [m addItem:[NSMenuItem separatorItem]];
 
     NSMenuItem *pctItem = [[NSMenuItem alloc] initWithTitle:@"Show Percentage"
@@ -168,9 +273,9 @@ static const BOOL kShowTextInMenuBar = NO;
 
     [m addItem:[NSMenuItem separatorItem]];
 
-    NSMenuItem *prefs = [[NSMenuItem alloc] initWithTitle:@"Open Battery Preferences…"
-                                                   action:@selector(openBatteryPrefs:)
-                                            keyEquivalent:@""];
+    NSMenuItem *prefs = [[NSMenuItem alloc] initWithTitle:@"Preferences"
+                                                    action:@selector(openBatteryPrefs:)
+                                             keyEquivalent:@""];
     [prefs setTarget:self];
     [m addItem:prefs];
 

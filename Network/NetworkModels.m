@@ -308,7 +308,7 @@
 @implementation NetworkConnection
 
 @synthesize uuid, identifier, name, type, autoConnect, interfaceName;
-@synthesize ssid, WLANSecurity, ipv4Config, ipv6Config;
+@synthesize ssid, WLANSecurity, clonedMacAddress, ipv4Config, ipv6Config;
 @synthesize eapMethod, identity, anonymousIdentity;
 @synthesize caCertPath, clientCertPath, privateKeyPath;
 
@@ -343,6 +343,7 @@
     [name release];
     [interfaceName release];
     [ssid release];
+    [clonedMacAddress release];
     [ipv4Config release];
     [ipv6Config release];
     [eapMethod release];
@@ -365,6 +366,7 @@
     copy.interfaceName = self.interfaceName;
     copy.ssid = self.ssid;
     copy.WLANSecurity = self.WLANSecurity;
+    copy.clonedMacAddress = self.clonedMacAddress;
     copy.ipv4Config = [[self.ipv4Config copy] autorelease];
     copy.ipv6Config = [[self.ipv6Config copy] autorelease];
     copy.eapMethod = self.eapMethod;

@@ -1070,8 +1070,53 @@ enum {
 
 - (BOOL)saveConnection:(NetworkConnection *)connection
 {
-    // For now, modifications are done via specific nmcli commands
-    // This would need to be expanded for full connection editing
+    return YES;
+}
+
+- (NSString *)clonedMacAddressForSSID:(NSString *)ssid
+{
+    if (!ssid) return nil;
+    NSLog(@"[NMBackend] Running: %@ -t connection show %@", nmcliPath, ssid);
+    NSString *output = nil;
+    int status = [self runPrivilegedCommand:nmcliPath
+                                  arguments:@[@"-t", @"connection", @"show", ssid]
+                                     output:&output error:NULL];
+    if (status != 0 || !output) {
+        NSLog(@"[NMBackend] nmcli connection show failed (status=%d), defaulting to permanent", status);
+        return @"permanent";
+    }
+
+    NSString *prefix = @"802-11-wireless.cloned-mac-address:";
+    for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
+        if ([line hasPrefix:prefix]) {
+            NSString *val = [[line substringFromIndex:[prefix length]]
+                               stringByTrimmingCharactersInSet:
+                               [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if ([val length] > 0) {
+                NSLog(@"[NMBackend] Found cloned-mac-address = '%@' for SSID '%@'", val, ssid);
+                return val;
+            }
+        }
+    }
+    NSLog(@"[NMBackend] No cloned-mac-address setting for '%@', defaulting to permanent", ssid);
+    return @"permanent";
+}
+
+- (BOOL)setClonedMacAddress:(NSString *)value forSSID:(NSString *)ssid
+{
+    if (!ssid || !value) return NO;
+    NSLog(@"[NMBackend] Running: %@ connection modify %@ wifi.cloned-mac-address %@",
+          nmcliPath, ssid, value);
+    NSString *errStr = nil;
+    int status = [self runPrivilegedCommand:nmcliPath
+                                  arguments:@[@"connection", @"modify", ssid,
+                                               @"wifi.cloned-mac-address", value]
+                                     output:NULL error:&errStr];
+    if (status != 0) {
+        NSLog(@"[NMBackend] Failed to set cloned MAC for %@: %@", ssid, errStr);
+        return NO;
+    }
+    NSLog(@"[NMBackend] Successfully set cloned MAC for '%@' to '%@'", ssid, value);
     return YES;
 }
 
@@ -1567,6 +1612,38 @@ enum {
             return network;
         }
     }
+    return nil;
+}
+
+- (NSString *)connectedWLANSSID
+{
+    // First try the scan cache
+    WLAN *wlan = [self connectedWLAN];
+    if (wlan && [wlan ssid]) {
+        NSLog(@"[NMBackend] connectedWLANSSID: from scan cache = '%@'", [wlan ssid]);
+        return [wlan ssid];
+    }
+
+    // Fallback: query nmcli directly for the active WLAN connection name (SSID)
+    NSLog(@"[NMBackend] Running: %@ -t -f NAME,TYPE,DEVICE connection show --active", nmcliPath);
+    NSString *output = nil;
+    [self runPrivilegedCommand:nmcliPath
+                    arguments:@[@"-t", @"-f", @"NAME,TYPE,DEVICE", @"connection", @"show", @"--active"]
+                       output:&output error:NULL];
+    if (output) {
+        for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
+            if ([line length] == 0) continue;
+            NSArray *fields = [line componentsSeparatedByString:@":"];
+            if ([fields count] >= 2 && [[fields objectAtIndex:1] isEqualToString:@"802-11-wireless"]) {
+                NSString *name = [fields objectAtIndex:0];
+                if ([name length] > 0) {
+                    NSLog(@"[NMBackend] connectedWLANSSID: from nmcli = '%@'", name);
+                    return name;
+                }
+            }
+        }
+    }
+    NSLog(@"[NMBackend] connectedWLANSSID: no active WLAN connection found");
     return nil;
 }
 

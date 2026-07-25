@@ -416,6 +416,14 @@ static NSString *findTool(NSString *name)
     [off setTarget:self];
     [m addItem:off];
 
+    [m addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *prefs = [[NSMenuItem alloc] initWithTitle:@"Preferences"
+                                                    action:@selector(openNetworkPrefs:)
+                                             keyEquivalent:@""];
+    [prefs setTarget:self];
+    [m addItem:prefs];
+
     return m;
 }
 
@@ -726,6 +734,34 @@ static NSString *findTool(NSString *name)
         _captivePortalPanel = nil;
     }
     _captivePortalRedirectURL = nil;
+}
+
+- (void)openNetworkPrefs:(id)sender
+{
+    (void)sender;
+    NSString *prefPaneID = @"Network";
+    NSString *appPath = [[NSWorkspace sharedWorkspace] fullPathForApplication:@"SystemPreferences"];
+    if (!appPath) {
+        appPath = @"/Developer/Library/Sources/gershwin-systempreferences/SystemPreferences/SystemPreferences.app";
+    }
+    NSString *execPath = nil;
+    if (appPath) {
+        execPath = [appPath stringByAppendingPathComponent:@"SystemPreferences"];
+        if (![[NSFileManager defaultManager] isExecutableFileAtPath:execPath]) {
+            execPath = [[NSBundle bundleWithPath:appPath] executablePath];
+        }
+    }
+    if (execPath) {
+        NSTask *task = [[NSTask alloc] init];
+        [task setLaunchPath:execPath];
+        [task setArguments:@[prefPaneID]];
+        @try {
+            [task launch];
+            return;
+        } @catch (NSException *e) {
+        }
+    }
+    [[NSWorkspace sharedWorkspace] launchApplication:@"SystemPreferences"];
 }
 
 @end

@@ -143,6 +143,14 @@ static id<SoundBackend> CreateSoundBackend(void)
     if (muted) [down setEnabled:NO];
     [m addItem:down];
 
+    [m addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *prefs = [[NSMenuItem alloc] initWithTitle:@"Preferences"
+                                                    action:@selector(openSoundPrefs:)
+                                             keyEquivalent:@""];
+    [prefs setTarget:self];
+    [m addItem:prefs];
+
     return m;
 }
 
@@ -275,6 +283,34 @@ static id<SoundBackend> CreateSoundBackend(void)
     if (vol < 0.01f) vol = 0.01f;
     [_backend setOutputVolume:vol];
     [self updateState];
+}
+
+- (void)openSoundPrefs:(id)sender
+{
+    (void)sender;
+    NSString *prefPaneID = @"Sound";
+    NSString *appPath = [[NSWorkspace sharedWorkspace] fullPathForApplication:@"SystemPreferences"];
+    if (!appPath) {
+        appPath = @"/Developer/Library/Sources/gershwin-systempreferences/SystemPreferences/SystemPreferences.app";
+    }
+    NSString *execPath = nil;
+    if (appPath) {
+        execPath = [appPath stringByAppendingPathComponent:@"SystemPreferences"];
+        if (![[NSFileManager defaultManager] isExecutableFileAtPath:execPath]) {
+            execPath = [[NSBundle bundleWithPath:appPath] executablePath];
+        }
+    }
+    if (execPath) {
+        NSTask *task = [[NSTask alloc] init];
+        [task setLaunchPath:execPath];
+        [task setArguments:@[prefPaneID]];
+        @try {
+            [task launch];
+            return;
+        } @catch (NSException *e) {
+        }
+    }
+    [[NSWorkspace sharedWorkspace] launchApplication:@"SystemPreferences"];
 }
 
 @end

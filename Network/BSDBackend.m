@@ -879,7 +879,22 @@ static NSArray *ethernetPrefixes(void)
 
 - (BOOL)saveConnection:(NetworkConnection *)connection
 {
-    return YES; /* Connections are persisted by wpa_supplicant */
+    return YES;
+}
+
+- (NSString *)connectedWLANSSID
+{
+    return [[self connectedWLAN] ssid];
+}
+
+- (NSString *)clonedMacAddressForSSID:(NSString *)ssid
+{
+    return @"permanent";
+}
+
+- (BOOL)setClonedMacAddress:(NSString *)value forSSID:(NSString *)ssid
+{
+    return YES;
 }
 
 - (NetworkConnection *)createConnectionForInterface:(NetworkInterface *)interface
