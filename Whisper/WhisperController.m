@@ -1019,18 +1019,6 @@ static const unsigned long long modelMinSizes[] = {
 
 #pragma mark - Menu validation
 
-- (void)copy:(id)sender
-{
-    // If there is a selection in the text view, copy only that.
-    NSRange sel = [resultTextView selectedRange];
-    if (sel.length > 0) {
-        [resultTextView copy:sender];
-        return;
-    }
-    // Otherwise copy all recognised text without timestamps.
-    [self copyText:sender];
-}
-
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
     SEL a = [item action];
@@ -1971,10 +1959,10 @@ static const unsigned long long modelMinSizes[] = {
     [editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
     [editMenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
 
-    // Cmd+, also copies all text without timestamps (when no selection)
+    // Copy All Text (accessible from menu; use Cmd+A, Cmd+C for quick select-all)
     NSMenuItem *copyAllItem = [[NSMenuItem alloc] initWithTitle:@"Copy All Text"
                                                          action:@selector(copyText:)
-                                                  keyEquivalent:@","];
+                                                  keyEquivalent:@""];
     [copyAllItem setTarget:self];
     [editMenu addItem:copyAllItem];
     [copyAllItem release];
@@ -2035,8 +2023,7 @@ static const unsigned long long modelMinSizes[] = {
     NSUInteger styleMask = NSTitledWindowMask |
                            NSClosableWindowMask |
                            NSMiniaturizableWindowMask |
-                           NSResizableWindowMask |
-                           NSUtilityWindowMask;
+                           NSResizableWindowMask;
 
     mainWindow = [[WhisperFloatingWindow alloc] initWithContentRect:NSMakeRect(0, 0,
                                                        DEFAULT_WINDOW_WIDTH,
