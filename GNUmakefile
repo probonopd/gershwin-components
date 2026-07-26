@@ -94,9 +94,18 @@ install:
 			$(call run_configure,$$$$d); \
 		fi; \
 		if [ -f "$${d}/Makefile" -o -f "$${d}/GNUmakefile" ]; then \
-			echo "Installing $$d"; $(MAKE) -C $$d install || true; \
+			echo "Installing $$d"; \
+			if ! $(MAKE) -C $$d install; then \
+				echo "ERROR: install failed for $$d" >&2; \
+				failed="$$failed $$d"; \
+			fi; \
 		fi; \
-	done
+	done; \
+	if [ -n "$$failed" ]; then \
+		echo "" >&2; \
+		echo "ERROR: the following components failed to install:$$failed" >&2; \
+		exit 1; \
+	fi
 
 help:
 	@echo "Top-level GNUmakefile for gershwin-components"; \

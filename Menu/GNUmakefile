@@ -183,15 +183,31 @@ INSTALL_APPS_DIR = /System/Library/CoreServices/Applications
 include $(GNUSTEP_MAKEFILES)/application.make
 
 # Build standalone .gsmenuextra bundles after main app is compiled
+# Menu extra bundles. Errors are NOT suppressed here: hiding them with
+# 2>/dev/null and reporting "skipped" turned real build failures into a
+# silently incomplete menu bar that only showed up at runtime.
+#
+# after-Menu-all runs inside the Instance-level make, which passes
+# GNUSTEP_INSTANCE down through MAKEFLAGS. Inheriting it sends the sub-make
+# down the Instance code path, where the "all" target does not exist
+# ("No rule to make target 'all'"). It arrives as a command-line override, so
+# clearing the environment is not enough -- it must be overridden on the
+# child's own command line.
+MENU_EXTRA_DIRS = \
+	StatusItems/ClockExtra \
+	StatusItems/BatteryExtra \
+	StatusItems/WLANExtra \
+	StatusItems/WLANExtra/wlanauth \
+	StatusItems/SoundExtra \
+	StatusItems/BrightnessExtra
+
 after-Menu-all::
 	@echo "Building standalone menu extra bundles..."
-	@(cd StatusItems/ClockExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (ClockExtra skipped)")
-	@(cd StatusItems/BatteryExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (BatteryExtra skipped)")
-	@(cd StatusItems/WLANExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (WLANExtra skipped)")
-	@(cd StatusItems/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (wlanauth skipped)")
-	@cp StatusItems/WLANExtra/wlanauth/obj/wlanauth Resources/ 2>/dev/null || true
-	@(cd StatusItems/SoundExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (SoundExtra skipped)")
-	@(cd StatusItems/BrightnessExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (BrightnessExtra skipped)")
+	@for d in $(MENU_EXTRA_DIRS); do \
+		echo "  Building $$d"; \
+		(cd $$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) GNUSTEP_INSTANCE= all) || exit 1; \
+	done
+	@cp StatusItems/WLANExtra/wlanauth/obj/wlanauth Resources/
 	@echo "Done building bundles."
 
 # Custom install target that completely overrides built-in behavior
@@ -224,17 +240,17 @@ custom-install: $(APP_NAME).app
 		echo "Installing status item bundles..."; \
 		mkdir -p $(DESTDIR)/System/Library/Menu/StatusItems; \
 		mkdir -p $(DESTDIR)/System/Library/MenuExtras; \
-		cp -R StatusItems/SystemMonitor/SystemMonitor.bundle $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/ClockExtra/Clock.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/ClockExtra/Clock.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
-		cp -R StatusItems/BatteryExtra/Battery.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/BatteryExtra/Battery.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
-		cp -R StatusItems/WLANExtra/WLAN.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/WLANExtra/WLAN.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
-		cp -R StatusItems/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
-		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R StatusItems/SystemMonitor/SystemMonitor.bundle $(DESTDIR)/System/Library/Menu/StatusItems/; \
+		cp -R StatusItems/ClockExtra/Clock.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/; \
+		cp -R StatusItems/ClockExtra/Clock.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
+		cp -R StatusItems/BatteryExtra/Battery.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/; \
+		cp -R StatusItems/BatteryExtra/Battery.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
+		cp -R StatusItems/WLANExtra/WLAN.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/; \
+		cp -R StatusItems/WLANExtra/WLAN.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
+		cp -R StatusItems/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/; \
+		cp -R StatusItems/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
+		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/; \
+		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
 	else \
 		echo "Installing $(APP_NAME) to $(INSTALL_APPS_DIR)"; \
 		rm -rf /System/Applications/$(APP_NAME).app || true; \
@@ -243,19 +259,20 @@ custom-install: $(APP_NAME).app
 		mkdir -p $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources; \
 		cp Menu.png $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources/; \
 			echo "Installing status item bundles..."; \
+			mkdir -p /System/Library/Menu/StatusItems; \
 			mkdir -p /System/Library/MenuExtras; \
 			mkdir -p /Local/Library/MenuExtras; \
-			cp -R StatusItems/SystemMonitor/SystemMonitor.bundle /System/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/ClockExtra/Clock.gsmenuextra /System/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/ClockExtra/Clock.gsmenuextra /System/Library/MenuExtras/ || true; \
-			cp -R StatusItems/BatteryExtra/Battery.gsmenuextra /System/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/BatteryExtra/Battery.gsmenuextra /System/Library/MenuExtras/ || true; \
-			cp -R StatusItems/WLANExtra/WLAN.gsmenuextra /System/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/WLANExtra/WLAN.gsmenuextra /System/Library/MenuExtras/ || true; \
-			cp -R StatusItems/SoundExtra/Sound.gsmenuextra /System/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/SoundExtra/Sound.gsmenuextra /System/Library/MenuExtras/ || true; \
-			cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra /System/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R StatusItems/SystemMonitor/SystemMonitor.bundle /System/Library/Menu/StatusItems/; \
+			cp -R StatusItems/ClockExtra/Clock.gsmenuextra /System/Library/Menu/StatusItems/; \
+			cp -R StatusItems/ClockExtra/Clock.gsmenuextra /System/Library/MenuExtras/; \
+			cp -R StatusItems/BatteryExtra/Battery.gsmenuextra /System/Library/Menu/StatusItems/; \
+			cp -R StatusItems/BatteryExtra/Battery.gsmenuextra /System/Library/MenuExtras/; \
+			cp -R StatusItems/WLANExtra/WLAN.gsmenuextra /System/Library/Menu/StatusItems/; \
+			cp -R StatusItems/WLANExtra/WLAN.gsmenuextra /System/Library/MenuExtras/; \
+			cp -R StatusItems/SoundExtra/Sound.gsmenuextra /System/Library/Menu/StatusItems/; \
+			cp -R StatusItems/SoundExtra/Sound.gsmenuextra /System/Library/MenuExtras/; \
+			cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra /System/Library/Menu/StatusItems/; \
+			cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra /System/Library/MenuExtras/; \
 	fi
 # Override uninstall target to properly support DESTDIR and PREFIX
 uninstall:: custom-uninstall
