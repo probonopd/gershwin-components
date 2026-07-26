@@ -1961,13 +1961,13 @@ static const unsigned long long modelMinSizes[] = {
     // Edit menu
     NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
     NSMenuItem *editItem = [[NSMenuItem alloc] initWithTitle:@"Edit"
-                                                      action:NULL
-                                               keyEquivalent:@""];
+                                                       action:NULL
+                                                keyEquivalent:@""];
     [editItem setSubmenu:editMenu];
     [mainMenu addItem:editItem];
 
     [editMenu addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
-    [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
+    [editMenu addItemWithTitle:@"Copy" action:@selector(copyText:) keyEquivalent:@""];
     [editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
     [editMenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
 
