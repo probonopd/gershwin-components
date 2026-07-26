@@ -57,8 +57,17 @@ $(APP_NAME).app/Resources/Install.plist: Resources/Install.plist
 
 all:: $(APP_NAME).app/Resources/Info.plist $(APP_NAME).app/Resources/Install.plist
 
+# Do not invoke sudo unconditionally. Image builds and CI run as root, and a
+# stock FreeBSD/OpenBSD install has no sudo at all, so this failed with
+# "sudo: No such file or directory" (exit 127). Use it only when we are not
+# root and it is actually available.
+SUDO := $(shell if [ "$$(id -u)" = "0" ]; then echo ""; \
+	elif command -v sudo >/dev/null 2>&1; then echo "sudo"; \
+	else echo ""; fi)
+
 system-install: $(APP_NAME).app
-	sudo mkdir -p /System/Library/Services
-	sudo cp -R $(APP_NAME).app /System/Library/Services/
-	sudo chmod -R a+rX /System/Library/Services/$(APP_NAME).app
+	$(SUDO) mkdir -p /System/Library/Services
+	$(SUDO) rm -rf /System/Library/Services/$(APP_NAME).app
+	$(SUDO) cp -R $(APP_NAME).app /System/Library/Services/
+	$(SUDO) chmod -R a+rX /System/Library/Services/$(APP_NAME).app
 	@echo "Installed $(APP_NAME).app to /System/Library/Services/"
