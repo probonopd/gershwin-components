@@ -12,6 +12,42 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
+#
+# Whisper needs the whisper.cpp headers and libwhisper. None of the
+# gershwin-developer requirement lists (Library/OSSupport/*.txt) provision it,
+# so on a stock checkout -- CI included -- it is simply not present, and the
+# component cannot be built at all.
+#
+# Probe for the header and skip this component with a clear message when it is
+# missing, rather than failing the whole tree. This is an explicit, reported
+# skip: it prints why it is skipping. That is deliberately different from
+# swallowing the error with "|| true", which is what previously let this
+# failure hide inside a green build.
+#
+WHISPER_PROBE_CFLAGS := -I/usr/local/include $(shell pkg-config --cflags whisper 2>/dev/null)
+
+WHISPER_CC := $(CC)
+ifeq ($(strip $(WHISPER_CC)),)
+WHISPER_CC := $(shell command -v clang 2>/dev/null || command -v cc 2>/dev/null || command -v gcc 2>/dev/null)
+endif
+
+ifneq ($(strip $(WHISPER_CC)),)
+WHISPER_AVAILABLE := $(shell printf '#include <whisper.h>\n' | \
+	$(WHISPER_CC) $(WHISPER_PROBE_CFLAGS) -x c -E - >/dev/null 2>&1 && echo yes)
+endif
+
+ifneq ($(WHISPER_AVAILABLE),yes)
+
+.PHONY: all build install clean distclean check
+
+all build install clean distclean check:
+	@echo "Whisper: SKIPPED -- whisper.h not found (whisper.cpp / libwhisper)."
+	@echo "Whisper: install whisper.cpp, or add it to"
+	@echo "Whisper:   gershwin-developer/Library/OSSupport/<os>.txt,"
+	@echo "Whisper: then re-run to build this component."
+
+else
+
 APP_NAME = Whisper
 PACKAGE_NAME = Whisper
 Whisper_PRINCIPAL_CLASS = NSApplication
@@ -45,7 +81,11 @@ Whisper_C_FILES = \
 	WAudioLoader.c \
 	WCapture.c
 
-ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include -I/Developer/Library/Sources/gershwin-components/Sound
+# Sound headers (ALSABackend.h / OSSBackend.h) come from the sibling Sound
+# directory. This must stay relative: an absolute /Developer/Library/Sources
+# path only resolves on an installed Gershwin system, so CI and any checkout
+# elsewhere failed with "'ALSABackend.h' file not found". Matches Menu's -I../Sound.
+ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include -I../Sound
 
 #
 # Link libraries
@@ -72,3 +112,5 @@ $(APP_DIR)/Resources/$(GNUSTEP_INSTANCE).desktop:
 	$(ECHO_NOTHING)touch $(APP_DIR)/Resources/$(GNUSTEP_INSTANCE).desktop; chmod a+x $(APP_DIR)/Resources/$(GNUSTEP_INSTANCE).desktop$(END_ECHO)
 
 -include GNUmakefile.postamble
+
+endif
