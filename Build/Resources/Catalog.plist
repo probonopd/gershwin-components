@@ -320,6 +320,296 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>AClock</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Analog clock app for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/AClock/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Cynthiune</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Music player for GNUstep (MP3, Ogg, FLAC, mod, WMA)</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Cynthiune/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>FTP</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>FTP client for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/FTP/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>FlexiSheet</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Spreadsheet application for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/FlexiSheet/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>GSPdf</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>PDF and PostScript viewer for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/GSPdf/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Games (user)</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Collection of games for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Games/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Graphos</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Vector drawing and illustration app for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Graphos/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>InnerSpace</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Desktop background and screensaver system</string>
+		<key>MakefilePath</key>
+		<string>user-apps/InnerSpace/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Jishyo</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Japanese-English dictionary app for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Jishyo/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>LaternaMagica</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Image viewer and slideshow app for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/LaternaMagica/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MPDCon</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Music Player Daemon (MPD) client for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/MPDCon/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>PPC</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Presentation app for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/PPC/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>PictureFrame</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Digital picture frame app for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/PictureFrame/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>RemoteDesk</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Remote desktop/VNC client for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/RemoteDesk/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Stepulator</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Calculator app for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Stepulator/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>TalkSoup</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>IRC chat client for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/TalkSoup/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Vespucci</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Web browser for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Vespucci/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Addresses</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Address/contacts manager for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>system-apps/Addresses/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>AudioMixer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Audio mixer control app</string>
+		<key>MakefilePath</key>
+		<string>system-apps/AudioMixer/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>HelpViewer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Help/documentation viewer for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>system-apps/HelpViewer/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Installer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Package installer for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>system-apps/Installer/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>NFSConfig</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>NFS configuration tool for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>system-apps/NFSConfig/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>StepSync</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>File synchronization tool for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>system-apps/StepSync/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Terminal (gap)</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Terminal emulator for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>system-apps/Terminal/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Zipper</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Archive manager for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>system-apps/Zipper/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>batmon</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Battery monitor for laptops</string>
+		<key>MakefilePath</key>
+		<string>system-apps/batmon/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>loginpanel</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Login panel for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>system-apps/loginpanel/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Games (ported)</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Ported classic games for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>ported-apps/Games/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Util</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Ported utility applications for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>ported-apps/Util/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>MidiTalk</string>
 		<key>GitURL</key>
 		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
