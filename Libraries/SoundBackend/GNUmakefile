@@ -16,7 +16,7 @@ libSoundBackend_HEADER_FILES = \
 	../../Sound/ALSABackend.h \
 	../../Sound/OSSBackend.h
 
-libSoundBackend_INSTALL_HEADERS_DIR = /SoundBackend
+libSoundBackend_INSTALL_HEADERS_DIR = SoundBackend
 libSoundBackend_FRAMEWORKS_DEPEND_UPON = AppKit Foundation
 
 include $(GNUSTEP_MAKEFILES)/library.make

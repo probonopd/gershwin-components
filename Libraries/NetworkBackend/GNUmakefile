@@ -15,7 +15,7 @@ libNetworkBackend_HEADER_FILES = \
 	../../Network/BSDBackend.h \
 	CaptivePortalDetector.h
 
-libNetworkBackend_INSTALL_HEADERS_DIR = /NetworkBackend
+libNetworkBackend_INSTALL_HEADERS_DIR = NetworkBackend
 libNetworkBackend_FRAMEWORKS_DEPEND_UPON = AppKit Foundation
 
 include $(GNUSTEP_MAKEFILES)/library.make

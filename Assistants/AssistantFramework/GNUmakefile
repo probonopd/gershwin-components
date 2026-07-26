@@ -26,7 +26,7 @@ GSAssistantFramework_HEADER_FILES = \
 	GSStepBulletView.h
 
 # Headers that should be included in the framework headers
-GSAssistantFramework_HEADER_FILES_INSTALL_DIR = /GSAssistantFramework
+GSAssistantFramework_HEADER_FILES_INSTALL_DIR = GSAssistantFramework
 
 # Resource files to include in the framework
 GSAssistantFramework_RESOURCE_FILES = \
