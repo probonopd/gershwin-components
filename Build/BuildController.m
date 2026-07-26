@@ -473,24 +473,40 @@ static const CGFloat kSpace16 = 16.0;
     return path ?: [NSTask launchPathForTool:@"make"];
 }
 
+/* Look under both Libraries/ and libs/ for library GNUmakefiles */
+- (NSArray *)libraryMakefilesInRepoRoot:(NSString *)repoRoot
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSMutableArray *result = [NSMutableArray array];
+
+    for (NSString *dirName in @[@"Libraries", @"libs"])
+    {
+        NSString *libsDir = [repoRoot stringByAppendingPathComponent:dirName];
+        NSArray *contents = [fm contentsOfDirectoryAtPath:libsDir error:NULL];
+        for (NSString *item in contents)
+        {
+            NSString *mf = [libsDir stringByAppendingPathComponent:item];
+            mf = [mf stringByAppendingPathComponent:@"GNUmakefile"];
+            if ([fm fileExistsAtPath:mf])
+                [result addObject:mf];
+        }
+    }
+    return result;
+}
+
 - (NSString *)findRepoRootFromMakefileDir:(NSString *)makefileDir buildDir:(NSString *)buildDir
 {
     /* For catalog builds, buildDir is the clone root */
-    if (buildDir)
-    {
-        NSString *libsDir = [buildDir stringByAppendingPathComponent:@"Libraries"];
-        if ([[NSFileManager defaultManager] fileExistsAtPath:libsDir])
-            return buildDir;
-    }
+    if (buildDir && [[self libraryMakefilesInRepoRoot:buildDir] count] > 0)
+        return buildDir;
 
-    /* Walk up from the makefile directory looking for Libraries/ or .git */
+    /* Walk up from the makefile directory looking for Libraries/, libs/, or .git */
     NSString *candidate = makefileDir;
     NSFileManager *fm = [NSFileManager defaultManager];
     while (candidate && [candidate length] > 1)
     {
-        NSString *libs = [candidate stringByAppendingPathComponent:@"Libraries"];
-        NSString *gitDir = [candidate stringByAppendingPathComponent:@".git"];
-        if ([fm fileExistsAtPath:libs] || [fm fileExistsAtPath:gitDir])
+        if ([[self libraryMakefilesInRepoRoot:candidate] count] > 0
+            || [fm fileExistsAtPath:[candidate stringByAppendingPathComponent:@".git"]])
             return candidate;
         candidate = [candidate stringByDeletingLastPathComponent];
     }
@@ -504,21 +520,7 @@ static const CGFloat kSpace16 = 16.0;
     if (!repoRoot)
         return;
 
-    NSFileManager *fm = [NSFileManager defaultManager];
-    NSString *libsDir = [repoRoot stringByAppendingPathComponent:@"Libraries"];
-    NSArray *libContents = [fm contentsOfDirectoryAtPath:libsDir error:NULL];
-    if (!libContents)
-        return;
-
-    NSMutableArray *libMakefiles = [NSMutableArray array];
-    for (NSString *item in libContents)
-    {
-        NSString *mf = [libsDir stringByAppendingPathComponent:item];
-        mf = [mf stringByAppendingPathComponent:@"GNUmakefile"];
-        if ([fm fileExistsAtPath:mf])
-            [libMakefiles addObject:mf];
-    }
-
+    NSArray *libMakefiles = [self libraryMakefilesInRepoRoot:repoRoot];
     if ([libMakefiles count] == 0)
         return;
 

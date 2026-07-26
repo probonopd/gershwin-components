@@ -310,6 +310,16 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>Grr</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Extendable RSS Reader for GNUstep</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Grr/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>MidiTalk</string>
 		<key>GitURL</key>
 		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
