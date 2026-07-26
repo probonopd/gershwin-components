@@ -31,6 +31,14 @@ clean::
 	done
 endef
 
+# Do not invoke sudo unconditionally. Image builds and CI run as root, and a
+# stock FreeBSD/OpenBSD install has no sudo at all, so this died with
+# "sudo: not found" (exit 127). Empty when already root or when sudo is
+# missing; otherwise "sudo". Mirrors the guard in OnDemand/GNUmakefile.
+SUDO := $(shell if [ "$$(id -u)" = "0" ]; then echo ""; \
+	elif command -v sudo >/dev/null 2>&1; then echo "sudo"; \
+	else echo ""; fi)
+
 # Install template
 define make-install
 .PHONY: install-$(1)
@@ -40,9 +48,9 @@ install-$(1): $(1)
 	  dname=$$$$(echo "$$$$app" | tr '_' ' '); \
 	  bdir="$$$$cat/$$$$app.app"; \
 	  instdir="/System/Applications/$$$$cat/$$$$dname.app"; \
-	  sudo mkdir -p "$$$$instdir/Resources"; \
-	  sudo cp "$$$$bdir/Resources/"* "$$$$instdir/Resources/"; \
-	  sudo ln -sf /System/Library/Services/OnDemand.app/OnDemand "$$$$instdir/$$$$dname"; \
+	  $(SUDO) mkdir -p "$$$$instdir/Resources"; \
+	  $(SUDO) cp "$$$$bdir/Resources/"* "$$$$instdir/Resources/"; \
+	  $(SUDO) ln -sf /System/Library/Services/OnDemand.app/OnDemand "$$$$instdir/$$$$dname"; \
 	done
 endef
 
