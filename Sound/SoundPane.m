@@ -14,6 +14,7 @@
 @implementation SoundPane
 
 + (BOOL)isCompatible {
+  // Check for ALSA (amixer)
   NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
   NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
   for (NSString *dir in paths) {
@@ -21,11 +22,14 @@
           [dir stringByAppendingPathComponent: @"amixer"]])
       return YES;
   }
+  // Check for OSS (/dev/mixer)
+  if ([[NSFileManager defaultManager] fileExistsAtPath:@"/dev/mixer"])
+    return YES;
   return NO;
 }
 
 + (NSString *)compatibilityReason {
-  return @"amixer not found — sound configuration requires ALSA";
+  return @"No audio system found — requires ALSA or OSS";
 }
 
 - (id)initWithBundle:(NSBundle *)bundle

@@ -690,7 +690,7 @@ static const CGFloat kTableRowHeight = 18.0;
     NSTextField *message = [[NSTextField alloc] initWithFrame:
                             NSMakeRect(50, kPaneHeight/2 - 30, kPaneWidth - 100, 60)];
     [message setStringValue:@"No audio system available.\n\n"
-                            @"Please ensure ALSA is installed and configured."];
+                            @"Please check your audio hardware and drivers."];
     [message setBezeled:NO];
     [message setEditable:NO];
     [message setSelectable:NO];
@@ -1134,7 +1134,7 @@ static const CGFloat kTableRowHeight = 18.0;
             NSDebugLLog(@"gwcomp", @"SoundController:   selectOutputDevice: %@", success ? @"SUCCESS" : @"FAILED");
             if (!success) {
                 NSRunAlertPanel(@"Device Error", 
-                              @"Could not select the output device. Please check your audio hardware and ALSA configuration.",
+                              @"Could not select the output device. Please check your audio hardware and configuration.",
                               @"OK", nil, nil);
             }
         }
@@ -1149,7 +1149,7 @@ static const CGFloat kTableRowHeight = 18.0;
             NSDebugLLog(@"gwcomp", @"SoundController:   selectInputDevice: %@", success ? @"SUCCESS" : @"FAILED");
             if (!success) {
                 NSRunAlertPanel(@"Device Error", 
-                              @"Could not select the input device. Please check your audio input hardware and ALSA configuration.",
+                              @"Could not select the input device. Please check your audio input hardware and configuration.",
                               @"OK", nil, nil);
             }
         }
@@ -1360,7 +1360,7 @@ static const CGFloat kTableRowHeight = 18.0;
         if (!success) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 NSRunAlertPanel(@"Volume Error",
-                              @"Could not change the output volume. Please check your audio hardware and ALSA configuration.",
+                              @"Could not change the output volume. Please check your audio hardware and configuration.",
                               @"OK", nil, nil);
             });
         }
@@ -1399,7 +1399,7 @@ static const CGFloat kTableRowHeight = 18.0;
         if (!success) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 NSRunAlertPanel(@"Mute Error",
-                              @"Could not change the mute setting. Please check your audio hardware and ALSA configuration.",
+                              @"Could not change the mute setting. Please check your audio hardware and configuration.",
                               @"OK", nil, nil);
             });
         }
@@ -1462,7 +1462,7 @@ static const CGFloat kTableRowHeight = 18.0;
         if (!success) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 NSRunAlertPanel(@"Volume Error",
-                              @"Could not change the input volume. Please check your audio input device and ALSA configuration.",
+                              @"Could not change the input volume. Please check your audio input device and configuration.",
                               @"OK", nil, nil);
             });
         }
@@ -1483,7 +1483,7 @@ static const CGFloat kTableRowHeight = 18.0;
         if (!success) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 NSRunAlertPanel(@"Mute Error",
-                              @"Could not change the input mute setting. Please check your audio input device and ALSA configuration.",
+                              @"Could not change the input mute setting. Please check your audio input device and configuration.",
                               @"OK", nil, nil);
             });
         }
