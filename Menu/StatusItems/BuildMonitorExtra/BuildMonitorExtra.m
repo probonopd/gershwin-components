@@ -476,15 +476,35 @@ static NSString *ConfigKey(NSString *key)
     return m;
 }
 
-- (NSImage *)image { return nil; }
-
-- (NSString *)title
+- (NSString *)statusSymbol
 {
     if ([_repos count] == 0) return @"?";
     if (_fetchError) return @"?";
     if (_hasAnyFailure) return [NSString stringWithUTF8String: "\xE2\x9C\x98"]; // ✘
     if (_hasAnyRunning) return [NSString stringWithUTF8String: "\xE2\x97\x8B"]; // ○
     return [NSString stringWithUTF8String: "\xE2\x9C\x93"]; // ✓
+}
+
+- (NSImage *)image
+{
+    NSString *symbol = [self statusSymbol];
+    NSSize size = NSMakeSize(14, 14);
+    NSImage *img = [[NSImage alloc] initWithSize: size];
+    [img lockFocus];
+    [[NSColor clearColor] set];
+    NSRectFill(NSMakeRect(0, 0, size.width, size.height));
+    [[NSColor blackColor] set];
+    NSDictionary *attrs = @{ NSFontAttributeName: [NSFont boldSystemFontOfSize: 11] };
+    NSSize ts = [symbol sizeWithAttributes: attrs];
+    NSPoint tp = NSMakePoint((size.width - ts.width) / 2, (size.height - ts.height) / 2 - 0.5);
+    [symbol drawAtPoint: tp withAttributes: attrs];
+    [img unlockFocus];
+    return img;
+}
+
+- (NSString *)title
+{
+    return [self statusSymbol];
 }
 
 - (void)openRepoActions:(id)sender
