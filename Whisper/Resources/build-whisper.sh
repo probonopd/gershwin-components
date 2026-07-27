@@ -28,7 +28,7 @@ install_deps() {
         debian)
             sudo apt-get update -qq
             sudo apt-get install -y -qq \
-                git build-essential cmake \
+                git build-essential cmake patchelf \
                 libvulkan-dev mesa-vulkan-drivers \
                 libasound2-dev
             ;;
@@ -40,18 +40,13 @@ install_deps() {
             ;;
         freebsd)
             sudo pkg install -y \
-                git cmake \
+                git cmake patchelf \
                 vulkan-loader vulkan-headers \
                 alsa-lib
             ;;
         openbsd)
             doas pkg_add \
-                git cmake \
-                vulkan-loader
-            ;;
-        openbsd)
-            doas pkg_add \
-                git cmake \
+                git cmake patchelf \
                 vulkan-loader
             ;;
         *)
@@ -97,6 +92,23 @@ build_whisper() {
         FreeBSD) sudo ldconfig -m "$PREFIX/lib" ;;
         OpenBSD) doas ldconfig "$PREFIX/lib" ;;
     esac
+
+    # Replace relative NEEDED paths (../bin/, ../../bin/) with plain names
+    # so the dynamic linker can find them via the standard library path.
+    if command -v patchelf >/dev/null 2>&1; then
+        echo "==> Fixing library NEEDED entries with patchelf"
+        for lib in "$PREFIX/lib"/libwhisper* "$PREFIX/lib"/libggml* \
+                   "$PREFIX/bin"/whisper* "$PREFIX/bin"/ggml*; do
+            [ -f "$lib" ] || continue
+            for needed in $(patchelf --print-needed "$lib" 2>/dev/null | \
+                            grep '\.\./bin/'); do
+                base=$(basename "$needed")
+                echo "  $lib: $needed -> $base"
+                patchelf --replace-needed "$needed" "$base" "$lib" 2>/dev/null || \
+                sudo patchelf --replace-needed "$needed" "$base" "$lib"
+            done
+        done
+    fi
 
     echo "==> Cleaning up"
     rm -rf "$tmpdir"
