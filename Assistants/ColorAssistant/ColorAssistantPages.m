@@ -751,14 +751,33 @@
 
 @implementation GammaPatternView
 
+/*
+ * Gamma reference pattern:
+ *
+ * Left half:   solid 50% grey  (pixel value 0.5)
+ * Right half:  alternating 1px black (0.0) and white (1.0) lines
+ *
+ * Signal chain with our LUT (gamma = g_lut) and native display gamma (≈2.2):
+ *   Grey:  pixel 0.5 → LUT 0.5^(1/g_lut) → display 0.5^(2.2/g_lut)
+ *   Stripes: white=1 → LUT 1^(1/g_lut)=1 → display 1
+ *            black=0 → LUT 0^(1/g_lut)=0 → display 0
+ *            average luminance = 0.5  (independent of g_lut)
+ *
+ * Match condition:  0.5^(2.2/g_lut) = 0.5  →  g_lut = 2.2
+ *
+ * At g_lut = 2.2: both halves match.
+ * At g_lut > 2.2: grey appears brighter (user should lower gamma).
+ * At g_lut < 2.2: grey appears darker  (user should raise gamma).
+ */
+
 - (void)drawRect:(NSRect)dirtyRect
 {
     NSRect bounds = self.bounds;
     if (NSWidth(bounds) < 2 || NSHeight(bounds) < 2) return;
     CGFloat midX = floor(NSWidth(bounds) / 2);
 
-    // Left half: grey at ~73% (matches stripes at gamma 2.2)
-    [[NSColor colorWithCalibratedWhite:0.73 alpha:1.0] set];
+    // Left half: solid 50% grey — at correct gamma (2.2), matches the stripes
+    [[NSColor colorWithCalibratedWhite:0.5 alpha:1.0] set];
     NSRectFill(NSMakeRect(0, 0, midX, NSHeight(bounds)));
 
     // Right half: alternating 1px black and white vertical lines
