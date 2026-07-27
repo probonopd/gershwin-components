@@ -107,30 +107,6 @@ Thus, under the standard power-law model, **50% gray is the mathematically corre
 
 ---
 
-## Why 0.5 and not 0.73?
-
-Using the general equation
-
-```
-γ = 2.2 × log(g) / log(0.5)
-```
-
-the calibration target depends entirely on the chosen gray level.
-
-| Gray value | Matches at γ |
-|------------|-------------:|
-| **0.50** | **2.20** |
-| 0.73 | ≈1.00 |
-
-Therefore:
-
-- **50% gray** matches when the effective system gamma is **2.2**.
-- A gray value near **0.73** instead matches at approximately **γ = 1.0**, making it unsuitable for calibrating modern displays.
-
-Earlier versions of this document used **0.73**. That value is mathematically inconsistent with a 2.2 target under the standard power-law model.
-
----
-
 ## Choosing the target gamma
 
 The correct target depends on the intended color space and workflow.
