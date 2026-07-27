@@ -4,6 +4,7 @@
 
 static const char kRepoKey;
 static const char kDataKey;
+static const char kStatusCodeKey;
 
 #define POLL_INTERVAL 60.0
 #define CONFIG_PREFIX @"BuildMonitor."
@@ -27,6 +28,7 @@ static NSString *ConfigKey(NSString *key)
     BOOL _hasAnyRunning;
     BOOL _fetchError;
     BOOL _anyNewFailure;
+    BOOL _rateLimited;
 
     NSPanel *_configPanel;
     NSTextView *_reposTextView;
@@ -74,6 +76,7 @@ static NSString *ConfigKey(NSString *key)
     _hasAnyRunning = NO;
     _fetchError = NO;
     _anyNewFailure = NO;
+    _rateLimited = NO;
 
     if ([_repos count] == 0) {
         [_context invalidatePresentation];
@@ -109,6 +112,11 @@ static NSString *ConfigKey(NSString *key)
 {
     NSMutableData *data = objc_getAssociatedObject(connection, &kDataKey);
     [data setLength: 0];
+    NSInteger statusCode = 0;
+    if ([response isKindOfClass: [NSHTTPURLResponse class]]) {
+        statusCode = [(NSHTTPURLResponse *)response statusCode];
+    }
+    objc_setAssociatedObject(connection, &kStatusCodeKey, @(statusCode), OBJC_ASSOCIATION_RETAIN);
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
@@ -191,6 +199,13 @@ static NSString *ConfigKey(NSString *key)
                 }
                 return;
             }
+
+            NSNumber *statusCodeNum = objc_getAssociatedObject(connection, &kStatusCodeKey);
+            NSInteger statusCode = [statusCodeNum integerValue];
+            if ((statusCode == 403 || statusCode == 429) &&
+                [[dict objectForKey: @"message"] rangeOfString: @"rate limit"].location != NSNotFound) {
+                _rateLimited = YES;
+            }
         }
     }
 
@@ -221,6 +236,9 @@ static NSString *ConfigKey(NSString *key)
 
     if (_anyNewFailure) {
         [self showFailureAlert];
+    }
+    if (_rateLimited) {
+        [self showRateLimitAlert];
     }
 }
 
@@ -258,6 +276,20 @@ static NSString *ConfigKey(NSString *key)
                 @"https://github.com/%@/%@/actions", parts[0], parts[1]];
             [[NSWorkspace sharedWorkspace] openURL: [NSURL URLWithString: urlStr]];
         }
+    }
+}
+
+- (void)showRateLimitAlert
+{
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText: @"GitHub API rate limit exceeded"];
+    [alert setInformativeText: @"The GitHub API rate limit has been reached. Build status updates will resume when the rate limit resets. Consider adding a personal access token in the Build Monitor configuration for a higher rate limit."];
+    [alert addButtonWithTitle: @"Configure"];
+    [alert addButtonWithTitle: @"Dismiss"];
+
+    NSInteger result = [alert runModal];
+    if (result == NSAlertFirstButtonReturn) {
+        [self showConfigPanel];
     }
 }
 
@@ -511,7 +543,7 @@ static NSString *ConfigKey(NSString *key)
         } else if ([status isEqualToString: @"success"]) {
             icon = [NSString stringWithUTF8String: "\xE2\x9C\x93"]; // ✓
         } else if ([status isEqualToString: @"error"]) {
-            icon = @"!";
+            icon = @"?";
         } else {
             icon = @"-";
         }
