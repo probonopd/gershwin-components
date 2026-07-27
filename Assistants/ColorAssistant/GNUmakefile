@@ -12,7 +12,7 @@ ColorAssistant_OBJC_FILES = \
 	ColorAssistantPages.m \
 	ProfileGenerator.m
 
-ColorAssistant_RESOURCE_FILES =
+ColorAssistant_RESOURCE_FILES = Color.png
 
 ColorAssistant_CPPFLAGS += \
 	-Wall -Wextra -Wno-unused-parameter -O2 \
