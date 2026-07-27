@@ -1,5 +1,7 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
+
 BUNDLE_NAME = Color
 Color_OBJC_FILES = ColorPrefPane.m DisplayManager.m ProfileParser.m ProfileApplier.m
 Color_RESOURCE_FILES = ColorInfo.plist Color.png
