@@ -1,5 +1,5 @@
 {
-    CFBundleIdentifier = "org.gnustep.color.prefpane";
+    CFBundleIdentifier = "io.github.gershwin.color.prefpane";
     NOTE = "Automatically generated, do not edit!";
     NSExecutable = Color;
     NSMainNibFile = "";

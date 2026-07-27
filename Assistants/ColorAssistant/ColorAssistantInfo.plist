@@ -2,7 +2,7 @@
     CFBundleDevelopmentRegion = English;
     CFBundleDisplayName = "Display Calibrator Assistant";
     CFBundleExecutable = ColorAssistant;
-    CFBundleIdentifier = "org.gnustep.color.assistant";
+    CFBundleIdentifier = "io.github.gershwin.color.assistant";
     CFBundleInfoDictionaryVersion = "1.0";
     CFBundleName = "ColorAssistant";
     CFBundlePackageType = APPL;
