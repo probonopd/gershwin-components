@@ -535,7 +535,6 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     }
 
     NSArray *savedOrder = [self loadOrderPreference];
-    NSSet *enabledSet = [self loadEnabledPreference];
     NSMutableArray *orderedAll = [NSMutableArray arrayWithCapacity:[allProviders count]];
     NSMutableArray *orderedEnabled = [NSMutableArray arrayWithCapacity:[allProviders count]];
 
@@ -548,9 +547,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         id<StatusItemProvider> p = [providersById objectForKey:ident];
         if (p) {
             [orderedAll addObject:p];
-            if (!enabledSet || [enabledSet containsObject:ident]) {
-                [orderedEnabled addObject:p];
-            }
+            [orderedEnabled addObject:p];
             [providersById removeObjectForKey:ident];
         }
     }
@@ -558,9 +555,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     for (id<StatusItemProvider> p in allProviders) {
         if ([providersById objectForKey:[p identifier]]) {
             [orderedAll addObject:p];
-            if (!enabledSet || [enabledSet containsObject:[p identifier]]) {
-                [orderedEnabled addObject:p];
-            }
+            [orderedEnabled addObject:p];
         }
     }
 
@@ -632,7 +627,6 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     for (id<StatusItemProvider> provider in _statusItems) {
         NSString *ident = [provider identifier];
         NSString *title = [provider title] ? [provider title] : ident;
-
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title
                                                        action:NULL
                                                 keyEquivalent:@""];
