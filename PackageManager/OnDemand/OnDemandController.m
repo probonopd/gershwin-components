@@ -195,17 +195,397 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
   return YES;
 }
 
+#pragma mark - Direct File Install
+
+static NSString *_detectPackageFormat(NSString *path)
+{
+  NSString *ext = [path pathExtension];
+  NSString *name = [path lastPathComponent];
+
+  if ([ext isEqualToString:@"deb"])
+    return @"deb";
+
+  /* FreeBSD pkg: .txz (tar.xz), .tbz (tar.bz2) */
+  if ([ext isEqualToString:@"txz"] || [ext isEqualToString:@"tbz"])
+    return @"freebsd";
+
+  /* OpenBSD pkg_add: .tgz */
+  if ([ext isEqualToString:@"tgz"])
+    return @"openbsd";
+
+  /* Arch Linux: .pkg.tar.zst / .pkg.tar.xz / .pkg.tar.gz */
+  if ([name hasSuffix:@".pkg.tar.zst"]) return @"arch";
+  if ([name hasSuffix:@".pkg.tar.xz"])  return @"arch";
+  if ([name hasSuffix:@".pkg.tar.gz"])  return @"arch";
+
+  return nil;
+}
+
+- (BOOL)setupFromFile:(NSString *)path
+{
+  _isDirectInstall = YES;
+  _directFilePath = [path copy];
+  _directFormat   = [_detectPackageFormat(path) copy];
+
+  if (!_directFormat)
+    {
+      NSLog(@"OnDemand [FAIL] setupFromFile: unknown format for %@", path);
+      return NO;
+    }
+
+  _appName = [[path lastPathComponent] copy];
+  NSLog(@"OnDemand -> setupFromFile: %@ (format: %@)", path, _directFormat);
+
+  return YES;
+}
+
+/* Run a dry-run command with a 30s timeout, return stdout or nil */
+static NSString *_runCmd(NSString *path, NSArray *args)
+{
+  NSTask *t = [[NSTask alloc] init];
+  [t setLaunchPath:path];
+  [t setArguments:args];
+  NSPipe *p = [NSPipe pipe];
+  [t setStandardOutput:p];
+  [t setStandardError:[NSPipe pipe]];
+  [t launch];
+
+  dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    [t waitUntilExit];
+    dispatch_semaphore_signal(sem);
+  });
+
+  NSString *result = nil;
+  if (dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 30LL * NSEC_PER_SEC)) == 0)
+    {
+      if ([t terminationStatus] == 0)
+        {
+          NSData *d = [[p fileHandleForReading] readDataToEndOfFile];
+          result = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
+        }
+    }
+  else
+    {
+      [t terminate];
+      [t waitUntilExit];
+    }
+  dispatch_release(sem);
+  return result;
+}
+
+/* Parse the dry-run output and show a confirmation dialog.
+   Returns YES if the user clicked "Install", NO for "Cancel". */
+static BOOL _confirmDependencies(NSString *pkgName, NSString *filePath, NSString *fmt)
+{
+  NSString *info = nil;
+
+  if ([fmt isEqualToString:@"deb"])
+    {
+      /* Debian/Ubuntu: apt-get --dry-run shows what -f would install */
+      NSString *out = _runCmd(@"/usr/bin/apt-get", @[@"--dry-run", @"install", @"-f"]);
+      if (!out) return YES; /* no extra deps needed — proceed */
+      /* Parse: "X upgraded, Y newly installed", "Need to get XX.X MB" */
+      NSString *summary = @"";
+      NSString *dlSize = @"";
+      for (NSString *line in [out componentsSeparatedByString:@"\n"])
+        {
+          if ([line rangeOfString:@"upgraded"].location != NSNotFound ||
+              [line rangeOfString:@"newly installed"].location != NSNotFound)
+            summary = [line stringByTrimmingCharactersInSet:
+              [NSCharacterSet whitespaceCharacterSet]];
+          if ([line hasPrefix:@"Need to get"])
+            dlSize = [line stringByTrimmingCharactersInSet:
+              [NSCharacterSet whitespaceCharacterSet]];
+        }
+      if ([summary length] == 0)
+        return YES; /* nothing to download — proceed */
+      info = [NSString stringWithFormat:
+        @"Installing “%@” requires additional software:\n\n%@\n%@\n\n"
+        @"This will be downloaded from the Internet.",
+        pkgName, summary, dlSize];
+    }
+  else if ([fmt isEqualToString:@"arch"])
+    {
+      /* Arch: pacman -U --print shows what -U would do */
+      NSString *out = _runCmd(@"/usr/bin/pacman", @[@"-U", @"--print", filePath]);
+      if (out && [out length] > 0)
+        {
+          /* Output lists all packages that would be installed/upgraded */
+          NSUInteger count = 0;
+          for (NSString *line in [out componentsSeparatedByString:@"\n"])
+            if ([line length] > 0) count++;
+          info = [NSString stringWithFormat:
+            @"Installing “%@” will affect %lu package(s).\n\n"
+            @"This will be downloaded from the Internet.",
+            pkgName, (unsigned long)count];
+        }
+      else
+        return YES; /* no extra info — proceed */
+    }
+  else
+    {
+      /* FreeBSD/OpenBSD: just proceed without confirmation */
+      return YES;
+    }
+
+  if (!info) return YES;
+
+  /* Show confirmation dialog */
+  __block BOOL result = NO;
+  dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:@"Additional Software Required"];
+    [alert setInformativeText:info];
+    [alert addButtonWithTitle:@"Install"];
+    [alert addButtonWithTitle:@"Cancel"];
+    if ([alert runModal] == NSAlertFirstButtonReturn)
+      result = YES;
+    dispatch_semaphore_signal(sem);
+  });
+  dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+  dispatch_release(sem);
+  return result;
+}
+
+/* Query the just-installed package's file list for .desktop entries and wrap them */
+static void _wrapPackageDesktopFiles(NSString *pkgName, NSString *fmt)
+{
+  NSString *listCmd = nil;
+  if ([fmt isEqualToString:@"deb"])
+    listCmd = [NSString stringWithFormat:@"dpkg -L %@ 2>/dev/null | grep '\\.desktop$'", pkgName];
+  else if ([fmt isEqualToString:@"arch"])
+    listCmd = [NSString stringWithFormat:@"pacman -Ql %@ 2>/dev/null | grep '\\.desktop$' | awk '{print $2}'", pkgName];
+  else if ([fmt isEqualToString:@"freebsd"])
+    listCmd = [NSString stringWithFormat:@"pkg info -l %@ 2>/dev/null | grep '\\.desktop$'", pkgName];
+  else if ([fmt isEqualToString:@"openbsd"])
+    listCmd = [NSString stringWithFormat:@"pkg_info -L %@ 2>/dev/null | grep '\\.desktop$' | sed 's/^.* //'", pkgName];
+  else
+    return;
+
+  NSTask *t = [[NSTask alloc] init];
+  [t setLaunchPath:@"/bin/sh"];
+  [t setArguments:@[@"-c", listCmd]];
+  NSPipe *p = [NSPipe pipe];
+  [t setStandardOutput:p];
+  [t setStandardError:[NSPipe pipe]];
+  [t launch];
+  NSData *d = [[p fileHandleForReading] readDataToEndOfFile];
+  [t waitUntilExit];
+  if ([t terminationStatus] != 0) return;
+
+  NSString *output = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
+  for (NSString *line in [output componentsSeparatedByString:@"\n"])
+    {
+      NSString *df = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+      if ([df hasSuffix:@".desktop"] && [[NSFileManager defaultManager] fileExistsAtPath:df])
+        {
+          NSLog(@"OnDemand: wrapping %@", [df lastPathComponent]);
+          NSTask *w = [[NSTask alloc] init];
+          [w setLaunchPath:@"/Local/Library/Tools/appwrap"];
+          [w setArguments:@[@"-f", df]];
+          [w launch];
+          [w waitUntilExit];
+        }
+    }
+}
+
+/* Extract package name from a package file */
+static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
+{
+  NSString *cmd = nil;
+  if ([fmt isEqualToString:@"deb"])
+    cmd = [NSString stringWithFormat:@"dpkg --info '%@' 2>/dev/null | grep '^ Package:' | awk '{print $2}'", path];
+  else if ([fmt isEqualToString:@"arch"])
+    cmd = [NSString stringWithFormat:@"pacman -Q --file '%@' 2>/dev/null | awk '{print $1}'", path];
+  else if ([fmt isEqualToString:@"freebsd"])
+    cmd = [NSString stringWithFormat:@"pkg info -F '%@' 2>/dev/null | grep '^Name:' | awk '{print $2}'", path];
+  else if ([fmt isEqualToString:@"openbsd"])
+    cmd = [NSString stringWithFormat:@"pkg_info -F '%@' 2>/dev/null | grep '^Package:' | awk '{print $2}'", path];
+  else
+    return nil;
+
+  NSTask *t = [[NSTask alloc] init];
+  [t setLaunchPath:@"/bin/sh"];
+  [t setArguments:@[@"-c", cmd]];
+  NSPipe *p = [NSPipe pipe];
+  [t setStandardOutput:p];
+  [t setStandardError:[NSPipe pipe]];
+  [t launch];
+  NSData *d = [[p fileHandleForReading] readDataToEndOfFile];
+  [t waitUntilExit];
+  int rc = [t terminationStatus];
+  if (rc != 0) return nil;
+
+  NSString *out = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
+  return [[out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] length] > 0
+    ? [out stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] : nil;
+}
+
+- (void)performDirectInstall
+{
+  if (!_directFilePath || !_directFormat) return;
+
+  [self installDidProgress:0.0 message:@"Checking dependencies..."];
+
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    NSString *pkgName = [_directFilePath lastPathComponent];
+    if (!_confirmDependencies(pkgName, _directFilePath, _directFormat))
+      {
+        dispatch_async(dispatch_get_main_queue(), ^{
+          [self _finishWithSuccess];
+        });
+        return;
+      }
+
+    /* Install via the existing GWPackageManager backend */
+    [self installDidProgress:0.0 message:@"Installing package..."];
+    GWPackageManager *pm = [[GWPackageManager alloc] initWithBackend:nil];
+    BOOL ok = [pm installPackages:@[]
+                   localFilePaths:@[_directFilePath]
+                         progress:self
+                            error:nil];
+
+    if (ok)
+      {
+        NSString *pkgName = _packageNameFromFile(_directFilePath, _directFormat);
+        if (pkgName)
+          {
+            /* Wrap any .desktop files */
+            [self installDidProgress:0.95 message:@"Creating application wrappers..."];
+            _wrapPackageDesktopFiles(pkgName, _directFormat);
+          }
+      }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (ok)
+        {
+          [self installDidProgress:1.0 message:@"Installation complete"];
+          [self _finishWithSuccess];
+        }
+      else
+        {
+          [self installDidProgress:1.0 message:@"Installation failed"];
+          [self _finishWithError:
+            @"Package installation failed.\n\nCheck the installer log for details."];
+        }
+    });
+  });
+}
+
+- (void)showError:(NSString *)message
+{
+  NSAlert *alert = [[NSAlert alloc] init];
+  [alert setMessageText:@"Installation Error"];
+  [alert setInformativeText:message];
+  [alert addButtonWithTitle:@"OK"];
+  [alert runModal];
+  [NSApp terminate:nil];
+}
+
+- (void)_finishWithSuccess
+{
+  if (_isDirectInstall)
+    {
+      /* Try to find and offer to launch the installed app */
+      NSString *guessed = [_directFilePath lastPathComponent];
+      NSString *binName = [guessed stringByDeletingPathExtension];
+      NSArray *parts = [binName componentsSeparatedByString:@"_"];
+      NSString *candidate = [parts count] > 0 ? parts[0] : binName;
+      _launchPath = [self _which:candidate];
+      if (!_launchPath)
+        _launchPath = [self _which:[candidate stringByAppendingString:@"-stable"]];
+      if (_launchPath)
+        {
+          [_installButton setTitle:@"Launch"];
+          [_installButton setAction:@selector(launchFoundApp)];
+          [_installButton setTarget:self];
+        }
+      else
+        {
+          [_installButton setTitle:@"Close"];
+          [_installButton setAction:@selector(closeWindow:)];
+          [_installButton setTarget:self];
+        }
+    }
+  else
+    {
+      [_installButton setTitle:@"Close"];
+      [_installButton setAction:@selector(closeWindow:)];
+      [_installButton setTarget:self];
+    }
+  [_cancelButton setTitle:@"Close"];
+  [_cancelButton setAction:@selector(closeWindow:)];
+  [_cancelButton setTarget:self];
+}
+
+- (IBAction)launchFoundApp
+{
+  if (_launchPath)
+    {
+      [[NSWorkspace sharedWorkspace] launchApplication:_launchPath];
+    }
+  [NSApp terminate:nil];
+}
+
+- (NSString *)_which:(NSString *)name
+{
+  NSTask *t = [[NSTask alloc] init];
+  [t setLaunchPath:@"/usr/bin/which"];
+  [t setArguments:@[name]];
+  NSPipe *p = [NSPipe pipe];
+  [t setStandardOutput:p];
+  [t launch];
+  NSData *d = [[p fileHandleForReading] readDataToEndOfFile];
+  [t waitUntilExit];
+  int rc = [t terminationStatus];
+  if (rc != 0) return nil;
+  NSString *r = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
+  return [r stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+- (void)_finishWithError:(NSString *)errorDetail
+{
+  [_installButton setTitle:@"Close"];
+  [_installButton setAction:@selector(closeWindow:)];
+  [_installButton setTarget:self];
+  [_cancelButton setEnabled:NO];
+  [self showError:errorDetail];
+}
+
+- (IBAction)closeWindow:(id)sender
+{
+  (void)sender;
+  [NSApp terminate:nil];
+}
+
 #pragma mark - Window Setup
 
 - (void)showWindow
 {
+  if (_window) return; /* already showing */
   CGFloat cx = kSideMargin;
   CGFloat contentW = kWinWidth - 2 * kSideMargin;
   CGFloat textW = kWinWidth - kSideMargin - kTextLeft;       // 272
 
-  // Description text — defined once, used for both measurement and display
-  NSString *desc = [NSString stringWithFormat:
-    @"%@ is not yet available on this system and needs to be downloaded from the Internet.\nWould you like to download it now?", _appName];
+  // Description text
+  NSString *desc;
+  NSString *installTitle;
+  if (_isDirectInstall)
+    {
+      NSString *fmt = _directFormat ?: @"package";
+      desc = [NSString stringWithFormat:
+        @"Install %@ (%@ format).\n\nThe package will be installed using the system package manager.",
+        _appName, fmt];
+      installTitle = @"Install";
+    }
+  else
+    {
+      desc = [NSString stringWithFormat:
+        @"%@ is not yet available on this system and needs to be downloaded from the Internet.\nWould you like to download it now?", _appName];
+      installTitle = @"Download";
+    }
 
   // Calculate actual text height: measure via attributed string
   NSFont *descFont = [NSFont systemFontOfSize:11.0];
@@ -241,7 +621,7 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
   [[_window contentView] addSubview:_cancelButton];
 
   _installButton = [[NSButton alloc] initWithFrame:NSMakeRect(downloadX, y, kBtnWide, kBtnHeight)];
-  [_installButton setTitle:@"Download"];
+  [_installButton setTitle:installTitle];
   [_installButton setTarget:self];
   [_installButton setAction:@selector(installClicked:)];
   [_installButton setKeyEquivalent:@"\r"];
@@ -283,9 +663,19 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
   [nf setFont:[NSFont systemFontOfSize:13.0]];
   [[_window contentView] addSubview:nf];
 
-  // ── Progress UI (created lazily) ──
-  _progressBar = nil;
-  _statusField = nil;
+  // ── Progress UI ──
+  if (_isDirectInstall)
+    {
+      // Direct install: auto-start, hide confirmation UI, show progress
+      [_descriptionField setHidden:YES];
+      [_installButton setHidden:YES];
+      [self _showProgressBar];
+    }
+  else
+    {
+      _progressBar = nil;
+      _statusField = nil;
+    }
 
   [_window setTitle:_appName];
   [_window center];
@@ -335,26 +725,12 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
   [_window close];
 }
 
-- (void)installClicked:(id)sender
+- (void)_showProgressBar
 {
-  NSLog(@"OnDemand -> installClicked: user confirmed download");
-
-  // Reset progress tracking counters
-  _totalDownloadBytes = 0.0;
-  _downloadedBytes = 0.0;
-  _lastFetchPct = -1.0;
-  _completedFetchFiles = 0;
-
-  // Switch from confirmation to progress UI
-  [_descriptionField setHidden:YES];
-  [_installButton setHidden:YES];
-
-  // Create progress UI lazily
   CGFloat cx = kSideMargin;
   CGFloat contentW = kWinWidth - 2 * kSideMargin;
-  CGFloat progY  = kBottomMargin + kBtnHeight + kSpace16;  // 56
-  CGFloat statY  = progY + kBarHeight + kSpace8;           // 84
-  CGFloat btnRight = kWinWidth - kSideMargin;
+  CGFloat progY  = kBottomMargin + kBtnHeight + kSpace16;
+  CGFloat statY  = progY + kBarHeight + kSpace8;
 
   _progressBar = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(kTextLeft, progY, contentW - kTextLeft + cx, kBarHeight)];
   [_progressBar setStyle:NSProgressIndicatorBarStyle];
@@ -372,8 +748,37 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
   [_statusField setSelectable:NO];
   [_statusField setAlignment:NSTextAlignmentLeft];
   [[_window contentView] addSubview:_statusField];
+}
 
-  // Cancel button in lower-right (matching Download button position from confirmation state)
+- (void)installClicked:(id)sender
+{
+  if (_isDirectInstall)
+    {
+      NSLog(@"OnDemand -> installClicked: direct install");
+      [_descriptionField setHidden:YES];
+      [_installButton setHidden:YES];
+      [self _showProgressBar];
+      [self performDirectInstall];
+      return;
+    }
+
+  NSLog(@"OnDemand -> installClicked: user confirmed download");
+
+  // Reset progress tracking counters
+  _totalDownloadBytes = 0.0;
+  _downloadedBytes = 0.0;
+  _lastFetchPct = -1.0;
+  _completedFetchFiles = 0;
+
+  // Switch from confirmation to progress UI
+  [_descriptionField setHidden:YES];
+  [_installButton setHidden:YES];
+
+  [self _showProgressBar];
+  [[_window contentView] addSubview:_statusField];
+
+  // Cancel button in lower-right
+  CGFloat btnRight = kWinWidth - kSideMargin;
   [_cancelButton setFrameOrigin:NSMakePoint(
     btnRight - kBtnWide, kBottomMargin)];
 
@@ -1052,6 +1457,12 @@ static double _parseSizeBefore(NSString *line, NSString *marker)
   [NSApp setMainMenu:mainMenu];
 
   [self showWindow];
+
+  /* In direct install mode, start installation immediately */
+  if (_isDirectInstall)
+    {
+      [self performDirectInstall];
+    }
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app

@@ -40,5 +40,59 @@
     <string>Copyright © 2026 Simon Peter. BSD 2-Clause License.</string>
     <key>FullVersionID</key>
     <string>1.0</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Debian Package</string>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>deb</string>
+            </array>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleTypeIconFile</key>
+            <string></string>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>FreeBSD Package</string>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>txz</string>
+                <string>tbz</string>
+            </array>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleTypeIconFile</key>
+            <string></string>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>OpenBSD Package</string>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>tgz</string>
+            </array>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleTypeIconFile</key>
+            <string></string>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Arch Linux Package</string>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>pkg.tar.zst</string>
+                <string>pkg.tar.xz</string>
+                <string>pkg.tar.gz</string>
+            </array>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleTypeIconFile</key>
+            <string></string>
+        </dict>
+    </array>
 </dict>
 </plist>

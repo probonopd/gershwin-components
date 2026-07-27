@@ -30,16 +30,29 @@
   NSString *_appName;
   BOOL _dpkgRetried;
   ODLogWindowController *_logController;
+
+  /* Direct install mode */
+  NSString *_directFilePath;
+  NSString *_directFormat;
+  NSArray  *_extractedFiles;
+  BOOL     _isDirectInstall;
+  NSString *_launchPath;
 }
 
 // Read the install plist from the app bundle
 - (BOOL)setupFromPlist;
+
+// Handle a package file directly (e.g., double-click on .deb)
+- (BOOL)setupFromFile:(NSString *)path;
 
 // Check if the target command is already available without showing a window
 - (BOOL)commandIsAvailable;
 
 // Launch the command and exit the app (no GUI shown)
 - (BOOL)launchAndExit;
+
+// Show an error dialog
+- (void)showError:(NSString *)message;
 
 // Show the progress window
 - (void)showWindow;
