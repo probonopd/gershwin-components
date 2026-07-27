@@ -398,7 +398,7 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
   if ([fmt isEqualToString:@"deb"])
     cmd = [NSString stringWithFormat:@"dpkg --info '%@' 2>/dev/null | grep '^ Package:' | awk '{print $2}'", path];
   else if ([fmt isEqualToString:@"arch"])
-    cmd = [NSString stringWithFormat:@"pacman -Q --file '%@' 2>/dev/null | awk '{print $1}'", path];
+    cmd = [NSString stringWithFormat:@"pacman -Qp '%@' 2>/dev/null | awk '{print $1}'", path];
   else if ([fmt isEqualToString:@"freebsd"])
     cmd = [NSString stringWithFormat:@"pkg info -F '%@' 2>/dev/null | grep '^Name:' | awk '{print $2}'", path];
   else if ([fmt isEqualToString:@"openbsd"])
@@ -439,8 +439,10 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
         return;
       }
 
-    /* Install via the existing GWPackageManager backend */
+    /* Install via the existing GWPackageManager backend.
+       Prevent sudo from hanging on password prompt. */
     [self installDidProgress:0.0 message:@"Installing package..."];
+    setenv("SUDO_ASKPASS", "/bin/false", 1);
     GWPackageManager *pm = [[GWPackageManager alloc] initWithBackend:nil];
     BOOL ok = [pm installPackages:@[]
                    localFilePaths:@[_directFilePath]
