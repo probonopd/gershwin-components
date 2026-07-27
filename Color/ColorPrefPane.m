@@ -105,6 +105,7 @@
     {
         NSRect f = [_selectProfileButton frame];
         f.size.width = MAX(f.size.width, BTN_MIN_W);
+        f.size.height = BH;
         [_selectProfileButton setFrame:f];
     }
     [_mainView addSubview:_selectProfileButton];
@@ -225,6 +226,7 @@
     {
         NSRect f = [_calibrateButton frame];
         f.size.width = MAX(f.size.width, BTN_MIN_W);
+        f.size.height = BH;
         [_calibrateButton setFrame:f];
     }
     [_mainView addSubview:_calibrateButton];
