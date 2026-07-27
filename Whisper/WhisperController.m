@@ -43,6 +43,10 @@
 // ── xdotool path (resolved once from PATH at first use) ────────────
 static NSString *xdoPath = nil;
 
+// ── Build progress (shared between build thread and main-thread timer) ─
+static volatile int buildProgressPct = 0;
+static volatile BOOL buildThreadRunning = NO;
+
 // ── DockService protocol (forward decl — no link dependency) ────────
 @protocol DockService <NSObject>
 - (void)setProgressValue:(double)value;
