@@ -376,7 +376,7 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     // ── Start-up dependency checks (before showing window) ────
     NSString *fail = nil;
 
-    if (![self findTool:@"whisper-cli"]) {
+    if (!wdlopen_init()) {
         NSString *sp = [[NSBundle mainBundle] pathForResource:@"build-whisper" ofType:@"sh"];
         if (!sp) sp = @"Whisper.app/Resources/build-whisper.sh";
         [self buildWhisperEngineWithScript:sp];
@@ -406,7 +406,7 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     }
 
     // If a build is in progress, finishStartup will be called from buildFinished:
-    if ([self findTool:@"whisper-cli"])
+    if (wdlopen_init())
         [self finishStartup];
 
 }
@@ -2345,9 +2345,10 @@ static const unsigned long long modelMinSizes[] = {
     objc_setAssociatedObject(self, "_buildProg", nil, OBJC_ASSOCIATION_RETAIN);
 
     // Re-dlopen libwhisper since it was just installed
+    wdlopen_close();
     wdlopen_init();
 
-    if (status != 0 || ![self findTool:@"whisper-cli"]) {
+    if (status != 0 || !wdlopen_init()) {
         NSAlert *a = [[NSAlert alloc] init];
         [a setMessageText:@"Build failed"];
         [a setInformativeText:@"whisper.cpp could not be built. Check the terminal for details."];

@@ -13,6 +13,7 @@
 #include <whisper.h>
 
 bool          wdlopen_init(void);
+void          wdlopen_close(void);
 void          wdlopen_free(struct whisper_context *ctx);
 int           wdlopen_lang_auto_detect(struct whisper_context *ctx,
                   int offset_ms, int n_threads, float *langprobs);

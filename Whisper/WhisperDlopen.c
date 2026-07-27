@@ -25,6 +25,11 @@ static __typeof__(&whisper_lang_auto_detect)            p_whisper_lang_auto_dete
 static __typeof__(&whisper_lang_str)                    p_whisper_lang_str;
 static __typeof__(&whisper_pcm_to_mel)                  p_whisper_pcm_to_mel;
 
+void wdlopen_close(void)
+{
+  if (lib) { dlclose(lib); lib = NULL; }
+}
+
 bool wdlopen_init(void)
 {
   if (lib) return true;
