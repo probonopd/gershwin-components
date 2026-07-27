@@ -38,19 +38,25 @@ report_progress() {
     echo "PROGRESS:$1:$2:$3"
 }
 
-# Checks - detect FreeBSD even under Linux compatibility layer
+# Checks - detect FreeBSD / NextBSD
 IS_FREEBSD=0
-if [ "$(uname -s)" = "FreeBSD" ]; then
-    IS_FREEBSD=1
-elif [ -x /bin/freebsd-version ]; then
-    IS_FREEBSD=1
-elif [ -f /etc/rc.conf ] && sysctl -n kern.ostype 2>/dev/null | grep -q FreeBSD; then
-    IS_FREEBSD=1
+OS_NAME="FreeBSD"
+case "$(uname -s)" in
+    FreeBSD) IS_FREEBSD=1; OS_NAME="FreeBSD" ;;
+    NextBSD) IS_FREEBSD=1; OS_NAME="NextBSD" ;;
+esac
+if [ "$IS_FREEBSD" != "1" ]; then
+    if [ -x /bin/freebsd-version ]; then
+        IS_FREEBSD=1
+    elif [ -f /etc/rc.conf ] && sysctl -n kern.ostype 2>/dev/null | grep -q FreeBSD; then
+        IS_FREEBSD=1
+    fi
 fi
 if [ "$IS_FREEBSD" != "1" ]; then
-    echo "ERROR: This script must be run on FreeBSD."
+    echo "ERROR: This script must be run on FreeBSD or NextBSD."
     exit 1
 fi
+OS_NAME_LOWER=$(echo "$OS_NAME" | tr '[:upper:]' '[:lower:]')
 
 if [ "$LIST_DISKS" != "1" ] && [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: This script must be run as root."
@@ -585,8 +591,8 @@ if [ "$BOOT_METHOD" = "UEFI" ]; then
     echo "Installing UEFI bootloader..."
     mkdir -p "$MNT/efi/EFI/BOOT"
     cp /boot/loader.efi "$MNT/efi/EFI/BOOT/BOOTX64.EFI"
-    mkdir -p "$MNT/efi/EFI/freebsd"
-    cp /boot/loader.efi "$MNT/efi/EFI/freebsd/loader.efi"
+    mkdir -p "$MNT/efi/EFI/$OS_NAME_LOWER"
+    cp /boot/loader.efi "$MNT/efi/EFI/$OS_NAME_LOWER/loader.efi"
 
     # Register boot entry
     report_progress "Bootloader" 86 "Registering UEFI boot entry..."
@@ -613,9 +619,9 @@ if [ "$BOOT_METHOD" = "UEFI" ]; then
         esac
     done
 
-    efibootmgr -c -d "$DISK" -p 1 -L "FreeBSD" -l /boot/efi/EFI/freebsd/loader.efi
+    efibootmgr -c -d "$DISK" -p 1 -L "$OS_NAME" -l "/boot/efi/EFI/$OS_NAME_LOWER/loader.efi"
     # Set as BootNext to ensure it boots from the new disk next time
-    NEW_BOOT_ENTRY=$(efibootmgr | grep "FreeBSD" | head -n 1 | sed -E 's/.*Boot([0-9A-Fa-f]{4}).*/\1/')
+    NEW_BOOT_ENTRY=$(efibootmgr | grep "$OS_NAME" | head -n 1 | sed -E 's/.*Boot([0-9A-Fa-f]{4}).*/\1/')
     if [ -n "$NEW_BOOT_ENTRY" ]; then
         echo "Setting BootNext to $NEW_BOOT_ENTRY"
         efibootmgr -n -b "$NEW_BOOT_ENTRY"
