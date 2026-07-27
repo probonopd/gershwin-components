@@ -620,9 +620,10 @@ if [ "$BOOT_METHOD" = "UEFI" ]; then
     done
 
     efibootmgr -c -d "$DISK" -p 1 -L "$OS_NAME" -l "/boot/efi/EFI/$OS_NAME_LOWER/loader.efi"
-    # Set as BootNext to ensure it boots from the new disk next time
     NEW_BOOT_ENTRY=$(efibootmgr | grep "$OS_NAME" | head -n 1 | sed -E 's/.*Boot([0-9A-Fa-f]{4}).*/\1/')
     if [ -n "$NEW_BOOT_ENTRY" ]; then
+        echo "Activating boot entry $NEW_BOOT_ENTRY"
+        efibootmgr -a -b "$NEW_BOOT_ENTRY"
         echo "Setting BootNext to $NEW_BOOT_ENTRY"
         efibootmgr -n -b "$NEW_BOOT_ENTRY"
     fi
