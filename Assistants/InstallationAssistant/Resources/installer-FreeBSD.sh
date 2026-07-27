@@ -543,6 +543,17 @@ for d in $EXCLUDES; do
 done
 chmod 1777 "$MNT/tmp"
 
+# Resolve dangling symlinks whose targets are under excluded directories.
+# On NextBSD for example /etc -> private/etc, so excluding /private
+# leaves /etc as a dangling symlink and we could not write fstab etc.
+find "$MNT" -type l ! -type d 2>/dev/null | while read -r link; do
+    target=$(readlink "$link")
+    case "$target" in
+        /*) mkdir -p "$MNT$target" 2>/dev/null || true ;;
+        *)  mkdir -p "$(dirname "$link")/$target" 2>/dev/null || true ;;
+    esac
+done
+
 # For non-image installations, copy /boot from the ISO
 if [ "$IMAGE_MODE" = "0" ] && [ -n "$MP" ]; then
     if [ -d "$MP/boot" ]; then
