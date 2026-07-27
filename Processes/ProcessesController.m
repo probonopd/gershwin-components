@@ -11,7 +11,7 @@
 #include <stdint.h>
 #ifndef __linux__
 #import <sys/sysctl.h>
-#ifdef __FreeBSD__
+#if __has_include(<sys/user.h>)
 #import <sys/user.h>
 #endif
 #endif
@@ -398,8 +398,8 @@ static ProcessesController *sharedController = nil;
             PC_DBG(@"/proc scanned entries=%d added=%d", procDirEntries, procAdded);
             if ([newProcesses count] == 0) {
                 PC_INFO(@"/proc scan yielded no processes; attempting sysctl fallback");
-                // Fall back to sysctl on FreeBSD when /proc yields nothing
-#if defined(__FreeBSD__)
+                // Fall back to sysctl KERN_PROC_ALL when /proc yields nothing
+#if defined(CTL_KERN) && defined(KERN_PROC) && defined(KERN_PROC_ALL) && __has_include(<sys/user.h>)
                 int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
                 size_t len2 = 0;
                 if (sysctl(mib, 4, NULL, &len2, NULL, 0) == 0 && len2 > 0) {
@@ -459,41 +459,10 @@ static ProcessesController *sharedController = nil;
 #endif
             }
 
-            // If both /proc and sysctl fail to yield processes, fallback to parsing `ps aux`
-            if ([newProcesses count] == 0) {
-                PC_INFO(@"Falling back to parsing `ps aux`");
-                FILE *ps = popen("LC_ALL=C ps aux", "r");
-                if (ps) {
-                    char line[2048];
-                    // Skip header
-                    if (fgets(line, sizeof(line), ps)) {
-                        // header line skipped
-                    }
-                    while (fgets(line, sizeof(line), ps)) {
-                        // Trim newline
-                        size_t l = strlen(line);
-                        if (l > 0 && line[l-1] == '\n') line[l-1] = '\0';
-                        @autoreleasepool {
-                            NSString *s = [NSString stringWithUTF8String:line];
-                            ProcessInfo *pi = [[ProcessInfo alloc] initWithPsLine:s];
-                            if (pi && pi.pid > 0) {
-                                // Skip kernel threads (command starts with '[')
-                                if ([pi.command hasPrefix:@"["]) continue;
-                                [newProcesses addObject:pi];
-                            }
-                        }
-                    }
-                    pclose(ps);
-                    PC_INFO(@"ps aux fallback added %lu processes", (unsigned long)[newProcesses count]);
-                } else {
-                    PC_INFO(@"ps aux popen failed");
-                }
-            }
-
             closedir(procDir);
         } else {
-#if defined(__FreeBSD__)
-            // /proc not available - use sysctl on FreeBSD
+#if defined(CTL_KERN) && defined(KERN_PROC) && defined(KERN_PROC_ALL) && __has_include(<sys/user.h>)
+            // /proc not available - use sysctl
             PC_DBG(@"/proc not available - attempting sysctl KERN_PROC_ALL");
             int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
             size_t len = 0;
@@ -583,6 +552,34 @@ static ProcessesController *sharedController = nil;
                 PC_INFO(@"Failed to get process buffer size via sysctl or no processes found");
             }
 #endif
+        }
+
+        // Fallback to parsing `ps aux` if no processes found
+        if ([newProcesses count] == 0) {
+            PC_INFO(@"Falling back to parsing `ps aux`");
+            FILE *ps = popen("LC_ALL=C ps aux", "r");
+            if (ps) {
+                char line[2048];
+                // Skip header
+                if (fgets(line, sizeof(line), ps)) {
+                }
+                while (fgets(line, sizeof(line), ps)) {
+                    size_t l = strlen(line);
+                    if (l > 0 && line[l-1] == '\n') line[l-1] = '\0';
+                    @autoreleasepool {
+                        NSString *s = [NSString stringWithUTF8String:line];
+                        ProcessInfo *pi = [[ProcessInfo alloc] initWithPsLine:s];
+                        if (pi && pi.pid > 0) {
+                            if ([pi.command hasPrefix:@"["]) continue;
+                            [newProcesses addObject:pi];
+                        }
+                    }
+                }
+                pclose(ps);
+                PC_INFO(@"ps aux fallback added %lu processes", (unsigned long)[newProcesses count]);
+            } else {
+                PC_INFO(@"ps aux popen failed");
+            }
         }
 
         // Apply results on main thread (or directly if app not running)
