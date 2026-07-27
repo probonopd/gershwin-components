@@ -58,6 +58,7 @@ typedef NS_ENUM(NSInteger, WhisperState) {
     NSString *vocabularyPrompt;
 
     // Whisper state
+    void *whisperLib;
     struct whisper_context *whisperCtx;
     WhisperState state;
     NSMutableArray *segments;

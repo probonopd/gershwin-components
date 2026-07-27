@@ -79,7 +79,8 @@ Whisper_OBJC_FILES = \
 
 Whisper_C_FILES = \
 	WAudioLoader.c \
-	WCapture.c
+	WCapture.c \
+	WhisperDlopen.c
 
 # Sound headers (ALSABackend.h / OSSBackend.h) come from the sibling Sound
 # directory. This must stay relative: an absolute /Developer/Library/Sources
@@ -90,7 +91,7 @@ ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include -I../Sound
 #
 # Link libraries
 #
-ADDITIONAL_GUI_LIBS += -lwhisper -lSoundBackend -ldispatch
+ADDITIONAL_GUI_LIBS += -lSoundBackend -ldispatch
 
 # libcurl (cross-platform: pkg-config with fallback)
 WHISPER_CURL_CFLAGS := $(shell pkg-config --cflags libcurl 2>/dev/null)

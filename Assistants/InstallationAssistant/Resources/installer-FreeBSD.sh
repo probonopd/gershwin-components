@@ -516,9 +516,30 @@ else
     report_progress "Copying" 80 "File copy complete."
 fi
 
-# Create the directories we skipped during copying
+# Create the directories we skipped during copying.
+# Some paths may have parent directories that are symlinks to other
+# excluded paths (e.g. /var -> private/var on FreeBSD).  In that case
+# mkdir -p would fail because the symlink target is missing, so we
+# first walk each path and resolve any dangling symlinks along the way.
 for d in $EXCLUDES; do
-    mkdir -p "$MNT/$d"
+    if [ ! -d "$MNT/$d" ]; then
+        path="$MNT"
+        rest="$d"
+        while [ -n "$rest" ]; do
+            part="${rest%%/*}"
+            rest="${rest#*/}"
+            path="$path/$part"
+            if [ -L "$path" ] && [ ! -d "$path" ]; then
+                tgt=$(readlink "$path")
+                case "$tgt" in
+                    /*) mkdir -p "$MNT$tgt" 2>/dev/null || true ;;
+                    *)  mkdir -p "$(dirname "$path")/$tgt" 2>/dev/null || true ;;
+                esac
+            fi
+            [ "$rest" = "$part" ] && rest=""
+        done
+        mkdir -p "$MNT/$d"
+    fi
 done
 chmod 1777 "$MNT/tmp"
 

@@ -28,18 +28,27 @@
 #import <Foundation/NSArray.h>
 #import <Foundation/NSDictionary.h>
 #import <Foundation/NSThread.h>
+#import <objc/runtime.h>
 #import <Foundation/NSTimer.h>
 #import <Foundation/NSTask.h>
 #import <Foundation/NSUserDefaults.h>
 #import <Foundation/NSFileHandle.h>
 
-#import <whisper.h>
+#import "WhisperDlopen.h"
+#include <dlfcn.h>
 #include <stdlib.h>
 #include <strings.h>
 #include <curl/curl.h>
 
 // ── xdotool path (resolved once from PATH at first use) ────────────
 static NSString *xdoPath = nil;
+
+// ── DockService protocol (forward decl — no link dependency) ────────
+@protocol DockService <NSObject>
+- (void)setProgressValue:(double)value;
+- (void)setProgressVisible:(BOOL)visible;
+- (void)clearAll;
+@end
 
 // ── Floating window: always on top, no keyboard input ──────────────
 @interface WhisperFloatingWindow : NSWindow
@@ -123,17 +132,17 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
                                    int n_new, void *user_data)
 {
     WhisperController *ctrl = (WhisperController *)user_data;
-    int total = whisper_full_n_segments(ctx);
+    int total = wdlopen_full_n_segments(ctx);
 
     NSMutableArray *newSegs = [NSMutableArray array];
     NSMutableString *text = [NSMutableString string];
 
     for (int i = total - n_new; i < total; i++) {
-        const char *seg_text = whisper_full_get_segment_text(ctx, i);
+        const char *seg_text = wdlopen_full_get_segment_text(ctx, i);
         if (!seg_text) continue;
 
-        int64_t t0 = whisper_full_get_segment_t0(ctx, i);
-        int64_t t1 = whisper_full_get_segment_t1(ctx, i);
+        int64_t t0 = wdlopen_full_get_segment_t0(ctx, i);
+        int64_t t1 = wdlopen_full_get_segment_t1(ctx, i);
 
         NSString *st = [NSString stringWithUTF8String:seg_text];
         if (!st) continue;
@@ -366,11 +375,7 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     if (![self findTool:@"whisper-cli"]) {
         NSString *sp = [[NSBundle mainBundle] pathForResource:@"build-whisper" ofType:@"sh"];
         if (!sp) sp = @"Whisper.app/Resources/build-whisper.sh";
-        fail = [NSString stringWithFormat:
-            @"The whisper.cpp speech recognition engine is not installed.\n\n"
-            @"Run the build script to build and install it:\n\n"
-            @"  sudo sh %@\n\n"
-            @"This will clone, build, and install whisper.cpp with GPU acceleration.", sp];
+        [self buildWhisperEngineWithScript:sp];
     } else if (![self findTool:@"xdotool"]) {
         fail = @"The xdotool tool is required for auto-typing into other windows.\n\n"
                @"Install it with your package manager:\n\n"
@@ -391,16 +396,14 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         NSAlert *a = [[NSAlert alloc] init];
         [a setMessageText:@"Missing dependencies"];
         [a setInformativeText:fail];
-        [a addButtonWithTitle:@"Quit"];
+        [a addButtonWithTitle:@"OK"];
         [a runModal];
         [a release];
-        [NSApp terminate:nil];
-        return;
     }
 
-    [mainWindow center];
-    [mainWindow makeKeyAndOrderFront:self];
-    [NSApp activateIgnoringOtherApps:YES];
+    // If a build is in progress, finishStartup will be called from buildFinished:
+    if ([self findTool:@"whisper-cli"])
+        [self finishStartup];
 
 }
 
@@ -472,6 +475,13 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
         [self unloadModel];
     }
 
+    if (!wdlopen_init()) {
+        NSLog(@"loadModel: whisper library not available");
+        [self setState:WhisperStateError];
+        [statusLabel setStringValue:@"whisper.cpp library not found"];
+        return;
+    }
+
     if (![[NSFileManager defaultManager] fileExistsAtPath:modelPath]) {
         NSLog(@"loadModel: model file not found at %@", modelPath);
         [self setState:WhisperStateError];
@@ -483,19 +493,19 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
     [statusLabel setStringValue:@"Loading model..."];
 
     // Try GPU first, fall back to CPU
-    struct whisper_context_params cparams = whisper_context_default_params();
+    struct whisper_context_params cparams = wdlopen_context_default_params();
     cparams.use_gpu = true;
     cparams.flash_attn = true;
 
     NSLog(@"loadModel: trying GPU (%@)", modelPath);
-    whisperCtx = whisper_init_from_file_with_params(
+    whisperCtx = wdlopen_init_from_file(
         [modelPath UTF8String], cparams);
 
     if (!whisperCtx) {
         NSLog(@"loadModel: GPU init failed, retrying with CPU");
         cparams.use_gpu = false;
         cparams.flash_attn = false;
-        whisperCtx = whisper_init_from_file_with_params(
+        whisperCtx = wdlopen_init_from_file(
             [modelPath UTF8String], cparams);
         if (whisperCtx) {
             NSLog(@"loadModel: CPU init succeeded");
@@ -557,7 +567,7 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
 - (void)unloadModel
 {
     if (whisperCtx) {
-        whisper_free(whisperCtx);
+        wdlopen_free(whisperCtx);
         whisperCtx = NULL;
     }
 }
@@ -574,10 +584,15 @@ static int download_progress_cb(void *clientp,
 {
     WhisperController *self = (WhisperController *)clientp;
     if (dltotal > 0) {
+        static double lastPct = -1.0;
         double pct = (double)dlnow / (double)dltotal * 100.0;
-        [self performSelectorOnMainThread:@selector(downloadProgressUpdated:)
-                               withObject:[NSNumber numberWithDouble:pct]
-                            waitUntilDone:NO];
+        // Throttle: only update when percentage crosses an integer boundary
+        if ((int)pct != (int)lastPct) {
+            lastPct = pct;
+            [self performSelectorOnMainThread:@selector(downloadProgressUpdated:)
+                                   withObject:[NSNumber numberWithDouble:pct]
+                                waitUntilDone:NO];
+        }
     }
     return 0;
 }
@@ -867,7 +882,7 @@ static const unsigned long long modelMinSizes[] = {
         return;
     }
 
-    struct whisper_full_params wparams = whisper_full_default_params(
+    struct whisper_full_params wparams = wdlopen_full_default_params(
         WHISPER_SAMPLING_GREEDY);
 
     wparams.n_threads = currentThreads;
@@ -878,10 +893,10 @@ static const unsigned long long modelMinSizes[] = {
         wparams.detect_language = false;
     } else {
         wparams.detect_language = false;
-        whisper_pcm_to_mel(whisperCtx, samples, n_samples, wparams.n_threads);
-        int lang_id = whisper_lang_auto_detect(whisperCtx, 0, wparams.n_threads, NULL);
+        wdlopen_pcm_to_mel(whisperCtx, samples, n_samples, wparams.n_threads);
+        int lang_id = wdlopen_lang_auto_detect(whisperCtx, 0, wparams.n_threads, NULL);
         if (lang_id >= 0) {
-            wparams.language = whisper_lang_str(lang_id);
+            wparams.language = wdlopen_lang_str(lang_id);
         } else {
             wparams.language = "en";
         }
@@ -904,7 +919,7 @@ static const unsigned long long modelMinSizes[] = {
         wparams.carry_initial_prompt = true;
     }
 
-    int ret = whisper_full(whisperCtx, wparams, samples, n_samples);
+    int ret = wdlopen_full(whisperCtx, wparams, samples, n_samples);
 
     free(samples);
 
@@ -956,12 +971,14 @@ static const unsigned long long modelMinSizes[] = {
 {
     if (captureHandle) return;
     if ([segments count] == 0) {
+        [recordButton setKeyEquivalent:@""];
         NSAlert *alert = [[NSAlert alloc] init];
         [alert setMessageText:@"No speech detected"];
         [alert setInformativeText:@"The microphone did not pick up any recognizable speech."];
         [alert addButtonWithTitle:@"OK"];
         [alert runModal];
         [alert release];
+        [recordButton setKeyEquivalent:@"\r"];
         return;
     }
     [self syncTypedText];
@@ -1327,7 +1344,7 @@ static const unsigned long long modelMinSizes[] = {
     NSLog(@"transcribeStreamingChunk: %d samples (%.1f sec), peak=%.6f",
           n, (float)n / 16000.0f, peak);
 
-    struct whisper_full_params wparams = whisper_full_default_params(
+    struct whisper_full_params wparams = wdlopen_full_default_params(
         WHISPER_SAMPLING_GREEDY);
 
     wparams.n_threads = currentThreads;
@@ -1340,10 +1357,10 @@ static const unsigned long long modelMinSizes[] = {
         NSLog(@"transcribeStreamingChunk: language=%@", langCode);
     } else {
         wparams.detect_language = false;
-        whisper_pcm_to_mel(whisperCtx, samples, n, wparams.n_threads);
-        int lang_id = whisper_lang_auto_detect(whisperCtx, 0, wparams.n_threads, NULL);
+        wdlopen_pcm_to_mel(whisperCtx, samples, n, wparams.n_threads);
+        int lang_id = wdlopen_lang_auto_detect(whisperCtx, 0, wparams.n_threads, NULL);
         if (lang_id >= 0) {
-            wparams.language = whisper_lang_str(lang_id);
+            wparams.language = wdlopen_lang_str(lang_id);
         } else {
             wparams.language = "en";
         }
@@ -1364,16 +1381,16 @@ static const unsigned long long modelMinSizes[] = {
     }
 
     NSLog(@"transcribeStreamingChunk: calling whisper_full (segments appear via callback)...");
-    int ret = whisper_full(whisperCtx, wparams, samples, n);
+    int ret = wdlopen_full(whisperCtx, wparams, samples, n);
     NSLog(@"transcribeStreamingChunk: whisper_full returned %d", ret);
 
-    lastSegmentCount = whisper_full_n_segments(whisperCtx);
+    lastSegmentCount = wdlopen_full_n_segments(whisperCtx);
     NSLog(@"transcribeStreamingChunk: done, total segments=%d", lastSegmentCount);
 
     // If whisper detected silence, stop recording
     if (captureHandle) {
         for (int i = 0; i < lastSegmentCount; i++) {
-            const char *segText = whisper_full_get_segment_text(whisperCtx, i);
+            const char *segText = wdlopen_full_get_segment_text(whisperCtx, i);
             if (segText && (strcasestr(segText, "[silence]") || strcasestr(segText, "[BLANK_AUDIO]"))) {
                 NSLog(@"transcribeStreamingChunk: silence detected, stopping");
                 [self performSelectorOnMainThread:@selector(stopRecording:)
@@ -2231,6 +2248,138 @@ static const unsigned long long modelMinSizes[] = {
         }
     }
     return result;
+}
+
+- (void)buildWhisperEngineWithScript:(NSString *)scriptPath
+{
+    // Show status window synchronously, then pump run loop briefly to render it
+    CGFloat ww = 380, lx = 20, lw = ww - 2*lx;
+    NSWindow *win = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, ww, 80)
+                                                 styleMask:NSTitledWindowMask
+                                                   backing:NSBackingStoreBuffered
+                                                     defer:NO];
+    [win setTitle:@"Whisper"];
+    [win center];
+
+    NSProgressIndicator *prog = [[NSProgressIndicator alloc]
+      initWithFrame:NSMakeRect(lx, 12, lw, 20)];
+    [prog setStyle:NSProgressIndicatorBarStyle];
+    [prog setIndeterminate:NO];
+    [prog setMinValue:0]; [prog setMaxValue:100]; [prog setDoubleValue:0];
+    [[win contentView] addSubview:prog];
+
+    NSTextField *label = [[NSTextField alloc] initWithFrame:NSMakeRect(lx, 44, lw, 18)];
+    [label setStringValue:@"Preparing for first run..."];
+    [label setEditable:NO]; [label setSelectable:NO];
+    [label setBordered:NO]; [label setBezeled:NO]; [label setDrawsBackground:NO];
+    [[win contentView] addSubview:label];
+
+    [win makeKeyAndOrderFront:self];
+
+    // Pump run loop for 200ms so the window system renders the new window
+    NSDate *pumpUntil = [NSDate dateWithTimeIntervalSinceNow:0.2];
+    while ([pumpUntil timeIntervalSinceNow] > 0) {
+        [[NSRunLoop currentRunLoop] runUntilDate:
+            [NSDate dateWithTimeIntervalSinceNow:0.05]];
+    }
+
+    objc_setAssociatedObject(self, "_buildWin", win, OBJC_ASSOCIATION_RETAIN);
+    objc_setAssociatedObject(self, "_buildProg", prog, OBJC_ASSOCIATION_RETAIN);
+
+    // Also try Dock progress via DO
+    @try {
+        NSConnection *conn = [NSConnection connectionWithRegisteredName:@"DockIcon" host:nil];
+        id<DockService> dockService = (id<DockService>)[conn rootProxy];
+        objc_setAssociatedObject(self, "_dockService", dockService, OBJC_ASSOCIATION_RETAIN);
+        [dockService setProgressValue:0.0];
+        [dockService setProgressVisible:YES];
+    } @catch (NSException *e) {
+        NSLog(@"build: Dock connection failed: %@", e);
+    }
+
+    [self performSelectorInBackground:@selector(buildThread:)
+                           withObject:scriptPath];
+}
+
+- (void)buildThread:(NSString *)scriptPath
+{
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    NSString *cmd = [NSString stringWithFormat:@"sudo -A -E sh '%@' 2>&1 | awk '{print; fflush()}'", scriptPath];
+    FILE *fp = popen([cmd UTF8String], "r");
+    if (!fp) {
+        [self performSelectorOnMainThread:@selector(buildDoneWithStatus:)
+                               withObject:[NSNumber numberWithInt:-1]
+                            waitUntilDone:NO];
+        [pool release];
+        return;
+    }
+    char line[4096];
+    while (fgets(line, sizeof(line), fp)) {
+        fprintf(stderr, "%s", line);
+        char *p = line;
+        while ((p = strstr(p, "["))) {
+            p++;
+            int pct;
+            if (sscanf(p, " %d%%", &pct) >= 1) {
+                // Update Dock progress via DO (calls main thread)
+                [self performSelectorOnMainThread:@selector(buildSetDockProgress:)
+                                       withObject:[NSNumber numberWithDouble:pct / 100.0]
+                                    waitUntilDone:NO];
+                break;
+            }
+        }
+    }
+    int status = pclose(fp);
+    [self performSelectorOnMainThread:@selector(buildDoneWithStatus:)
+                           withObject:[NSNumber numberWithInt:status]
+                        waitUntilDone:NO];
+    [pool release];
+}
+
+- (void)buildSetDockProgress:(NSNumber *)val
+{
+    id<DockService> dockService = objc_getAssociatedObject(self, "_dockService");
+    [dockService setProgressValue:[val doubleValue]];
+    NSProgressIndicator *p = objc_getAssociatedObject(self, "_buildProg");
+    [p setDoubleValue:[val doubleValue] * 100.0];
+    [p setNeedsDisplay:YES];
+}
+
+- (void)buildDoneWithStatus:(NSNumber *)statusObj
+{
+    int status = [statusObj intValue];
+
+    // Close status window
+    NSWindow *w = objc_getAssociatedObject(self, "_buildWin");
+    [w close];
+    [w release];
+    objc_setAssociatedObject(self, "_buildWin", nil, OBJC_ASSOCIATION_RETAIN);
+
+    @try {
+        id<DockService> dockService = objc_getAssociatedObject(self, "_dockService");
+        [dockService clearAll];
+    } @catch (NSException *e) {}
+    objc_setAssociatedObject(self, "_dockService", nil, OBJC_ASSOCIATION_RETAIN);
+
+    // Re-dlopen libwhisper since it was just installed
+    wdlopen_init();
+
+    if (status != 0 || ![self findTool:@"whisper-cli"]) {
+        NSAlert *a = [[NSAlert alloc] init];
+        [a setMessageText:@"Build failed"];
+        [a setInformativeText:@"whisper.cpp could not be built. Check the terminal for details."];
+        [a addButtonWithTitle:@"OK"];
+        [a runModal];
+        [a release];
+    }
+    [self finishStartup];
+}
+
+- (void)finishStartup
+{
+    [mainWindow center];
+    [mainWindow makeKeyAndOrderFront:self];
+    [NSApp activateIgnoringOtherApps:YES];
 }
 
 - (void)syncTypedText

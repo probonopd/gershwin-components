@@ -122,11 +122,11 @@ void *wcapture_start(int sample_rate, const char *device)
         argv[ai++] = "error";
 
         // Determine audio input format
-        if (device && strncmp(device, "/dev/", 5) == 0) {
-            argv[ai++] = "-f"; argv[ai++] = "oss";
-        } else {
-            argv[ai++] = "-f"; argv[ai++] = "alsa";
-        }
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+        argv[ai++] = "-f"; argv[ai++] = "oss";
+#else
+        argv[ai++] = "-f"; argv[ai++] = "alsa";
+#endif
 
         argv[ai++] = "-i";
         argv[ai++] = (char *)(device ? device : "default");
