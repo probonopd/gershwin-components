@@ -111,6 +111,8 @@ static int X11ErrorHandler(Display *dpy, XErrorEvent *ev)
         gMult = 1.0 - t * 0.03;
         bMult = 1.0 + t * 0.12;
     }
+    double avg = (rMult + gMult + bMult) / 3.0;
+    rMult /= avg; gMult /= avg; bMult /= avg;
 
     for (int i = 0; i < _rampSize; i++) {
         double v = (double)i / (_rampSize - 1);
@@ -277,8 +279,8 @@ int main(int argc, const char *argv[])
         [builder allowingCancel:YES];
         [builder withDelegate:delegate];
         [builder addStep:display];
-        [builder addStep:whitePoint];
         [builder addStep:gamma];
+        [builder addStep:whitePoint];
         [builder addStep:response];
         [builder addStep:save];
 

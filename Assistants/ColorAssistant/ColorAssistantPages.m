@@ -754,19 +754,22 @@
 - (void)drawRect:(NSRect)dirtyRect
 {
     NSRect bounds = self.bounds;
-    CGFloat midX = bounds.size.width / 2;
+    if (NSWidth(bounds) < 2 || NSHeight(bounds) < 2) return;
+    CGFloat midX = floor(NSWidth(bounds) / 2);
 
-    // Left half: solid 50% gray
-    [[NSColor colorWithCalibratedWhite:0.5 alpha:1.0] set];
-    NSRectFill(NSMakeRect(0, 0, midX, bounds.size.height));
+    // Left half: grey at ~73% (matches stripes at gamma 2.2)
+    [[NSColor colorWithCalibratedWhite:0.73 alpha:1.0] set];
+    NSRectFill(NSMakeRect(0, 0, midX, NSHeight(bounds)));
 
-    // Right half: alternating black and white vertical lines (1px each)
-    [[NSColor whiteColor] set];
-    NSRectFill(NSMakeRect(midX, 0, midX, bounds.size.height));
-
-    [[NSColor blackColor] set];
-    for (int x = 0; x < (int)midX; x += 2) {
-        NSRectFill(NSMakeRect(midX + x, 0, 1, bounds.size.height));
+    // Right half: alternating 1px black and white vertical lines
+    // Average luminance = 0.5 regardless of gamma, making it a stable reference
+    for (int x = 0; x < (int)(NSWidth(bounds) - midX); x++) {
+        if ((x & 1) == 0) {
+            [[NSColor whiteColor] set];
+        } else {
+            [[NSColor blackColor] set];
+        }
+        NSRectFill(NSMakeRect(midX + x, 0, 1, NSHeight(bounds)));
     }
 
     // Border
