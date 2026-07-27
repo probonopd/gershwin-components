@@ -462,7 +462,7 @@ report_progress "Copying" 25 "Starting system copy from $SRC..."
 echo "Copying system from $SRC to $MNT..."
 
 # Exclude runtime dirs
-EXCLUDES="dev proc sys tmp mnt media efi private run var/run var/tmp var/cache compat"
+EXCLUDES="dev proc sys tmp mnt media efi run var/run var/tmp var/cache compat"
 
 # For non-image installations, also exclude /Local (it will be initialized with dscli init
 # because DirectoryServices requires specific permissions and ownership that are hard to preserve during copying)
@@ -543,9 +543,10 @@ for d in $EXCLUDES; do
 done
 chmod 1777 "$MNT/tmp"
 
-# Resolve dangling symlinks whose targets are under excluded directories.
-# On NextBSD for example /etc -> private/etc, so excluding /private
-# leaves /etc as a dangling symlink and we could not write fstab etc.
+# Resolve any dangling symlinks whose targets are under excluded
+# directories (e.g. /var -> private/var when private was excluded on
+# older FreeBSD, or /etc -> private/etc on NextBSD).  Catches any
+# symlinks that would prevent writing config files later.
 find "$MNT" -type l ! -type d 2>/dev/null | while read -r link; do
     target=$(readlink "$link")
     case "$target" in
@@ -594,6 +595,24 @@ if [ "$BOOT_METHOD" = "UEFI" ]; then
     umount "$MNT/efi"
     mkdir -p /boot/efi
     mount -t msdosfs "$EFI_PART" /boot/efi
+    # Remove stale UEFI boot entries whose partition GUID is no longer
+    # present on any disk (we just wiped the old GPT and created a new one).
+    CURRENT_GUIDS=$(gpart list 2>/dev/null | awk '/rawuuid:/ {print tolower($2)}')
+    efibootmgr -v 2>/dev/null | while read -r efi_line; do
+        case "$efi_line" in
+            Boot*)
+                boot_num=$(echo "$efi_line" | sed -n 's/Boot\([0-9A-Fa-f]*\).*/\1/p')
+                [ -z "$boot_num" ] && continue
+                guid=$(echo "$efi_line" | sed -n 's/.*HD([^,]*,GPT,\([^,]*\),.*/\1/p' | tr '[:upper:]' '[:lower:]')
+                [ -z "$guid" ] && continue
+                if ! echo "$CURRENT_GUIDS" | grep -qF "$guid"; then
+                    echo "Removing stale boot entry Boot$boot_num (GUID $guid no longer exists)"
+                    efibootmgr -b "$boot_num" -B 2>/dev/null || true
+                fi
+                ;;
+        esac
+    done
+
     efibootmgr -c -d "$DISK" -p 1 -L "FreeBSD" -l /boot/efi/EFI/freebsd/loader.efi
     # Set as BootNext to ensure it boots from the new disk next time
     NEW_BOOT_ENTRY=$(efibootmgr | grep "FreeBSD" | head -n 1 | sed -E 's/.*Boot([0-9A-Fa-f]{4}).*/\1/')
