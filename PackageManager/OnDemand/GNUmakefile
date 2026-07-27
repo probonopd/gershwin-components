@@ -70,4 +70,5 @@ system-install: $(APP_NAME).app
 	$(SUDO) rm -rf /System/Library/Services/$(APP_NAME).app
 	$(SUDO) cp -R $(APP_NAME).app /System/Library/Services/
 	$(SUDO) chmod -R a+rX /System/Library/Services/$(APP_NAME).app
-	@echo "Installed $(APP_NAME).app to /System/Library/Services/"
+	$(SUDO) make_services
+	@echo "Installed $(APP_NAME).app to /System/Library/Services/ and updated service database"
