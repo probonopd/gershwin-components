@@ -26,6 +26,7 @@
     NSButton *_selectProfileButton;
     NSButton *_applyButton;
     NSButton *_revertButton;
+    NSButton *_calibrateButton;
 
     NSString *_selectedDisplayName;
     NSString *_selectedProfilePath;
