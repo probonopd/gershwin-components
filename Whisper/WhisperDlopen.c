@@ -33,9 +33,12 @@ void wdlopen_close(void)
 bool wdlopen_init(void)
 {
   if (lib) return true;
-  lib = dlopen("libwhisper.so", RTLD_NOW | RTLD_GLOBAL);
-  if (!lib) lib = dlopen("/usr/local/lib/libwhisper.so", RTLD_NOW | RTLD_GLOBAL);
-  if (!lib) { fprintf(stderr, "wdlopen: cannot load libwhisper.so\n"); return false; }
+  lib = dlopen("libwhisper.so", RTLD_LAZY | RTLD_GLOBAL);
+  if (!lib) lib = dlopen("/usr/local/lib/libwhisper.so", RTLD_LAZY | RTLD_GLOBAL);
+  if (!lib) {
+    fprintf(stderr, "wdlopen: cannot load libwhisper.so: %s\n", dlerror());
+    return false;
+  }
 
   p_whisper_init_from_file        = dlsym(lib, "whisper_init_from_file_with_params");
   p_whisper_free                  = dlsym(lib, "whisper_free");
