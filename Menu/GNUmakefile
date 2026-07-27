@@ -51,6 +51,7 @@ Menu_OBJC_FILES = \
 	StatusItems/WLANExtra/WLANExtra.m \
 	StatusItems/SoundExtra/SoundExtra.m \
 	StatusItems/BrightnessExtra/BrightnessExtra.m \
+	StatusItems/BuildMonitorExtra/BuildMonitorExtra.m \
 	WindowMonitor.m \
 	AppMenuImporter.m \
 	WindowSwitchContext.m \
@@ -104,7 +105,8 @@ Menu_HEADER_FILES = \
 	SoundVolume.h \
 	StatusItems/SystemMonitor/CPUProvider.h \
 	StatusItems/SystemMonitor/RAMProvider.h \
-	TintedMenuItemCell.h
+	TintedMenuItemCell.h \
+	StatusItems/BuildMonitorExtra/BuildMonitorExtra.h
 
 # Resources
 Menu_RESOURCE_FILES = \
@@ -199,7 +201,8 @@ MENU_EXTRA_DIRS = \
 	StatusItems/WLANExtra \
 	StatusItems/WLANExtra/wlanauth \
 	StatusItems/SoundExtra \
-	StatusItems/BrightnessExtra
+	StatusItems/BrightnessExtra \
+	StatusItems/BuildMonitorExtra
 
 after-Menu-all::
 	@echo "Building standalone menu extra bundles..."
@@ -227,6 +230,7 @@ custom-install: $(APP_NAME).app
 	fi
 	@(cd StatusItems/SoundExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
 	@(cd StatusItems/BrightnessExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
+	@(cd StatusItems/BuildMonitorExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
 	@echo "Status item bundles built successfully"
 	@if [ -n "$(DESTDIR)" ]; then \
 		echo "Installing $(APP_NAME) to $(DESTDIR)$(INSTALL_APPS_DIR)"; \
@@ -251,6 +255,7 @@ custom-install: $(APP_NAME).app
 		cp -R StatusItems/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
 		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/Menu/StatusItems/; \
 		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
+		cp -R StatusItems/BuildMonitorExtra/BuildMonitor.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
 	else \
 		echo "Installing $(APP_NAME) to $(INSTALL_APPS_DIR)"; \
 		rm -rf /System/Applications/$(APP_NAME).app || true; \
@@ -271,8 +276,9 @@ custom-install: $(APP_NAME).app
 			cp -R StatusItems/WLANExtra/WLAN.gsmenuextra /System/Library/MenuExtras/; \
 			cp -R StatusItems/SoundExtra/Sound.gsmenuextra /System/Library/Menu/StatusItems/; \
 			cp -R StatusItems/SoundExtra/Sound.gsmenuextra /System/Library/MenuExtras/; \
-			cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra /System/Library/Menu/StatusItems/; \
-			cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra /System/Library/MenuExtras/; \
+		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra /System/Library/Menu/StatusItems/; \
+		cp -R StatusItems/BrightnessExtra/Brightness.gsmenuextra /System/Library/MenuExtras/; \
+		cp -R StatusItems/BuildMonitorExtra/BuildMonitor.gsmenuextra /System/Library/MenuExtras/; \
 	fi
 # Override uninstall target to properly support DESTDIR and PREFIX
 uninstall:: custom-uninstall

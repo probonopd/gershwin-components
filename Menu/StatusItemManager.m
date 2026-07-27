@@ -247,6 +247,7 @@ static char kExtrasSubmenuIdentifierKey;
             @"org.gnustep.menuextra.wlan":       @30,
             @"org.gnustep.menuextra.sound":      @20,
             @"org.gnustep.menuextra.brightness": @10,
+            @"io.github.gershwin-desktop.menuextra.buildmonitor": @5,
         };
     });
     NSNumber *p = [priorityMap objectForKey:_identifier];
@@ -398,6 +399,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
             @"org.gnustep.menuextra.wlan":       @"WLANExtra",
             @"org.gnustep.menuextra.sound":      @"SoundExtra",
             @"org.gnustep.menuextra.brightness": @"BrightnessExtra",
+            @"io.github.gershwin-desktop.menuextra.buildmonitor": @"BuildMonitorExtra",
             @"org.gershwin.menu.statusitem.time":       @"TimeDisplayProvider",
             @"org.gershwin.menu.statusitem.cpu":       @"CPUProvider",
             @"org.gershwin.menu.statusitem.ram":       @"RAMProvider",
@@ -515,6 +517,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         @"org.gnustep.menuextra.wlan",
         @"org.gnustep.menuextra.sound",
         @"org.gnustep.menuextra.brightness",
+        @"io.github.gershwin-desktop.menuextra.buildmonitor",
         @"org.gershwin.menu.statusitem.cpu",
         @"org.gershwin.menu.statusitem.ram"
     ];
