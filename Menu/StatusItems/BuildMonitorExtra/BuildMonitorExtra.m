@@ -380,49 +380,6 @@ static NSString *ConfigKey(NSString *key)
     }
 }
 
-#pragma mark - Icon
-
-- (NSImage *)statusImage
-{
-    NSString *symbol;
-    NSColor *bgColor;
-    NSColor *fgColor = [NSColor whiteColor];
-
-    if ([_repos count] == 0) {
-        symbol = @"?";
-        bgColor = [NSColor colorWithCalibratedRed: 0.5 green: 0.5 blue: 0.5 alpha: 1.0];
-    } else if (_fetchError) {
-        symbol = @"?";
-        bgColor = [NSColor colorWithCalibratedRed: 0.5 green: 0.5 blue: 0.5 alpha: 1.0];
-    } else if (_hasAnyFailure) {
-        symbol = @"!";
-        bgColor = [NSColor colorWithCalibratedRed: 0.9 green: 0.1 blue: 0.1 alpha: 1.0];
-    } else if (_hasAnyRunning) {
-        symbol = [NSString stringWithUTF8String: "\xE2\x97\x8B"]; // ○
-        bgColor = [NSColor colorWithCalibratedRed: 0.9 green: 0.7 blue: 0.0 alpha: 1.0];
-    } else {
-        symbol = [NSString stringWithUTF8String: "\xE2\x9C\x93"]; // ✓
-        bgColor = [NSColor colorWithCalibratedRed: 0.2 green: 0.8 blue: 0.2 alpha: 1.0];
-    }
-
-    NSSize size = NSMakeSize(16, 16);
-    NSImage *img = [[NSImage alloc] initWithSize: size];
-
-    [img lockFocus];
-    [bgColor set];
-    NSBezierPath *path = [NSBezierPath bezierPathWithOvalInRect: NSMakeRect(1, 1, 14, 14)];
-    [path fill];
-
-    [fgColor set];
-    CGFloat fontSize = ([symbol length] == 1) ? 11 : 9;
-    NSDictionary *attrs = @{ NSFontAttributeName: [NSFont boldSystemFontOfSize: fontSize] };
-    NSSize ts = [symbol sizeWithAttributes: attrs];
-    NSPoint tp = NSMakePoint((size.width - ts.width) / 2, (size.height - ts.height) / 2 - 0.5);
-    [symbol drawAtPoint: tp withAttributes: attrs];
-
-    [img unlockFocus];
-    return img;
-}
 
 #pragma mark - GSMenuExtra
 
@@ -519,14 +476,15 @@ static NSString *ConfigKey(NSString *key)
     return m;
 }
 
-- (NSImage *)image
-{
-    return [self statusImage];
-}
+- (NSImage *)image { return nil; }
 
 - (NSString *)title
 {
-    return @"";
+    if ([_repos count] == 0) return @"?";
+    if (_fetchError) return @"?";
+    if (_hasAnyFailure) return [NSString stringWithUTF8String: "\xE2\x9C\x98"]; // ✘
+    if (_hasAnyRunning) return [NSString stringWithUTF8String: "\xE2\x97\x8B"]; // ○
+    return [NSString stringWithUTF8String: "\xE2\x9C\x93"]; // ✓
 }
 
 - (void)openRepoActions:(id)sender
