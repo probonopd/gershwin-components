@@ -971,14 +971,12 @@ static const unsigned long long modelMinSizes[] = {
 {
     if (captureHandle) return;
     if ([segments count] == 0) {
-        [recordButton setKeyEquivalent:@""];
         NSAlert *alert = [[NSAlert alloc] init];
         [alert setMessageText:@"No speech detected"];
         [alert setInformativeText:@"The microphone did not pick up any recognizable speech."];
         [alert addButtonWithTitle:@"OK"];
         [alert runModal];
         [alert release];
-        [recordButton setKeyEquivalent:@"\r"];
         return;
     }
     [self syncTypedText];
@@ -1025,12 +1023,11 @@ static const unsigned long long modelMinSizes[] = {
     BOOL hasResults = [segments count] > 0;
     [copyTextButton setEnabled:hasResults];
 
-    // Default button: exactly one responds to Enter — never more
+    // No button responds to Enter (avoids accidental re-trigger after alerts)
     [recordButton setKeyEquivalent:@""];
     [stopButton setKeyEquivalent:@""];
     [copyTextButton setKeyEquivalent:@""];
     [mainWindow setDefaultButtonCell:nil];
-    [recordButton setKeyEquivalent:@"\r"];
 
 }
 
@@ -2252,9 +2249,11 @@ static const unsigned long long modelMinSizes[] = {
 
 - (void)buildWhisperEngineWithScript:(NSString *)scriptPath
 {
-    // Show status window synchronously, then pump run loop briefly to render it
+    buildProgressPct = 0;
+    buildThreadRunning = YES;
+
     CGFloat ww = 380, lx = 20, lw = ww - 2*lx;
-    NSWindow *win = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, ww, 80)
+    NSWindow *win = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, ww, 48)
                                                  styleMask:NSTitledWindowMask
                                                    backing:NSBackingStoreBuffered
                                                      defer:NO];
@@ -2275,30 +2274,26 @@ static const unsigned long long modelMinSizes[] = {
     [[win contentView] addSubview:label];
 
     [win makeKeyAndOrderFront:self];
-
-    // Pump run loop for 200ms so the window system renders the new window
-    NSDate *pumpUntil = [NSDate dateWithTimeIntervalSinceNow:0.2];
-    while ([pumpUntil timeIntervalSinceNow] > 0) {
-        [[NSRunLoop currentRunLoop] runUntilDate:
-            [NSDate dateWithTimeIntervalSinceNow:0.05]];
-    }
-
     objc_setAssociatedObject(self, "_buildWin", win, OBJC_ASSOCIATION_RETAIN);
     objc_setAssociatedObject(self, "_buildProg", prog, OBJC_ASSOCIATION_RETAIN);
 
-    // Also try Dock progress via DO
-    @try {
-        NSConnection *conn = [NSConnection connectionWithRegisteredName:@"DockIcon" host:nil];
-        id<DockService> dockService = (id<DockService>)[conn rootProxy];
-        objc_setAssociatedObject(self, "_dockService", dockService, OBJC_ASSOCIATION_RETAIN);
-        [dockService setProgressValue:0.0];
-        [dockService setProgressVisible:YES];
-    } @catch (NSException *e) {
-        NSLog(@"build: Dock connection failed: %@", e);
-    }
+    // Polling timer 2x/sec updates the progress bar from the shared ivar
+    [NSTimer scheduledTimerWithTimeInterval:0.5 target:self
+                                   selector:@selector(buildPollProgress:)
+                                   userInfo:nil repeats:YES];
 
     [self performSelectorInBackground:@selector(buildThread:)
                            withObject:scriptPath];
+}
+
+- (void)buildPollProgress:(NSTimer *)t
+{
+    if (!buildThreadRunning) { [t invalidate]; return; }
+    NSProgressIndicator *p = objc_getAssociatedObject(self, "_buildProg");
+    if (p) {
+        [p setDoubleValue:(double)buildProgressPct];
+        [p setNeedsDisplay:YES];
+    }
 }
 
 - (void)buildThread:(NSString *)scriptPath
@@ -2307,6 +2302,7 @@ static const unsigned long long modelMinSizes[] = {
     NSString *cmd = [NSString stringWithFormat:@"sudo -A -E sh '%@' 2>&1 | awk '{print; fflush()}'", scriptPath];
     FILE *fp = popen([cmd UTF8String], "r");
     if (!fp) {
+        buildThreadRunning = NO;
         [self performSelectorOnMainThread:@selector(buildDoneWithStatus:)
                                withObject:[NSNumber numberWithInt:-1]
                             waitUntilDone:NO];
@@ -2321,45 +2317,28 @@ static const unsigned long long modelMinSizes[] = {
             p++;
             int pct;
             if (sscanf(p, " %d%%", &pct) >= 1) {
-                // Update Dock progress via DO (calls main thread)
-                [self performSelectorOnMainThread:@selector(buildSetDockProgress:)
-                                       withObject:[NSNumber numberWithDouble:pct / 100.0]
-                                    waitUntilDone:NO];
+                buildProgressPct = pct;  // shared ivar, read by poll timer
                 break;
             }
         }
     }
     int status = pclose(fp);
+    buildThreadRunning = NO;
     [self performSelectorOnMainThread:@selector(buildDoneWithStatus:)
                            withObject:[NSNumber numberWithInt:status]
                         waitUntilDone:NO];
     [pool release];
 }
 
-- (void)buildSetDockProgress:(NSNumber *)val
-{
-    id<DockService> dockService = objc_getAssociatedObject(self, "_dockService");
-    [dockService setProgressValue:[val doubleValue]];
-    NSProgressIndicator *p = objc_getAssociatedObject(self, "_buildProg");
-    [p setDoubleValue:[val doubleValue] * 100.0];
-    [p setNeedsDisplay:YES];
-}
-
 - (void)buildDoneWithStatus:(NSNumber *)statusObj
 {
     int status = [statusObj intValue];
 
-    // Close status window
     NSWindow *w = objc_getAssociatedObject(self, "_buildWin");
     [w close];
     [w release];
     objc_setAssociatedObject(self, "_buildWin", nil, OBJC_ASSOCIATION_RETAIN);
-
-    @try {
-        id<DockService> dockService = objc_getAssociatedObject(self, "_dockService");
-        [dockService clearAll];
-    } @catch (NSException *e) {}
-    objc_setAssociatedObject(self, "_dockService", nil, OBJC_ASSOCIATION_RETAIN);
+    objc_setAssociatedObject(self, "_buildProg", nil, OBJC_ASSOCIATION_RETAIN);
 
     // Re-dlopen libwhisper since it was just installed
     wdlopen_init();
