@@ -1,0 +1,15 @@
+{
+    CFBundleDevelopmentRegion = English;
+    CFBundleDisplayName = "Display Calibrator Assistant";
+    CFBundleExecutable = ColorAssistant;
+    CFBundleIdentifier = "org.gnustep.color.assistant";
+    CFBundleInfoDictionaryVersion = "1.0";
+    CFBundleName = "ColorAssistant";
+    CFBundlePackageType = APPL;
+    CFBundleShortVersionString = "1.0";
+    CFBundleSignature = "????";
+    CFBundleVersion = "1";
+    NSHumanReadableCopyright = "Copyright (c) 2026 Simon Peter";
+    NSMainNibFile = "";
+    NSPrincipalClass = NSApplication;
+}

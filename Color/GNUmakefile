@@ -1,10 +1,10 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
-BUNDLE_NAME = ColorSync
-ColorSync_OBJC_FILES = ColorSyncPrefPane.m DisplayManager.m ProfileParser.m ProfileApplier.m
-ColorSync_RESOURCE_FILES = ColorSyncInfo.plist
-ColorSync_BUNDLE_LIBS = -lPreferencePanes -lXrandr -lX11 -llcms2
-ColorSync_PRINCIPAL_CLASS = ColorSyncPrefPane
+BUNDLE_NAME = Color
+Color_OBJC_FILES = ColorPrefPane.m DisplayManager.m ProfileParser.m ProfileApplier.m
+Color_RESOURCE_FILES = ColorInfo.plist Color.png
+Color_BUNDLE_LIBS = -lPreferencePanes -lXrandr -lX11 -llcms2
+Color_PRINCIPAL_CLASS = ColorPrefPane
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles
 BUNDLE_EXTENSION = .prefPane
 

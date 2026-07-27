@@ -12,7 +12,7 @@
 @class ProfileParser;
 @class ProfileApplier;
 
-@interface ColorSyncPrefPane : NSPreferencePane
+@interface ColorPrefPane : NSPreferencePane
 {
     DisplayManager *_displayManager;
     ProfileParser *_profileParser;

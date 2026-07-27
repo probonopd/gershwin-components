@@ -23,7 +23,7 @@
         _activeProfiles = [[NSMutableDictionary alloc] init];
 
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-        NSDictionary *saved = [defaults dictionaryForKey:@"ColorSyncActiveProfiles"];
+        NSDictionary *saved = [defaults dictionaryForKey:@"ColorActiveProfiles"];
         if (saved) {
             [_activeProfiles addEntriesFromDictionary:saved];
         }
@@ -123,7 +123,7 @@
 - (void)saveActiveProfiles
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    [defaults setObject:_activeProfiles forKey:@"ColorSyncActiveProfiles"];
+    [defaults setObject:_activeProfiles forKey:@"ColorActiveProfiles"];
     [defaults synchronize];
 }
 

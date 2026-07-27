@@ -1,9 +1,9 @@
 {
     CFBundleIdentifier = "org.gnustep.color.prefpane";
     NOTE = "Automatically generated, do not edit!";
-    NSExecutable = ColorSync;
+    NSExecutable = Color;
     NSMainNibFile = "";
-    NSPrefPaneIconFile = "";
+    NSPrefPaneIconFile = "Color.png";
     NSPrefPaneIconLabel = "Color";
-    NSPrincipalClass = ColorSyncPrefPane;
+    NSPrincipalClass = ColorPrefPane;
 }

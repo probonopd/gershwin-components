@@ -146,7 +146,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     
     NSDebugLLog(@"gwcomp", @"[GSAssistantWindow] Initializing with layout style %ld, title: '%@', steps count: %lu", 
           (long)layoutStyle, title, (unsigned long)steps.count);
-    
+
     // Determine window dimensions based on layout style
     CGFloat windowWidth, windowHeight;
     NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable;
@@ -172,7 +172,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
                                                      backing:NSBackingStoreBuffered
                                                        defer:YES];
     
-    self = [super initWithWindow:window];
+        self = [super initWithWindow:window];
     if (self) {
         _layoutStyle = layoutStyle;
         _windowWidth = windowWidth;
@@ -180,10 +180,6 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         _assistantTitle = [title copy];
         _assistantIcon = icon;
 
-        // Set window icon for Dock/taskbar
-        if (icon) {
-            [window setMiniwindowImage:icon];
-        }
         _stepsArray = [[NSMutableArray alloc] initWithArray:steps];
         _currentIndex = 0;
         _showsProgressBar = (layoutStyle == GSAssistantLayoutStyleDefault);
@@ -191,7 +187,11 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         _showsSidebar = (layoutStyle == GSAssistantLayoutStyleInstaller);
         _showsStepIndicators = (layoutStyle == GSAssistantLayoutStyleInstaller);
         _stepIndicatorViews = [[NSMutableArray alloc] init];
-        
+
+        if (icon) {
+            [window setMiniwindowImage:icon];
+        }
+
         // Set assistant window reference for all steps that support it
         for (id<GSAssistantStepProtocol> step in _stepsArray) {
             if ([step isKindOfClass:[GSAssistantStep class]]) {
@@ -199,14 +199,14 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
                 assistantStep.assistantWindow = self;
             }
         }
-        
+
         [self setupWindow];
         [self setupViews];
         if (_stepsArray.count > 0) {
             [self showCurrentStep];
         }
     }
-    
+
     return self;
 }
 
@@ -233,7 +233,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     // Opaque window background so semi-transparent card views blend against it, not the desktop
     [window setBackgroundColor:[NSColor windowBackgroundColor]];
     
-    _contentView = [[NSView alloc] init];
+    _contentView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, _windowWidth, _windowHeight)];
     window.contentView = _contentView;
     
     NSDebugLLog(@"gwcomp", @"[GSAssistantWindow] Window setup complete with layout style %ld, size: %.0fx%.0f", 
@@ -954,9 +954,9 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     if (_currentIndex < (NSInteger)_stepsArray.count) {
         id<GSAssistantStepProtocol> currentStep = _stepsArray[_currentIndex];
 
-        CGFloat contentWidth = [_mainContentView frame].size.width;   // full content width
+        CGFloat contentWidth = [_mainContentView frame].size.width;
 
-        // Title above the card - position to match the standard top margin
+        // Title above the card
         NSRect titleFrame = NSMakeRect(24, 336, contentWidth - 48, 26);
         _installerStepTitleField = [[NSTextField alloc] initWithFrame:titleFrame];
         [_installerStepTitleField setStringValue:[currentStep stepTitle] ?: @""];
@@ -969,7 +969,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         [_installerStepTitleField setTextColor:[NSColor blackColor]];
         [_mainContentView addSubview:_installerStepTitleField];
 
-        // Optional description INSIDE the card, top with padding
+        // Optional description inside the card
         NSString *desc = nil;
         if ([currentStep respondsToSelector:@selector(stepDescription)]) {
             desc = [currentStep stepDescription];
@@ -994,15 +994,15 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
             if ([[_installerStepDescriptionField cell] respondsToSelector:@selector(setScrollable:)]) {
                 [[_installerStepDescriptionField cell] setScrollable:NO];
             }
-            
+
             // Compute expected height using the cell's measurement
             CGFloat baseHeight = 18.0;
-            CGFloat padding = 16.0; // extra padding inside card
-            CGFloat available = inner.size.height - 20.0; // maximum available for description
+            CGFloat padding = 16.0;
+            CGFloat available = inner.size.height - 20.0;
             CGFloat computedHeight = 48.0;
             CGFloat maxWidth = inner.size.width;
             if ([[_installerStepDescriptionField cell] respondsToSelector:@selector(cellSizeForBounds:)]) {
-                NSRect measureBounds = NSMakeRect(0, 0, maxWidth, CGFLOAT_MAX);
+                NSRect measureBounds = NSMakeRect(0, 0, maxWidth, 2000);
                 NSSize expected = [[_installerStepDescriptionField cell] cellSizeForBounds:measureBounds];
                 computedHeight = MAX(expected.height + 6.0, baseHeight);
             }

@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#import "ColorSyncPrefPane.h"
+#import "ColorPrefPane.h"
 #import "DisplayManager.h"
 #import "ProfileParser.h"
 #import "ProfileApplier.h"
 
-@implementation ColorSyncPrefPane
+@implementation ColorPrefPane
 
 + (BOOL)isCompatible
 {
