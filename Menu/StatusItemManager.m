@@ -247,7 +247,7 @@ static char kExtrasSubmenuIdentifierKey;
             @"org.gnustep.menuextra.wlan":       @30,
             @"org.gnustep.menuextra.sound":      @20,
             @"org.gnustep.menuextra.brightness": @10,
-            @"io.github.gershwin-desktop.menuextra.buildmonitor": @100,
+            @"io.github.gershwin-desktop.menuextra.buildmonitor": @5,
         };
     });
     NSNumber *p = [priorityMap objectForKey:_identifier];

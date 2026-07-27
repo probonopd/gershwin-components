@@ -1,5 +1,9 @@
 #import "BuildMonitorExtra.h"
 #import "GSMenuExtraContext.h"
+#import <objc/runtime.h>
+
+static const char kRepoKey;
+static const char kDataKey;
 
 #define POLL_INTERVAL 60.0
 #define CONFIG_PREFIX @"BuildMonitor."
@@ -9,7 +13,7 @@ static NSString *ConfigKey(NSString *key)
     return [CONFIG_PREFIX stringByAppendingString: key];
 }
 
-@interface BuildMonitorExtra () <NSWindowDelegate>
+@interface BuildMonitorExtra () <NSWindowDelegate, NSURLConnectionDelegate>
 {
     NSTimer *_timer;
     GSMenuExtraContext *_context;
@@ -22,10 +26,13 @@ static NSString *ConfigKey(NSString *key)
     BOOL _hasAnyFailure;
     BOOL _hasAnyRunning;
     BOOL _fetchError;
+    BOOL _anyNewFailure;
 
-    NSWindow *_configPanel;
+    NSPanel *_configPanel;
     NSTextView *_reposTextView;
     NSTextField *_tokenField;
+
+    NSMutableDictionary *_pendingRepos;
 }
 @end
 
@@ -61,48 +68,12 @@ static NSString *ConfigKey(NSString *key)
 
 #pragma mark - GitHub API
 
-- (NSString *)fetchRunsJSONForOwner:(NSString *)owner repo:(NSString *)repo
-{
-    NSString *urlStr = [NSString stringWithFormat: @"https://api.github.com/repos/%@/%@/actions/runs?per_page=5",
-                         owner, repo];
-
-    NSMutableArray *args = [NSMutableArray array];
-    [args addObject: @"-sL"];
-    [args addObject: urlStr];
-
-    if ([_token length] > 0) {
-        [args addObject: @"-H"];
-        [args addObject: [NSString stringWithFormat: @"Authorization: token %@", _token]];
-    }
-    [args addObject: @"-H"];
-    [args addObject: @"User-Agent: BuildMonitorExtra/1.0"];
-
-    NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath: @"/usr/bin/curl"];
-    [task setArguments: args];
-
-    NSPipe *outPipe = [NSPipe pipe];
-    [task setStandardOutput: outPipe];
-    [task setStandardError: [NSFileHandle fileHandleWithNullDevice]];
-
-    @try {
-        [task launch];
-        [task waitUntilExit];
-    } @catch (NSException *e) {
-        return nil;
-    }
-
-    if ([task terminationStatus] != 0) return nil;
-
-    NSData *data = [[outPipe fileHandleForReading] readDataToEndOfFile];
-    return [[NSString alloc] initWithData: data encoding: NSUTF8StringEncoding];
-}
-
 - (void)pollGitHub
 {
     _hasAnyFailure = NO;
     _hasAnyRunning = NO;
     _fetchError = NO;
+    _anyNewFailure = NO;
 
     if ([_repos count] == 0) {
         [_context invalidatePresentation];
@@ -110,91 +81,145 @@ static NSString *ConfigKey(NSString *key)
     }
 
     if (!_repoStatuses) _repoStatuses = [NSMutableDictionary dictionary];
+    if (!_pendingRepos) _pendingRepos = [NSMutableDictionary dictionary];
 
-    BOOL anyNewFailure = NO;
+    [_pendingRepos removeAllObjects];
 
     for (NSString *repoStr in _repos) {
         NSArray *parts = [repoStr componentsSeparatedByString: @"/"];
         if ([parts count] != 2) continue;
-        NSString *owner = parts[0];
-        NSString *repo = parts[1];
+        [_pendingRepos setObject: repoStr forKey: repoStr];
 
-        NSString *json = [self fetchRunsJSONForOwner: owner repo: repo];
-        if (!json) {
-            [_repoStatuses setObject: @"error" forKey: repoStr];
-            _fetchError = YES;
-            continue;
+        NSString *urlStr = [NSString stringWithFormat: @"https://api.github.com/repos/%@/%@/actions/runs?per_page=5",
+                             parts[0], parts[1]];
+
+        NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL: [NSURL URLWithString: urlStr]];
+        if ([_token length] > 0) {
+            [req setValue: [NSString stringWithFormat: @"token %@", _token] forHTTPHeaderField: @"Authorization"];
         }
+        [req setValue: @"BuildMonitorExtra/1.0" forHTTPHeaderField: @"User-Agent"];
 
+        NSURLConnection *conn = [NSURLConnection connectionWithRequest: req delegate: self];
+        objc_setAssociatedObject(conn, &kRepoKey, repoStr, OBJC_ASSOCIATION_RETAIN);
+        objc_setAssociatedObject(conn, &kDataKey, [NSMutableData data], OBJC_ASSOCIATION_RETAIN);
+    }
+}
+
+- (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response
+{
+    NSMutableData *data = objc_getAssociatedObject(connection, &kDataKey);
+    [data setLength: 0];
+}
+
+- (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
+{
+    NSMutableData *existing = objc_getAssociatedObject(connection, &kDataKey);
+    [existing appendData: data];
+}
+
+- (void)connectionDidFinishLoading:(NSURLConnection *)connection
+{
+    NSString *repoStr = objc_getAssociatedObject(connection, &kRepoKey);
+    NSMutableData *responseData = objc_getAssociatedObject(connection, &kDataKey);
+    NSString *json = [[NSString alloc] initWithData: responseData encoding: NSUTF8StringEncoding];
+
+    if (json) {
         NSData *data = [json dataUsingEncoding: NSUTF8StringEncoding];
         NSError *err = nil;
         NSDictionary *dict = [NSJSONSerialization JSONObjectWithData: data options: 0 error: &err];
-        if (!dict || ![dict isKindOfClass: [NSDictionary class]]) {
-            [_repoStatuses setObject: @"error" forKey: repoStr];
-            _fetchError = YES;
-            continue;
-        }
+        if (dict && [dict isKindOfClass: [NSDictionary class]]) {
+            NSArray *runs = [dict objectForKey: @"workflow_runs"];
+            if (runs) {
+                BOOL repoHasRunning = NO;
+                BOOL repoHasFailure = NO;
+                BOOL repoHasSuccess = NO;
+                NSMutableArray *currentFailureIDs = [NSMutableArray array];
+                NSMutableSet *seenWorkflows = [NSMutableSet set];
 
-        NSArray *runs = [dict objectForKey: @"workflow_runs"];
-        if (!runs) {
-            [_repoStatuses setObject: @"error" forKey: repoStr];
-            _fetchError = YES;
-            continue;
-        }
+                for (NSDictionary *run in runs) {
+                    NSNumber *wfID = [run objectForKey: @"workflow_id"];
+                    if (wfID) {
+                        if ([seenWorkflows containsObject: wfID]) continue;
+                        [seenWorkflows addObject: wfID];
+                    }
 
-        BOOL repoHasRunning = NO;
-        BOOL repoHasFailure = NO;
-        BOOL repoHasSuccess = NO;
-        NSMutableArray *currentFailureIDs = [NSMutableArray array];
+                    NSString *status = [run objectForKey: @"status"];
+                    NSString *conclusion = [run objectForKey: @"conclusion"];
 
-        for (NSDictionary *run in runs) {
-            NSString *status = [run objectForKey: @"status"];
-            NSString *conclusion = [run objectForKey: @"conclusion"];
-
-            if ([status isEqualToString: @"in_progress"] || [status isEqualToString: @"queued"]) {
-                repoHasRunning = YES;
-            } else if ([status isEqualToString: @"completed"]) {
-                if ([conclusion isEqualToString: @"failure"]) {
-                    repoHasFailure = YES;
-                    NSNumber *runID = [run objectForKey: @"id"];
-                    [currentFailureIDs addObject: [runID stringValue]];
-                } else if ([conclusion isEqualToString: @"success"]) {
-                    repoHasSuccess = YES;
+                    if ([status isEqualToString: @"in_progress"] || [status isEqualToString: @"queued"]) {
+                        repoHasRunning = YES;
+                    } else if ([status isEqualToString: @"completed"]) {
+                        if ([conclusion isEqualToString: @"failure"]) {
+                            repoHasFailure = YES;
+                            NSNumber *runID = [run objectForKey: @"id"];
+                            [currentFailureIDs addObject: [runID stringValue]];
+                        } else if ([conclusion isEqualToString: @"success"]) {
+                            repoHasSuccess = YES;
+                        }
+                    }
                 }
+
+                if (repoHasRunning) _hasAnyRunning = YES;
+                if (repoHasFailure) _hasAnyFailure = YES;
+
+                NSString *status;
+                if (repoHasFailure) status = @"failure";
+                else if (repoHasRunning) status = @"running";
+                else if (repoHasSuccess) status = @"success";
+                else status = @"unknown";
+                [_repoStatuses setObject: status forKey: repoStr];
+
+                NSString *prevIDs = [_lastFailures objectForKey: repoStr] ?: @"";
+                NSArray *prevIDList = [prevIDs length] > 0 ? [prevIDs componentsSeparatedByString: @";"] : @[];
+                for (NSString *fid in currentFailureIDs) {
+                    if (![prevIDList containsObject: fid]) {
+                        _anyNewFailure = YES;
+                        break;
+                    }
+                }
+
+                NSString *joined = [currentFailureIDs componentsJoinedByString: @";"];
+                if ([joined length] > 0) {
+                    [_lastFailures setObject: joined forKey: repoStr];
+                } else {
+                    [_lastFailures removeObjectForKey: repoStr];
+                }
+
+                [_pendingRepos removeObjectForKey: repoStr];
+                if ([_pendingRepos count] == 0) {
+                    [self finishPoll];
+                }
+                return;
             }
-        }
-
-        if (repoHasRunning) _hasAnyRunning = YES;
-        if (repoHasFailure) _hasAnyFailure = YES;
-
-        NSString *status;
-        if (repoHasFailure) status = @"failure";
-        else if (repoHasRunning) status = @"running";
-        else if (repoHasSuccess) status = @"success";
-        else status = @"unknown";
-        [_repoStatuses setObject: status forKey: repoStr];
-
-        NSString *prevIDs = [_lastFailures objectForKey: repoStr] ?: @"";
-        NSArray *prevIDList = [prevIDs length] > 0 ? [prevIDs componentsSeparatedByString: @";"] : @[];
-        for (NSString *fid in currentFailureIDs) {
-            if (![prevIDList containsObject: fid]) {
-                anyNewFailure = YES;
-                break;
-            }
-        }
-
-        NSString *joined = [currentFailureIDs componentsJoinedByString: @";"];
-        if ([joined length] > 0) {
-            [_lastFailures setObject: joined forKey: repoStr];
-        } else {
-            [_lastFailures removeObjectForKey: repoStr];
         }
     }
 
+    [_repoStatuses setObject: @"error" forKey: repoStr];
+    _fetchError = YES;
+    [_pendingRepos removeObjectForKey: repoStr];
+    if ([_pendingRepos count] == 0) {
+        [self finishPoll];
+    }
+}
+
+- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
+{
+    NSString *repoStr = objc_getAssociatedObject(connection, &kRepoKey);
+    [_repoStatuses setObject: @"error" forKey: repoStr];
+    _fetchError = YES;
+
+    [_pendingRepos removeObjectForKey: repoStr];
+    if ([_pendingRepos count] == 0) {
+        [self finishPoll];
+    }
+}
+
+- (void)finishPoll
+{
     [self saveConfig];
     [_context invalidatePresentation];
 
-    if (anyNewFailure) {
+    if (_anyNewFailure) {
         [self showFailureAlert];
     }
 }
@@ -241,8 +266,13 @@ static NSString *ConfigKey(NSString *key)
 - (void)showConfigPanel
 {
     if (_configPanel) {
+        [_configPanel setInitialFirstResponder: _reposTextView];
         [_configPanel makeKeyAndOrderFront: nil];
         [NSApp activateIgnoringOtherApps: YES];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self->_configPanel makeKeyWindow];
+            [self->_configPanel makeFirstResponder: self->_reposTextView];
+        });
         return;
     }
 
@@ -252,11 +282,12 @@ static NSString *ConfigKey(NSString *key)
     const CGFloat sw = w - pad * 2;
 
     NSRect contentRect = NSMakeRect(0, 0, w, h);
-    _configPanel = [[NSWindow alloc] initWithContentRect: contentRect
-                                               styleMask: NSTitledWindowMask | NSClosableWindowMask
-                                                 backing: NSBackingStoreRetained
-                                                   defer: NO];
+    _configPanel = [[NSPanel alloc] initWithContentRect: contentRect
+                                             styleMask: NSTitledWindowMask | NSClosableWindowMask
+                                               backing: NSBackingStoreBuffered
+                                                 defer: NO];
     [_configPanel setTitle: @"Build Monitor Configuration"];
+    [_configPanel setBecomesKeyOnlyIfNeeded: NO];
     [_configPanel setDelegate: self];
 
     NSView *content = [[NSView alloc] initWithFrame: contentRect];
@@ -282,6 +313,8 @@ static NSString *ConfigKey(NSString *key)
     [_reposTextView setMaxSize: NSMakeSize(FLT_MAX, FLT_MAX)];
     [_reposTextView setVerticallyResizable: YES];
     [_reposTextView setAutoresizingMask: NSViewWidthSizable];
+    [_reposTextView setEditable: YES];
+    [_reposTextView setSelectable: YES];
     [_reposTextView setFont: [NSFont userFixedPitchFontOfSize: 12]];
     [scrollView setDocumentView: _reposTextView];
     [content addSubview: scrollView];
@@ -319,9 +352,28 @@ static NSString *ConfigKey(NSString *key)
     [content addSubview: cancelBtn];
 
     [_configPanel setContentView: content];
+    [_configPanel recalculateKeyViewLoop];
+    [_configPanel setInitialFirstResponder: _reposTextView];
     [_configPanel center];
     [_configPanel makeKeyAndOrderFront: nil];
     [NSApp activateIgnoringOtherApps: YES];
+
+    [self performSelector:@selector(focusConfigPanel)
+               withObject:nil
+               afterDelay:0.05
+                  inModes:@[NSDefaultRunLoopMode, NSModalPanelRunLoopMode]];
+    [self performSelector:@selector(focusConfigPanel)
+               withObject:nil
+               afterDelay:0.2
+                  inModes:@[NSDefaultRunLoopMode, NSModalPanelRunLoopMode]];
+}
+
+- (void)focusConfigPanel
+{
+    if (_configPanel) {
+        [_configPanel makeKeyWindow];
+        [_configPanel makeFirstResponder: _reposTextView];
+    }
 }
 
 - (void)saveConfigPanel:(id)sender
@@ -390,6 +442,20 @@ static NSString *ConfigKey(NSString *key)
 
 - (void)menuExtraDidLoad
 {
+    NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
+    [defs registerDefaults: @{
+        ConfigKey(@"repos"): @[@"gershwin-desktop/gershwin-desktop",
+                                @"gershwin-desktop/gershwin-components",
+                                @"gershwin-desktop/gershwin-developer",
+                                @"gershwin-desktop/gershwin-workspace",
+                                @"gershwin-desktop/gershwin-eau-theme",
+                                @"gershwin-desktop/gershwin-windowmanager",
+                                @"gershwin-desktop/gershwin-textedit",
+                                @"gershwin-desktop/gershwin-systempreferences",
+                                @"gershwin-desktop/gershwin-terminal",
+                                @"gershwin-desktop/gershwin-system"]
+    }];
+
     [self loadConfig];
 
     if ([_repos count] > 0) {
@@ -439,7 +505,7 @@ static NSString *ConfigKey(NSString *key)
         NSString *status = [_repoStatuses objectForKey: repoStr] ?: @"unknown";
         NSString *icon;
         if ([status isEqualToString: @"failure"]) {
-            icon = [NSString stringWithUTF8String: "\xE2\x9C\x98"]; // ✘
+            icon = @"!";
         } else if ([status isEqualToString: @"running"]) {
             icon = [NSString stringWithUTF8String: "\xE2\x97\x8B"]; // ○
         } else if ([status isEqualToString: @"success"]) {
@@ -463,7 +529,7 @@ static NSString *ConfigKey(NSString *key)
 
     NSMenuItem *refreshItem = [[NSMenuItem alloc] initWithTitle: @"Refresh Now"
                                                          action: @selector(pollGitHub)
-                                                  keyEquivalent: @"r"];
+                                                  keyEquivalent: @""];
     [refreshItem setTarget: self];
     [m addItem: refreshItem];
 
@@ -480,7 +546,7 @@ static NSString *ConfigKey(NSString *key)
 {
     if ([_repos count] == 0) return @"?";
     if (_fetchError) return @"?";
-    if (_hasAnyFailure) return [NSString stringWithUTF8String: "\xE2\x9C\x98"]; // ✘
+    if (_hasAnyFailure) return @"!";
     if (_hasAnyRunning) return [NSString stringWithUTF8String: "\xE2\x97\x8B"]; // ○
     return [NSString stringWithUTF8String: "\xE2\x9C\x93"]; // ✓
 }
@@ -504,7 +570,7 @@ static NSString *ConfigKey(NSString *key)
 
 - (NSString *)title
 {
-    return [self statusSymbol];
+    return @"";
 }
 
 - (void)openRepoActions:(id)sender

@@ -436,8 +436,17 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
             return;
         }
 
+        // If no key window, try to find a visible panel that can become key
         if (!keyWin) {
-        } else if (keyWin != [event window]) {
+            for (NSWindow *win in [self windows]) {
+                if ([win isVisible] && [win canBecomeKeyWindow]) {
+                    [win makeKeyWindow];
+                    keyWin = win;
+                    break;
+                }
+            }
+        }
+        if (keyWin != nil && keyWin != [event window]) {
             NSDebugLLog(@"gwcomp", @"MenuApplication: Forwarding KeyDown to key window");
             [keyWin sendEvent:event];
             return;
