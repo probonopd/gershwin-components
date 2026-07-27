@@ -24,7 +24,7 @@ all: build
 # because /System may not contain the libraries yet.  "sudo gmake install"
 # installs Libraries first, then builds and installs these consumers.
 ifneq ($(filter Libraries,$(SUBDIRS)),)
-LIBRARY_CONSUMERS := $(filter Menu Network Sound,$(SUBDIRS))
+LIBRARY_CONSUMERS := $(filter Menu Network Sound Whisper,$(SUBDIRS))
 else
 LIBRARY_CONSUMERS :=
 endif
