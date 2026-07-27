@@ -384,38 +384,41 @@ static NSString *ConfigKey(NSString *key)
 
 - (NSImage *)statusImage
 {
-    static NSDictionary *colorMap = nil;
-    if (!colorMap) {
-        colorMap = @{
-            @"green":  [NSColor colorWithCalibratedRed: 0.2 green: 0.8 blue: 0.2 alpha: 1.0],
-            @"yellow": [NSColor colorWithCalibratedRed: 0.9 green: 0.7 blue: 0.0 alpha: 1.0],
-            @"red":    [NSColor colorWithCalibratedRed: 0.9 green: 0.1 blue: 0.1 alpha: 1.0],
-            @"gray":   [NSColor colorWithCalibratedRed: 0.5 green: 0.5 blue: 0.5 alpha: 1.0],
-        };
+    NSString *symbol;
+    NSColor *bgColor;
+    NSColor *fgColor = [NSColor whiteColor];
+
+    if ([_repos count] == 0) {
+        symbol = @"?";
+        bgColor = [NSColor colorWithCalibratedRed: 0.5 green: 0.5 blue: 0.5 alpha: 1.0];
+    } else if (_fetchError) {
+        symbol = @"?";
+        bgColor = [NSColor colorWithCalibratedRed: 0.5 green: 0.5 blue: 0.5 alpha: 1.0];
+    } else if (_hasAnyFailure) {
+        symbol = @"!";
+        bgColor = [NSColor colorWithCalibratedRed: 0.9 green: 0.1 blue: 0.1 alpha: 1.0];
+    } else if (_hasAnyRunning) {
+        symbol = [NSString stringWithUTF8String: "\xE2\x97\x8B"]; // ○
+        bgColor = [NSColor colorWithCalibratedRed: 0.9 green: 0.7 blue: 0.0 alpha: 1.0];
+    } else {
+        symbol = [NSString stringWithUTF8String: "\xE2\x9C\x93"]; // ✓
+        bgColor = [NSColor colorWithCalibratedRed: 0.2 green: 0.8 blue: 0.2 alpha: 1.0];
     }
-
-    NSString *colorKey = @"gray";
-    if (_fetchError) colorKey = @"gray";
-    else if (_hasAnyFailure) colorKey = @"red";
-    else if (_hasAnyRunning) colorKey = @"yellow";
-    else if ([_repos count] > 0) colorKey = @"green";
-
-    NSColor *color = [colorMap objectForKey: colorKey];
 
     NSSize size = NSMakeSize(16, 16);
     NSImage *img = [[NSImage alloc] initWithSize: size];
 
     [img lockFocus];
-    [color set];
-    NSBezierPath *path = [NSBezierPath bezierPathWithOvalInRect: NSMakeRect(2, 2, 12, 12)];
+    [bgColor set];
+    NSBezierPath *path = [NSBezierPath bezierPathWithOvalInRect: NSMakeRect(1, 1, 14, 14)];
     [path fill];
 
-    [[NSColor whiteColor] set];
-    NSString *letter = @"B";
-    NSDictionary *attrs = @{ NSFontAttributeName: [NSFont boldSystemFontOfSize: 9] };
-    NSSize ts = [letter sizeWithAttributes: attrs];
+    [fgColor set];
+    CGFloat fontSize = ([symbol length] == 1) ? 11 : 9;
+    NSDictionary *attrs = @{ NSFontAttributeName: [NSFont boldSystemFontOfSize: fontSize] };
+    NSSize ts = [symbol sizeWithAttributes: attrs];
     NSPoint tp = NSMakePoint((size.width - ts.width) / 2, (size.height - ts.height) / 2 - 0.5);
-    [letter drawAtPoint: tp withAttributes: attrs];
+    [symbol drawAtPoint: tp withAttributes: attrs];
 
     [img unlockFocus];
     return img;
