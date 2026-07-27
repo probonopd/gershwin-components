@@ -60,13 +60,14 @@
     if (_mainView) return _mainView;
 
     CGFloat w = 500;
-    CGFloat h = 300;
+    CGFloat h = 340;
     _mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, w, h)];
 
     const CGFloat MARGIN_SIDE = 24.0;
     const CGFloat MARGIN_TOP = 15.0;
     const CGFloat LABEL_W = 100.0;
     const CGFloat SPACE_8 = 8.0;
+    const CGFloat SPACE_12 = 12.0;
     const CGFloat SPACE_16 = 16.0;
     const CGFloat SPACE_20 = 20.0;
     const CGFloat SPACE_10 = 10.0;
@@ -88,12 +89,13 @@
     [_mainView addSubview:displayLabel];
     [displayLabel release];
 
-    _displayPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(FIELD_X, y, MIN(FIELD_W, 200), LH)];
+    CGFloat popupW = MIN(FIELD_W, 200);
+    _displayPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(FIELD_X, y, popupW, LH)];
     [_displayPopup setTarget:self];
     [_displayPopup setAction:@selector(displaySelectionChanged:)];
     [_mainView addSubview:_displayPopup];
 
-    _selectProfileButton = [[NSButton alloc] initWithFrame:NSMakeRect(FIELD_X + 204, y, 0, BH)];
+    _selectProfileButton = [[NSButton alloc] initWithFrame:NSMakeRect(FIELD_X + popupW + SPACE_12, y, 0, BH)];
     [_selectProfileButton setTitle:@"Select Profile..."];
     [_selectProfileButton setButtonType:NSMomentaryPushInButton];
     [_selectProfileButton setBezelStyle:NSRoundedBezelStyle];
