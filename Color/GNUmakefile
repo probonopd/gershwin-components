@@ -10,8 +10,6 @@ Color_PRINCIPAL_CLASS = ColorPrefPane
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles
 BUNDLE_EXTENSION = .prefPane
 
-Color_CPPFLAGS += -I/Developer/Library/Sources/gershwin-eau-theme
-
 include $(GNUSTEP_MAKEFILES)/bundle.make
 
 .PHONY: custom-install custom-uninstall
