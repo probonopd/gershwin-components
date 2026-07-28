@@ -621,9 +621,8 @@ static NSDictionary *parseStringsFile(NSString *path)
 
 - (void)loadDesktopBackground
 {
-    //Read desktop background preferences (mirrors gershwin-windowmanager's approach)
-    NSString *prefsPath = [@"~/Library/Preferences/org.gnustep.Workspace.plist"
-        stringByExpandingTildeInPath];
+    //Read desktop background preferences from global defaults
+    NSString *prefsPath = @"/System/Library/Preferences/GlobalDefaults/org.gnustep.Workspace.plist";
     NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:prefsPath];
     NSDictionary *dskinfo = [prefs objectForKey:@"desktopinfo"];
 
