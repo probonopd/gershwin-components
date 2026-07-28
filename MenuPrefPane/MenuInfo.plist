@@ -1,0 +1,14 @@
+{
+    CFBundleDevelopmentRegion = "English";
+    CFBundleExecutable = "Menu";
+    CFBundleIdentifier = "io.github.gershwin-desktop.menu.prefpane";
+    CFBundleInfoDictionaryVersion = "6.0";
+    CFBundleName = "Menu";
+    CFBundlePackageType = "BNDL";
+    CFBundleShortVersionString = "1.0";
+    CFBundleSignature = "????";
+    CFBundleVersion = "1.0";
+    NSPrefPaneIconFile = "Menu.png";
+    NSPrefPaneIconLabel = "Menu";
+    NSPrincipalClass = "MenuPrefPane";
+}

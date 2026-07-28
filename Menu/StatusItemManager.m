@@ -285,7 +285,11 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     NSMenuView *_extrasMenuView;
     NSMutableDictionary *_extrasMenuItems;
     NSMutableArray<id<StatusItemProvider>> *_allStatusItems;
+    NSConnection *_doConnection;
     BOOL _needsUpdateGuard;
+    BOOL _needsReload;
+    NSTimer *_reloadTimer;
+    NSArray *_pendingIdentifiers;
 }
 @end
 
@@ -534,6 +538,8 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         }
     }
 
+    NSSet *enabledSet = [self loadEnabledPreference];
+
     NSArray *savedOrder = [self loadOrderPreference];
     NSMutableArray *orderedAll = [NSMutableArray arrayWithCapacity:[allProviders count]];
     NSMutableArray *orderedEnabled = [NSMutableArray arrayWithCapacity:[allProviders count]];
@@ -547,7 +553,9 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         id<StatusItemProvider> p = [providersById objectForKey:ident];
         if (p) {
             [orderedAll addObject:p];
-            [orderedEnabled addObject:p];
+            if (!enabledSet || [enabledSet containsObject:ident]) {
+                [orderedEnabled addObject:p];
+            }
             [providersById removeObjectForKey:ident];
         }
     }
@@ -555,7 +563,9 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     for (id<StatusItemProvider> p in allProviders) {
         if ([providersById objectForKey:[p identifier]]) {
             [orderedAll addObject:p];
-            [orderedEnabled addObject:p];
+            if (!enabledSet || [enabledSet containsObject:[p identifier]]) {
+                [orderedEnabled addObject:p];
+            }
         }
     }
 
@@ -575,12 +585,301 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     [_allStatusItems sortUsingComparator:providerComparator];
     [_statusItems sortUsingComparator:providerComparator];
 
+    [self setupDOServer];
     [self startFileSystemMonitoring];
 }
 
 - (NSArray<id<StatusItemProvider>> *)allStatusItems
 {
     return _allStatusItems;
+}
+
+- (void)reloadEnabledFromDefaults
+{
+    NSLog(@"GSMenuExtra: reloadEnabledFromDefaults called, _allStatusItems=%@",
+          _allStatusItems ? @"non-nil" : @"nil");
+    if (!_allStatusItems) return;
+
+    NSSet *enabledSet = [self loadEnabledPreference];
+    NSLog(@"GSMenuExtra: enabledSet=%@", enabledSet ?: @"nil (show all)");
+    [self applyEnabledSet:enabledSet];
+}
+
+- (void)setupDOServer
+{
+    _doConnection = [[NSConnection alloc] init];
+    [_doConnection setRootObject:self];
+    if ([_doConnection registerName:@"io.github.gershwin-desktop.MenuExtraConfigServer"]) {
+        NSLog(@"GSMenuExtra: DO server registered for config changes");
+    }
+}
+
+- (BOOL)updateEnabledExtras:(NSArray *)identifiers
+{
+    NSLog(@"GSMenuExtra: DO received %lu identifiers", (unsigned long)[identifiers count]);
+    _pendingIdentifiers = [NSArray arrayWithArray:identifiers];
+    _needsReload = YES;
+
+    if (!_reloadTimer) {
+        _reloadTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+                                                        target:self
+                                                      selector:@selector(reloadTimerFired:)
+                                                      userInfo:nil
+                                                       repeats:YES];
+    }
+    NSLog(@"GSMenuExtra: DO method returning YES");
+    return YES;
+}
+
+- (void)reloadTimerFired:(NSTimer *)timer
+{
+    if (!_needsReload || !_pendingIdentifiers) return;
+
+    _needsReload = NO;
+
+    [[NSUserDefaults standardUserDefaults] setObject:_pendingIdentifiers forKey:GSMenuExtraEnabledKey];
+    [[NSUserDefaults standardUserDefaults] setObject:_pendingIdentifiers forKey:GSMenuExtraOrderKey];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+
+    NSSet *enabledSet = [NSSet setWithArray:_pendingIdentifiers];
+    [self applyEnabledSet:enabledSet];
+
+    _pendingIdentifiers = nil;
+    [_reloadTimer invalidate];
+    _reloadTimer = nil;
+}
+
+
+
+- (void)rebuildExtrasMenu
+{
+    NSLog(@"GSMenuExtra: rebuildExtrasMenu start, statusItems=%lu, menuItems=%lu",
+          (unsigned long)[_statusItems count], (unsigned long)[_extrasMenuItems count]);
+
+    if (!_extrasMenu) {
+        _extrasMenu = [[NSMenu alloc] initWithTitle:@"Extras"];
+        NSLog(@"GSMenuExtra: created new _extrasMenu");
+    }
+
+    /* Remove items no longer wanted */
+    NSMutableArray *identsToRemove = [NSMutableArray array];
+    for (NSString *ident in _extrasMenuItems) {
+        BOOL found = NO;
+        for (id<StatusItemProvider> p in _statusItems) {
+            if ([[p identifier] isEqualToString:ident]) {
+                found = YES;
+                break;
+            }
+        }
+        if (!found) {
+            [identsToRemove addObject:ident];
+        }
+    }
+    NSLog(@"GSMenuExtra: removing %lu items", (unsigned long)[identsToRemove count]);
+    for (NSString *ident in identsToRemove) {
+        NSMenuItem *item = [_extrasMenuItems objectForKey:ident];
+        NSInteger idx = [_extrasMenu indexOfItem:item];
+        if (idx >= 0) {
+            [_extrasMenu removeItemAtIndex:idx];
+        }
+        [_extrasMenuItems removeObjectForKey:ident];
+    }
+
+    /* Add items that are new */
+    NSLog(@"GSMenuExtra: adding new items");
+    for (id<StatusItemProvider> provider in _statusItems) {
+        NSString *ident = [provider identifier];
+        if ([_extrasMenuItems objectForKey:ident]) continue;
+        NSLog(@"GSMenuExtra:   adding item %@", ident);
+
+        NSString *title = [provider title] ? [provider title] : ident;
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title
+                                                       action:NULL
+                                                keyEquivalent:@""];
+        NSLog(@"GSMenuExtra:   created item");
+        if ([provider respondsToSelector:@selector(icon)]) {
+            NSImage *icon = [provider icon];
+            if (icon) {
+                CGFloat iconSize = _menuBarHeight - 4.0;
+                [icon setSize:NSMakeSize(iconSize, iconSize)];
+                [item setImage:icon];
+            }
+        }
+        NSLog(@"GSMenuExtra:   set icon");
+        if ([provider respondsToSelector:@selector(menu)]) {
+            NSMenu *submenu = [provider menu];
+            if (submenu) {
+                [self configureSubmenu:submenu forIdentifier:ident];
+                [item setSubmenu:submenu];
+            }
+        }
+        NSLog(@"GSMenuExtra:   set submenu");
+        [item setRepresentedObject:ident];
+
+        NSInteger insertIdx = [_extrasMenu numberOfItems];
+        for (NSUInteger i = 0; i < [_statusItems count]; i++) {
+            if ([[_statusItems[i] identifier] isEqualToString:ident]) {
+                for (NSUInteger j = 0; j < (NSUInteger)[_extrasMenu numberOfItems]; j++) {
+                    NSMenuItem *existing = [_extrasMenu itemAtIndex:j];
+                    NSString *eid = [existing representedObject];
+                    for (id<StatusItemProvider> ep in _statusItems) {
+                        if ([[ep identifier] isEqualToString:eid]) {
+                            NSInteger pa = 100, pb = 100;
+                            if ([provider respondsToSelector:@selector(displayPriority)])
+                                pa = [provider displayPriority];
+                            if ([ep respondsToSelector:@selector(displayPriority)])
+                                pb = [ep displayPriority];
+                            if (pa < pb) {
+                                insertIdx = j;
+                            }
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        NSLog(@"GSMenuExtra:   inserting at %ld", (long)insertIdx);
+        [_extrasMenu insertItem:item atIndex:insertIdx];
+        NSLog(@"GSMenuExtra:   inserted OK");
+        [_extrasMenuItems setObject:item forKey:ident];
+    }
+
+    /* Update view */
+    NSLog(@"GSMenuExtra: updating view");
+    if (!_extrasMenuView) {
+        _extrasMenuView = [[NSMenuView alloc] initWithFrame:NSMakeRect(0, 0, 0, _menuBarHeight)];
+        [_extrasMenuView setHorizontal:YES];
+        objc_setAssociatedObject(_extrasMenuView, &kExtrasMenuViewTag, @YES, OBJC_ASSOCIATION_RETAIN);
+        [_extrasMenuView setMenu:_extrasMenu];
+    } else {
+        [_extrasMenuView setMenu:_extrasMenu];
+    }
+    NSLog(@"GSMenuExtra: view menu set");
+
+    objc_setAssociatedObject(_extrasMenuView, &kWidthIndexKey, @0, OBJC_ASSOCIATION_RETAIN);
+    [_extrasMenuView sizeToFit];
+    CGFloat width = [self extrasMenuWidth];
+    NSLog(@"GSMenuExtra: width=%g", width);
+
+    NSView *superview = [_extrasMenuView superview];
+    if (superview) {
+        CGFloat menuBarW = NSWidth([superview bounds]);
+        [_extrasMenuView setFrame:NSMakeRect(menuBarW - width - 8, 0, width, _menuBarHeight)];
+        [superview setNeedsDisplay:YES];
+    } else {
+        [_extrasMenuView setFrameSize:NSMakeSize(width, _menuBarHeight)];
+    }
+    NSLog(@"GSMenuExtra: rebuildExtrasMenu done");
+}
+
+- (void)applyEnabledSet:(NSSet *)enabledSet
+{
+    if (!_allStatusItems) return;
+
+    NSMutableArray *newEnabled = [NSMutableArray array];
+    for (id<StatusItemProvider> p in _allStatusItems) {
+        if (!enabledSet || [enabledSet containsObject:[p identifier]]) {
+            [newEnabled addObject:p];
+        }
+    }
+
+    [newEnabled sortUsingComparator:^NSComparisonResult(id<StatusItemProvider> a, id<StatusItemProvider> b) {
+        NSInteger pa = 100, pb = 100;
+        if ([a respondsToSelector:@selector(displayPriority)]) pa = [a displayPriority];
+        if ([b respondsToSelector:@selector(displayPriority)]) pb = [b displayPriority];
+        if (pa < pb) return NSOrderedAscending;
+        if (pa > pb) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+
+    BOOL changed = ([_statusItems count] != [newEnabled count]);
+    if (!changed) {
+        for (NSUInteger i = 0; i < [_statusItems count]; i++) {
+            if (![[_statusItems[i] identifier] isEqualToString:[newEnabled[i] identifier]]) {
+                changed = YES;
+                break;
+            }
+        }
+    }
+    if (!changed) return;
+
+    _statusItems = newEnabled;
+
+    if (!_extrasMenu) {
+        _extrasMenu = [[NSMenu alloc] initWithTitle:@"Extras"];
+    }
+
+    [_extrasMenu removeAllItems];
+    [_extrasMenuItems removeAllObjects];
+
+    for (id<StatusItemProvider> provider in _statusItems) {
+        NSString *ident = [provider identifier];
+        NSString *title = [provider title] ? [provider title] : ident;
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title
+                                                       action:NULL
+                                                keyEquivalent:@""];
+        if ([provider respondsToSelector:@selector(icon)]) {
+            NSImage *icon = [provider icon];
+            if (icon) {
+                CGFloat iconSize = _menuBarHeight - 4.0;
+                [icon setSize:NSMakeSize(iconSize, iconSize)];
+                [item setImage:icon];
+            }
+        }
+        if ([provider respondsToSelector:@selector(menu)]) {
+            NSMenu *submenu = [provider menu];
+            if (submenu) {
+                [item setSubmenu:submenu];
+            }
+        }
+        [item setRepresentedObject:ident];
+        [_extrasMenu addItem:item];
+        [_extrasMenuItems setObject:item forKey:ident];
+    }
+
+    if (_extrasMenuView) {
+        [_extrasMenuView sizeToFit];
+    }
+
+    NSLog(@"GSMenuExtra: applied enabled set, %lu items active",
+          (unsigned long)[_statusItems count]);
+}
+
+- (void)unloadAllStatusItems
+{
+    [self stopUpdateTimers];
+
+    _needsReload = NO;
+    _pendingIdentifiers = nil;
+    [_reloadTimer invalidate];
+    _reloadTimer = nil;
+
+    if (_doConnection) {
+        [_doConnection invalidate];
+        _doConnection = nil;
+    }
+
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+
+    if (_fsMonitorSource) {
+        dispatch_source_cancel(_fsMonitorSource);
+        _fsMonitorSource = nil;
+    }
+
+    [self savePreferences];
+
+    for (id<StatusItemProvider> item in _statusItems) {
+        @try {
+            if ([item respondsToSelector:@selector(unload)]) [item unload];
+        } @catch (NSException *exception) {}
+    }
+
+    [_extrasMenuItems removeAllObjects];
+    _extrasMenu = nil;
+    _extrasMenuView = nil;
+    [_statusItems removeAllObjects];
+    [_instances removeAllObjects];
 }
 
 - (id<StatusItemProvider>)providerForIdentifier:(NSString *)identifier
@@ -661,22 +960,27 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     return _extrasMenuView;
 }
 
-- (CGFloat)extrasMenuWidth
+- (CGFloat)extrasMenuWidthForView:(NSMenuView *)view menu:(NSMenu *)menu
 {
-    if ([_extrasMenuItems count] == 0 || !_extrasMenuView) return 0;
+    if (!view || !menu || [[menu itemArray] count] == 0) return 0;
 
-    objc_setAssociatedObject(_extrasMenuView, &kWidthIndexKey, @0, OBJC_ASSOCIATION_RETAIN);
-    [_extrasMenuView sizeToFit];
+    objc_setAssociatedObject(view, &kWidthIndexKey, @0, OBJC_ASSOCIATION_RETAIN);
+    [view sizeToFit];
 
     __block CGFloat maxX = 0;
-    [[_extrasMenu itemArray] enumerateObjectsUsingBlock:
+    [[menu itemArray] enumerateObjectsUsingBlock:
         ^(NSMenuItem *item, NSUInteger idx, BOOL *stop) {
-            NSRect r = [_extrasMenuView rectOfItemAtIndex: idx];
+            NSRect r = [view rectOfItemAtIndex: idx];
             CGFloat right = NSMaxX(r);
             if (right > maxX) maxX = right;
         }];
 
     return maxX;
+}
+
+- (CGFloat)extrasMenuWidth
+{
+    return [self extrasMenuWidthForView:_extrasMenuView menu:_extrasMenu];
 }
 
 #pragma mark - Update timers
@@ -992,34 +1296,6 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
             [_extrasMenuView setFrameSize:NSMakeSize(w, NSHeight([_extrasMenuView frame]))];
         }
     }
-}
-
-#pragma mark - Cleanup
-
-- (void)unloadAllStatusItems
-{
-    [self stopUpdateTimers];
-
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-
-    if (_fsMonitorSource) {
-        dispatch_source_cancel(_fsMonitorSource);
-        _fsMonitorSource = nil;
-    }
-
-    [self savePreferences];
-
-    for (id<StatusItemProvider> item in _statusItems) {
-        @try {
-            if ([item respondsToSelector:@selector(unload)]) [item unload];
-        } @catch (NSException *exception) {}
-    }
-
-    [_extrasMenuItems removeAllObjects];
-    _extrasMenu = nil;
-    _extrasMenuView = nil;
-    [_statusItems removeAllObjects];
-    [_instances removeAllObjects];
 }
 
 @end

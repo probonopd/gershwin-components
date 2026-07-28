@@ -10,7 +10,11 @@
 
 @class MenuExtrasPrefPanel;
 
-@interface StatusItemManager : NSObject
+@protocol MenuExtraConfigProtocol
+- (BOOL)updateEnabledExtras:(NSArray *)identifiers;
+@end
+
+@interface StatusItemManager : NSObject <MenuExtraConfigProtocol>
 
 @property (nonatomic, strong) NSMutableArray<id<StatusItemProvider>> *statusItems;
 @property (nonatomic, strong) NSMutableDictionary *updateTimers;
