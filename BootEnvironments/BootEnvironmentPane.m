@@ -11,6 +11,25 @@
 @implementation BootEnvironmentPane
 
 + (BOOL)isCompatible {
+  NSString *mounts = [NSString stringWithContentsOfFile:@"/proc/mounts"
+                                               encoding:NSUTF8StringEncoding
+                                                  error:nil];
+  if (mounts) {
+    // Linux: /proc/mounts has lines like:
+    // zfs rpool/ROOT/default / zfs rw,relatime,xattr,noacl 0 0
+    BOOL rootIsZFS = NO;
+    for (NSString *line in [mounts componentsSeparatedByString:@"\n"]) {
+      NSArray *fields = [line componentsSeparatedByString:@" "];
+      if ([fields count] >= 3 &&
+          [[fields objectAtIndex:1] isEqualToString:@"/"] &&
+          [[fields objectAtIndex:2] isEqualToString:@"zfs"]) {
+        rootIsZFS = YES;
+        break;
+      }
+    }
+    if (!rootIsZFS) return NO;
+  }
+
   NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
   NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
   for (NSString *dir in paths) {
@@ -22,7 +41,7 @@
 }
 
 + (NSString *)compatibilityReason {
-  return @"/sbin/bectl not found — boot environment management requires bectl";
+  return @"bectl not found or root filesystem is not ZFS — boot environment management requires both";
 }
 
 - (id)initWithBundle:(NSBundle *)bundle
