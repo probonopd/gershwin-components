@@ -18,13 +18,6 @@
           [dir stringByAppendingPathComponent: @"bectl"]])
       return YES;
   }
-  NSArray *commonDirs = @[@"/sbin", @"/usr/sbin", @"/usr/local/sbin",
-                           @"/bin", @"/usr/bin"];
-  for (NSString *dir in commonDirs) {
-    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
-          [dir stringByAppendingPathComponent: @"bectl"]])
-      return YES;
-  }
   return NO;
 }
 
