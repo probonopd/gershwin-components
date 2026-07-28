@@ -10,6 +10,20 @@
 #import "BuildController.h"
 #import "CatalogEntry.h"
 
+static NSString *toolPath(NSString *name)
+{
+    NSString *p = [NSTask launchPathForTool:name];
+    if (p) return p;
+    NSArray *dirs = @[@"/usr/local/bin", @"/usr/local/sbin",
+                       @"/usr/bin", @"/bin", @"/usr/sbin", @"/sbin"];
+    for (NSString *dir in dirs) {
+        p = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:p])
+            return p;
+    }
+    return nil;
+}
+
 int main(int argc, const char *argv[])
 {
     @autoreleasepool {
@@ -100,7 +114,7 @@ int main(int argc, const char *argv[])
 
                 fprintf(stderr, "Cloning %s...\n", [entry.gitURL UTF8String]);
                 NSTask *gitTask = [[NSTask alloc] init];
-                [gitTask setLaunchPath:@"/usr/bin/git"];
+                [gitTask setLaunchPath:toolPath(@"git")];
                 [gitTask setArguments:@[@"clone", @"--depth=1", entry.gitURL, cloneDir]];
                 [gitTask setStandardOutput:[NSFileHandle fileHandleWithNullDevice]];
                 [gitTask setStandardError:[NSFileHandle fileHandleWithNullDevice]];
@@ -136,8 +150,8 @@ int main(int argc, const char *argv[])
             if (makefilePath) {
                 NSString *dir = [makefilePath stringByDeletingLastPathComponent];
                 if ([dir length] == 0) dir = @".";
-                NSString *makePath = [NSTask launchPathForTool: @"gmake"];
-                if (!makePath) makePath = [NSTask launchPathForTool: @"make"];
+                NSString *makePath = toolPath(@"gmake");
+                if (!makePath) makePath = toolPath(@"make");
 
                 // Run pre-build steps (autoreconf, configure)
                 NSFileManager *fm = [NSFileManager defaultManager];
@@ -158,7 +172,7 @@ int main(int argc, const char *argv[])
                             needsAutoreconf = YES;
                     }
                     if (needsAutoreconf) {
-                        NSString *ar = [NSTask launchPathForTool: @"autoreconf"];
+                        NSString *ar = toolPath(@"autoreconf");
                         if (ar) {
                             fprintf(stderr, "Running autoreconf -i in %s\n", [dir UTF8String]);
                             system([[NSString stringWithFormat: @"cd '%@' && autoreconf -i 2>&1", dir] UTF8String]);

@@ -9,6 +9,20 @@
 #import "CatalogController.h"
 #import "CatalogEntry.h"
 
+static NSString *toolPath(NSString *name)
+{
+    NSString *p = [NSTask launchPathForTool:name];
+    if (p) return p;
+    NSArray *dirs = @[@"/usr/local/bin", @"/usr/local/sbin",
+                       @"/usr/bin", @"/bin", @"/usr/sbin", @"/sbin"];
+    for (NSString *dir in dirs) {
+        p = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:p])
+            return p;
+    }
+    return nil;
+}
+
 @implementation BuildApplication
 
 - (id)init
@@ -148,7 +162,7 @@
     /* Clone the repository on a background queue to keep GUI responsive */
     dispatch_async(buildQueue(), ^{
         NSTask *gitTask = [[NSTask alloc] init];
-        [gitTask setLaunchPath:@"/usr/bin/git"];
+        [gitTask setLaunchPath:toolPath(@"git")];
         [gitTask setArguments:@[@"clone", @"--depth=1", entry.gitURL, cloneDir]];
         [gitTask setEnvironment:[[NSProcessInfo processInfo] environment]];
 

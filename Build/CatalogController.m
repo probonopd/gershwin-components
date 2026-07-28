@@ -8,6 +8,20 @@
 #import "CatalogEntry.h"
 #import "BuildController.h"
 
+static NSString *toolPath(NSString *name)
+{
+    NSString *p = [NSTask launchPathForTool:name];
+    if (p) return p;
+    NSArray *dirs = @[@"/usr/local/bin", @"/usr/local/sbin",
+                       @"/usr/bin", @"/bin", @"/usr/sbin", @"/sbin"];
+    for (NSString *dir in dirs) {
+        p = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:p])
+            return p;
+    }
+    return nil;
+}
+
 /* Layout constants following AppearanceMetrics.h conventions */
 static const CGFloat kSideMargin = 24.0;
 static const CGFloat kBottomMargin = 20.0;
@@ -256,7 +270,7 @@ static const CGFloat kWinHeight = 260.0;
     /* Clone the repository on a background queue to keep GUI responsive */
     dispatch_async(buildQueue(), ^{
         NSTask *gitTask = [[NSTask alloc] init];
-        [gitTask setLaunchPath:@"/usr/bin/git"];
+        [gitTask setLaunchPath:toolPath(@"git")];
         [gitTask setArguments:@[@"clone", @"--depth=1", entry.gitURL, cloneDir]];
         [gitTask setEnvironment:[[NSProcessInfo processInfo] environment]];
 

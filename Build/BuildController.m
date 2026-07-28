@@ -6,6 +6,22 @@
 
 #import "BuildController.h"
 
+#pragma mark - Tool path resolution
+
+static NSString *toolPath(NSString *name)
+{
+    NSString *p = [NSTask launchPathForTool:name];
+    if (p) return p;
+    NSArray *dirs = @[@"/usr/local/bin", @"/usr/local/sbin",
+                       @"/usr/bin", @"/bin", @"/usr/sbin", @"/sbin"];
+    for (NSString *dir in dirs) {
+        p = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:p])
+            return p;
+    }
+    return nil;
+}
+
 #pragma mark - Background queue
 
 dispatch_queue_t buildQueue(void)
@@ -469,8 +485,8 @@ static const CGFloat kSpace16 = 16.0;
 
 - (NSString *)resolveMakePath
 {
-    NSString *path = [NSTask launchPathForTool:@"gmake"];
-    return path ?: [NSTask launchPathForTool:@"make"];
+    NSString *path = toolPath(@"gmake");
+    return path ?: toolPath(@"make");
 }
 
 /* Look under both Libraries/ and libs/ for library GNUmakefiles */
@@ -630,7 +646,7 @@ static const CGFloat kSpace16 = 16.0;
         dispatch_async(dispatch_get_main_queue(), ^{
             if (_statusField) [_statusField setStringValue:NSLocalizedString(@"Running autoreconf…", @"Status: running autoreconf")];
         });
-        NSString *autoreconfPath = [NSTask launchPathForTool:@"autoreconf"];
+        NSString *autoreconfPath = toolPath(@"autoreconf");
         if (autoreconfPath) {
             BOOL ok = [self runSyncTask:autoreconfPath
                               arguments:@[@"-i"]
@@ -729,7 +745,7 @@ static const CGFloat kSpace16 = 16.0;
             if (_statusField) [_statusField setStringValue:NSLocalizedString(@"Copying source to temp directory…", @"Status: copying source files")];
 
             NSTask *cpTask = [[NSTask alloc] init];
-            [cpTask setLaunchPath:@"/bin/cp"];
+            [cpTask setLaunchPath:toolPath(@"cp")];
             [cpTask setArguments:@[@"-a", directory, _objDir]];
             [cpTask launch];
             [cpTask waitUntilExit];
@@ -1163,7 +1179,12 @@ static const CGFloat kSpace16 = 16.0;
     NSString *directory = [makefilePath stringByDeletingLastPathComponent];
     if ([directory length] == 0) directory = @".";
 
-    NSString *gmakePath = [NSTask launchPathForTool:@"gmake"];
+    NSString *sudoPath = toolPath(@"sudo");
+    if (!sudoPath) {
+        [_statusField setStringValue:NSLocalizedString(@"Error: sudo not found in PATH", @"Status: sudo not found")];
+        return;
+    }
+    NSString *gmakePath = toolPath(@"gmake");
     if (!gmakePath) {
         [_statusField setStringValue:NSLocalizedString(@"Error: gmake not found in PATH", @"Status: gmake not found")];
         return;
@@ -1171,7 +1192,7 @@ static const CGFloat kSpace16 = 16.0;
 
     installTask = [[NSTask alloc] init];
     [installTask setCurrentDirectoryPath:directory];
-    [installTask setLaunchPath:@"/usr/bin/sudo"];
+    [installTask setLaunchPath:sudoPath];
     [installTask setArguments:@[@"-E", gmakePath, @"-f", makefilePath, @"install"]];
     [installTask setEnvironment:[[NSProcessInfo processInfo] environment]];
 
@@ -2051,7 +2072,7 @@ static const CGFloat kSpace16 = 16.0;
                                                     error:NULL];
 
     NSTask *gitTask = [[NSTask alloc] init];
-    [gitTask setLaunchPath:@"/usr/bin/git"];
+    [gitTask setLaunchPath:toolPath(@"git")];
     [gitTask setArguments:@[@"clone", @"--depth=1", url, cloneDir]];
     [gitTask setStandardOutput:[NSFileHandle fileHandleWithNullDevice]];
     [gitTask setStandardError:[NSFileHandle fileHandleWithNullDevice]];
@@ -2154,8 +2175,8 @@ static const CGFloat kSpace16 = 16.0;
         }
     }
 
-    NSString *gmakePath = [NSTask launchPathForTool:@"gmake"];
-    if (!gmakePath) gmakePath = [NSTask launchPathForTool:@"make"];
+    NSString *gmakePath = toolPath(@"gmake");
+    if (!gmakePath) gmakePath = toolPath(@"make");
     if (!gmakePath) return;
 
     // Build include/lib path from other deps in GNUstepDependencies
