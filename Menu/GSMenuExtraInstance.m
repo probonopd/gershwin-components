@@ -104,7 +104,7 @@
         if (!display || [display length] == 0) display = @"";
         NSFont *font = [NSFont menuBarFontOfSize:0];
         NSSize size = [display sizeWithAttributes:@{ NSFontAttributeName: font }];
-        _cachedWidth = ceil(size.width) + 8.0;
+        _cachedWidth = (CGFloat)((int)(size.width + 0.999)) + 8.0;
     }
     return _cachedWidth;
 }
