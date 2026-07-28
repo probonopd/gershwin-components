@@ -131,11 +131,19 @@ int main(int argc, const char *argv[])
                 }
 
                 NSFileManager *fm = [NSFileManager defaultManager];
-                for (NSString *name in @[@"GNUmakefile", @"GNUmakefile.in", @"Makefile"]) {
-                    NSString *mf = [cloneDir stringByAppendingPathComponent:name];
+                if (entry.makefilePath) {
+                    NSString *mf = [cloneDir stringByAppendingPathComponent:entry.makefilePath];
                     if ([fm fileExistsAtPath:mf]) {
                         makefilePath = mf;
-                        break;
+                    }
+                }
+                if (!makefilePath) {
+                    for (NSString *name in @[@"GNUmakefile", @"GNUmakefile.in", @"Makefile"]) {
+                        NSString *mf = [cloneDir stringByAppendingPathComponent:name];
+                        if ([fm fileExistsAtPath:mf]) {
+                            makefilePath = mf;
+                            break;
+                        }
                     }
                 }
                 if (!makefilePath) {
