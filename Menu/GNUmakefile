@@ -170,6 +170,7 @@ endif
 ADDITIONAL_OBJCFLAGS += -I../Sound -I../Network -I../Libraries/NetworkBackend -I/System/Library/Headers/SoundBackend -I/System/Library/Headers/NetworkBackend
 # --as-needed avoids unnecessary libm dependency (needed on FreeBSD)
 ADDITIONAL_LDFLAGS = $(shell ld --help 2>/dev/null | grep -q -- '--as-needed' && echo '-Wl,--as-needed' || echo '')
+AS_NEEDED_FLAG = $(shell ld --help 2>/dev/null | grep -q -- '--as-needed' && echo 'ADDITIONAL_LDFLAGS=-Wl,--as-needed' || echo '')
 
 # Canonical install location for Menu.app
 INSTALL_APPS_DIR = /System/Library/CoreServices/Applications
@@ -201,7 +202,7 @@ after-Menu-all::
 	@echo "Building standalone menu extra bundles..."
 	@for d in $(MENU_EXTRA_DIRS); do \
 		echo "  Building $$d"; \
-		(cd $$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) GNUSTEP_INSTANCE= ADDITIONAL_LDFLAGS="-Wl,--as-needed" all) || exit 1; \
+		(cd $$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) GNUSTEP_INSTANCE= $(AS_NEEDED_FLAG) all) || exit 1; \
 	done
 	@(cd MenuExtras/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) GNUSTEP_INSTANCE= all) || exit 1
 	@cp MenuExtras/WLANExtra/wlanauth/obj/wlanauth Resources/
@@ -215,7 +216,7 @@ install:: custom-install
 custom-install: $(APP_NAME).app
 	@echo "Building menu extra bundles..."
 	@for d in ClockExtra BatteryExtra CPUExtra RAMExtra WLANExtra SoundExtra BrightnessExtra BuildMonitorExtra; do \
-		(cd MenuExtras/$$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) ADDITIONAL_LDFLAGS="-Wl,--as-needed" all) || exit 1; \
+		(cd MenuExtras/$$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) $(AS_NEEDED_FLAG) all) || exit 1; \
 	done
 	@(cd MenuExtras/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
 	@if [ -f MenuExtras/WLANExtra/wlanauth/obj/wlanauth ]; then \
