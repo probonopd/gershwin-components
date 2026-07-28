@@ -191,7 +191,6 @@ MENU_EXTRA_DIRS = \
 	MenuExtras/CPUExtra \
 	MenuExtras/RAMExtra \
 	MenuExtras/WLANExtra \
-	MenuExtras/WLANExtra/wlanauth \
 	MenuExtras/SoundExtra \
 	MenuExtras/BrightnessExtra \
 	MenuExtras/BuildMonitorExtra
@@ -200,8 +199,9 @@ after-Menu-all::
 	@echo "Building standalone menu extra bundles..."
 	@for d in $(MENU_EXTRA_DIRS); do \
 		echo "  Building $$d"; \
-		(cd $$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) GNUSTEP_INSTANCE= all) || exit 1; \
+		(cd $$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) GNUSTEP_INSTANCE= ADDITIONAL_LDFLAGS="-Wl,--as-needed" all) || exit 1; \
 	done
+	@(cd MenuExtras/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) GNUSTEP_INSTANCE= all) || exit 1
 	@cp MenuExtras/WLANExtra/wlanauth/obj/wlanauth Resources/
 	@echo "Done building bundles."
 
@@ -212,18 +212,13 @@ install:: custom-install
 
 custom-install: $(APP_NAME).app
 	@echo "Building menu extra bundles..."
-	@(cd MenuExtras/ClockExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
-	@(cd MenuExtras/BatteryExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
-	@(cd MenuExtras/CPUExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
-	@(cd MenuExtras/RAMExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
-	@(cd MenuExtras/WLANExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
+	@for d in ClockExtra BatteryExtra CPUExtra RAMExtra WLANExtra SoundExtra BrightnessExtra BuildMonitorExtra; do \
+		(cd MenuExtras/$$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) ADDITIONAL_LDFLAGS="-Wl,--as-needed" all) || exit 1; \
+	done
 	@(cd MenuExtras/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
 	@if [ -f MenuExtras/WLANExtra/wlanauth/obj/wlanauth ]; then \
 		cp MenuExtras/WLANExtra/wlanauth/obj/wlanauth $(APP_NAME).app/Resources/; \
 	fi
-	@(cd MenuExtras/SoundExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
-	@(cd MenuExtras/BrightnessExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
-	@(cd MenuExtras/BuildMonitorExtra && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
 	@echo "Menu extra bundles built successfully"
 	@if [ -n "$(DESTDIR)" ]; then \
 		echo "Installing $(APP_NAME) to $(DESTDIR)$(INSTALL_APPS_DIR)"; \

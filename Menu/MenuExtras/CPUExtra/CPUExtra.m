@@ -73,7 +73,7 @@
 {
     NSFont *font = [NSFont menuBarFontOfSize:0];
     NSSize size = [@"00%" sizeWithAttributes:@{ NSFontAttributeName: font }];
-    return ceil(size.width) + 8.0;
+    return (CGFloat)((int)(size.width + 0.999)) + 8.0;
 }
 
 - (void)setContext:(GSMenuExtraContext *)context
