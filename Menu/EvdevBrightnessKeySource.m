@@ -371,7 +371,9 @@
                 }
 
                 if (delta != 0 && _handler) {
-                    _handler(delta);
+                    [self performSelectorOnMainThread:@selector(_callHandlerWithDelta:)
+                                           withObject:@(delta)
+                                        waitUntilDone:NO];
                 }
             }
         } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -379,6 +381,14 @@
         } else {
             break;
         }
+    }
+}
+
+- (void)_callHandlerWithDelta:(NSNumber *)deltaNum
+{
+    int delta = [deltaNum intValue];
+    if (_handler) {
+        _handler(delta);
     }
 }
 
