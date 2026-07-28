@@ -28,6 +28,7 @@
 
 - (BOOL)load;
 - (void)unload;
+- (BOOL)isIconOnly;
 
 - (NSString *)title;
 - (NSMenu *)menu;

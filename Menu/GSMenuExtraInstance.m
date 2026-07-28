@@ -97,16 +97,22 @@
 - (CGFloat)width
 {
     if (_cachedWidth > 0) return _cachedWidth;
+    NSString *display = [self title];
     if ([_extra respondsToSelector:@selector(preferredWidth)]) {
         _cachedWidth = [_extra preferredWidth];
-        return _cachedWidth;
+    } else {
+        if (!display || [display length] == 0) display = @"";
+        NSFont *font = [NSFont menuBarFontOfSize:0];
+        NSSize size = [display sizeWithAttributes:@{ NSFontAttributeName: font }];
+        _cachedWidth = ceil(size.width) + 8.0;
     }
-    NSString *display = [self title];
-    if (!display || [display length] == 0) display = @"  ";
-    NSFont *font = [NSFont menuBarFontOfSize:0];
-    NSSize size = [display sizeWithAttributes:@{ NSFontAttributeName: font }];
-    _cachedWidth = ceil(size.width) + 8.0;
     return _cachedWidth;
+}
+
+- (BOOL)isIconOnly
+{
+    NSString *t = [self title];
+    return !t || [t length] == 0;
 }
 
 - (void)invalidateWidth
