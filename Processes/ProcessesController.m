@@ -21,6 +21,20 @@
 #ifndef P_SYSTEM
 #define P_SYSTEM 0x00000004
 #endif
+
+// OpenBSD struct kinfo_proc uses p_ prefix instead of ki_.  Map to ki_ names
+// so the shared code path compiles on both FreeBSD and OpenBSD.
+#ifdef __OpenBSD__
+#define ki_flag p_flag
+#define ki_pid p_pid
+#define ki_ppid p_ppid
+#define ki_comm p_comm
+#define ki_uid p_uid
+#define ki_stat p_stat
+#define ki_size (p_vm_dsize + p_vm_ssize)
+#define ki_rssize p_vm_rssize
+#endif
+
 #import <errno.h>
 #import <sys/wait.h>
 #import <string.h>
@@ -422,8 +436,13 @@ static ProcessesController *sharedController = nil;
                                 info.residentMemory = (long)((long)p->ki_rssize * pageSize2 / 1024); // KB
                                 info.virtualMemory = (long)(p->ki_size / 1024);
                                 // CPU
+#ifdef __OpenBSD__
+                                unsigned long utime_ticks = p->p_uticks;
+                                unsigned long stime_ticks = p->p_sticks;
+#else
                                 unsigned long utime_ticks = (unsigned long)(p->ki_rusage.ru_utime.tv_sec * ticksPerSec2 + p->ki_rusage.ru_utime.tv_usec * ticksPerSec2 / 1000000);
                                 unsigned long stime_ticks = (unsigned long)(p->ki_rusage.ru_stime.tv_sec * ticksPerSec2 + p->ki_rusage.ru_stime.tv_usec * ticksPerSec2 / 1000000);
+#endif
                                 unsigned long totalTicks = utime_ticks + stime_ticks;
                                 NSTimeInterval now2 = [[NSDate date] timeIntervalSince1970];
                                 NSString *pidKey2 = [NSString stringWithFormat:@"%d", info.pid];
@@ -509,8 +528,13 @@ static ProcessesController *sharedController = nil;
                             info.state = [NSString stringWithFormat:@"%c", stateChar];
 
                             // CPU: use ki_rusage (utime + stime)
+#ifdef __OpenBSD__
+                            unsigned long utime_ticks = p->p_uticks;
+                            unsigned long stime_ticks = p->p_sticks;
+#else
                             unsigned long utime_ticks = (unsigned long)(p->ki_rusage.ru_utime.tv_sec * ticksPerSec + p->ki_rusage.ru_utime.tv_usec * ticksPerSec / 1000000);
                             unsigned long stime_ticks = (unsigned long)(p->ki_rusage.ru_stime.tv_sec * ticksPerSec + p->ki_rusage.ru_stime.tv_usec * ticksPerSec / 1000000);
+#endif
                             unsigned long totalTicks = utime_ticks + stime_ticks;
 
                             NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
