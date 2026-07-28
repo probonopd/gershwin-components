@@ -72,7 +72,7 @@
 - (CGFloat)preferredWidth
 {
     NSFont *font = [NSFont menuBarFontOfSize:0];
-    NSSize size = [@"100%" sizeWithAttributes:@{ NSFontAttributeName: font }];
+    NSSize size = [@"00%" sizeWithAttributes:@{ NSFontAttributeName: font }];
     return ceil(size.width) + 8.0;
 }
 
