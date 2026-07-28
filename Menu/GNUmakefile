@@ -159,7 +159,7 @@ ifeq ($(UNAME_S),OpenBSD)
 	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE -I.
 	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
 	Menu_TOOL_LIBS += -L/usr/local/lib -lexecinfo
-	Menu_GUI_LIBS += -lunwind
+	Menu_GUI_LIBS += -lc++abi
 endif
 
 # Profiling: build with  make PROFILE=1  to enable CPU instrumentation.
