@@ -1,0 +1,12 @@
+include $(GNUSTEP_MAKEFILES)/common.make
+
+BUNDLE_NAME = RAM
+BUNDLE_EXTENSION = .gsmenuextra
+
+RAM_PRINCIPAL_CLASS = RAMExtra
+RAM_OBJC_FILES = RAMExtra.m
+RAM_RESOURCE_FILES = Info.plist
+
+ADDITIONAL_OBJCFLAGS += -I../..
+
+include $(GNUSTEP_MAKEFILES)/bundle.make

@@ -18,19 +18,25 @@
         NSString *ext = [[URL pathExtension] lowercaseString];
         _isGSMenuExtra = [ext isEqualToString:@"gsmenuextra"];
 
-        NSString *bundleId = [_bundle bundleIdentifier];
+        NSString *infoPath = [_bundle pathForResource:@"Info" ofType:@"plist"];
+        NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:infoPath];
+
+        NSString *bundleId = [info objectForKey:@"CFBundleIdentifier"];
         if (bundleId) {
             _identifier = bundleId;
         } else {
             _identifier = [[URL lastPathComponent] stringByDeletingPathExtension];
         }
 
-        NSString *name = [_bundle objectForInfoDictionaryKey:@"CFBundleName"];
+        NSString *name = [info objectForKey:@"CFBundleName"];
         if (name) {
             _displayName = name;
         } else {
             _displayName = [[URL lastPathComponent] stringByDeletingPathExtension];
         }
+
+        NSNumber *prio = [info objectForKey:@"GSMenuExtraPriority"];
+        _priority = prio ? [prio integerValue] : 100;
     }
     return self;
 }

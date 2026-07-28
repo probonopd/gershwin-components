@@ -6,17 +6,29 @@
 
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
-#import "StatusItemProvider.h"
-
-@class StatusItemView;
+#import "GSMenuExtra.h"
 
 @interface GSMenuExtraInstance : NSObject
 
-@property (readonly) id<StatusItemProvider> provider;
-@property (readonly) StatusItemView *view;
+@property (readonly) id<GSMenuExtra> extra;
 @property (readonly) NSString *identifier;
+@property (readonly) NSString *displayName;
+@property (readonly) NSInteger priority;
+@property (assign) CGFloat cachedWidth;
 
-- (instancetype)initWithProvider:(id<StatusItemProvider>)provider
-                            view:(StatusItemView *)view;
+- (instancetype)initWithExtra:(id<GSMenuExtra>)extra
+                   identifier:(NSString *)identifier
+                  displayName:(NSString *)displayName
+                     priority:(NSInteger)priority;
+
+- (NSString *)title;
+- (NSMenu *)menu;
+- (NSImage *)icon;
+- (CGFloat)width;
+- (void)invalidateWidth;
+- (void)unload;
+- (void)menuWillOpen;
+- (void)menuDidClose;
+- (NSInteger)displayPriority;
 
 @end

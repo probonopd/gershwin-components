@@ -6,14 +6,14 @@
 
 #import <Foundation/Foundation.h>
 
-@class StatusItemManager;
+@class MenuExtraManager;
 
 @interface GSMenuExtraContext : NSObject
 
-@property (nonatomic, weak) StatusItemManager *manager;
+@property (nonatomic, weak) MenuExtraManager *manager;
 @property (nonatomic, copy) NSString *identifier;
 
-- (instancetype)initWithManager:(StatusItemManager *)manager
+- (instancetype)initWithManager:(MenuExtraManager *)manager
                      identifier:(NSString *)identifier;
 
 - (void)invalidatePresentation;

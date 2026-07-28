@@ -6,10 +6,11 @@
 
 #import <AppKit/AppKit.h>
 
-@class StatusItemManager;
+@class MenuExtraManager;
 
 @interface MenuExtrasPrefPanel : NSWindowController
 
-- (instancetype)initWithManager:(StatusItemManager *)manager;
+- (instancetype)initWithManager:(MenuExtraManager *)manager;
+- (void)reloadExtras;
 
 @end

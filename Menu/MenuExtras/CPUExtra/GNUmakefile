@@ -1,0 +1,12 @@
+include $(GNUSTEP_MAKEFILES)/common.make
+
+BUNDLE_NAME = CPU
+BUNDLE_EXTENSION = .gsmenuextra
+
+CPU_PRINCIPAL_CLASS = CPUExtra
+CPU_OBJC_FILES = CPUExtra.m
+CPU_RESOURCE_FILES = Info.plist
+
+ADDITIONAL_OBJCFLAGS += -I../..
+
+include $(GNUSTEP_MAKEFILES)/bundle.make

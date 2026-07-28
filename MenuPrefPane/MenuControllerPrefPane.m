@@ -6,7 +6,7 @@
 
 #import "MenuControllerPrefPane.h"
 
-static NSString *const kMenuAppBundleID = @"org.gershwin.Menu";
+static NSString *const kMenuAppBundleID = @"Menu";
 static NSString *const kEnabledKey = @"GSMenuExtraEnabled";
 static NSString *const kOrderKey = @"GSMenuExtraOrder";
 
@@ -40,29 +40,37 @@ static NSString *const kOrderKey = @"GSMenuExtraOrder";
 {
     return [NSArray arrayWithObjects:
         [NSDictionary dictionaryWithObjectsAndKeys:
-            @"org.gnustep.menuextra.clock", @"identifier",
-            @"Clock", @"name", nil],
+            @"io.github.gershwin-desktop.menuextra.clock", @"identifier",
+            @"Clock", @"name",
+            [NSNumber numberWithInteger:80], @"priority", nil],
         [NSDictionary dictionaryWithObjectsAndKeys:
-            @"org.gnustep.menuextra.battery", @"identifier",
-            @"Battery", @"name", nil],
+            @"io.github.gershwin-desktop.menuextra.sound", @"identifier",
+            @"Sound", @"name",
+            [NSNumber numberWithInteger:70], @"priority", nil],
         [NSDictionary dictionaryWithObjectsAndKeys:
-            @"org.gnustep.menuextra.wlan", @"identifier",
-            @"Wi-Fi", @"name", nil],
+            @"io.github.gershwin-desktop.menuextra.wlan", @"identifier",
+            @"WLAN", @"name",
+            [NSNumber numberWithInteger:60], @"priority", nil],
         [NSDictionary dictionaryWithObjectsAndKeys:
-            @"org.gnustep.menuextra.sound", @"identifier",
-            @"Sound", @"name", nil],
+            @"io.github.gershwin-desktop.menuextra.battery", @"identifier",
+            @"Battery", @"name",
+            [NSNumber numberWithInteger:50], @"priority", nil],
         [NSDictionary dictionaryWithObjectsAndKeys:
-            @"org.gnustep.menuextra.brightness", @"identifier",
-            @"Brightness", @"name", nil],
+            @"io.github.gershwin-desktop.menuextra.brightness", @"identifier",
+            @"Brightness", @"name",
+            [NSNumber numberWithInteger:40], @"priority", nil],
         [NSDictionary dictionaryWithObjectsAndKeys:
             @"io.github.gershwin-desktop.menuextra.buildmonitor", @"identifier",
-            @"Build Monitor", @"name", nil],
+            @"Build Monitor", @"name",
+            [NSNumber numberWithInteger:30], @"priority", nil],
         [NSDictionary dictionaryWithObjectsAndKeys:
-            @"org.gershwin.menu.statusitem.cpu", @"identifier",
-            @"CPU", @"name", nil],
+            @"io.github.gershwin-desktop.menuextra.ram", @"identifier",
+            @"RAM", @"name",
+            [NSNumber numberWithInteger:20], @"priority", nil],
         [NSDictionary dictionaryWithObjectsAndKeys:
-            @"org.gershwin.menu.statusitem.ram", @"identifier",
-            @"RAM", @"name", nil],
+            @"io.github.gershwin-desktop.menuextra.cpu", @"identifier",
+            @"CPU", @"name",
+            [NSNumber numberWithInteger:10], @"priority", nil],
         nil];
 }
 
@@ -110,9 +118,13 @@ static NSString *const kOrderKey = @"GSMenuExtraOrder";
 
             if ([extrasById objectForKey:identifier]) continue;
 
+            NSNumber *prio = [info objectForKey:@"GSMenuExtraPriority"];
+            NSInteger priority = prio ? [prio integerValue] : 100;
+
             [extrasById setObject:[NSDictionary dictionaryWithObjectsAndKeys:
                 identifier, @"identifier",
-                displayName, @"name", nil]
+                displayName, @"name",
+                [NSNumber numberWithInteger:priority], @"priority", nil]
                           forKey:identifier];
         }
     }
@@ -127,6 +139,10 @@ static NSString *const kOrderKey = @"GSMenuExtraOrder";
 
     NSArray *sorted = [[extrasById allValues] sortedArrayUsingComparator:
         ^NSComparisonResult(id a, id b) {
+            NSInteger pa = [[a objectForKey:@"priority"] integerValue];
+            NSInteger pb = [[b objectForKey:@"priority"] integerValue];
+            if (pa > pb) return NSOrderedAscending;
+            if (pa < pb) return NSOrderedDescending;
             return [[a objectForKey:@"name"] compare:[b objectForKey:@"name"]];
         }];
 

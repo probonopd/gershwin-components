@@ -5,11 +5,11 @@
  */
 
 #import "GSMenuExtraContext.h"
-#import "StatusItemManager.h"
+#import "MenuExtraManager.h"
 
 @implementation GSMenuExtraContext
 
-- (instancetype)initWithManager:(StatusItemManager *)manager
+- (instancetype)initWithManager:(MenuExtraManager *)manager
                      identifier:(NSString *)identifier
 {
     self = [super init];

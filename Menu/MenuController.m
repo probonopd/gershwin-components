@@ -16,7 +16,7 @@
 #import "X11ShortcutManager.h"
 #import "ActionSearch.h"
 #import "MenuUtils.h"
-#import "StatusItemManager.h"
+#import "MenuExtraManager.h"
 #import "WindowMonitor.h"
 #import "AppMenuImporter.h"
 #import "MenuProfiler.h"
@@ -456,7 +456,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
 - (void)extrasEnabledSetDidChange:(NSNotification *)notification
 {
-    CGFloat extrasWidth = [self.statusItemManager extrasMenuWidth];
+    CGFloat extrasWidth = [self.menuExtraManager extrasMenuWidth];
     CGFloat menuBarW = NSWidth([self.menuBarView bounds]);
     CGFloat widgetWidth = menuBarW - extrasWidth - 8;
     [self.appMenuWidget setFrameSize:NSMakeSize(widgetWidth, NSHeight([self.appMenuWidget frame]))];
@@ -495,7 +495,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     // Resize the background view
     [self.menuBarView setFrame:NSMakeRect(0, 0, self.screenSize.width, menuBarHeight)];
 
-    // Reposition status items at the right edge
+    // Reposition menu extras at the right edge
     NSView *extrasMenuView = nil;
     for (NSView *subview in [self.menuBarView subviews]) {
         if ([subview isKindOfClass:[NSMenuView class]]) {
@@ -504,14 +504,14 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         }
     }
 
-    CGFloat statusItemsWidth = [self.statusItemManager extrasMenuWidth];
+    CGFloat extrasMenuWidth = [self.menuExtraManager extrasMenuWidth];
     if (extrasMenuView) {
-        [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth - 8, 0,
-                                            statusItemsWidth, menuBarHeight)];
+        [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - extrasMenuWidth - 8, 0,
+                                            extrasMenuWidth, menuBarHeight)];
     }
 
     // Resize app menu widget to fill remaining space
-    CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth - 8;
+    CGFloat menuWidgetWidth = self.screenSize.width - extrasMenuWidth - 8;
     [self.appMenuWidget setFrame:NSMakeRect(0, 0, menuWidgetWidth, menuBarHeight)];
 
     // Resize rounded corners view
@@ -519,8 +519,8 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     [self.roundedCornersView setFrame:NSMakeRect(0, menuBarHeight - cornerHeight,
                                                   self.screenSize.width, cornerHeight)];
 
-    // Update the StatusItemManager's cached screen width
-    [self.statusItemManager setScreenWidth:self.screenSize.width];
+    // Update the MenuExtraManager's cached screen width
+    [self.menuExtraManager setScreenWidth:self.screenSize.width];
 
     // Keep EWMH dock/strut properties synchronized with current geometry.
     [self applyMenuBarDockAndStrutProperties];
@@ -873,11 +873,11 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     [self stopCPUUsageLogging];
 #endif
     
-    // Unload status items first
-    if (self.statusItemManager) {
-        NSDebugLLog(@"gwcomp", @"MenuController: Unloading status items...");
-        [self.statusItemManager unloadAllStatusItems];
-        self.statusItemManager = nil;
+    // Unload menu extras first
+    if (self.menuExtraManager) {
+        NSDebugLLog(@"gwcomp", @"MenuController: Unloading menu extras...");
+        [self.menuExtraManager unloadAllMenuExtras];
+        self.menuExtraManager = nil;
     }
     
     // Stop backlight control
@@ -970,32 +970,32 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     self.menuBarView = [[MenuBarView alloc] initWithFrame:NSMakeRect(0, 0, self.screenSize.width, menuBarHeight)];
     NSDebugLLog(@"gwcomp", @"MenuController: Created MenuBarView: %@", self.menuBarView);
     
-    // Create app menu widget for displaying menus - leave space for status items on right
-    // Status item width is computed dynamically from loaded providers below.
-    // First, create and load the StatusItemManager to know the total width.
-    NSDebugLLog(@"gwcomp", @"MenuController: Creating StatusItemManager");
-    self.statusItemManager = [[StatusItemManager alloc] initWithScreenWidth:self.screenSize.width
+    // Create app menu widget for displaying menus - leave space for menu extras on right
+    // Menu extra width is computed dynamically from loaded bundles below.
+    // First, create and load the MenuExtraManager to know the total width.
+    NSDebugLLog(@"gwcomp", @"MenuController: Creating MenuExtraManager");
+    self.menuExtraManager = [[MenuExtraManager alloc] initWithScreenWidth:self.screenSize.width
                                                              menuBarHeight:menuBarHeight];
-    [self.statusItemManager loadStatusItems];
-    NSDebugLLog(@"gwcomp", @"MenuController: StatusItemManager items loaded");
+    [self.menuExtraManager loadMenuExtras];
+    NSDebugLLog(@"gwcomp", @"MenuController: MenuExtraManager items loaded");
 
     // Create the extras menu view (horizontal NSMenuView)
-    NSView *extrasMenuView = [self.statusItemManager createExtrasMenuView];
-    CGFloat statusItemsWidth = [self.statusItemManager extrasMenuWidth];
-    NSDebugLLog(@"gwcomp", @"MenuController: Extras menu view width: %.0f", statusItemsWidth);
+    NSView *extrasMenuView = [self.menuExtraManager createExtrasMenuView];
+    CGFloat extrasMenuWidth = [self.menuExtraManager extrasMenuWidth];
+    NSDebugLLog(@"gwcomp", @"MenuController: Extras menu view width: %.0f", extrasMenuWidth);
 
     // Position extras 8px from the right edge of the menu bar
-    [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth - 8, 0,
-                                        statusItemsWidth, menuBarHeight)];
+    [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - extrasMenuWidth - 8, 0,
+                                        extrasMenuWidth, menuBarHeight)];
 
     // Observe extras layout changes so we can resize AppMenuWidget
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(extrasEnabledSetDidChange:)
                                                  name:@"GSMenuExtraEnabledSetDidChange"
-                                               object:self.statusItemManager];
+                                               object:self.menuExtraManager];
 
     // Give the app menu widget the remaining space
-    CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth - 8;
+    CGFloat menuWidgetWidth = self.screenSize.width - extrasMenuWidth - 8;
     self.appMenuWidget = [[AppMenuWidget alloc] initWithFrame:NSMakeRect(0, 0, menuWidgetWidth, menuBarHeight)];
     NSDebugLLog(@"gwcomp", @"MenuController: AppMenuWidget created successfully");
     
@@ -1033,7 +1033,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     
     // Add the extras menu view and start update timers
     [self.menuBarView addSubview:extrasMenuView];
-    [self.statusItemManager startUpdateTimers];
+    [self.menuExtraManager startUpdateTimers];
     NSDebugLLog(@"gwcomp", @"MenuController: Added extras menu view as child of MenuBarView");
     
     // Finally add rounded corners on top of everything

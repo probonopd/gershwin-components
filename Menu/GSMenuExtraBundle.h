@@ -11,6 +11,7 @@
 @property (readonly) NSBundle *bundle;
 @property (readonly) NSString *identifier;
 @property (readonly) NSString *displayName;
+@property (readonly) NSInteger priority;
 @property (readonly) NSURL *URL;
 @property (readonly) BOOL isGSMenuExtra;
 
