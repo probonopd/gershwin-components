@@ -793,7 +793,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 
 - (void)startUpdateTimers
 {
-    _updateTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+    _updateTimer = [NSTimer scheduledTimerWithTimeInterval:2.0
                                                     target:self
                                                   selector:@selector(updateTimerFired:)
                                                   userInfo:[_menuExtras copy]
@@ -809,15 +809,13 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         for (GSMenuExtraInstance * item in items) {
             @try {
                 [item invalidateWidth];
+                [item tick];
                 NSString *title = [item title];
                 if (!title) {
                     title = [NSString stringWithFormat:@"[%@]", [item identifier]];
                 }
                 NSMenuItem *menuItem = [_extrasMenuItems objectForKey:[item identifier]];
                 if (menuItem) [menuItem setTitle:title];
-                // tick removed — called through performSelector: can SIGSEGV
-                // on corrupted extras. CPU/RAM get their first delta via
-                // dispatch_after in menuExtraDidLoad instead.
             } @catch (NSException *e) {
                 NSLog(@"GSMenuExtra: exception updating item %@: %@", [item identifier], e);
             }

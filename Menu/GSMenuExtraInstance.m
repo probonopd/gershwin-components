@@ -114,7 +114,7 @@
 {
     @try {
         if ([_extra respondsToSelector:@selector(tick)]) {
-            [(id)_extra performSelector:@selector(tick)];
+            [(id)_extra tick];
         }
     } @catch (NSException *e) {
         NSLog(@"GSMenuExtraInstance: exception in tick for %@: %@", _identifier, e);
