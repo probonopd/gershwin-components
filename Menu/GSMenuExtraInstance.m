@@ -97,6 +97,10 @@
 - (CGFloat)width
 {
     if (_cachedWidth > 0) return _cachedWidth;
+    if ([_extra respondsToSelector:@selector(preferredWidth)]) {
+        _cachedWidth = [_extra preferredWidth];
+        return _cachedWidth;
+    }
     NSString *display = [self title];
     if (!display || [display length] == 0) display = @"  ";
     NSFont *font = [NSFont menuBarFontOfSize:0];
@@ -107,7 +111,6 @@
 
 - (void)invalidateWidth
 {
-    _cachedWidth = 0;
 }
 
 - (void)tick

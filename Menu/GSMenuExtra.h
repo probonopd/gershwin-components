@@ -20,6 +20,7 @@
 @optional
 
 - (NSView *)customView;
+- (CGFloat)preferredWidth;
 - (void)menuExtraDidLoad;
 - (void)menuExtraWillUnload;
 - (void)menuExtraWillOpenMenu;

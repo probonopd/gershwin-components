@@ -57,6 +57,13 @@
     return [NSString stringWithUTF8String:_timeStr];
 }
 
+- (CGFloat)preferredWidth
+{
+    NSFont *font = [NSFont menuBarFontOfSize:0];
+    NSSize size = [@"88:88" sizeWithAttributes:@{ NSFontAttributeName: font }];
+    return ceil(size.width) + 8.0;
+}
+
 - (void)setContext:(GSMenuExtraContext *)context
 {
     _context = context;

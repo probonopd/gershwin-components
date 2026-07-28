@@ -83,6 +83,13 @@
     return [NSString stringWithFormat:@"%.0f%%", _ramUsage];
 }
 
+- (CGFloat)preferredWidth
+{
+    NSFont *font = [NSFont menuBarFontOfSize:0];
+    NSSize size = [@"100%" sizeWithAttributes:@{ NSFontAttributeName: font }];
+    return ceil(size.width) + 8.0;
+}
+
 - (void)setContext:(GSMenuExtraContext *)context
 {
     _context = context;

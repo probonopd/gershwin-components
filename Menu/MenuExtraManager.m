@@ -808,7 +808,6 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         NSArray *items = [timer userInfo];
         for (GSMenuExtraInstance * item in items) {
             @try {
-                [item invalidateWidth];
                 [item tick];
                 NSString *title = [item title];
                 if (!title) {
