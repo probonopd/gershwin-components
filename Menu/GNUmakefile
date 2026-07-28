@@ -127,7 +127,7 @@ Menu_RESOURCE_FILES = \
 before-build:: $(patsubst %.svg,%.png,$(wildcard Resources/Icons/*.svg))
 
 Resources/Icons/%.png: Resources/Icons/%.svg
-	convert -background none -define png:color-type=6 -size 20x20 $< $@
+	convert -background none -define png:color-type=6 $< -resize 18x18! $@
 
 # Libraries and frameworks - configured by configure script
 Menu_TOOL_LIBS += -ldbus-1 -lX11
