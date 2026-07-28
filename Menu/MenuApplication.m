@@ -365,7 +365,8 @@ id menu_drawRectWithoutBottomLine(id self, SEL cmd __attribute__((unused)), NSRe
     terminationSignalSourceCount = 0;
     [self installTerminationSourceForSignal:SIGTERM name:@"SIGTERM"];
     [self installTerminationSourceForSignal:SIGINT name:@"SIGINT"];
-    [self installTerminationSourceForSignal:SIGHUP name:@"SIGHUP"];
+    // Ignore SIGHUP — terminal hangup should not terminate the menu bar.
+    signal(SIGHUP, SIG_IGN);
 }
 
 - (void)installTerminationSourceForSignal:(int)sig name:(NSString *)name

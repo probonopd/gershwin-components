@@ -9,16 +9,17 @@
 #import <stdlib.h>
 #import <string.h>
 
+
 static const BOOL kShowTextInMenuBar = NO;
 
 @implementation BatteryExtra
 {
-    NSTimer *_timer;
     int _percent;
     NSString *_status;
     NSString *_source;
     BOOL _showPercentage;
     int _timeRemainingMinutes;
+    BOOL _running;
 }
 
 - (void)dealloc
@@ -64,126 +65,131 @@ static const BOOL kShowTextInMenuBar = NO;
 
 - (void)updateBattery
 {
-    _source = @"Unknown";
-    _percent = -1;
-    _status = @"";
-    _timeRemainingMinutes = -1;
+    @try {
+        if (!_running) return;
+        _source = @"Unknown";
+        _percent = -1;
+        _status = @"";
+        _timeRemainingMinutes = -1;
 
 #if defined(__linux__)
-    NSString *acOnline = [self readFile:@"/sys/class/power_supply/AC/online"];
-    NSString *battCap = [self readFile:@"/sys/class/power_supply/BAT0/capacity"];
-    NSString *battStatus = [self readFile:@"/sys/class/power_supply/BAT0/status"];
+        NSString *acOnline = [self readFile:@"/sys/class/power_supply/AC/online"];
+        NSString *battCap = [self readFile:@"/sys/class/power_supply/BAT0/capacity"];
+        NSString *battStatus = [self readFile:@"/sys/class/power_supply/BAT0/status"];
 
-    _source = [acOnline isEqualToString:@"1"] ? @"AC" : @"Battery";
-    if ([battCap length] > 0) _percent = [battCap intValue];
-    if ([battStatus length] > 0) _status = [battStatus capitalizedString];
+        _source = [acOnline isEqualToString:@"1"] ? @"AC" : @"Battery";
+        if ([battCap length] > 0) _percent = [battCap intValue];
+        if ([battStatus length] > 0) _status = [battStatus capitalizedString];
 
-    // Time remaining
-    NSString *energyNow = [self readFile:@"/sys/class/power_supply/BAT0/energy_now"];
-    NSString *powerNow = [self readFile:@"/sys/class/power_supply/BAT0/power_now"];
-    if ([energyNow length] > 0 && [powerNow length] > 0) {
-        int pNow = [powerNow intValue];
-        if (pNow > 0) {
-            float hours;
-            if ([_status isEqualToString:@"Charging"]) {
-                NSString *energyFull = [self readFile:@"/sys/class/power_supply/BAT0/energy_full"];
-                hours = ([energyFull length] > 0)
-                    ? (float)([energyFull intValue] - [energyNow intValue]) / (float)pNow
-                    : -1;
-            } else {
-                hours = (float)[energyNow intValue] / (float)pNow;
-            }
-            if (hours >= 0) _timeRemainingMinutes = (int)(hours * 60.0f + 0.5f);
-        }
-    } else {
-        NSString *chargeNow = [self readFile:@"/sys/class/power_supply/BAT0/charge_now"];
-        NSString *currentNow = [self readFile:@"/sys/class/power_supply/BAT0/current_now"];
-        if ([chargeNow length] > 0 && [currentNow length] > 0) {
-            int iNow = [currentNow intValue];
-            if (iNow > 0) {
+        // Time remaining
+        NSString *energyNow = [self readFile:@"/sys/class/power_supply/BAT0/energy_now"];
+        NSString *powerNow = [self readFile:@"/sys/class/power_supply/BAT0/power_now"];
+        if ([energyNow length] > 0 && [powerNow length] > 0) {
+            int pNow = [powerNow intValue];
+            if (pNow > 0) {
                 float hours;
                 if ([_status isEqualToString:@"Charging"]) {
-                    NSString *chargeFull = [self readFile:@"/sys/class/power_supply/BAT0/charge_full"];
-                    hours = ([chargeFull length] > 0)
-                        ? (float)([chargeFull intValue] - [chargeNow intValue]) / (float)iNow
+                    NSString *energyFull = [self readFile:@"/sys/class/power_supply/BAT0/energy_full"];
+                    hours = ([energyFull length] > 0)
+                        ? (float)([energyFull intValue] - [energyNow intValue]) / (float)pNow
                         : -1;
                 } else {
-                    hours = (float)[chargeNow intValue] / (float)iNow;
+                    hours = (float)[energyNow intValue] / (float)pNow;
                 }
                 if (hours >= 0) _timeRemainingMinutes = (int)(hours * 60.0f + 0.5f);
             }
+        } else {
+            NSString *chargeNow = [self readFile:@"/sys/class/power_supply/BAT0/charge_now"];
+            NSString *currentNow = [self readFile:@"/sys/class/power_supply/BAT0/current_now"];
+            if ([chargeNow length] > 0 && [currentNow length] > 0) {
+                int iNow = [currentNow intValue];
+                if (iNow > 0) {
+                    float hours;
+                    if ([_status isEqualToString:@"Charging"]) {
+                        NSString *chargeFull = [self readFile:@"/sys/class/power_supply/BAT0/charge_full"];
+                        hours = ([chargeFull length] > 0)
+                            ? (float)([chargeFull intValue] - [chargeNow intValue]) / (float)iNow
+                            : -1;
+                    } else {
+                        hours = (float)[chargeNow intValue] / (float)iNow;
+                    }
+                    if (hours >= 0) _timeRemainingMinutes = (int)(hours * 60.0f + 0.5f);
+                }
+            }
         }
-    }
 
 #elif defined(__FreeBSD__)
-    NSString *acline = [self runCommand:@"/sbin/sysctl"
-                                  args:@[@"-n", @"hw.acpi.acline"]];
-    NSString *life  = [self runCommand:@"/sbin/sysctl"
-                                  args:@[@"-n", @"hw.acpi.battery.life"]];
-    NSString *state = [self runCommand:@"/sbin/sysctl"
-                                  args:@[@"-n", @"hw.acpi.battery.state"]];
+        NSString *acline = [self runCommand:@"/sbin/sysctl"
+                                      args:@[@"-n", @"hw.acpi.acline"]];
+        NSString *life  = [self runCommand:@"/sbin/sysctl"
+                                      args:@[@"-n", @"hw.acpi.battery.life"]];
+        NSString *state = [self runCommand:@"/sbin/sysctl"
+                                      args:@[@"-n", @"hw.acpi.battery.state"]];
 
-    _source = [acline isEqualToString:@"1"] ? @"AC" : @"Battery";
-    if ([life length] > 0) _percent = [life intValue];
-    if ([state length] > 0) {
-        int s = [state intValue];
-        _status = (s == 1) ? @"Discharging" :
-                  (s == 2) ? @"Charging" :
-                  (s == 7) ? @"Charged" :
-                  (s == 0) ? @"Idle" : state;
-    }
+        _source = [acline isEqualToString:@"1"] ? @"AC" : @"Battery";
+        if ([life length] > 0) _percent = [life intValue];
+        if ([state length] > 0) {
+            int s = [state intValue];
+            _status = (s == 1) ? @"Discharging" :
+                      (s == 2) ? @"Charging" :
+                      (s == 7) ? @"Charged" :
+                      (s == 0) ? @"Idle" : state;
+        }
 
-    // Time remaining (FreeBSD provides minutes directly)
-    NSString *battTime = [self runCommand:@"/sbin/sysctl"
-                                     args:@[@"-n", @"hw.acpi.battery.time"]];
-    if ([battTime length] > 0) {
-        _timeRemainingMinutes = [battTime intValue];
-    }
+        // Time remaining (FreeBSD provides minutes directly)
+        NSString *battTime = [self runCommand:@"/sbin/sysctl"
+                                         args:@[@"-n", @"hw.acpi.battery.time"]];
+        if ([battTime length] > 0) {
+            _timeRemainingMinutes = [battTime intValue];
+        }
 
 #elif defined(__OpenBSD__)
-    NSString *acline = [self runCommand:@"/usr/sbin/apm" args:@[@"-a"]];
-    NSString *life   = [self runCommand:@"/usr/sbin/apm" args:@[@"-l"]];
-    NSString *bstate = [self runCommand:@"/usr/sbin/apm" args:@[@"-b"]];
+        NSString *acline = [self runCommand:@"/usr/sbin/apm" args:@[@"-a"]];
+        NSString *life   = [self runCommand:@"/usr/sbin/apm" args:@[@"-l"]];
+        NSString *bstate = [self runCommand:@"/usr/sbin/apm" args:@[@"-b"]];
 
-    _source = [acline isEqualToString:@"1"] ? @"AC" : @"Battery";
-    if ([life length] > 0) _percent = [life intValue];
-    if ([bstate length] > 0) {
-        int s = [bstate intValue];
-        _status = (s == 0) ? @"High" :
-                  (s == 1) ? @"Low" :
-                  (s == 2) ? @"Critical" :
-                  (s == 3) ? @"Charging" : bstate;
-    }
+        _source = [acline isEqualToString:@"1"] ? @"AC" : @"Battery";
+        if ([life length] > 0) _percent = [life intValue];
+        if ([bstate length] > 0) {
+            int s = [bstate intValue];
+            _status = (s == 0) ? @"High" :
+                      (s == 1) ? @"Low" :
+                      (s == 2) ? @"Critical" :
+                      (s == 3) ? @"Charging" : bstate;
+        }
 
-    // Time remaining (OpenBSD apm provides minutes)
-    NSString *apmMinutes = [self runCommand:@"/usr/sbin/apm" args:@[@"-m"]];
-    if ([apmMinutes length] > 0) {
-        _timeRemainingMinutes = [apmMinutes intValue];
-    }
+        // Time remaining (OpenBSD apm provides minutes)
+        NSString *apmMinutes = [self runCommand:@"/usr/sbin/apm" args:@[@"-m"]];
+        if ([apmMinutes length] > 0) {
+            _timeRemainingMinutes = [apmMinutes intValue];
+        }
 
 #elif defined(__NetBSD__)
-    NSString *acline = [self runCommand:@"/sbin/sysctl"
-                                  args:@[@"-n", @"hw.acpi.acline"]];
-    NSString *life  = [self runCommand:@"/sbin/sysctl"
-                                  args:@[@"-n", @"hw.acpi.battery.life"]];
-    NSString *state = [self runCommand:@"/sbin/sysctl"
-                                  args:@[@"-n", @"hw.acpi.battery.state"]];
-    _source = [acline isEqualToString:@"1"] ? @"AC" : @"Battery";
-    if ([life length] > 0) _percent = [life intValue];
-    if ([state length] > 0) {
-        int s = [state intValue];
-        _status = (s == 1) ? @"Discharging" :
-                  (s == 2) ? @"Charging" :
-                  (s == 7) ? @"Charged" : state;
-    }
+        NSString *acline = [self runCommand:@"/sbin/sysctl"
+                                      args:@[@"-n", @"hw.acpi.acline"]];
+        NSString *life  = [self runCommand:@"/sbin/sysctl"
+                                      args:@[@"-n", @"hw.acpi.battery.life"]];
+        NSString *state = [self runCommand:@"/sbin/sysctl"
+                                      args:@[@"-n", @"hw.acpi.battery.state"]];
+        _source = [acline isEqualToString:@"1"] ? @"AC" : @"Battery";
+        if ([life length] > 0) _percent = [life intValue];
+        if ([state length] > 0) {
+            int s = [state intValue];
+            _status = (s == 1) ? @"Discharging" :
+                      (s == 2) ? @"Charging" :
+                      (s == 7) ? @"Charged" : state;
+        }
 
-    // Time remaining (NetBSD provides minutes via sysctl)
-    NSString *battTime = [self runCommand:@"/sbin/sysctl"
-                                     args:@[@"-n", @"hw.acpi.battery.time"]];
-    if ([battTime length] > 0) {
-        _timeRemainingMinutes = [battTime intValue];
-    }
+        // Time remaining (NetBSD provides minutes via sysctl)
+        NSString *battTime = [self runCommand:@"/sbin/sysctl"
+                                         args:@[@"-n", @"hw.acpi.battery.time"]];
+        if ([battTime length] > 0) {
+            _timeRemainingMinutes = [battTime intValue];
+        }
 #endif
+    } @catch (NSException *e) {
+        NSLog(@"BatteryExtra: exception in updateBattery: %@", e);
+    }
 }
 
 - (void)toggleShowPercentage:(id)sender
@@ -309,18 +315,20 @@ static const BOOL kShowTextInMenuBar = NO;
 
 - (void)menuExtraDidLoad
 {
-    [self updateBattery];
-    _timer = [NSTimer scheduledTimerWithTimeInterval:10.0
-                                              target:self
-                                            selector:@selector(updateBattery)
-                                            userInfo:nil
-                                             repeats:YES];
+    @try {
+        _running = YES;
+        [self updateBattery];
+    } @catch (NSException *e) {
+        NSLog(@"BatteryExtra: exception in menuExtraDidLoad: %@", e);
+        _running = NO;
+        _status = nil;
+        _source = nil;
+    }
 }
 
 - (void)menuExtraWillUnload
 {
-    [_timer invalidate];
-    _timer = nil;
+    _running = NO;
 }
 
 @end

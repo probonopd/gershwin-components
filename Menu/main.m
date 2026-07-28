@@ -146,6 +146,15 @@ int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) 
                 NSDebugLLog(@"gwcomp", @"Menu.app: Run loop exception reason: %@", [runException reason]);
             }
             
+            // GNUstep's [NSApp run] may return when it detects no regular windows.
+            // The menu bar is borderless (NSBorderlessWindowMask) and is not counted.
+            // Keep the run loop alive manually to prevent premature exit.
+            while (YES) {
+                @autoreleasepool {
+                    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate distantFuture]];
+                }
+            }
+            
             NSDebugLLog(@"gwcomp", @"Menu.app: Main run loop exited normally");
         } @catch (NSException *exception) {
             NSDebugLLog(@"gwcomp", @"Menu.app: Caught exception in main: %@", exception);

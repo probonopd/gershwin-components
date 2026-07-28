@@ -7,13 +7,14 @@
 #import "ClockExtra.h"
 #import "GSMenuExtraContext.h"
 
+
 @implementation ClockExtra
 {
-    NSTimer *_timer;
     NSDateFormatter *_timeFormatter;
     NSDateFormatter *_dateFormatter;
     NSMenuItem *_dateItem;
     GSMenuExtraContext *_context;
+    BOOL _running;
 }
 
 - (void)dealloc
@@ -58,31 +59,39 @@
 
 - (void)menuExtraDidLoad
 {
-    _timeFormatter = [[NSDateFormatter alloc] init];
-    [_timeFormatter setTimeStyle:NSDateFormatterShortStyle];
-    [_timeFormatter setDateStyle:NSDateFormatterNoStyle];
+    @try {
+        _running = YES;
+        _timeFormatter = [[NSDateFormatter alloc] init];
+        [_timeFormatter setTimeStyle:NSDateFormatterShortStyle];
+        [_timeFormatter setDateStyle:NSDateFormatterNoStyle];
 
-    _dateFormatter = [[NSDateFormatter alloc] init];
-    [_dateFormatter setTimeStyle:NSDateFormatterNoStyle];
-    [_dateFormatter setDateStyle:NSDateFormatterFullStyle];
-
-    _timer = [NSTimer scheduledTimerWithTimeInterval:60.0
-                                              target:self
-                                            selector:@selector(refresh:)
-                                            userInfo:nil
-                                             repeats:YES];
+        _dateFormatter = [[NSDateFormatter alloc] init];
+        [_dateFormatter setTimeStyle:NSDateFormatterNoStyle];
+        [_dateFormatter setDateStyle:NSDateFormatterFullStyle];
+    } @catch (NSException *e) {
+        NSLog(@"ClockExtra: exception in menuExtraDidLoad: %@", e);
+        _running = NO;
+        _timeFormatter = nil;
+        _dateFormatter = nil;
+        _dateItem = nil;
+        _context = nil;
+    }
 }
 
 - (void)menuExtraWillUnload
 {
-    [_timer invalidate];
-    _timer = nil;
+    _running = NO;
 }
 
 - (void)refresh:(NSTimer *)timer
 {
-    (void)timer;
-    [_context invalidatePresentation];
+    @try {
+        if (!_running) return;
+        (void)timer;
+        [_context invalidatePresentation];
+    } @catch (NSException *e) {
+        NSLog(@"ClockExtra: exception in refresh:: %@", e);
+    }
 }
 
 - (void)refreshMenuItems:(NSMenu *)submenu

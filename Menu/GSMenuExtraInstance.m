@@ -47,7 +47,7 @@
     NSString *display = [self title];
     if (!display || [display length] == 0) display = @"  ";
     NSSize size = [display sizeWithAttributes:attrs];
-    _cachedWidth = ceil(size.width) + 16.0;
+    _cachedWidth = ceil(size.width) + 8.0;
     return _cachedWidth;
 }
 

@@ -6,17 +6,18 @@
 
 #import "BrightnessExtra.h"
 #import "GSMenuExtraContext.h"
+
 #import "SysfsBacklightBackend.h"
 
 static const BOOL kShowTextInMenuBar = NO;
 
 @implementation BrightnessExtra
 {
-    NSTimer *_timer;
     SysfsBacklightBackend *_backend;
     int _current;
     int _maximum;
     GSMenuExtraContext *_context;
+    BOOL _running;
 }
 
 - (void)dealloc
@@ -29,18 +30,24 @@ static const BOOL kShowTextInMenuBar = NO;
 
 - (void)updateBrightness
 {
+    if (!_running) return;
     _current = [_backend current];
     _maximum = [_backend maximum];
 }
 
 - (void)refreshBrightnessPresentation
 {
-    int oldCurrent = _current;
-    int oldMaximum = _maximum;
+    @try {
+        if (!_running) return;
+        int oldCurrent = _current;
+        int oldMaximum = _maximum;
 
-    [self updateBrightness];
-    if (oldCurrent != _current || oldMaximum != _maximum) {
-        [_context invalidatePresentation];
+        [self updateBrightness];
+        if (oldCurrent != _current || oldMaximum != _maximum) {
+            [_context invalidatePresentation];
+        }
+    } @catch (NSException *e) {
+        NSLog(@"BrightnessExtra: exception in refreshBrightnessPresentation: %@", e);
     }
 }
 
@@ -113,25 +120,28 @@ static const BOOL kShowTextInMenuBar = NO;
 
 - (void)menuExtraDidLoad
 {
-    _backend = [[SysfsBacklightBackend alloc] init];
-    [self refreshBrightnessPresentation];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(brightnessChanged:)
-                                                  name:@"BrightnessChanged"
-                                                object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(brightnessUp:)
-                                                 name:@"GSMenuExtraBrightnessUp"
-                                               object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(brightnessDown:)
-                                                 name:@"GSMenuExtraBrightnessDown"
-                                               object:nil];
-    _timer = [NSTimer scheduledTimerWithTimeInterval:5.0
-                                              target:self
-                                             selector:@selector(refreshTimerFired:)
-                                             userInfo:nil
-                                             repeats:YES];
+    @try {
+        _running = YES;
+        _backend = [[SysfsBacklightBackend alloc] init];
+        [self refreshBrightnessPresentation];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(brightnessChanged:)
+                                                      name:@"BrightnessChanged"
+                                                    object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(brightnessUp:)
+                                                     name:@"GSMenuExtraBrightnessUp"
+                                                   object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(brightnessDown:)
+                                                     name:@"GSMenuExtraBrightnessDown"
+                                                   object:nil];
+    } @catch (NSException *e) {
+        NSLog(@"BrightnessExtra: exception in menuExtraDidLoad: %@", e);
+        _running = NO;
+        _backend = nil;
+        _context = nil;
+    }
 }
 
 - (void)menuExtraWillOpenMenu
@@ -141,16 +151,20 @@ static const BOOL kShowTextInMenuBar = NO;
 
 - (void)menuExtraWillUnload
 {
+    _running = NO;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [_timer invalidate];
-    _timer = nil;
     _backend = nil;
 }
 
 - (void)refreshTimerFired:(NSTimer *)timer
 {
-    (void)timer;
-    [self refreshBrightnessPresentation];
+    @try {
+        if (!_running) return;
+        (void)timer;
+        [self refreshBrightnessPresentation];
+    } @catch (NSException *e) {
+        NSLog(@"BrightnessExtra: exception in refreshTimerFired:: %@", e);
+    }
 }
 
 - (void)refreshMenuItems:(NSMenu *)submenu
@@ -165,24 +179,32 @@ static const BOOL kShowTextInMenuBar = NO;
 
 - (void)brightnessUp:(id)sender
 {
-    (void)sender;
-    int step = (_maximum - MAX(_maximum / 100, 1)) / 7;
-    if (step < 1) step = 1;
-    int newVal = _current + step;
-    if (newVal > _maximum) newVal = _maximum;
-    [_backend set:newVal];
-    [self refreshBrightnessPresentation];
+    @try {
+        (void)sender;
+        int step = (_maximum - MAX(_maximum / 100, 1)) / 7;
+        if (step < 1) step = 1;
+        int newVal = _current + step;
+        if (newVal > _maximum) newVal = _maximum;
+        [_backend set:newVal];
+        [self refreshBrightnessPresentation];
+    } @catch (NSException *e) {
+        NSLog(@"BrightnessExtra: exception in brightnessUp: %@", e);
+    }
 }
 
 - (void)brightnessDown:(id)sender
 {
-    (void)sender;
-    int step = (_maximum - MAX(_maximum / 100, 1)) / 7;
-    if (step < 1) step = 1;
-    int newVal = _current - step;
-    if (newVal < MAX(_maximum / 100, 1)) newVal = MAX(_maximum / 100, 1);
-    [_backend set:newVal];
-    [self refreshBrightnessPresentation];
+    @try {
+        (void)sender;
+        int step = (_maximum - MAX(_maximum / 100, 1)) / 7;
+        if (step < 1) step = 1;
+        int newVal = _current - step;
+        if (newVal < MAX(_maximum / 100, 1)) newVal = MAX(_maximum / 100, 1);
+        [_backend set:newVal];
+        [self refreshBrightnessPresentation];
+    } @catch (NSException *e) {
+        NSLog(@"BrightnessExtra: exception in brightnessDown: %@", e);
+    }
 }
 
 - (void)openDisplayPrefs:(id)sender

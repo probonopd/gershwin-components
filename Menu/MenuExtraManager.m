@@ -61,7 +61,11 @@ static NSMutableDictionary<NSString *, GSMenuExtraInstance *> *GSMenuExtraInstan
     if (ident && GSMenuExtraInstanceDictionary) {
         GSMenuExtraInstance *inst = [GSMenuExtraInstanceDictionary objectForKey:ident];
         if (inst) {
-            result = [inst width];
+            @try {
+                result = [inst width];
+            } @catch (NSException *e) {
+                NSLog(@"GSMenuExtra: exception in proposedTitleWidth for %@: %@", ident, e);
+            }
         }
     }
     return result;
@@ -103,7 +107,6 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         _menuBarHeight = height;
         _menuExtras = [NSMutableArray array];
         _allExtras = [NSMutableArray array];
-        _updateTimers = [NSMutableDictionary dictionary];
         _extrasMenuItems = [NSMutableDictionary dictionary];
         _instances = [NSMutableDictionary dictionary];
         GSMenuExtraInstanceDictionary = [NSMutableDictionary dictionary];
@@ -218,10 +221,6 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
                                                                         displayName:[bundle displayName]
                                                                          priority:[bundle priority]];
 
-        if ([extra respondsToSelector:@selector(menuExtraDidLoad)]) {
-            [extra menuExtraDidLoad];
-        }
-
         return instance;
     } @catch (NSException *exception) {
         NSLog(@"GSMenuExtra: exception loading bundle %@: %@", [bundle identifier], exception);
@@ -247,6 +246,12 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         if (instance) {
             [_instances setObject:instance forKey:ident];
             [GSMenuExtraInstanceDictionary setObject:instance forKey:ident];
+
+            GSMenuExtraContext *ctx = [[GSMenuExtraContext alloc] initWithManager:self identifier:ident];
+            if ([[instance extra] respondsToSelector:@selector(setContext:)]) {
+                [(id)[instance extra] setContext:ctx];
+            }
+
             [allInstances addObject:instance];
             NSLog(@"GSMenuExtra: loaded bundle %@", ident);
         } else {
@@ -292,6 +297,13 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     _menuExtras = [NSMutableArray array];
 
     [self applyEnabledSet:enabledSet];
+
+    // Call menuExtraDidLoad only for enabled extras (disabled extras never run).
+    for (GSMenuExtraInstance *inst in _menuExtras) {
+        if ([[inst extra] respondsToSelector:@selector(menuExtraDidLoad)]) {
+            [[inst extra] menuExtraDidLoad];
+        }
+    }
 
     [self setupDOServer];
     [self startFileSystemMonitoring];
@@ -534,31 +546,81 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     }
     if (!changed) return;
 
+    // On subsequent calls (toggles), stop disabled extras and start re-enabled ones.
+    if ([_menuExtras count] > 0) {
+        for (GSMenuExtraInstance *inst in _allExtras) {
+            if (![newEnabled containsObject:inst]) {
+                @try {
+                    [inst unload];
+                } @catch (NSException *e) {
+                    NSLog(@"GSMenuExtra: exception in unload for %@: %@", [inst identifier], e);
+                }
+            }
+        }
+        for (GSMenuExtraInstance *inst in newEnabled) {
+            BOOL wasEnabled = NO;
+            for (GSMenuExtraInstance *oi in _menuExtras) {
+                if ([[oi identifier] isEqualToString:[inst identifier]]) {
+                    wasEnabled = YES;
+                    break;
+                }
+            }
+            if (!wasEnabled && [[inst extra] respondsToSelector:@selector(menuExtraDidLoad)]) {
+                @try {
+                    [[inst extra] menuExtraDidLoad];
+                } @catch (NSException *e) {
+                    NSLog(@"GSMenuExtra: exception in menuExtraDidLoad for %@: %@", [inst identifier], e);
+                }
+            }
+        }
+    }
+
     _menuExtras = newEnabled;
 
     if (!_extrasMenu) {
         _extrasMenu = [[NSMenu alloc] initWithTitle:@"Extras"];
     }
 
+    // Detach submenus before removing items to prevent "already has supermenu" exceptions
+    // when reusing the same submenu object on a new item (CPU/RAM cache their menu objects).
+    for (NSMenuItem *existingItem in [_extrasMenu itemArray]) {
+        if ([existingItem hasSubmenu]) {
+            [existingItem setSubmenu:nil];
+        }
+    }
     [_extrasMenu removeAllItems];
     [_extrasMenuItems removeAllObjects];
 
     for (GSMenuExtraInstance * provider in _menuExtras) {
         NSString *ident = [provider identifier];
-        NSString *title = [provider title] ? [provider title] : ident;
+        NSString *title = ident;
+        @try {
+            title = [provider title] ?: ident;
+        } @catch (NSException *e) {
+            NSLog(@"GSMenuExtra: exception in title for %@: %@", ident, e);
+        }
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title
                                                        action:NULL
                                                 keyEquivalent:@""];
         if ([provider respondsToSelector:@selector(icon)]) {
-            NSImage *icon = [provider icon];
-            if (icon) {
-                CGFloat iconSize = _menuBarHeight - 4.0;
-                [icon setSize:NSMakeSize(iconSize, iconSize)];
-                [item setImage:icon];
+            @try {
+                NSImage *icon = [provider icon];
+                if (icon) {
+                    CGFloat iconSize = _menuBarHeight - 4.0;
+                    [icon setSize:NSMakeSize(iconSize, iconSize)];
+                    [item setImage:icon];
+                }
+            } @catch (NSException *e) {
+                NSLog(@"GSMenuExtra: exception in icon for %@: %@", ident, e);
             }
         }
         if ([provider respondsToSelector:@selector(menu)]) {
-            NSMenu *submenu = [provider menu];
+            NSMenu *submenu = nil;
+            @try {
+                submenu = [provider menu];
+            } @catch (NSException *e) {
+                NSLog(@"GSMenuExtra: exception in menu for %@: %@", ident, e);
+            }
             if (submenu) {
                 [item setSubmenu:submenu];
             }
@@ -569,6 +631,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
     }
 
     if (_extrasMenuView) {
+        [_extrasMenuView setFrameSize:NSMakeSize(0, _menuBarHeight)];
         [_extrasMenuView sizeToFit];
         CGFloat width = [self extrasMenuWidth];
         NSView *superview = [_extrasMenuView superview];
@@ -740,60 +803,44 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 
 - (void)startUpdateTimers
 {
-    NSMutableDictionary *intervalGroups = [NSMutableDictionary dictionary];
-
-    for (GSMenuExtraInstance * item in _menuExtras) {
-        NSTimeInterval interval = 1.0;
-        if (interval <= 0) continue;
-        if (interval < 0.5) interval = 0.5;
-
-        NSNumber *key = @(interval);
-        NSMutableArray *group = [intervalGroups objectForKey:key];
-        if (!group) {
-            group = [NSMutableArray array];
-            [intervalGroups setObject:group forKey:key];
-        }
-        [group addObject:item];
-    }
-
-    for (NSNumber *intervalKey in intervalGroups) {
-        NSTimeInterval interval = [intervalKey doubleValue];
-        NSArray *items = [intervalGroups objectForKey:intervalKey];
-
-        NSTimer *timer =
-            [NSTimer scheduledTimerWithTimeInterval:interval
-                                             target:self
-                                           selector:@selector(updateTimerFired:)
-                                           userInfo:items
-                                            repeats:YES];
-        [_updateTimers setObject:timer forKey:intervalKey];
-        [self updateTimerFired:timer];
-    }
+    _updateTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+                                                    target:self
+                                                  selector:@selector(updateTimerFired:)
+                                                  userInfo:[_menuExtras copy]
+                                                   repeats:YES];
+    [self updateTimerFired:_updateTimer];
 }
 
 - (void)updateTimerFired:(NSTimer *)timer
 {
-    objc_setAssociatedObject(_extrasMenuView, &kWidthIndexKey, @0, OBJC_ASSOCIATION_RETAIN);
-    NSArray *items = [timer userInfo];
-    for (GSMenuExtraInstance * item in items) {
-        @try {
-            [item invalidateWidth];
-            NSString *title = [item title];
-            if (!title) {
-                title = [NSString stringWithFormat:@"[%@]", [item identifier]];
+    @try {
+        objc_setAssociatedObject(_extrasMenuView, &kWidthIndexKey, @0, OBJC_ASSOCIATION_RETAIN);
+        NSArray *items = [timer userInfo];
+        for (GSMenuExtraInstance * item in items) {
+            @try {
+                [item invalidateWidth];
+                NSString *title = [item title];
+                if (!title) {
+                    title = [NSString stringWithFormat:@"[%@]", [item identifier]];
+                }
+                NSMenuItem *menuItem = [_extrasMenuItems objectForKey:[item identifier]];
+                if (menuItem) [menuItem setTitle:title];
+                // Periodic data updates removed — they caused SIGSEGV on deallocated
+                // extras due to a runtime bug with weak reference zeroing.
+                // Extras update data on menu open (menuExtraWillOpenMenu) instead.
+            } @catch (NSException *e) {
+                NSLog(@"GSMenuExtra: exception updating item %@: %@", [item identifier], e);
             }
-            NSMenuItem *menuItem = [_extrasMenuItems objectForKey:[item identifier]];
-            if (menuItem) [menuItem setTitle:title];
-        } @catch (NSException *exception) {}
+        }
+    } @catch (NSException *e) {
+        NSLog(@"GSMenuExtra: exception in updateTimerFired: %@", e);
     }
 }
 
 - (void)stopUpdateTimers
 {
-    for (NSTimer *timer in [_updateTimers allValues]) {
-        [timer invalidate];
-    }
-    [_updateTimers removeAllObjects];
+    [_updateTimer invalidate];
+    _updateTimer = nil;
 }
 
 #pragma mark - Presentation invalidation
@@ -805,39 +852,43 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 
     for (GSMenuExtraInstance * provider in _menuExtras) {
         if ([[provider identifier] isEqualToString:identifier]) {
-            NSString *title = [provider title];
-            if (title) [menuItem setTitle:title];
+            @try {
+                NSString *title = [provider title];
+                if (title) [menuItem setTitle:title];
 
-            if ([provider respondsToSelector:@selector(icon)]) {
-                NSImage *icon = [provider icon];
-                if (icon) {
-                    CGFloat iconSize = _menuBarHeight - 4.0;
-                    [icon setSize:NSMakeSize(iconSize, iconSize)];
-                    [menuItem setImage:icon];
-                } else {
-                    [menuItem setImage:nil];
-                }
-                if (_extrasMenuView) {
-                    [_extrasMenuView performSelector:@selector(display)
-                                         withObject:nil
-                                         afterDelay:0];
-                }
-            }
-            if ([provider respondsToSelector:@selector(menu)]) {
-                if ([provider respondsToSelector:@selector(menuWillOpen)]) {
-                    [provider menuWillOpen];
-                }
-                NSMenu *freshSubmenu = [provider menu];
-                if (freshSubmenu) {
-                    NSMenu *existingSubmenu = [menuItem submenu];
-                    if (existingSubmenu) {
-                        [self configureSubmenu:existingSubmenu forIdentifier:identifier];
-                        [self replaceMenu:existingSubmenu withMenu:freshSubmenu];
+                if ([provider respondsToSelector:@selector(icon)]) {
+                    NSImage *icon = [provider icon];
+                    if (icon) {
+                        CGFloat iconSize = _menuBarHeight - 4.0;
+                        [icon setSize:NSMakeSize(iconSize, iconSize)];
+                        [menuItem setImage:icon];
                     } else {
-                        [self configureSubmenu:freshSubmenu forIdentifier:identifier];
-                        [menuItem setSubmenu:freshSubmenu];
+                        [menuItem setImage:nil];
+                    }
+                    if (_extrasMenuView) {
+                        [_extrasMenuView performSelector:@selector(display)
+                                             withObject:nil
+                                             afterDelay:0];
                     }
                 }
+                if ([provider respondsToSelector:@selector(menu)]) {
+                    if ([provider respondsToSelector:@selector(menuWillOpen)]) {
+                        [provider menuWillOpen];
+                    }
+                    NSMenu *freshSubmenu = [provider menu];
+                    if (freshSubmenu) {
+                        NSMenu *existingSubmenu = [menuItem submenu];
+                        if (existingSubmenu) {
+                            [self configureSubmenu:existingSubmenu forIdentifier:identifier];
+                            [self replaceMenu:existingSubmenu withMenu:freshSubmenu];
+                        } else {
+                            [self configureSubmenu:freshSubmenu forIdentifier:identifier];
+                            [menuItem setSubmenu:freshSubmenu];
+                        }
+                    }
+                }
+            } @catch (NSException *e) {
+                NSLog(@"GSMenuExtra: exception refreshing %@: %@", identifier, e);
             }
             break;
         }

@@ -51,7 +51,8 @@ Menu_OBJC_FILES = \
 	WindowSwitchContext.m \
 	SysfsBacklightBackend.m \
 	EvdevBrightnessKeySource.m \
-	TintedMenuItemCell.m
+	TintedMenuItemCell.m \
+	GSWeakTimer.m
 
 # Header files
 Menu_HEADER_FILES = \
@@ -94,7 +95,8 @@ Menu_HEADER_FILES = \
 	SysfsBacklightBackend.h \
 	EvdevBrightnessKeySource.h \
 	SoundVolume.h \
-	TintedMenuItemCell.h
+	TintedMenuItemCell.h \
+	GSWeakTimer.h
 
 # Resources
 Menu_RESOURCE_FILES = \

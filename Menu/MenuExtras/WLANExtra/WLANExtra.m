@@ -10,6 +10,7 @@
 #import "NetworkBackend.h"
 #import "CaptivePortalDetector.h"
 #import "GSMenuExtraContext.h"
+
 #import "AppearanceMetrics.h"
 #include <sys/utsname.h>
 #include <string.h>
@@ -79,12 +80,12 @@ static id<NetworkBackend> CreateNetworkBackend(void)
     int _signalStrength;
     NSArray<WLAN *> *_networkList;
     GSMenuExtraContext *_context;
-    NSTimer *_timer;
     NSString *_previousConnectedSSID;
     NSString *_captivePortalAlertShownSSID;
     BOOL _hasInternetAccess;
     NSPanel *_captivePortalPanel;
     NSString *_captivePortalRedirectURL;
+    BOOL _running;
 }
 
 - (NSString *)_activeWLANSsidFromNMCLI
@@ -147,6 +148,7 @@ static NSString *findTool(NSString *name)
 
 - (void)updateState
 {
+    if (!_running) return;
     BOOL wasEnabled = _wlanEnabled;
     BOOL wasAvailable = _backendAvailable;
     WLAN *oldConnected = _connectedWLAN;
@@ -461,13 +463,22 @@ static NSString *findTool(NSString *name)
 
 - (void)menuExtraDidLoad
 {
-    _backend = CreateNetworkBackend();
-    [self updateState];
-    _timer = [NSTimer scheduledTimerWithTimeInterval:5.0
-                                              target:self
-                                            selector:@selector(refreshTimerFired:)
-                                            userInfo:nil
-                                             repeats:YES];
+    @try {
+        _running = YES;
+        _backend = CreateNetworkBackend();
+        [self updateState];
+    } @catch (NSException *e) {
+        NSLog(@"WLANExtra: exception in menuExtraDidLoad: %@", e);
+        _running = NO;
+        _backend = nil;
+        _connectedWLAN = nil;
+        _networkList = nil;
+        _context = nil;
+        _previousConnectedSSID = nil;
+        _captivePortalAlertShownSSID = nil;
+        _captivePortalPanel = nil;
+        _captivePortalRedirectURL = nil;
+    }
 }
 
 - (void)menuExtraWillOpenMenu
@@ -546,68 +557,72 @@ static NSString *findTool(NSString *name)
 
 - (void)menuExtraWillUnload
 {
-    [_timer invalidate];
-    _timer = nil;
+    _running = NO;
     _backend = nil;
 }
 
 - (void)refreshTimerFired:(NSTimer *)timer
 {
-    (void)timer;
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        BOOL wasAvailable = _backendAvailable;
-        BOOL available = [_backend isAvailable];
-        if (!available) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                _backendAvailable = NO;
-                _signalStrength = 0;
-                _networkList = @[];
-                _connectedWLAN = nil;
-                if (wasAvailable) {
-                    [_context invalidatePresentation];
-                }
-            });
-            return;
-        }
-        if (!_wlanEnabled) return;
-        int oldSignal = _signalStrength;
-        WLAN *oldConnected = _connectedWLAN;
-        NSUInteger oldCount = [_networkList count];
+    @try {
+        if (!_running) return;
+        (void)timer;
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            BOOL wasAvailable = _backendAvailable;
+            BOOL available = [_backend isAvailable];
+            if (!available) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    _backendAvailable = NO;
+                    _signalStrength = 0;
+                    _networkList = @[];
+                    _connectedWLAN = nil;
+                    if (wasAvailable) {
+                        [_context invalidatePresentation];
+                    }
+                });
+                return;
+            }
+            if (!_wlanEnabled) return;
+            int oldSignal = _signalStrength;
+            WLAN *oldConnected = _connectedWLAN;
+            NSUInteger oldCount = [_networkList count];
 
-        // When already connected, skip the full scan — just check if
-        // the connection is still alive and update signal strength.
-        WLAN *connected = nil;
-        NSArray *nets = nil;
-        if (oldConnected) {
-            connected = [_backend connectedWLAN];
-            int signal = connected ? [connected signalStrength] : 0;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                _backendAvailable = YES;
-                _connectedWLAN = connected;
-                _signalStrength = signal;
-                if (oldSignal != _signalStrength ||
-                    (!oldConnected && _connectedWLAN) || (oldConnected && !_connectedWLAN)) {
-                    [_context invalidatePresentation];
-                }
-            });
-        } else {
-            nets = [_backend scanForWLANs];
-            connected = [_backend connectedWLAN];
-            int signal = connected ? [connected signalStrength] : 0;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                _backendAvailable = YES;
-                if ([nets count] > 0 || connected) {
-                    _networkList = nets;
+            // When already connected, skip the full scan — just check if
+            // the connection is still alive and update signal strength.
+            WLAN *connected = nil;
+            NSArray *nets = nil;
+            if (oldConnected) {
+                connected = [_backend connectedWLAN];
+                int signal = connected ? [connected signalStrength] : 0;
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    _backendAvailable = YES;
                     _connectedWLAN = connected;
                     _signalStrength = signal;
-                }
-                if (oldSignal != _signalStrength || oldCount != [_networkList count] ||
-                    (!oldConnected && _connectedWLAN) || (oldConnected && !_connectedWLAN)) {
-                    [_context invalidatePresentation];
-                }
-            });
-        }
-    });
+                    if (oldSignal != _signalStrength ||
+                        (!oldConnected && _connectedWLAN) || (oldConnected && !_connectedWLAN)) {
+                        [_context invalidatePresentation];
+                    }
+                });
+            } else {
+                nets = [_backend scanForWLANs];
+                connected = [_backend connectedWLAN];
+                int signal = connected ? [connected signalStrength] : 0;
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    _backendAvailable = YES;
+                    if ([nets count] > 0 || connected) {
+                        _networkList = nets;
+                        _connectedWLAN = connected;
+                        _signalStrength = signal;
+                    }
+                    if (oldSignal != _signalStrength || oldCount != [_networkList count] ||
+                        (!oldConnected && _connectedWLAN) || (oldConnected && !_connectedWLAN)) {
+                        [_context invalidatePresentation];
+                    }
+                });
+            }
+        });
+    } @catch (NSException *e) {
+        NSLog(@"WLANExtra: exception in refreshTimerFired:: %@", e);
+    }
 }
 
 #pragma mark - Captive Portal

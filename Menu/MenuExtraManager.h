@@ -16,7 +16,7 @@
 @interface MenuExtraManager : NSObject <MenuExtraConfigProtocol>
 
 @property (nonatomic, strong) NSMutableArray<GSMenuExtraInstance *> *menuExtras;
-@property (nonatomic, strong) NSMutableDictionary *updateTimers;
+@property (nonatomic, strong) NSTimer *updateTimer;
 @property (nonatomic, assign) CGFloat screenWidth;
 @property (nonatomic, assign) CGFloat menuBarHeight;
 

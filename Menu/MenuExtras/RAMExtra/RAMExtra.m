@@ -6,17 +6,35 @@
 
 #import "RAMExtra.h"
 #import "GSMenuExtraContext.h"
+
 #import <stdio.h>
-#import <string.h>
 #import <stdlib.h>
+#import <string.h>
+
+#ifdef __FreeBSD__
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#endif
 
 @implementation RAMExtra
 {
-    NSTimer *_timer;
-    int _percent;
-    unsigned long long _totalMB;
-    unsigned long long _usedMB;
+    BOOL _running;
+    double _ramUsage;
+    unsigned long long _memTotal;
+    unsigned long long _memUsed;
     GSMenuExtraContext *_context;
+}
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self) {
+        _running = NO;
+        _ramUsage = 0.0;
+        _memTotal = 0;
+        _memUsed = 0;
+    }
+    return self;
 }
 
 - (void)dealloc
@@ -31,25 +49,38 @@
 {
     NSMenu *m = [[NSMenu alloc] initWithTitle:@"RAM"];
 
-    NSString *detail = [NSString stringWithFormat:@"%llu MB / %llu MB used",
-                         _usedMB, _totalMB];
-    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:detail action:nil keyEquivalent:@""];
+    NSString *label = [NSString stringWithFormat:@"RAM: %.0f%%", _ramUsage];
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:label action:nil keyEquivalent:@""];
     [item setEnabled:NO];
     [m addItem:item];
+
+    if (_memTotal > 0) {
+        NSString *detail;
+        if (_memTotal > 1024 * 1024) {
+            detail = [NSString stringWithFormat:@"%.1f / %.1f GB",
+                       (double)_memUsed / (1024 * 1024),
+                       (double)_memTotal / (1024 * 1024)];
+        } else {
+            detail = [NSString stringWithFormat:@"%.0f / %.0f MB",
+                       (double)_memUsed / 1024,
+                       (double)_memTotal / 1024];
+        }
+        NSMenuItem *detailItem = [[NSMenuItem alloc] initWithTitle:detail action:nil keyEquivalent:@""];
+        [detailItem setEnabled:NO];
+        [m addItem:detailItem];
+    }
 
     return m;
 }
 
 - (NSImage *)image
 {
-    return nil;
+    return [NSImage imageNamed:@"ram"];
 }
 
 - (NSString *)title
 {
-    if (_percent >= 0)
-        return [NSString stringWithFormat:@"RAM %d%%", _percent];
-    return @"RAM --%";
+    return [NSString stringWithFormat:@"%.0f%%", _ramUsage];
 }
 
 - (void)setContext:(GSMenuExtraContext *)context
@@ -59,61 +90,95 @@
 
 - (void)menuExtraDidLoad
 {
-    _percent = -1;
-    [self readRAM];
-    _timer = [NSTimer scheduledTimerWithTimeInterval:5.0
-                                              target:self
-                                            selector:@selector(refresh:)
-                                            userInfo:nil
-                                             repeats:YES];
+    @try {
+        _running = YES;
+        [self updateRAMUsage];
+    } @catch (NSException *e) {
+        NSLog(@"RAMExtra: exception in menuExtraDidLoad: %@", e);
+        _running = NO;
+        _context = nil;
+    }
 }
 
 - (void)menuExtraWillUnload
 {
-    [_timer invalidate];
-    _timer = nil;
+    _running = NO;
 }
 
-- (void)refresh:(NSTimer *)timer
+- (void)tick
 {
-    (void)timer;
-    [self readRAM];
-    [_context invalidatePresentation];
+    @try {
+        if (!_running) return;
+        [self updateRAMUsage];
+        [_context invalidatePresentation];
+    } @catch (NSException *e) {
+        NSLog(@"RAMExtra: exception in tick: %@", e);
+    }
 }
 
-- (void)readRAM
-{
+#pragma mark - Platform-specific
+
 #ifdef __linux__
+
+- (void)updateRAMUsage
+{
+    if (!_running) return;
     FILE *fp = fopen("/proc/meminfo", "r");
     if (!fp) return;
 
-    unsigned long long total = 0, free = 0, buffers = 0, cached = 0;
     char line[256];
+    unsigned long long memTotal = 0, memAvailable = 0;
 
     while (fgets(line, sizeof(line), fp)) {
-        if (strncmp(line, "MemTotal:", 9) == 0)
-            sscanf(line, "MemTotal: %llu", &total);
-        else if (strncmp(line, "MemFree:", 8) == 0)
-            sscanf(line, "MemFree: %llu", &free);
-        else if (strncmp(line, "Buffers:", 8) == 0)
-            sscanf(line, "Buffers: %llu", &buffers);
-        else if (strncmp(line, "Cached:", 7) == 0)
-            sscanf(line, "Cached: %llu", &cached);
+        if (sscanf(line, "MemTotal: %llu kB", &memTotal) == 1) continue;
+        if (sscanf(line, "MemAvailable: %llu kB", &memAvailable) == 1) break;
     }
+
     fclose(fp);
 
-    if (total > 0) {
-        unsigned long long available = free + buffers + cached;
-        if (available > total)
-            available = total;
-        _percent = (int)((total - available) * 100 / total);
-        _totalMB = total / 1024;
-        _usedMB = (total - available) / 1024;
+    if (memTotal > 0) {
+        _memTotal = memTotal;
+        _memUsed = memTotal - memAvailable;
+        _ramUsage = 100.0 * _memUsed / memTotal;
     }
-#else
-    // BSD: use sysctl
-    _percent = 0;
-#endif
 }
+
+#elif defined(__FreeBSD__)
+
+- (void)updateRAMUsage
+{
+    if (!_running) return;
+    size_t size;
+
+    unsigned long memTotal = 0;
+    size = sizeof(memTotal);
+    if (sysctlbyname("hw.physmem", &memTotal, &size, NULL, 0) != 0) return;
+
+    unsigned int pageSize = 0;
+    size = sizeof(pageSize);
+    if (sysctlbyname("hw.pagesize", &pageSize, &size, NULL, 0) != 0) return;
+
+    unsigned int freePages = 0;
+    size = sizeof(freePages);
+    if (sysctlbyname("vm.stats.vm.v_free_count", &freePages, &size, NULL, 0) != 0) return;
+
+    unsigned long memFree = (unsigned long)freePages * pageSize;
+    _memTotal = memTotal;
+    _memUsed = memTotal - memFree;
+
+    if (_memTotal > 0) {
+        _ramUsage = 100.0 * _memUsed / _memTotal;
+    }
+}
+
+#else
+
+- (void)updateRAMUsage
+{
+    if (!_running) return;
+    _ramUsage = 0.0;
+}
+
+#endif
 
 @end

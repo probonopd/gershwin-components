@@ -10,6 +10,7 @@
 #import "SoundBackend.h"
 #import "GSMenuExtraContext.h"
 
+
 static const BOOL kShowTextInMenuBar = NO;
 
 static id<SoundBackend> CreateSoundBackend(void)
@@ -44,11 +45,11 @@ static id<SoundBackend> CreateSoundBackend(void)
 
 @implementation SoundExtra
 {
+    BOOL _running;
     float _volume;
     BOOL _muted;
     BOOL _backendAvailable;
     GSMenuExtraContext *_context;
-    NSTimer *_timer;
     id<SoundBackend> _backend;
 }
 
@@ -181,25 +182,27 @@ static id<SoundBackend> CreateSoundBackend(void)
 
 - (void)menuExtraDidLoad
 {
-    _backend = CreateSoundBackend();
-    [self updateState];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(volUp:)
-                                                 name:@"GSMenuExtraVolumeUp"
-                                               object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(volDown:)
-                                                 name:@"GSMenuExtraVolumeDown"
-                                               object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(toggleMute:)
-                                                 name:@"GSMenuExtraMute"
-                                               object:nil];
-    _timer = [NSTimer scheduledTimerWithTimeInterval:10.0
-                                              target:self
-                                            selector:@selector(refreshTimerFired:)
-                                            userInfo:nil
-                                             repeats:YES];
+    @try {
+        _running = YES;
+        _backend = CreateSoundBackend();
+        [self updateState];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(volUp:)
+                                                     name:@"GSMenuExtraVolumeUp"
+                                                   object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(volDown:)
+                                                     name:@"GSMenuExtraVolumeDown"
+                                                   object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(toggleMute:)
+                                                     name:@"GSMenuExtraMute"
+                                                   object:nil];
+    } @catch (NSException *e) {
+        NSLog(@"SoundExtra: exception in menuExtraDidLoad: %@", e);
+        _running = NO;
+        _backend = nil;
+    }
 }
 
 - (void)menuExtraWillOpenMenu
@@ -232,13 +235,12 @@ static id<SoundBackend> CreateSoundBackend(void)
 - (void)menuExtraWillUnload
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [_timer invalidate];
-    _timer = nil;
     _backend = nil;
 }
 
 - (void)refreshTimerFired:(NSTimer *)timer
 {
+    if (!_running) return;
     (void)timer;
     BOOL wasAvailable = _backendAvailable;
     _backendAvailable = [_backend isAvailable];

@@ -1,5 +1,6 @@
 #import "BuildMonitorExtra.h"
 #import "GSMenuExtraContext.h"
+
 #import <objc/runtime.h>
 
 static const char kRepoKey;
@@ -16,7 +17,6 @@ static NSString *ConfigKey(NSString *key)
 
 @interface BuildMonitorExtra () <NSWindowDelegate, NSURLConnectionDelegate>
 {
-    NSTimer *_timer;
     GSMenuExtraContext *_context;
 
     NSArray *_repos;
@@ -35,6 +35,7 @@ static NSString *ConfigKey(NSString *key)
     NSTextField *_tokenField;
 
     NSMutableDictionary *_pendingRepos;
+    BOOL _running;
 }
 @end
 
@@ -72,39 +73,44 @@ static NSString *ConfigKey(NSString *key)
 
 - (void)pollGitHub
 {
-    _hasAnyFailure = NO;
-    _hasAnyRunning = NO;
-    _fetchError = NO;
-    _anyNewFailure = NO;
-    _rateLimited = NO;
+    @try {
+        if (!_running) return;
+        _hasAnyFailure = NO;
+        _hasAnyRunning = NO;
+        _fetchError = NO;
+        _anyNewFailure = NO;
+        _rateLimited = NO;
 
-    if ([_repos count] == 0) {
-        [_context invalidatePresentation];
-        return;
-    }
-
-    if (!_repoStatuses) _repoStatuses = [NSMutableDictionary dictionary];
-    if (!_pendingRepos) _pendingRepos = [NSMutableDictionary dictionary];
-
-    [_pendingRepos removeAllObjects];
-
-    for (NSString *repoStr in _repos) {
-        NSArray *parts = [repoStr componentsSeparatedByString: @"/"];
-        if ([parts count] != 2) continue;
-        [_pendingRepos setObject: repoStr forKey: repoStr];
-
-        NSString *urlStr = [NSString stringWithFormat: @"https://api.github.com/repos/%@/%@/actions/runs?per_page=5",
-                             parts[0], parts[1]];
-
-        NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL: [NSURL URLWithString: urlStr]];
-        if ([_token length] > 0) {
-            [req setValue: [NSString stringWithFormat: @"token %@", _token] forHTTPHeaderField: @"Authorization"];
+        if ([_repos count] == 0) {
+            [_context invalidatePresentation];
+            return;
         }
-        [req setValue: @"BuildMonitorExtra/1.0" forHTTPHeaderField: @"User-Agent"];
 
-        NSURLConnection *conn = [NSURLConnection connectionWithRequest: req delegate: self];
-        objc_setAssociatedObject(conn, &kRepoKey, repoStr, OBJC_ASSOCIATION_RETAIN);
-        objc_setAssociatedObject(conn, &kDataKey, [NSMutableData data], OBJC_ASSOCIATION_RETAIN);
+        if (!_repoStatuses) _repoStatuses = [NSMutableDictionary dictionary];
+        if (!_pendingRepos) _pendingRepos = [NSMutableDictionary dictionary];
+
+        [_pendingRepos removeAllObjects];
+
+        for (NSString *repoStr in _repos) {
+            NSArray *parts = [repoStr componentsSeparatedByString: @"/"];
+            if ([parts count] != 2) continue;
+            [_pendingRepos setObject: repoStr forKey: repoStr];
+
+            NSString *urlStr = [NSString stringWithFormat: @"https://api.github.com/repos/%@/%@/actions/runs?per_page=5",
+                                 parts[0], parts[1]];
+
+            NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL: [NSURL URLWithString: urlStr]];
+            if ([_token length] > 0) {
+                [req setValue: [NSString stringWithFormat: @"token %@", _token] forHTTPHeaderField: @"Authorization"];
+            }
+            [req setValue: @"BuildMonitorExtra/1.0" forHTTPHeaderField: @"User-Agent"];
+
+            NSURLConnection *conn = [NSURLConnection connectionWithRequest: req delegate: self];
+            objc_setAssociatedObject(conn, &kRepoKey, repoStr, OBJC_ASSOCIATION_RETAIN);
+            objc_setAssociatedObject(conn, &kDataKey, [NSMutableData data], OBJC_ASSOCIATION_RETAIN);
+        }
+    } @catch (NSException *e) {
+        NSLog(@"BuildMonitorExtra: exception in pollGitHub: %@", e);
     }
 }
 
@@ -231,14 +237,19 @@ static NSString *ConfigKey(NSString *key)
 
 - (void)finishPoll
 {
-    [self saveConfig];
-    [_context invalidatePresentation];
+    @try {
+        if (!_running) return;
+        [self saveConfig];
+        [_context invalidatePresentation];
 
-    if (_anyNewFailure) {
-        [self showFailureAlert];
-    }
-    if (_rateLimited) {
-        [self showRateLimitAlert];
+        if (_anyNewFailure) {
+            [self showFailureAlert];
+        }
+        if (_rateLimited) {
+            [self showRateLimitAlert];
+        }
+    } @catch (NSException *e) {
+        NSLog(@"BuildMonitorExtra: exception in finishPoll: %@", e);
     }
 }
 
@@ -442,13 +453,6 @@ static NSString *ConfigKey(NSString *key)
     _fetchError = NO;
 
     [self pollGitHub];
-    if (!_timer) {
-        _timer = [NSTimer scheduledTimerWithTimeInterval: POLL_INTERVAL
-                                                  target: self
-                                                selector: @selector(pollGitHub)
-                                                userInfo: nil
-                                                 repeats: YES];
-    }
 }
 
 - (void)closeConfigPanel:(id)sender
@@ -474,36 +478,45 @@ static NSString *ConfigKey(NSString *key)
 
 - (void)menuExtraDidLoad
 {
-    NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
-    [defs registerDefaults: @{
-        ConfigKey(@"repos"): @[@"gershwin-desktop/gershwin-desktop",
-                                @"gershwin-desktop/gershwin-components",
-                                @"gershwin-desktop/gershwin-developer",
-                                @"gershwin-desktop/gershwin-workspace",
-                                @"gershwin-desktop/gershwin-eau-theme",
-                                @"gershwin-desktop/gershwin-windowmanager",
-                                @"gershwin-desktop/gershwin-textedit",
-                                @"gershwin-desktop/gershwin-systempreferences",
-                                @"gershwin-desktop/gershwin-terminal",
-                                @"gershwin-desktop/gershwin-system"]
-    }];
+    @try {
+        _running = YES;
+        NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
+        [defs registerDefaults: @{
+            ConfigKey(@"repos"): @[@"gershwin-desktop/gershwin-desktop",
+                                    @"gershwin-desktop/gershwin-components",
+                                    @"gershwin-desktop/gershwin-developer",
+                                    @"gershwin-desktop/gershwin-workspace",
+                                    @"gershwin-desktop/gershwin-eau-theme",
+                                    @"gershwin-desktop/gershwin-windowmanager",
+                                    @"gershwin-desktop/gershwin-textedit",
+                                    @"gershwin-desktop/gershwin-systempreferences",
+                                    @"gershwin-desktop/gershwin-terminal",
+                                    @"gershwin-desktop/gershwin-system"]
+        }];
 
-    [self loadConfig];
+        [self loadConfig];
 
-    if ([_repos count] > 0) {
-        [self pollGitHub];
-        _timer = [NSTimer scheduledTimerWithTimeInterval: POLL_INTERVAL
-                                                  target: self
-                                                selector: @selector(pollGitHub)
-                                                userInfo: nil
-                                                 repeats: YES];
+        if ([_repos count] > 0) {
+            [self pollGitHub];
+        }
+    } @catch (NSException *e) {
+        NSLog(@"BuildMonitorExtra: exception in menuExtraDidLoad: %@", e);
+        _running = NO;
+        _context = nil;
+        _repos = nil;
+        _token = nil;
+        _lastFailures = nil;
+        _repoStatuses = nil;
+        _pendingRepos = nil;
+        _configPanel = nil;
+        _reposTextView = nil;
+        _tokenField = nil;
     }
 }
 
 - (void)menuExtraWillUnload
 {
-    [_timer invalidate];
-    _timer = nil;
+    _running = NO;
 }
 
 - (NSMenu *)menu
