@@ -217,9 +217,10 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         if (!extra) return nil;
 
         GSMenuExtraInstance *instance = [[GSMenuExtraInstance alloc] initWithExtra:extra
-                                                                         identifier:[bundle identifier]
-                                                                        displayName:[bundle displayName]
-                                                                         priority:[bundle priority]];
+                                                                          identifier:[bundle identifier]
+                                                                         displayName:[bundle displayName]
+                                                                          priority:[bundle priority]
+                                                                          manager:self];
 
         return instance;
     } @catch (NSException *exception) {
@@ -246,11 +247,6 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         if (instance) {
             [_instances setObject:instance forKey:ident];
             [GSMenuExtraInstanceDictionary setObject:instance forKey:ident];
-
-            GSMenuExtraContext *ctx = [[GSMenuExtraContext alloc] initWithManager:self identifier:ident];
-            if ([[instance extra] respondsToSelector:@selector(setContext:)]) {
-                [(id)[instance extra] setContext:ctx];
-            }
 
             [allInstances addObject:instance];
             NSLog(@"GSMenuExtra: loaded bundle %@", ident);
@@ -298,11 +294,9 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 
     [self applyEnabledSet:enabledSet];
 
-    // Call menuExtraDidLoad only for enabled extras (disabled extras never run).
+    // Load enabled extras (calls menuExtraDidLoad wrapped in @try/@catch).
     for (GSMenuExtraInstance *inst in _menuExtras) {
-        if ([[inst extra] respondsToSelector:@selector(menuExtraDidLoad)]) {
-            [[inst extra] menuExtraDidLoad];
-        }
+        [inst load];
     }
 
     [self setupDOServer];
@@ -565,12 +559,8 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
                     break;
                 }
             }
-            if (!wasEnabled && [[inst extra] respondsToSelector:@selector(menuExtraDidLoad)]) {
-                @try {
-                    [[inst extra] menuExtraDidLoad];
-                } @catch (NSException *e) {
-                    NSLog(@"GSMenuExtra: exception in menuExtraDidLoad for %@: %@", [inst identifier], e);
-                }
+            if (!wasEnabled) {
+                [inst load];
             }
         }
     }
@@ -825,9 +815,9 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
                 }
                 NSMenuItem *menuItem = [_extrasMenuItems objectForKey:[item identifier]];
                 if (menuItem) [menuItem setTitle:title];
-                // Periodic data updates removed — they caused SIGSEGV on deallocated
-                // extras due to a runtime bug with weak reference zeroing.
-                // Extras update data on menu open (menuExtraWillOpenMenu) instead.
+                // tick removed — called through performSelector: can SIGSEGV
+                // on corrupted extras. CPU/RAM get their first delta via
+                // dispatch_after in menuExtraDidLoad instead.
             } @catch (NSException *e) {
                 NSLog(@"GSMenuExtra: exception updating item %@: %@", [item identifier], e);
             }

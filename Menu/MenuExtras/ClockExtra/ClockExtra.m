@@ -6,10 +6,12 @@
 
 #import "ClockExtra.h"
 #import "GSMenuExtraContext.h"
+#import <time.h>
 
 
 @implementation ClockExtra
 {
+    char _timeStr[64];
     NSDateFormatter *_timeFormatter;
     NSDateFormatter *_dateFormatter;
     NSMenuItem *_dateItem;
@@ -44,7 +46,15 @@
 
 - (NSString *)title
 {
-    return [_timeFormatter stringFromDate:[NSDate date]];
+    time_t now = time(NULL);
+    struct tm *lt = localtime(&now);
+    if (lt) {
+        strftime(_timeStr, sizeof(_timeStr), "%H:%M", lt);
+    } else {
+        strncpy(_timeStr, "??:??", sizeof(_timeStr) - 1);
+        _timeStr[sizeof(_timeStr) - 1] = '\0';
+    }
+    return [NSString stringWithUTF8String:_timeStr];
 }
 
 - (void)setContext:(GSMenuExtraContext *)context

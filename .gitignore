@@ -38,10 +38,7 @@ screenshot*.png
 *.desktop
 ICNSImageRep/NSICNSImageRep.bundle/NSICNSImageRep
 stamp.make
-Menu/StatusItems/SystemMonitor/SystemMonitor.bundle/SystemMonitor
-Menu/StatusItems/TimeDisplay/TimeDisplay.bundle/TimeDisplay
-Menu/StatusItems/SystemMonitor/SystemMonitor.bundle/SystemMonitor
-Menu/StatusItems/TimeDisplay/TimeDisplay.bundle/TimeDisplay
+**/*.gsmenuextra/*
 Processes/tools/safe_proc_scan
 *.bundle
 *.d

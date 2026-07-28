@@ -96,7 +96,6 @@
     } @catch (NSException *e) {
         NSLog(@"RAMExtra: exception in menuExtraDidLoad: %@", e);
         _running = NO;
-        _context = nil;
     }
 }
 

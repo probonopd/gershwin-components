@@ -21,16 +21,15 @@ static const CGFloat kWindowHeight = 400;
 static const CGFloat kServiceListWidth = 180;
 
 // HIG-compliant margins
-static const CGFloat kContentTopMargin = 15.0;
 static const CGFloat kContentSideMargin = 24.0;
 static const CGFloat kContentBottomMargin = 20.0;
 static const CGFloat kSpace8 = 8.0;
 static const CGFloat kSpace12 = 12.0;
-static const CGFloat kSpace20 = 20.0;
+static const CGFloat kSpace16 = 16.0;
 
 // HIG-compliant control sizes
 static const CGFloat kButtonHeight = 20.0;
-static const CGFloat kButtonMinWidth = 69.0;
+static const CGFloat kButtonMinWidth = 100.0;
 static const CGFloat kFieldHeight = 22.0;
 static const CGFloat kLabelWidth = 110;
 static const CGFloat kStatusAreaHeight = 60;
@@ -153,17 +152,20 @@ static const CGFloat kStatusAreaHeight = 60;
     CGFloat viewHeight = NSHeight(viewBounds);
     
     // Create the split view area (HIG spacing)
-    CGFloat splitTop = viewHeight - kContentTopMargin - 40;
-    CGFloat splitHeight = splitTop - kContentBottomMargin - 30; // Leave room for buttons at bottom
+    // Panels fill the full width and extend to the top of the window
+    CGFloat buttonAreaHeight = kContentBottomMargin + kButtonHeight + kSpace8;
+    CGFloat splitTop = viewHeight;
+    CGFloat splitBottom = buttonAreaHeight;
+    CGFloat splitHeight = splitTop - splitBottom;
     
     // Service list on the left
-    [self createServiceListViewWithFrame:NSMakeRect(kContentSideMargin, kContentBottomMargin + 30, 
+    [self createServiceListViewWithFrame:NSMakeRect(kContentSideMargin, splitBottom, 
                                                      kServiceListWidth, splitHeight)];
     
-    // Detail view on the right (8px gap between panels)
-    CGFloat detailX = kContentSideMargin + kServiceListWidth + kSpace8;
+    // Detail view on the right (12px gap between panels)
+    CGFloat detailX = kContentSideMargin + kServiceListWidth + kSpace12;
     CGFloat detailWidth = viewWidth - detailX - kContentSideMargin;
-    [self createDetailViewWithFrame:NSMakeRect(detailX, kContentBottomMargin + 30, 
+    [self createDetailViewWithFrame:NSMakeRect(detailX, splitBottom, 
                                                 detailWidth, splitHeight)];
     
     // Bottom buttons
@@ -212,8 +214,9 @@ static const CGFloat kStatusAreaHeight = 60;
     [mainView addSubview:serviceBox];
     [serviceBox release];
     
-    // Table view for services (HIG: standard row height)
-    NSRect tableFrame = NSMakeRect(0, 25, frame.size.width, frame.size.height - 25);
+    // Table view for services
+    CGFloat buttonAreaH = kSpace8 + kButtonHeight + kSpace8;
+    NSRect tableFrame = NSMakeRect(0, buttonAreaH, frame.size.width, frame.size.height - buttonAreaH);
     serviceScrollView = [[NSScrollView alloc] initWithFrame:tableFrame];
     [serviceScrollView setHasVerticalScroller:YES];
     [serviceScrollView setHasHorizontalScroller:NO];
@@ -268,12 +271,12 @@ static const CGFloat kStatusAreaHeight = 60;
     [serviceTable setMenu:serviceContextMenu];
     
     // Bottom button bar with enable/disable buttons
-    CGFloat buttonY = 1;
-    CGFloat buttonWidth = 80;
-    CGFloat buttonSpacing = 8;
+    CGFloat buttonY = kSpace8;
+    CGFloat btnWidth = kButtonMinWidth;
+    CGFloat btnSpacing = kSpace8;
     
     enableButton = [[NSButton alloc] initWithFrame:
-                    NSMakeRect(buttonSpacing, buttonY, buttonWidth, kButtonHeight)];
+                    NSMakeRect(btnSpacing, buttonY, btnWidth, kButtonHeight)];
     [enableButton setBezelStyle:NSRoundedBezelStyle];
     [enableButton setTitle:@"Enable"];
     [enableButton setFont:[NSFont systemFontOfSize:12]];
@@ -283,7 +286,7 @@ static const CGFloat kStatusAreaHeight = 60;
     [serviceBox addSubview:enableButton];
     
     disableButton = [[NSButton alloc] initWithFrame:
-                     NSMakeRect(buttonSpacing * 2 + buttonWidth, buttonY, buttonWidth, kButtonHeight)];
+                     NSMakeRect(btnSpacing * 2 + btnWidth, buttonY, btnWidth, kButtonHeight)];
     [disableButton setBezelStyle:NSRoundedBezelStyle];
     [disableButton setTitle:@"Disable"];
     [disableButton setFont:[NSFont systemFontOfSize:12]];
@@ -309,13 +312,13 @@ static const CGFloat kStatusAreaHeight = 60;
     detailView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, frame.size.width, frame.size.height)];
     [detailBox setContentView:detailView];
     
-    // Status area at top
-    [self createStatusAreaWithFrame:NSMakeRect(0, frame.size.height - kStatusAreaHeight - 10, 
-                                                frame.size.width, kStatusAreaHeight)];
+    // Status area at top of detail view
+    [self createStatusAreaWithFrame:NSMakeRect(0, frame.size.height - kStatusAreaHeight, 
+                                                 frame.size.width, kStatusAreaHeight)];
     
-    // Tab view for different connection types
+    // Tab view fills remaining space below status area
     CGFloat tabY = kSpace8;
-    CGFloat tabHeight = frame.size.height - kStatusAreaHeight - kSpace20;
+    CGFloat tabHeight = frame.size.height - kStatusAreaHeight - tabY;
     
     detailTabView = [[NSTabView alloc] initWithFrame:
                      NSMakeRect(kSpace12, tabY, frame.size.width - kSpace12 * 2, tabHeight)];
@@ -384,11 +387,11 @@ static const CGFloat kStatusAreaHeight = 60;
     NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 220)];
     [view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     
-    CGFloat y = 200;
-    CGFloat labelX = 10;
-    CGFloat fieldX = kLabelWidth + 8;
-    CGFloat fieldWidth = 200;
-    
+    CGFloat y = NSHeight([view frame]) - kFieldHeight - kSpace8;
+    CGFloat labelX = kSpace12;
+    CGFloat fieldX = kLabelWidth + kSpace8;
+    CGFloat fieldWidth = NSWidth([view frame]) - fieldX - kSpace12;
+
     // Configure IPv4 popup
     NSTextField *configLabel = [[NSTextField alloc] initWithFrame:
                                  NSMakeRect(labelX, y, kLabelWidth, kFieldHeight)];
@@ -402,7 +405,7 @@ static const CGFloat kStatusAreaHeight = 60;
     [configLabel release];
     
     configureIPv4Popup = [[NSPopUpButton alloc] initWithFrame:
-                          NSMakeRect(fieldX, y, fieldWidth, 26)];
+                          NSMakeRect(fieldX, y, fieldWidth, kFieldHeight)];
     [configureIPv4Popup addItemWithTitle:@"Using DHCP"];
     [configureIPv4Popup addItemWithTitle:@"Manually"];
     [configureIPv4Popup addItemWithTitle:@"Off"];
@@ -411,7 +414,7 @@ static const CGFloat kStatusAreaHeight = 60;
     [configureIPv4Popup setAutoresizingMask:NSViewMaxXMargin];
     [view addSubview:configureIPv4Popup];
     
-    y -= 28;
+    y -= kFieldHeight + kSpace16;
     
     // IP Address
     NSTextField *ipLabel = [[NSTextField alloc] initWithFrame:
@@ -432,7 +435,7 @@ static const CGFloat kStatusAreaHeight = 60;
     [ipAddressField setAutoresizingMask:NSViewMaxXMargin];
     [view addSubview:ipAddressField];
     
-    y -= 24;
+    y -= kFieldHeight + kSpace16;
     
     // Subnet Mask
     NSTextField *subnetLabel = [[NSTextField alloc] initWithFrame:
@@ -453,7 +456,7 @@ static const CGFloat kStatusAreaHeight = 60;
     [subnetMaskField setAutoresizingMask:NSViewMaxXMargin];
     [view addSubview:subnetMaskField];
     
-    y -= 24;
+    y -= kFieldHeight + kSpace16;
     
     // Router
     NSTextField *routerLabel = [[NSTextField alloc] initWithFrame:
@@ -489,7 +492,7 @@ static const CGFloat kStatusAreaHeight = 60;
     [config6Label release];
     
     configureIPv6Popup = [[NSPopUpButton alloc] initWithFrame:
-                          NSMakeRect(fieldX, y, fieldWidth, 26)];
+                          NSMakeRect(fieldX, y, fieldWidth, kFieldHeight)];
     [configureIPv6Popup addItemWithTitle:@"Automatically"];
     [configureIPv6Popup addItemWithTitle:@"Manually"];
     [configureIPv6Popup addItemWithTitle:@"Link-local only"];
@@ -499,7 +502,7 @@ static const CGFloat kStatusAreaHeight = 60;
     [configureIPv6Popup setAutoresizingMask:NSViewMaxXMargin];
     [view addSubview:configureIPv6Popup];
     
-    y -= 28;
+    y -= kFieldHeight + kSpace16;
     
     // IPv6 Address (display only for now)
     NSTextField *ipv6Label = [[NSTextField alloc] initWithFrame:
@@ -520,7 +523,7 @@ static const CGFloat kStatusAreaHeight = 60;
     [ipv6AddressField setAutoresizingMask:NSViewMaxXMargin];
     [view addSubview:ipv6AddressField];
     
-    y -= 28;
+    y -= kFieldHeight + kSpace16;
     
     // Renew DHCP Lease button
     dhcpLeaseButton = [[NSButton alloc] initWithFrame:
@@ -541,10 +544,10 @@ static const CGFloat kStatusAreaHeight = 60;
     NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 180)];
     [view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     
-    CGFloat y = 150;
-    CGFloat labelX = 10;
-    CGFloat fieldX = kLabelWidth + 8;
-    CGFloat fieldWidth = 250;
+    CGFloat y = NSHeight([view frame]) - kFieldHeight - kSpace8;
+    CGFloat labelX = kSpace12;
+    CGFloat fieldX = kLabelWidth + kSpace8;
+    CGFloat fieldWidth = NSWidth([view frame]) - fieldX - kSpace12;
     
     // DNS Servers
     NSTextField *dnsLabel = [[NSTextField alloc] initWithFrame:
@@ -565,7 +568,7 @@ static const CGFloat kStatusAreaHeight = 60;
     [dnsServersField setAutoresizingMask:NSViewMaxXMargin];
     [view addSubview:dnsServersField];
     
-    y -= 24;
+    y -= kFieldHeight + kSpace16;
     
     // Search Domains
     NSTextField *searchLabel = [[NSTextField alloc] initWithFrame:
@@ -727,13 +730,12 @@ static const CGFloat kStatusAreaHeight = 60;
 
 - (void)createBottomButtons
 {
-    CGFloat y = kSpace8;
-    CGFloat buttonWidth = kButtonMinWidth + 11; // HIG min width + some extra
+    CGFloat y = kContentBottomMargin;
     CGFloat viewWidth = NSWidth([mainView bounds]);
     
     // Apply button
     applyButton = [[NSButton alloc] initWithFrame:
-                   NSMakeRect(viewWidth - kContentSideMargin - buttonWidth, y, buttonWidth, kButtonHeight)];
+                   NSMakeRect(viewWidth - kContentSideMargin - kButtonMinWidth, y, kButtonMinWidth, kButtonHeight)];
     [applyButton setBezelStyle:NSRoundedBezelStyle];
     [applyButton setTitle:@"Apply"];
     [applyButton setTarget:self];
@@ -744,7 +746,7 @@ static const CGFloat kStatusAreaHeight = 60;
     
     // Revert button
     NSButton *revertButton = [[NSButton alloc] initWithFrame:
-                              NSMakeRect(viewWidth - kContentSideMargin - buttonWidth * 2 - kSpace12, y, buttonWidth, kButtonHeight)];
+                              NSMakeRect(viewWidth - kContentSideMargin - kButtonMinWidth * 2 - kSpace12, y, kButtonMinWidth, kButtonHeight)];
     [revertButton setBezelStyle:NSRoundedBezelStyle];
     [revertButton setTitle:@"Revert"];
     [revertButton setTarget:self];

@@ -22,7 +22,6 @@
 {
     BOOL _running;
     double _cpuUsage;
-    NSMutableArray *_perCoreCPU;
     unsigned long long _lastTotalTicks;
     unsigned long long _lastIdleTicks;
     GSMenuExtraContext *_context;
@@ -34,7 +33,6 @@
     if (self) {
         _running = NO;
         _cpuUsage = 0.0;
-        _perCoreCPU = [NSMutableArray array];
         _lastTotalTicks = 0;
         _lastIdleTicks = 0;
     }
@@ -58,14 +56,6 @@
     [total setEnabled:NO];
     [m addItem:total];
 
-    for (NSUInteger i = 0; i < [_perCoreCPU count]; i++) {
-        double usage = [[_perCoreCPU objectAtIndex:i] doubleValue];
-        NSMenuItem *core = [[NSMenuItem alloc] initWithTitle:[NSString stringWithFormat:@"Core %lu: %.0f%%", (unsigned long)i, usage]
-                                                      action:nil keyEquivalent:@""];
-        [core setEnabled:NO];
-        [m addItem:core];
-    }
-
     return m;
 }
 
@@ -88,10 +78,14 @@
 {
     @try {
         _running = YES;
-        if (!_perCoreCPU) _perCoreCPU = [NSMutableArray array];
         _lastTotalTicks = 0;
         _lastIdleTicks = 0;
         [self updateCPUUsage];
+        // Second call after a short delay to get the first delta.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            [self updateCPUUsage];
+        });
     } @catch (NSException *e) {
         NSLog(@"CPUExtra: exception in menuExtraDidLoad: %@", e);
         _running = NO;
@@ -101,7 +95,6 @@
 - (void)menuExtraWillUnload
 {
     _running = NO;
-    [_perCoreCPU removeAllObjects];
 }
 
 - (void)tick
@@ -149,24 +142,6 @@
         }
     }
 
-    [_perCoreCPU removeAllObjects];
-    rewind(fp);
-
-    while (fgets(line, sizeof(line), fp)) {
-        if (strncmp(line, "cpu", 3) == 0 && line[3] >= '0' && line[3] <= '9') {
-            unsigned long long user, nice, system, idle, iowait, irq, softirq, steal;
-            int matches = sscanf(line, "cpu%*d %llu %llu %llu %llu %llu %llu %llu %llu",
-                                &user, &nice, &system, &idle, &iowait, &irq, &softirq, &steal);
-
-            if (matches >= 4) {
-                unsigned long long total = user + nice + system + idle + iowait + irq + softirq + steal;
-                unsigned long long active = total - idle;
-                double usage = total > 0 ? (100.0 * active / total) : 0.0;
-                [_perCoreCPU addObject:@(usage)];
-            }
-        }
-    }
-
     fclose(fp);
 }
 
@@ -197,8 +172,6 @@
         _lastTotalTicks = total;
         _lastIdleTicks = idle;
     }
-
-    [_perCoreCPU removeAllObjects];
 }
 
 #else

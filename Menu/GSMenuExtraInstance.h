@@ -8,25 +8,33 @@
 #import <AppKit/AppKit.h>
 #import "GSMenuExtra.h"
 
+@class GSMenuExtraContext;
+@class MenuExtraManager;
+
 @interface GSMenuExtraInstance : NSObject
 
 @property (readonly) id<GSMenuExtra> extra;
 @property (readonly) NSString *identifier;
 @property (readonly) NSString *displayName;
 @property (readonly) NSInteger priority;
+@property (readonly) GSMenuExtraContext *context;
 @property (assign) CGFloat cachedWidth;
 
 - (instancetype)initWithExtra:(id<GSMenuExtra>)extra
                    identifier:(NSString *)identifier
                   displayName:(NSString *)displayName
-                     priority:(NSInteger)priority;
+                     priority:(NSInteger)priority
+                     manager:(MenuExtraManager *)manager;
+
+- (BOOL)load;
+- (void)unload;
 
 - (NSString *)title;
 - (NSMenu *)menu;
 - (NSImage *)icon;
 - (CGFloat)width;
 - (void)invalidateWidth;
-- (void)unload;
+- (void)tick;
 - (void)menuWillOpen;
 - (void)menuDidClose;
 - (NSInteger)displayPriority;

@@ -20,6 +20,7 @@ static NSString *ConfigKey(NSString *key)
     GSMenuExtraContext *_context;
 
     NSArray *_repos;
+    int _repoCount;
     NSString *_token;
     NSMutableDictionary *_lastFailures;
 
@@ -55,6 +56,7 @@ static NSString *ConfigKey(NSString *key)
 {
     NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
     _repos = [defs arrayForKey: ConfigKey(@"repos")] ?: @[];
+    _repoCount = (int)[_repos count];
     _token = [defs stringForKey: ConfigKey(@"token")];
     NSDictionary *failures = [defs dictionaryForKey: ConfigKey(@"lastFailures")];
     _lastFailures = failures ? [failures mutableCopy] : [NSMutableDictionary dictionary];
@@ -81,7 +83,7 @@ static NSString *ConfigKey(NSString *key)
         _anyNewFailure = NO;
         _rateLimited = NO;
 
-        if ([_repos count] == 0) {
+        if (_repoCount == 0) {
             [_context invalidatePresentation];
             return;
         }
@@ -432,6 +434,7 @@ static NSString *ConfigKey(NSString *key)
         }
     }
     _repos = [repos copy];
+    _repoCount = (int)[_repos count];
     _token = [_tokenField stringValue];
 
     NSMutableDictionary *newFailures = [NSMutableDictionary dictionary];
@@ -504,6 +507,7 @@ static NSString *ConfigKey(NSString *key)
         _running = NO;
         _context = nil;
         _repos = nil;
+        _repoCount = 0;
         _token = nil;
         _lastFailures = nil;
         _repoStatuses = nil;
@@ -523,7 +527,7 @@ static NSString *ConfigKey(NSString *key)
 {
     NSMenu *m = [[NSMenu alloc] initWithTitle: @"BuildMonitor"];
 
-    if ([_repos count] == 0) {
+    if (_repoCount == 0) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle: @"Not configured"
                                                       action: NULL
                                                keyEquivalent: @""];
@@ -589,7 +593,7 @@ static NSString *ConfigKey(NSString *key)
 
 - (NSString *)statusSymbol
 {
-    if ([_repos count] == 0) return @"?";
+    if (_repoCount == 0) return @"?";
     if (_fetchError) return @"?";
     if (_hasAnyFailure) return @"!";
     if (_hasAnyRunning) return [NSString stringWithUTF8String: "\xE2\x97\x8B"]; // ○

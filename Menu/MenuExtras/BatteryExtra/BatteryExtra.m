@@ -15,8 +15,8 @@ static const BOOL kShowTextInMenuBar = NO;
 @implementation BatteryExtra
 {
     int _percent;
-    NSString *_status;
-    NSString *_source;
+    char _status[256];
+    char _source[64];
     BOOL _showPercentage;
     int _timeRemainingMinutes;
     BOOL _running;
@@ -67,9 +67,10 @@ static const BOOL kShowTextInMenuBar = NO;
 {
     @try {
         if (!_running) return;
-        _source = @"Unknown";
+        strncpy(_source, "Unknown", sizeof(_source) - 1);
+        _source[sizeof(_source) - 1] = '\0';
         _percent = -1;
-        _status = @"";
+        _status[0] = '\0';
         _timeRemainingMinutes = -1;
 
 #if defined(__linux__)
@@ -77,9 +78,19 @@ static const BOOL kShowTextInMenuBar = NO;
         NSString *battCap = [self readFile:@"/sys/class/power_supply/BAT0/capacity"];
         NSString *battStatus = [self readFile:@"/sys/class/power_supply/BAT0/status"];
 
-        _source = [acOnline isEqualToString:@"1"] ? @"AC" : @"Battery";
+        {
+            const char *src = [acOnline isEqualToString:@"1"] ? "AC" : "Battery";
+            strncpy(_source, src, sizeof(_source) - 1);
+            _source[sizeof(_source) - 1] = '\0';
+        }
         if ([battCap length] > 0) _percent = [battCap intValue];
-        if ([battStatus length] > 0) _status = [battStatus capitalizedString];
+        if ([battStatus length] > 0) {
+            const char *s = [[battStatus capitalizedString] UTF8String];
+            if (s) {
+                strncpy(_status, s, sizeof(_status) - 1);
+                _status[sizeof(_status) - 1] = '\0';
+            }
+        }
 
         // Time remaining
         NSString *energyNow = [self readFile:@"/sys/class/power_supply/BAT0/energy_now"];
@@ -88,7 +99,7 @@ static const BOOL kShowTextInMenuBar = NO;
             int pNow = [powerNow intValue];
             if (pNow > 0) {
                 float hours;
-                if ([_status isEqualToString:@"Charging"]) {
+                if (strcmp(_status, "Charging") == 0) {
                     NSString *energyFull = [self readFile:@"/sys/class/power_supply/BAT0/energy_full"];
                     hours = ([energyFull length] > 0)
                         ? (float)([energyFull intValue] - [energyNow intValue]) / (float)pNow
@@ -105,7 +116,7 @@ static const BOOL kShowTextInMenuBar = NO;
                 int iNow = [currentNow intValue];
                 if (iNow > 0) {
                     float hours;
-                    if ([_status isEqualToString:@"Charging"]) {
+                    if (strcmp(_status, "Charging") == 0) {
                         NSString *chargeFull = [self readFile:@"/sys/class/power_supply/BAT0/charge_full"];
                         hours = ([chargeFull length] > 0)
                             ? (float)([chargeFull intValue] - [chargeNow intValue]) / (float)iNow
@@ -126,14 +137,24 @@ static const BOOL kShowTextInMenuBar = NO;
         NSString *state = [self runCommand:@"/sbin/sysctl"
                                       args:@[@"-n", @"hw.acpi.battery.state"]];
 
-        _source = [acline isEqualToString:@"1"] ? @"AC" : @"Battery";
+        {
+            const char *src = [acline isEqualToString:@"1"] ? "AC" : "Battery";
+            strncpy(_source, src, sizeof(_source) - 1);
+            _source[sizeof(_source) - 1] = '\0';
+        }
         if ([life length] > 0) _percent = [life intValue];
         if ([state length] > 0) {
             int s = [state intValue];
-            _status = (s == 1) ? @"Discharging" :
-                      (s == 2) ? @"Charging" :
-                      (s == 7) ? @"Charged" :
-                      (s == 0) ? @"Idle" : state;
+            const char *st;
+            if (s == 1) st = "Discharging";
+            else if (s == 2) st = "Charging";
+            else if (s == 7) st = "Charged";
+            else if (s == 0) st = "Idle";
+            else st = [state UTF8String];
+            if (st) {
+                strncpy(_status, st, sizeof(_status) - 1);
+                _status[sizeof(_status) - 1] = '\0';
+            }
         }
 
         // Time remaining (FreeBSD provides minutes directly)
@@ -148,14 +169,24 @@ static const BOOL kShowTextInMenuBar = NO;
         NSString *life   = [self runCommand:@"/usr/sbin/apm" args:@[@"-l"]];
         NSString *bstate = [self runCommand:@"/usr/sbin/apm" args:@[@"-b"]];
 
-        _source = [acline isEqualToString:@"1"] ? @"AC" : @"Battery";
+        {
+            const char *src = [acline isEqualToString:@"1"] ? "AC" : "Battery";
+            strncpy(_source, src, sizeof(_source) - 1);
+            _source[sizeof(_source) - 1] = '\0';
+        }
         if ([life length] > 0) _percent = [life intValue];
         if ([bstate length] > 0) {
             int s = [bstate intValue];
-            _status = (s == 0) ? @"High" :
-                      (s == 1) ? @"Low" :
-                      (s == 2) ? @"Critical" :
-                      (s == 3) ? @"Charging" : bstate;
+            const char *st;
+            if (s == 0) st = "High";
+            else if (s == 1) st = "Low";
+            else if (s == 2) st = "Critical";
+            else if (s == 3) st = "Charging";
+            else st = [bstate UTF8String];
+            if (st) {
+                strncpy(_status, st, sizeof(_status) - 1);
+                _status[sizeof(_status) - 1] = '\0';
+            }
         }
 
         // Time remaining (OpenBSD apm provides minutes)
@@ -171,13 +202,23 @@ static const BOOL kShowTextInMenuBar = NO;
                                       args:@[@"-n", @"hw.acpi.battery.life"]];
         NSString *state = [self runCommand:@"/sbin/sysctl"
                                       args:@[@"-n", @"hw.acpi.battery.state"]];
-        _source = [acline isEqualToString:@"1"] ? @"AC" : @"Battery";
+        {
+            const char *src = [acline isEqualToString:@"1"] ? "AC" : "Battery";
+            strncpy(_source, src, sizeof(_source) - 1);
+            _source[sizeof(_source) - 1] = '\0';
+        }
         if ([life length] > 0) _percent = [life intValue];
         if ([state length] > 0) {
             int s = [state intValue];
-            _status = (s == 1) ? @"Discharging" :
-                      (s == 2) ? @"Charging" :
-                      (s == 7) ? @"Charged" : state;
+            const char *st;
+            if (s == 1) st = "Discharging";
+            else if (s == 2) st = "Charging";
+            else if (s == 7) st = "Charged";
+            else st = [state UTF8String];
+            if (st) {
+                strncpy(_status, st, sizeof(_status) - 1);
+                _status[sizeof(_status) - 1] = '\0';
+            }
         }
 
         // Time remaining (NetBSD provides minutes via sysctl)
@@ -246,17 +287,21 @@ static const BOOL kShowTextInMenuBar = NO;
 {
     NSMenu *m = [[NSMenu alloc] initWithTitle:@"Battery"];
     NSString *pct = _percent >= 0 ? [NSString stringWithFormat:@"%d%%", _percent] : @"--";
-    NSString *line = [NSString stringWithFormat:@"%@ (%@)", pct, _status];
+    NSString *statusStr = [NSString stringWithUTF8String:_status];
+    if (!statusStr) statusStr = @"";
+    NSString *line = [NSString stringWithFormat:@"%@ (%@)", pct, statusStr];
     NSMenuItem *info = [[NSMenuItem alloc] initWithTitle:line action:NULL keyEquivalent:@""];
     [info setEnabled:NO];
     [m addItem:info];
-    [m addItemWithTitle:[NSString stringWithFormat:@"Source: %@", _source] action:NULL keyEquivalent:@""];
+    NSString *sourceStr = [NSString stringWithUTF8String:_source];
+    if (!sourceStr) sourceStr = @"";
+    [m addItemWithTitle:[NSString stringWithFormat:@"Source: %@", sourceStr] action:NULL keyEquivalent:@""];
     [[m itemAtIndex:1] setEnabled:NO];
 
     if (_timeRemainingMinutes >= 0) {
         NSString *timeStr = [self remainingTimeString];
         if (timeStr) {
-            BOOL isCharging = [_status isEqualToString:@"Charging"];
+            BOOL isCharging = (strcmp(_status, "Charging") == 0);
             NSString *timeLabel = isCharging
                 ? [NSString stringWithFormat:@"%@ until full", timeStr]
                 : [NSString stringWithFormat:@"%@ remaining", timeStr];
@@ -291,10 +336,10 @@ static const BOOL kShowTextInMenuBar = NO;
 - (NSImage *)image
 {
     if (_percent < 0) return nil;
-    if (!_source || !_status) return nil;
+    if (_source[0] == '\0' || _status[0] == '\0') return nil;
     NSString *name;
-    if ([_source isEqualToString:@"AC"]) {
-        name = [_status isEqualToString:@"Charging"]
+    if (strcmp(_source, "AC") == 0) {
+        name = (strcmp(_status, "Charging") == 0)
             ? @"battery-charging" : @"battery-charged";
     } else if (_percent >= 90) {
         name = @"battery";
@@ -321,8 +366,8 @@ static const BOOL kShowTextInMenuBar = NO;
     } @catch (NSException *e) {
         NSLog(@"BatteryExtra: exception in menuExtraDidLoad: %@", e);
         _running = NO;
-        _status = nil;
-        _source = nil;
+        _status[0] = '\0';
+        _source[0] = '\0';
     }
 }
 

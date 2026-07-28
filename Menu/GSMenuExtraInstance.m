@@ -5,13 +5,23 @@
  */
 
 #import "GSMenuExtraInstance.h"
+#import "GSMenuExtraContext.h"
+#import "MenuExtraManager.h"
 
 @implementation GSMenuExtraInstance
+{
+    id<GSMenuExtra> _extra;
+    NSString *_identifier;
+    NSString *_displayName;
+    NSInteger _priority;
+    GSMenuExtraContext *_context;
+}
 
 - (instancetype)initWithExtra:(id<GSMenuExtra>)extra
                    identifier:(NSString *)identifier
                   displayName:(NSString *)displayName
                      priority:(NSInteger)priority
+                     manager:(MenuExtraManager *)manager
 {
     self = [super init];
     if (self) {
@@ -20,33 +30,77 @@
         _displayName = [displayName copy];
         _priority = priority;
         _cachedWidth = 0;
+
+        _context = [[GSMenuExtraContext alloc] initWithManager:manager
+                                                    identifier:_identifier];
+        if ([_extra respondsToSelector:@selector(setContext:)]) {
+            [_extra setContext:_context];
+        }
     }
     return self;
 }
 
+- (BOOL)load
+{
+    @try {
+        if ([_extra respondsToSelector:@selector(menuExtraDidLoad)]) {
+            [_extra menuExtraDidLoad];
+        }
+        return YES;
+    } @catch (NSException *e) {
+        NSLog(@"GSMenuExtraInstance: exception in load for %@: %@", _identifier, e);
+        return NO;
+    }
+}
+
+- (void)unload
+{
+    @try {
+        if ([_extra respondsToSelector:@selector(menuExtraWillUnload)]) {
+            [_extra menuExtraWillUnload];
+        }
+    } @catch (NSException *e) {
+        NSLog(@"GSMenuExtraInstance: exception in unload for %@: %@", _identifier, e);
+    }
+}
+
 - (NSString *)title
 {
-    return [_extra title];
+    @try {
+        return [_extra title];
+    } @catch (NSException *e) {
+        NSLog(@"GSMenuExtraInstance: exception in title for %@: %@", _identifier, e);
+        return _identifier;
+    }
 }
 
 - (NSMenu *)menu
 {
-    return [_extra menu];
+    @try {
+        return [_extra menu];
+    } @catch (NSException *e) {
+        NSLog(@"GSMenuExtraInstance: exception in menu for %@: %@", _identifier, e);
+        return nil;
+    }
 }
 
 - (NSImage *)icon
 {
-    return [_extra image];
+    @try {
+        return [_extra image];
+    } @catch (NSException *e) {
+        NSLog(@"GSMenuExtraInstance: exception in icon for %@: %@", _identifier, e);
+        return nil;
+    }
 }
 
 - (CGFloat)width
 {
     if (_cachedWidth > 0) return _cachedWidth;
-    NSFont *font = [NSFont menuBarFontOfSize:0];
-    NSDictionary *attrs = @{ NSFontAttributeName: font };
     NSString *display = [self title];
     if (!display || [display length] == 0) display = @"  ";
-    NSSize size = [display sizeWithAttributes:attrs];
+    NSFont *font = [NSFont menuBarFontOfSize:0];
+    NSSize size = [display sizeWithAttributes:@{ NSFontAttributeName: font }];
     _cachedWidth = ceil(size.width) + 8.0;
     return _cachedWidth;
 }
@@ -56,24 +110,36 @@
     _cachedWidth = 0;
 }
 
-- (void)unload
+- (void)tick
 {
-    if ([_extra respondsToSelector:@selector(menuExtraWillUnload)]) {
-        [_extra menuExtraWillUnload];
+    @try {
+        if ([_extra respondsToSelector:@selector(tick)]) {
+            [(id)_extra performSelector:@selector(tick)];
+        }
+    } @catch (NSException *e) {
+        NSLog(@"GSMenuExtraInstance: exception in tick for %@: %@", _identifier, e);
     }
 }
 
 - (void)menuWillOpen
 {
-    if ([_extra respondsToSelector:@selector(menuExtraWillOpenMenu)]) {
-        [_extra menuExtraWillOpenMenu];
+    @try {
+        if ([_extra respondsToSelector:@selector(menuExtraWillOpenMenu)]) {
+            [_extra menuExtraWillOpenMenu];
+        }
+    } @catch (NSException *e) {
+        NSLog(@"GSMenuExtraInstance: exception in menuWillOpen for %@: %@", _identifier, e);
     }
 }
 
 - (void)menuDidClose
 {
-    if ([_extra respondsToSelector:@selector(menuExtraDidCloseMenu)]) {
-        [_extra menuExtraDidCloseMenu];
+    @try {
+        if ([_extra respondsToSelector:@selector(menuExtraDidCloseMenu)]) {
+            [_extra menuExtraDidCloseMenu];
+        }
+    } @catch (NSException *e) {
+        NSLog(@"GSMenuExtraInstance: exception in menuDidClose for %@: %@", _identifier, e);
     }
 }
 
