@@ -57,6 +57,15 @@ static const BOOL kShowTextInMenuBar = NO;
     return (int)((float)_current / (float)_maximum * 100.0f);
 }
 
+#pragma mark - System compatibility
+
+- (BOOL)isCompatibleWithSystem
+{
+    SysfsBacklightBackend *backend = [[SysfsBacklightBackend alloc] init];
+    BOOL compatible = ([backend maximum] > 0);
+    return compatible;
+}
+
 #pragma mark - GSMenuExtra
 
 - (NSMenu *)menu

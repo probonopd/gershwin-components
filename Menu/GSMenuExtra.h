@@ -27,4 +27,12 @@
 - (void)menuExtraDidCloseMenu;
 - (void)setContext:(GSMenuExtraContext *)context;
 
+/**
+ * Return NO if this MenuExtra is incompatible with the current hardware
+ * (e.g., BatteryExtra when no battery is present).  Incompatible extras
+ * are not loaded even if enabled, and do not appear in the preferences
+ * panel.  Defaults to YES when not implemented.
+ */
+- (BOOL)isCompatibleWithSystem;
+
 @end

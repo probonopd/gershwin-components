@@ -216,6 +216,16 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
         id<GSMenuExtra> extra = [[principalClass alloc] init];
         if (!extra) return nil;
 
+        // Check system compatibility before loading.
+        // Non-compatible extras are silently skipped — they won't appear
+        // in the menu bar or the preferences panel.
+        if ([extra respondsToSelector:@selector(isCompatibleWithSystem)]
+            && ![extra isCompatibleWithSystem]) {
+            NSLog(@"GSMenuExtra: %@ is not compatible with this system, skipping",
+                  [bundle identifier]);
+            return nil;
+        }
+
         GSMenuExtraInstance *instance = [[GSMenuExtraInstance alloc] initWithExtra:extra
                                                                           identifier:[bundle identifier]
                                                                          displayName:[bundle displayName]

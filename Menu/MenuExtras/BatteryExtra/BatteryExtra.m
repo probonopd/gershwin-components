@@ -8,6 +8,9 @@
 #import <stdio.h>
 #import <stdlib.h>
 #import <string.h>
+#if defined(__FreeBSD__) || defined(__NetBSD__)
+#import <sys/sysctl.h>
+#endif
 
 
 static const BOOL kShowTextInMenuBar = NO;
@@ -279,6 +282,54 @@ static const BOOL kShowTextInMenuBar = NO;
     } else {
         return [NSString stringWithFormat:@"%d min", mins];
     }
+}
+
+#pragma mark - System compatibility
+
+- (BOOL)isCompatibleWithSystem
+{
+#if defined(__linux__)
+    // Check if any power supply battery device exists
+    static NSString *const batteryPaths[] = {
+        @"/sys/class/power_supply/BAT0",
+        @"/sys/class/power_supply/BAT1",
+        @"/sys/class/power_supply/BAT2",
+        nil
+    };
+    for (int i = 0; batteryPaths[i]; i++) {
+        if ([[NSFileManager defaultManager] fileExistsAtPath:batteryPaths[i]])
+            return YES;
+    }
+    return NO;
+#elif defined(__FreeBSD__) || defined(__NetBSD__)
+    int battLife = -1;
+    size_t len = sizeof(battLife);
+    if (sysctlbyname("hw.acpi.battery.life", &battLife, &len, NULL, 0) == 0) {
+        return (battLife >= 0 && battLife <= 100);
+    }
+    return NO;
+#elif defined(__OpenBSD__)
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:@"/usr/sbin/apm"];
+    [task setArguments:@[@"-l"]];
+    NSPipe *pipe = [NSPipe pipe];
+    [task setStandardOutput:pipe];
+    [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+    @try {
+        [task launch];
+        [task waitUntilExit];
+    } @catch (NSException *e) {
+        return NO;
+    }
+    NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    NSString *s = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    s = [s stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    int life = [s intValue];
+    // apm -l returns 255 when no battery is present
+    return (life >= 0 && life <= 100);
+#else
+    return NO;
+#endif
 }
 
 #pragma mark - GSMenuExtra
