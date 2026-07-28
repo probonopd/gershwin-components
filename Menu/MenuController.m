@@ -454,6 +454,15 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     XSync(display, False);
 }
 
+- (void)extrasEnabledSetDidChange:(NSNotification *)notification
+{
+    CGFloat extrasWidth = [self.statusItemManager extrasMenuWidth];
+    CGFloat menuBarW = NSWidth([self.menuBarView bounds]);
+    CGFloat widgetWidth = menuBarW - extrasWidth - 8;
+    [self.appMenuWidget setFrameSize:NSMakeSize(widgetWidth, NSHeight([self.appMenuWidget frame]))];
+    [self.menuBarView setNeedsDisplay:YES];
+}
+
 - (void)screenParametersChanged:(NSNotification *)notification
 {
     NSDebugLLog(@"gwcomp", @"MenuController: Screen parameters changed, repositioning menu bar");
@@ -978,6 +987,12 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     // Position extras 8px from the right edge of the menu bar
     [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth - 8, 0,
                                         statusItemsWidth, menuBarHeight)];
+
+    // Observe extras layout changes so we can resize AppMenuWidget
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(extrasEnabledSetDidChange:)
+                                                 name:@"GSMenuExtraEnabledSetDidChange"
+                                               object:self.statusItemManager];
 
     // Give the app menu widget the remaining space
     CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth - 8;

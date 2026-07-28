@@ -840,7 +840,19 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 
     if (_extrasMenuView) {
         [_extrasMenuView sizeToFit];
+        CGFloat width = [self extrasMenuWidth];
+        NSView *superview = [_extrasMenuView superview];
+        if (superview) {
+            CGFloat menuBarW = NSWidth([superview bounds]);
+            [_extrasMenuView setFrame:NSMakeRect(menuBarW - width - 8, 0, width, _menuBarHeight)];
+            [superview setNeedsDisplay:YES];
+        } else {
+            [_extrasMenuView setFrameSize:NSMakeSize(width, _menuBarHeight)];
+        }
     }
+
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraEnabledSetDidChange"
+                                                        object:self];
 
     NSLog(@"GSMenuExtra: applied enabled set, %lu items active",
           (unsigned long)[_statusItems count]);
