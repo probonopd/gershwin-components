@@ -31,8 +31,8 @@
 #define ki_comm p_comm
 #define ki_uid p_uid
 #define ki_stat p_stat
-#define ki_size (p_vm_dsize + p_vm_ssize)
 #define ki_rssize p_vm_rssize
+// OpenBSD does not have p_vm_dsize/p_vm_ssize; handled via #ifdef at use site.
 #endif
 
 #import <errno.h>
@@ -434,7 +434,11 @@ static ProcessesController *sharedController = nil;
                                 struct passwd *pw = getpwuid(p->ki_uid);
                                 if (pw) info.user = [NSString stringWithUTF8String:pw->pw_name]; else info.user = @"unknown";
                                 info.residentMemory = (long)((long)p->ki_rssize * pageSize2 / 1024); // KB
+#ifdef __OpenBSD__
+                                info.virtualMemory = 0;
+#else
                                 info.virtualMemory = (long)(p->ki_size / 1024);
+#endif
                                 // CPU
 #ifdef __OpenBSD__
                                 unsigned long utime_ticks = p->p_uticks;
@@ -514,16 +518,28 @@ static ProcessesController *sharedController = nil;
 
                             // Memory
                             info.residentMemory = (long)((long)p->ki_rssize * pageSize / 1024); // KB
+#ifdef __OpenBSD__
+                            info.virtualMemory = 0;
+#else
                             info.virtualMemory = (long)(p->ki_size / 1024);
+#endif
 
                             // State
                             char stateChar = '?';
                             switch (p->ki_stat) {
+#ifdef __OpenBSD__
+                                case SDEAD: stateChar = 'Z'; break;
+                                case SSTOP: stateChar = 'T'; break;
+                                case SONPROC: stateChar = 'R'; break;
+                                case SSLEEP: stateChar = 'S'; break;
+                                default: stateChar = 'R'; break;
+#else
                                 case SZOMB: stateChar = 'Z'; break;
                                 case SSTOP: stateChar = 'T'; break;
                                 case SRUN: stateChar = 'R'; break;
                                 case SSLEEP: stateChar = 'S'; break;
                                 default: stateChar = 'R'; break;
+#endif
                             }
                             info.state = [NSString stringWithFormat:@"%c", stateChar];
 
