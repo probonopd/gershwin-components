@@ -2,6 +2,11 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
+# lcms2 is needed for ICC color profile support.  If absent we skip the build.
+HAVE_LCMS2 := $(shell pkg-config --exists lcms2 2>/dev/null && echo yes || echo no)
+
+ifeq ($(HAVE_LCMS2),yes)
+
 BUNDLE_NAME = Color
 Color_OBJC_FILES = ColorPrefPane.m DisplayManager.m ProfileParser.m ProfileApplier.m
 Color_RESOURCE_FILES = ColorInfo.plist Color.png
@@ -48,3 +53,22 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+
+else
+
+all::
+	@echo "Color: lcms2 not found, skipping"
+
+build::
+	@echo "Color: lcms2 not found, skipping"
+
+install::
+	@echo "Color: lcms2 not found, skipping install"
+
+clean::
+	@echo "Color: lcms2 not found, nothing to clean"
+
+distclean::
+	@echo "Color: lcms2 not found, nothing to clean"
+
+endif
