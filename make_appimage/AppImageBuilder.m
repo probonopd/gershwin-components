@@ -480,36 +480,65 @@
         }
     }
 
-    // === (i) Create AppRun ===
+    // === (i) Determine theme to use ===
+    // Detect the current system theme and bundle it.  GNUSTEP_THEME is set
+    // in AppRun so the app uses the same theme it would have on the host.
+    NSString *themeName = nil;
+    NSString *appRunThemeLine = @"";
+    {
+        NSString *defaultsPath = [self _findTool:@"defaults"];
+        if (defaultsPath) {
+            NSString *result = [self _runTool:defaultsPath withArgs:@[@"read", @"NSGlobalDomain", @"GSTheme"]];
+            if ([result length] > 0) {
+                NSString *themeDir = [_appDirPath stringByAppendingPathComponent:
+                    [NSString stringWithFormat:@"System/Library/Themes/%@.theme", result]];
+                if ([[NSFileManager defaultManager] fileExistsAtPath:themeDir]) {
+                    themeName = result;
+                }
+            }
+        }
+        // Fallback: use the first theme found in the AppDir
+        if (!themeName) {
+            NSString *themesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Themes"];
+            NSArray *entries = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:themesDir error:NULL];
+            for (NSString *entry in entries) {
+                if ([entry hasSuffix:@".theme"]) {
+                    themeName = [entry stringByDeletingPathExtension];
+                    break;
+                }
+            }
+        }
+        if (themeName) {
+            appRunThemeLine = [NSString stringWithFormat:@"export GNUSTEP_THEME=%@\n", themeName];
+            NSLog(@"make_appimage: using theme %@", themeName);
+        }
+    }
+
+    // === (j) Create AppRun ===
     {
         NSString *appRunPath = [_appDirPath stringByAppendingPathComponent:@"AppRun"];
-        NSString *content = [NSString stringWithFormat:
-            @"#!/bin/sh\n"
-            @"# Unset host environment variables that could interfere\n"
-            @"unset LD_LIBRARY_PATH GNUSTEP_CONFIG_FILE GNUSTEP_USER_CONFIG_FILE GNUSTEP_USER_DIR GNUSTEP_USER_DEFAULTS_DIR\n"
-            @"unset GNUSTEP_SYSTEM_ROOT GNUSTEP_LOCAL_ROOT GNUSTEP_NETWORK_ROOT GNUSTEP_FLATTENED\n"
-            @"unset LD_PRELOAD LD_AUDIT LD_DEBUG LD_ORIGIN_PATH\n"
-            @"\n"
-            @"HERE=\"$(dirname \"$(readlink -f \"${0}\")\")\"\n"
-            @"export GNUSTEP_CONFIG_FILE=\"$HERE/usr/lib/GNUstep/GNUstep.conf\"\n"
-            @"# Detect and apply the user's current GNUstep theme\n"
-            @"CURRENT_THEME=$(defaults read NSGlobalDomain GSTheme 2>/dev/null || echo \"\")\n"
-            @"if [ -n \"$CURRENT_THEME\" ] && [ -d \"$HERE/System/Library/Themes/$CURRENT_THEME.theme\" ]; then\n"
-            @"  export GNUSTEP_THEME=\"$CURRENT_THEME\"\n"
-            @"elif [ -d \"$HERE/System/Library/Themes/Eau.theme\" ]; then\n"
-            @"  export GNUSTEP_THEME=Eau\n"
-            @"fi\n"
-            @"export FONTCONFIG_FILE=/etc/fonts/fonts.conf\n"
-            @"export FONTCONFIG_PATH=/etc/fonts\n"
-            @"export GNUSTEP_ROOT=\"$HERE/usr\"\n"
-            @"export GNUSTEP_SYSTEM_ROOT=\"$HERE/System\"\n"
-            @"export GNUSTEP_LOCAL_ROOT=\"$HERE/Local\"\n"
-            @"export LD_LIBRARY_PATH=\"$HERE/usr/lib:$HERE/usr/local/lib\"\n"
-            @"export PATH=\"$HERE/usr/local/bin:$HERE/usr/bin:$HERE/System/Library/Tools:$HERE/Local/Library/Tools:$PATH\"\n"
-            @"\n"
-            @"cd \"$HERE\"\n"
-            @"exec \"$HERE/%@\" \"$@\"\n",
-            _mainExec];
+        NSMutableString *content = [NSMutableString string];
+        [content appendString:@"#!/bin/sh\n"];
+        [content appendString:@"# Unset host environment variables that could interfere\n"];
+        [content appendString:@"unset LD_LIBRARY_PATH GNUSTEP_CONFIG_FILE GNUSTEP_USER_CONFIG_FILE GNUSTEP_USER_DIR GNUSTEP_USER_DEFAULTS_DIR\n"];
+        [content appendString:@"unset GNUSTEP_SYSTEM_ROOT GNUSTEP_LOCAL_ROOT GNUSTEP_NETWORK_ROOT GNUSTEP_FLATTENED\n"];
+        [content appendString:@"unset LD_PRELOAD LD_AUDIT LD_DEBUG LD_ORIGIN_PATH\n"];
+        [content appendString:@"\n"];
+        [content appendString:@"HERE=\"$(dirname \"$(readlink -f \"${0}\")\")\"\n"];
+        [content appendFormat:@"export GNUSTEP_CONFIG_FILE=\"$HERE/usr/lib/GNUstep/GNUstep.conf\"\n"];
+        if (themeName) {
+            [content appendFormat:@"export GNUSTEP_THEME=%@\n", themeName];
+        }
+        [content appendString:@"export FONTCONFIG_FILE=/etc/fonts/fonts.conf\n"];
+        [content appendString:@"export FONTCONFIG_PATH=/etc/fonts\n"];
+        [content appendString:@"export GNUSTEP_ROOT=\"$HERE/usr\"\n"];
+        [content appendString:@"export GNUSTEP_SYSTEM_ROOT=\"$HERE/System\"\n"];
+        [content appendString:@"export GNUSTEP_LOCAL_ROOT=\"$HERE/Local\"\n"];
+        [content appendString:@"export LD_LIBRARY_PATH=\"$HERE/usr/lib:$HERE/usr/local/lib\"\n"];
+        [content appendString:@"export PATH=\"$HERE/usr/local/bin:$HERE/usr/bin:$HERE/System/Library/Tools:$HERE/Local/Library/Tools:$PATH\"\n"];
+        [content appendString:@"\n"];
+        [content appendString:@"cd \"$HERE\"\n"];
+        [content appendFormat:@"exec \"$HERE/%@\" \"$@\"\n", _mainExec];
 
         NSError *err = nil;
         if (![content writeToFile:appRunPath atomically:YES
