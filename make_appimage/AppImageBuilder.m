@@ -13,6 +13,7 @@
 {
     BOOL _standalone;
     BOOL _verbose;
+    NSString *_appResourcesDir;
 }
 
 - (NSString *)_runTool:(NSString *)tool withArgs:(NSArray *)args;
@@ -300,8 +301,9 @@
             [self _runTool:chmodPath withArgs:@[@"g-w", configPath] error:NULL];
         }
 
-        // Copy bundles from System and Local library dirs
+        // Copy only essential bundles: backend (libgnustep-back-* and libgnustep-xlib-*)
         NSString *bundlesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Bundles"];
+        NSSet *bundlePrefixes = [NSSet setWithObjects:@"libgnustep-back-", @"libgnustep-xlib-", nil];
         NSArray *srcBundlesDirs = @[@"/System/Library/Bundles", @"/Local/Library/Bundles"];
         for (NSString *src in srcBundlesDirs) {
             if ([fm fileExistsAtPath:src]) {
@@ -309,6 +311,11 @@
                                attributes:nil error:NULL];
                 NSArray *entries = [fm contentsOfDirectoryAtPath:src error:NULL];
                 for (NSString *entry in entries) {
+                    BOOL wanted = NO;
+                    for (NSString *prefix in bundlePrefixes) {
+                        if ([entry hasPrefix:prefix]) { wanted = YES; break; }
+                    }
+                    if (!wanted) continue;
                     NSString *fullSrc = [src stringByAppendingPathComponent:entry];
                     NSString *fullDst = [bundlesDir stringByAppendingPathComponent:entry];
                     if (![fm fileExistsAtPath:fullDst]) {
@@ -368,11 +375,10 @@
         detectedInterpreter = [deployer detectInterpreter];
         if (detectedInterpreter) {
             if (_verbose) NSLog(@"make_appimage: interpreter: %@", detectedInterpreter);
-            if ([deployer deployInterpreter:detectedInterpreter]) {
-                if (!_standalone) {
-                    [deployer patchInterpreter:[_appDirPath stringByAppendingPathComponent:detectedInterpreter]];
-                }
-            }
+            [deployer deployInterpreter:detectedInterpreter];
+            // ld-linux is deployed but NOT patched — patching it breaks $ORIGIN
+            // resolution in RPATH.  The patched default search paths are not
+            // needed when rpath and LD_LIBRARY_PATH are set to AppDir paths.
         }
     }
 
@@ -474,6 +480,17 @@
         }
         if (_verbose) NSLog(@"make_appimage: main executable: %@", _mainExec);
 
+        // Determine Resources dir for this app (contains bundled .so files)
+        _appResourcesDir = nil;
+        NSString *mainDir = [_mainExec stringByDeletingLastPathComponent];
+        if ([[mainDir pathExtension] isEqualToString:@"app"]) {
+            _appResourcesDir = [mainDir stringByAppendingPathComponent:@"Resources"];
+        } else {
+            NSString *parent = [mainDir stringByDeletingLastPathComponent];
+            if ([[parent pathExtension] isEqualToString:@"app"])
+                _appResourcesDir = [parent stringByAppendingPathComponent:@"Resources"];
+        }
+
         if (detectedInterpreter && patchelfPath) {
             NSString *mainFullPath = [_appDirPath stringByAppendingPathComponent:_mainExec];
             NSString *relInterp = [@"." stringByAppendingString:detectedInterpreter];
@@ -516,7 +533,101 @@
         }
     }
 
-    // === (j) Create AppRun ===
+    // === (j) Patch RPATH on all deployed ELFs ===
+    // Use $ORIGIN-relative rpaths so libraries resolve inside the AppDir.
+    if (patchelfPath && _standalone) {
+        if (_verbose) NSLog(@"make_appimage: patching RPATH on deployed ELFs");
+        // Collect all ELFs: initial scan + usr/lib + usr/local/lib
+        NSMutableSet *elfSet = [NSMutableSet setWithArray:_allELFs];
+        NSString *usrLib = [_appDirPath stringByAppendingPathComponent:@"usr/lib"];
+        for (NSString *sub in [fm enumeratorAtPath:usrLib]) {
+            NSString *full = [usrLib stringByAppendingPathComponent:sub];
+            BOOL isDir = NO;
+            if ([fm fileExistsAtPath:full isDirectory:&isDir] && !isDir)
+                [elfSet addObject:full];
+        }
+        for (NSString *sub in [fm enumeratorAtPath:[_appDirPath stringByAppendingPathComponent:@"usr/local/lib"]]) {
+            NSString *full = [[_appDirPath stringByAppendingPathComponent:@"usr/local/lib"] stringByAppendingPathComponent:sub];
+            BOOL isDir = NO;
+            if ([fm fileExistsAtPath:full isDirectory:&isDir] && !isDir)
+                [elfSet addObject:full];
+        }
+
+        for (NSString *elf in elfSet) {
+            NSString *existing = [self _runTool:patchelfPath withArgs:@[@"--print-rpath", elf]];
+            NSMutableSet *parts = [NSMutableSet set];
+            if ([existing length] > 0) {
+                for (NSString *p in [existing componentsSeparatedByString:@":"])
+                    if (![p hasPrefix:@"/"] && [p length] > 0)
+                        [parts addObject:p];
+            }
+
+            // $ORIGIN-relative path from this ELF to usr/lib
+            NSString *elfDir = [elf stringByDeletingLastPathComponent];
+            NSMutableString *rel = [NSMutableString string];
+            NSArray *e = [elfDir pathComponents], *l = [usrLib pathComponents];
+            NSUInteger c = 0;
+            while (c < [e count] && c < [l count] && [[e objectAtIndex:c] isEqual:[l objectAtIndex:c]]) c++;
+            for (NSUInteger i = c; i < [e count]; i++) [rel appendString:@"../"];
+            for (NSUInteger i = c; i < [l count]; i++) [rel appendFormat:@"%@/", [l objectAtIndex:i]];
+            if ([rel length] == 0) [rel appendString:@"../"];
+            [parts addObject:[NSString stringWithFormat:@"$ORIGIN/%@", rel]];
+
+            // If this is inside a .app bundle, keep its existing Resources rpath
+            // The original $ORIGIN/Resources is already preserved above.
+
+            NSString *combined = [[parts allObjects] componentsJoinedByString:@":"];
+            if (![existing isEqualToString:combined] && [parts count] > 0) {
+                if (_verbose) NSLog(@"make_appimage:   rpath %@ -> %@", [elf lastPathComponent], combined);
+                [self _runTool:patchelfPath withArgs:@[@"--set-rpath", combined, elf] error:NULL];
+            }
+        }
+    }
+
+    // === (k) Verify no external libraries would be loaded ===
+    // Run ldd in a clean environment pointing only to the AppDir's libs.
+    if (_standalone && patchelfPath) {
+        NSString *mainFullPath = [_appDirPath stringByAppendingPathComponent:_mainExec];
+        NSString *ldLibPath = [NSString stringWithFormat:@"%@/usr/lib:%@/usr/local/lib",
+                                _appDirPath, _appDirPath];
+        if (_appResourcesDir) {
+            NSString *resFull = [_appDirPath stringByAppendingPathComponent:_appResourcesDir];
+            ldLibPath = [NSString stringWithFormat:@"%@:%@", resFull, ldLibPath];
+        }
+        @try {
+            NSTask *task = [[NSTask alloc] init];
+            [task setLaunchPath:[self _findTool:@"ldd"] ?: @"/usr/bin/ldd"];
+            [task setArguments:@[mainFullPath]];
+            NSMutableDictionary *env = [NSMutableDictionary dictionary];
+            [env setObject:ldLibPath forKey:@"LD_LIBRARY_PATH"];
+            [task setEnvironment:env];
+            NSPipe *outPipe = [NSPipe pipe];
+            [task setStandardOutput:outPipe];
+            [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+            [task launch];
+            [task waitUntilExit];
+            NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
+            NSString *output = [[NSString alloc] initWithData:outData encoding:NSUTF8StringEncoding];
+            BOOL externalFound = NO;
+            for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
+                if ([line rangeOfString:@" => /"].location == NSNotFound) continue;
+                if ([line rangeOfString:@" => /tmp/"].location != NSNotFound) continue;
+                if ([line rangeOfString:@" => "].location != NSNotFound) {
+                    NSLog(@"make_appimage: WARNING — external lib: %@", line);
+                    externalFound = YES;
+                }
+            }
+            if (externalFound) {
+                NSLog(@"make_appimage: ERROR — some libraries resolve outside the AppDir");
+            } else {
+                if (_verbose) NSLog(@"make_appimage: all libraries resolve inside AppDir");
+            }
+        } @catch (NSException *e) {
+            NSLog(@"make_appimage: verification skipped: %@", e);
+        }
+    }
+
+    // === (l) Create AppRun ===
     {
         NSString *appRunPath = [_appDirPath stringByAppendingPathComponent:@"AppRun"];
         NSMutableString *content = [NSMutableString string];
@@ -536,7 +647,7 @@
         [content appendString:@"export GNUSTEP_ROOT=\"$HERE/usr\"\n"];
         [content appendString:@"export GNUSTEP_SYSTEM_ROOT=\"$HERE/System\"\n"];
         [content appendString:@"export GNUSTEP_LOCAL_ROOT=\"$HERE/Local\"\n"];
-        [content appendString:@"export LD_LIBRARY_PATH=\"$HERE/usr/lib:$HERE/usr/local/lib\"\n"];
+        // All library resolution is via RPATH — no LD_LIBRARY_PATH needed
         [content appendString:@"export PATH=\"$HERE/usr/local/bin:$HERE/usr/bin:$HERE/System/Library/Tools:$HERE/Local/Library/Tools:$PATH\"\n"];
         [content appendString:@"\n"];
         [content appendString:@"cd \"$HERE\"\n"];
