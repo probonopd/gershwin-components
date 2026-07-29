@@ -27,5 +27,7 @@
 
 - (BOOL)isExcluded:(NSString *)libName;
 - (void)setUseLibcSubdirectory:(BOOL)flag;
+- (void)setStandalone:(BOOL)flag;
+- (void)setVerbose:(BOOL)flag;
 
 @end

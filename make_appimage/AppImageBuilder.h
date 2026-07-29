@@ -39,6 +39,8 @@
 - (void)setCategories:(NSString *)categories;
 - (void)setMainExecutable:(NSString *)path;
 - (void)setAppimageTool:(NSString *)path;
+- (void)setStandalone:(BOOL)flag;
+- (void)setVerbose:(BOOL)flag;
 
 - (BOOL)build;
 

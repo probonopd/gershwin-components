@@ -20,6 +20,8 @@ main(int argc, const char *argv[])
     NSString *categories = nil;
     NSString *mainExec = nil;
     NSString *appimageTool = nil;
+    BOOL standalone = YES;
+    BOOL verbose = NO;
     BOOL showHelp = NO;
 
     for (NSUInteger i = 1; i < count; i++)
@@ -56,6 +58,18 @@ main(int argc, const char *argv[])
             if (++i < count)
                 mainExec = [args objectAtIndex:i];
         }
+        else if ([arg isEqualToString:@"-v"] || [arg isEqualToString:@"--verbose"])
+        {
+            verbose = YES;
+        }
+        else if ([arg isEqualToString:@"-s"] || [arg isEqualToString:@"--standalone"])
+        {
+            standalone = YES;
+        }
+        else if ([arg isEqualToString:@"--no-standalone"])
+        {
+            standalone = NO;
+        }
         else if ([arg isEqualToString:@"-t"])
         {
             if (++i < count)
@@ -82,6 +96,9 @@ main(int argc, const char *argv[])
         printf("  -C <cat>      Categories for .desktop file (e.g. \"Utility;\")\n");
         printf("  -e <path>     Main executable relative to AppDir (auto-detected)\n");
         printf("  -t <tool>     Path to appimagetool (default: appimagetool in PATH)\n");
+        printf("  -s            Standalone mode: bundle all libraries (default)\n");
+        printf("  --no-standalone  Use exclusion list for system libs (smaller output)\n");
+        printf("  -v, --verbose Verbose output\n");
         printf("  -h            Show help\n");
         return (appName == nil && !showHelp) ? 1 : 0;
     }
@@ -100,6 +117,8 @@ main(int argc, const char *argv[])
         [builder setMainExecutable:mainExec];
     if (appimageTool != nil)
         [builder setAppimageTool:appimageTool];
+    [builder setStandalone:standalone];
+    [builder setVerbose:verbose];
 
     BOOL success = [builder build];
 

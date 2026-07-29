@@ -10,7 +10,12 @@
 {
     NSMutableArray *_seenDeps;
     NSArray *_excludedLibraries;
+    BOOL _verbose;
+    NSString *_lddPath;
+    NSString *_patchelfPath;
 }
+
+- (NSString *)_findTool:(NSString *)name;
 @end
 
 static BOOL isELF(NSString *path)
@@ -31,6 +36,22 @@ static NSString *lastPathComponent(NSString *path)
 
 @implementation LibraryResolver
 
+- (NSString *)_findTool:(NSString *)name
+{
+    if ([name isAbsolutePath]) {
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:name]) return name;
+        return nil;
+    }
+    NSString *pathEnv = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
+    for (NSString *dir in [pathEnv componentsSeparatedByString:@":"]) {
+        NSString *full = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:full]) return full;
+    }
+    return nil;
+}
+
+- (void)setVerbose:(BOOL)flag { _verbose = flag; }
+
 - (instancetype)initWithAppDir:(NSString *)appDirPath
 {
     self = [super init];
@@ -38,6 +59,8 @@ static NSString *lastPathComponent(NSString *path)
         _appDirPath = [appDirPath copy];
         _libraryLocations = [[NSMutableArray alloc] init];
         _seenDeps = [[NSMutableArray alloc] init];
+        _lddPath = [self _findTool:@"ldd"];
+        _patchelfPath = [self _findTool:@"patchelf"];
 
         _excludedLibraries = @[
             @"ld-linux.so.2",
@@ -98,24 +121,20 @@ static NSString *lastPathComponent(NSString *path)
             @"libfribidi.so.0",
             @"libgmp.so.10"
         ];
+        if (_verbose) NSLog(@"LibraryResolver: Excluded %lu system libraries", (unsigned long)[_excludedLibraries count]);
 
         NSArray *defaultPaths = @[
-            @"/usr/lib64",
-            @"/lib64",
-            @"/usr/lib",
-            @"/lib",
-            @"/usr/lib/x86_64-linux-gnu",
-            @"/lib/x86_64-linux-gnu",
-            @"/usr/local/lib",
-            @"/usr/local/lib/x86_64-linux-gnu",
-            @"/lib32",
-            @"/usr/lib32"
+            @"/usr/lib64", @"/lib64", @"/usr/lib", @"/lib",
+            @"/usr/lib/x86_64-linux-gnu", @"/lib/x86_64-linux-gnu",
+            @"/usr/local/lib", @"/usr/local/lib/x86_64-linux-gnu",
+            @"/lib32", @"/usr/lib32"
         ];
         for (NSString *p in defaultPaths) {
             if (![_libraryLocations containsObject:p]) {
                 [_libraryLocations addObject:p];
             }
         }
+        if (_verbose) NSLog(@"LibraryResolver: Default library search paths: %lu", (unsigned long)[_libraryLocations count]);
 
         [self parseLdSoConf];
 
@@ -128,7 +147,9 @@ static NSString *lastPathComponent(NSString *path)
                     [_libraryLocations addObject:p];
                 }
             }
+            if (_verbose) NSLog(@"LibraryResolver: Added %lu paths from LD_LIBRARY_PATH", (unsigned long)[paths count]);
         }
+        if (_verbose) NSLog(@"LibraryResolver: Total search paths: %lu", (unsigned long)[_libraryLocations count]);
     }
     return self;
 }
@@ -148,6 +169,7 @@ static NSString *lastPathComponent(NSString *path)
 
 - (void)parseLdSoConf
 {
+    if (_verbose) NSLog(@"LibraryResolver: Parsing /etc/ld.so.conf...");
     [self parseLdSoConfAtPath:@"/etc/ld.so.conf"];
 }
 
@@ -156,7 +178,11 @@ static NSString *lastPathComponent(NSString *path)
     NSString *content = [NSString stringWithContentsOfFile:path
                                                   encoding:NSUTF8StringEncoding
                                                      error:NULL];
-    if (!content) return;
+    if (!content) {
+        if (_verbose) NSLog(@"LibraryResolver: ld.so.conf not found at %@", path);
+        return;
+    }
+    if (_verbose) NSLog(@"LibraryResolver: Parsing ld.so.conf: %@", path);
 
     NSString *baseDir = [path stringByDeletingLastPathComponent];
     NSArray *lines = [content componentsSeparatedByString:@"\n"];
@@ -227,6 +253,7 @@ static NSString *lastPathComponent(NSString *path)
     NSMutableArray *results = [NSMutableArray array];
     NSDirectoryEnumerator *enumerator = [fm enumeratorAtPath:_appDirPath];
     NSString *subpath;
+    NSUInteger scanned = 0;
 
     while ((subpath = [enumerator nextObject])) {
         NSString *fullPath = [_appDirPath stringByAppendingPathComponent:subpath];
@@ -235,6 +262,7 @@ static NSString *lastPathComponent(NSString *path)
         if (isDir) continue;
 
         if (!isELF(fullPath)) continue;
+        scanned++;
 
         NSString *dirName = [subpath stringByDeletingLastPathComponent];
         if ([[dirName lastPathComponent] hasPrefix:@"lib"]) {
@@ -246,11 +274,16 @@ static NSString *lastPathComponent(NSString *path)
                     break;
                 }
             }
-            if (alreadyKnown) continue;
+            if (alreadyKnown) {
+                NSLog(@"LibraryResolver:   Skipping duplicate: %@", subpath);
+                continue;
+            }
         }
 
         [results addObject:fullPath];
     }
+    NSLog(@"LibraryResolver: Scanned %lu ELF files in AppDir, found %lu unique",
+          (unsigned long)scanned, (unsigned long)[results count]);
     return results;
 }
 
@@ -258,27 +291,38 @@ static NSString *lastPathComponent(NSString *path)
 
 - (NSArray *)resolveDependenciesForExecutables:(NSArray *)executables
 {
+    NSLog(@"LibraryResolver: Resolving dependencies for %lu executables", (unsigned long)[executables count]);
     NSMutableArray *result = [NSMutableArray array];
     for (NSString *exe in executables) {
         [self resolveDependenciesForPath:exe results:result];
     }
+    NSLog(@"LibraryResolver: Resolved %lu unique library dependencies", (unsigned long)[result count]);
     return result;
 }
 
 - (void)resolveDependenciesForPath:(NSString *)path results:(NSMutableArray *)results
 {
-    if ([_seenDeps containsObject:path]) return;
+    if ([_seenDeps containsObject:path]) {
+        if (_verbose) NSLog(@"LibraryResolver:   Already seen: %@ (circular ref)", [path lastPathComponent]);
+        return;
+    }
     [_seenDeps addObject:path];
 
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) return;
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        NSLog(@"LibraryResolver:   Path does not exist: %@", path);
+        return;
+    }
+
+    NSLog(@"LibraryResolver:   Resolving deps for: %@", path);
 
     if (isELF(path)) {
         [self addRPathLocationsForPath:path];
     }
 
+    if (!_lddPath) return;
     @try {
         NSTask *task = [[NSTask alloc] init];
-        [task setLaunchPath:@"/usr/bin/ldd"];
+        [task setLaunchPath:_lddPath];
         [task setArguments:@[path]];
 
         NSPipe *outPipe = [NSPipe pipe];
@@ -294,6 +338,7 @@ static NSString *lastPathComponent(NSString *path)
         if (!output) return;
 
         NSArray *lines = [output componentsSeparatedByString:@"\n"];
+        NSUInteger depCount = 0;
         for (NSString *line in lines) {
             NSString *trimmed = [line stringByTrimmingCharactersInSet:
                 [NSCharacterSet whitespaceCharacterSet]];
@@ -315,26 +360,34 @@ static NSString *lastPathComponent(NSString *path)
             if ([libPath length] == 0) continue;
 
             NSString *libName = lastPathComponent(libPath);
-            if ([self isExcludedLibrary:libName]) continue;
+            if ([self isExcludedLibrary:libName]) {
+                if (_verbose) NSLog(@"LibraryResolver:     Excluded: %@ (%@)", libName, libPath);
+                continue;
+            }
 
             if (![[NSFileManager defaultManager] fileExistsAtPath:libPath]) continue;
 
             if (![results containsObject:libPath]) {
                 [results addObject:libPath];
+                depCount++;
+                if (_verbose) NSLog(@"LibraryResolver:     Dependency #%lu: %@", (unsigned long)depCount, libPath);
             }
 
             [self resolveDependenciesForPath:libPath results:results];
         }
+        if (_verbose) NSLog(@"LibraryResolver:   %@ has %lu new dependencies", [path lastPathComponent], (unsigned long)depCount);
     } @catch (NSException *exception) {
+        NSLog(@"LibraryResolver:   Exception running ldd on %@: %@", path, exception);
         return;
     }
 }
 
 - (void)addRPathLocationsForPath:(NSString *)path
 {
+    if (!_patchelfPath) return;
     @try {
         NSTask *task = [[NSTask alloc] init];
-        [task setLaunchPath:@"/usr/bin/patchelf"];
+        [task setLaunchPath:_patchelfPath];
         [task setArguments:@[@"--print-rpath", path]];
 
         NSPipe *outPipe = [NSPipe pipe];
@@ -353,14 +406,17 @@ static NSString *lastPathComponent(NSString *path)
             [NSCharacterSet whitespaceAndNewlineCharacterSet]];
         if ([rpath length] == 0) return;
 
+        NSLog(@"LibraryResolver:   RPATH of %@: %@", [path lastPathComponent], rpath);
         NSArray *paths = [rpath componentsSeparatedByString:@":"];
         for (NSString *p in paths) {
             if ([p length] > 0 && ![p hasPrefix:@"$ORIGIN"]
                 && ![_libraryLocations containsObject:p]) {
                 [_libraryLocations addObject:p];
+                NSLog(@"LibraryResolver:     Added RPATH dir: %@", p);
             }
         }
     } @catch (NSException *exception) {
+        NSLog(@"LibraryResolver:   patchelf --print-rpath failed for %@: %@", path, exception);
     }
 }
 

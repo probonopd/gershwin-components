@@ -45,6 +45,8 @@ static NSArray *libcPrefixes(void)
 @interface LibraryDeployer ()
 {
     NSMutableArray *_deployedLibs;
+    BOOL _standalone;
+    BOOL _verbose;
 }
 @end
 
@@ -57,6 +59,7 @@ static NSArray *libcPrefixes(void)
         _appDirPath = [appDirPath copy];
         _deployedLibs = [[NSMutableArray alloc] init];
         _useLibcSubdirectory = NO;
+        _standalone = NO;
 
         _excludedLibraries = @[
             @"ld-linux.so.2",
@@ -123,6 +126,9 @@ static NSArray *libcPrefixes(void)
 
 - (BOOL)isExcluded:(NSString *)libName
 {
+    // In standalone mode (-s), deploy ALL libraries — no exclusions.
+    if (_standalone) return NO;
+
     NSString *filename = [libName lastPathComponent];
 
     for (NSString *excluded in _excludedLibraries) {
@@ -140,8 +146,18 @@ static NSArray *libcPrefixes(void)
     return NO;
 }
 
+- (void)setStandalone:(BOOL)flag { _standalone = flag; }
+- (void)setVerbose:(BOOL)flag { _verbose = flag; }
+
 - (BOOL)deployLibrary:(NSString *)libPath
 {
+    NSString *basename = [libPath lastPathComponent];
+
+    if ([self isExcluded:basename]) {
+        if (_verbose) NSLog(@"LibraryDeployer:   Skipping excluded: %@", basename);
+        return YES;
+    }
+
     if ([libPath hasPrefix:_appDirPath]) {
         return YES;
     }
@@ -155,7 +171,6 @@ static NSArray *libcPrefixes(void)
         return NO;
     }
 
-    NSString *basename = [libPath lastPathComponent];
     NSString *targetPath;
 
     if (_useLibcSubdirectory) {
@@ -184,28 +199,37 @@ static NSArray *libcPrefixes(void)
       withIntermediateDirectories:YES
                        attributes:nil
                             error:&err]) {
+        NSLog(@"LibraryDeployer:   Failed to create target dir %@: %@", targetDir, err);
         return NO;
     }
 
     @try {
+        if ([fm fileExistsAtPath:targetPath]) {
+            return YES;
+        }
         if (![fm copyItemAtPath:libPath toPath:targetPath error:&err]) {
+            if (_verbose) NSLog(@"LibraryDeployer:   Copy failed for %@: %@", basename, err);
             return NO;
         }
     } @catch (NSException *exception) {
         return NO;
     }
 
+    if (_verbose) NSLog(@"LibraryDeployer:   Deployed: %@", basename);
     [_deployedLibs addObject:targetPath];
     return YES;
 }
 
 - (BOOL)deployLibraries:(NSArray *)libPaths
 {
+    if (_verbose) NSLog(@"LibraryDeployer: Deploying %lu libraries to AppDir", (unsigned long)[libPaths count]);
+    NSUInteger deployed = 0;
     for (NSString *libPath in libPaths) {
-        if (![self deployLibrary:libPath]) {
-            return NO;
+        if ([self deployLibrary:libPath]) {
+            deployed++;
         }
     }
+    if (_verbose) NSLog(@"LibraryDeployer: Deployed %lu / %lu libraries", (unsigned long)deployed, (unsigned long)[libPaths count]);
     return YES;
 }
 

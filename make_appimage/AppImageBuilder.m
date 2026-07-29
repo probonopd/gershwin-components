@@ -10,9 +10,14 @@
 #import "LibraryDeployer.h"
 
 @interface AppImageBuilder ()
+{
+    BOOL _standalone;
+    BOOL _verbose;
+}
 
 - (NSString *)_runTool:(NSString *)tool withArgs:(NSArray *)args;
 - (BOOL)_runTool:(NSString *)tool withArgs:(NSArray *)args error:(NSError **)error;
+- (NSString *)_findTool:(NSString *)name;
 
 @end
 
@@ -29,6 +34,7 @@
         _allELFs = [NSMutableArray array];
         _seenDeps = [NSMutableArray array];
         _libraryLocations = [NSMutableArray array];
+        _standalone = YES;
     }
     return self;
 }
@@ -39,6 +45,26 @@
 - (void)setCategories:(NSString *)categories  { _categories = [categories copy]; }
 - (void)setMainExecutable:(NSString *)path   { _mainExec = [path copy]; }
 - (void)setAppimageTool:(NSString *)path      { _appimageTool = [path copy]; }
+- (void)setStandalone:(BOOL)flag              { _standalone = flag; }
+- (void)setVerbose:(BOOL)flag                 { _verbose = flag; }
+
+#pragma mark - Tool path lookup
+
+- (NSString *)_findTool:(NSString *)name
+{
+    if ([name isAbsolutePath]) {
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:name])
+            return name;
+        return nil;
+    }
+    NSString *pathEnv = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
+    for (NSString *dir in [pathEnv componentsSeparatedByString:@":"]) {
+        NSString *full = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:full])
+            return full;
+    }
+    return nil;
+}
 
 #pragma mark - Helper methods
 
@@ -109,76 +135,118 @@
 - (BOOL)build
 {
     NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *makePath = [self _findTool:@"make"];
+    NSString *chmodPath = [self _findTool:@"chmod"];
+    NSString *patchelfPath = [self _findTool:@"patchelf"];
+    NSString *gnustepConfigPath = [self _findTool:@"gnustep-config"];
 
-    // (a) Find the application source directory
+    // === (a) Find the application source/bundle ===
+    NSLog(@"make_appimage: building %@", _appName);
+    BOOL isPrebuiltBundle = NO;
     {
         BOOL isDir = NO;
         if ([fm fileExistsAtPath:_appName isDirectory:&isDir] && isDir) {
             _appDir = _appName;
+            if ([[_appName pathExtension] isEqualToString:@"app"]) {
+                NSString *makefile = [_appDir stringByAppendingPathComponent:@"GNUmakefile"];
+                if ([fm fileExistsAtPath:makefile]) {
+                    isPrebuiltBundle = NO;
+                } else {
+                    isPrebuiltBundle = YES;
+                }
+            } else {
+                isPrebuiltBundle = NO;
+            }
         } else {
             NSString *appBundle = [_appName stringByAppendingPathExtension:@"app"];
             if ([fm fileExistsAtPath:appBundle isDirectory:&isDir] && isDir) {
                 _appDir = appBundle;
+                NSString *makefile = [_appDir stringByAppendingPathComponent:@"GNUmakefile"];
+                if ([fm fileExistsAtPath:makefile]) {
+                    isPrebuiltBundle = NO;
+                } else {
+                    isPrebuiltBundle = YES;
+                }
             } else {
                 _appDir = _appName;
+                isPrebuiltBundle = NO;
             }
         }
 
-        NSString *makefile = [_appDir stringByAppendingPathComponent:@"GNUmakefile"];
-        if (![fm fileExistsAtPath:makefile]) {
-            NSLog(@"AppImageBuilder: No GNUmakefile found in %@", _appDir);
-            return NO;
+        if (!isPrebuiltBundle) {
+            NSString *makefile = [_appDir stringByAppendingPathComponent:@"GNUmakefile"];
+            if (![fm fileExistsAtPath:makefile]) {
+                NSLog(@"make_appimage: No GNUmakefile in %@", _appDir);
+                return NO;
+            }
         }
+        if (_verbose) NSLog(@"make_appimage: using %@ (source=%d)", _appDir, !isPrebuiltBundle);
     }
 
-    // (b) Build and install to AppDir
+    // === (b) Install to AppDir ===
     {
+        [fm removeItemAtPath:_appDirPath error:NULL];
+
         NSString *usrBin = [_appDirPath stringByAppendingPathComponent:@"usr/bin"];
         NSString *usrLib = [_appDirPath stringByAppendingPathComponent:@"usr/lib"];
 
         NSError *err = nil;
         if (![fm createDirectoryAtPath:usrBin
           withIntermediateDirectories:YES attributes:nil error:&err]) {
-            NSLog(@"AppImageBuilder: Failed to create %@: %@", usrBin, err);
+            NSLog(@"make_appimage: Failed to create %@: %@", usrBin, err);
             return NO;
         }
         if (![fm createDirectoryAtPath:usrLib
           withIntermediateDirectories:YES attributes:nil error:&err]) {
-            NSLog(@"AppImageBuilder: Failed to create %@: %@", usrLib, err);
+            NSLog(@"make_appimage: Failed to create %@: %@", usrLib, err);
             return NO;
         }
 
-        @try {
-            NSTask *task = [[NSTask alloc] init];
-            [task setLaunchPath:@"/usr/bin/make"];
-            [task setArguments:@[@"install",
-                [NSString stringWithFormat:@"DESTDIR=%@", _appDirPath]]];
-            [task setCurrentDirectoryPath:_appDir];
-
-            NSPipe *errPipe = [NSPipe pipe];
-            [task setStandardOutput:[NSFileHandle fileHandleWithNullDevice]];
-            [task setStandardError:errPipe];
-
-            [task launch];
-            [task waitUntilExit];
-
-            if ([task terminationStatus] != 0) {
-                NSData *errData = [[errPipe fileHandleForReading] readDataToEndOfFile];
-                NSString *errStr = [[NSString alloc] initWithData:errData
-                                                         encoding:NSUTF8StringEncoding];
-                NSLog(@"AppImageBuilder: make install failed: %@", errStr);
+        if (isPrebuiltBundle) {
+            NSString *bundleName = [_appDir lastPathComponent];
+            NSString *destPath = [usrBin stringByAppendingPathComponent:bundleName];
+            if (![fm copyItemAtPath:_appDir toPath:destPath error:&err]) {
+                NSLog(@"make_appimage: Failed to copy bundle: %@", err);
                 return NO;
             }
-        } @catch (NSException *exception) {
-            NSLog(@"AppImageBuilder: make install exception: %@", exception);
+            if (_verbose) NSLog(@"make_appimage: copied bundle to %@", destPath);
+        } else if (makePath) {
+            @try {
+                NSTask *task = [[NSTask alloc] init];
+                [task setLaunchPath:makePath];
+                [task setArguments:@[@"install",
+                    [NSString stringWithFormat:@"DESTDIR=%@", _appDirPath]]];
+                [task setCurrentDirectoryPath:_appDir];
+
+                NSPipe *errPipe = [NSPipe pipe];
+                [task setStandardOutput:[NSFileHandle fileHandleWithNullDevice]];
+                [task setStandardError:errPipe];
+
+                if (_verbose) NSLog(@"make_appimage: make install DESTDIR=%@", _appDirPath);
+                [task launch];
+                [task waitUntilExit];
+
+                if ([task terminationStatus] != 0) {
+                    NSData *errData = [[errPipe fileHandleForReading] readDataToEndOfFile];
+                    NSString *errStr = [[NSString alloc] initWithData:errData
+                                                             encoding:NSUTF8StringEncoding];
+                    NSLog(@"make_appimage: make install failed: %@", errStr);
+                    return NO;
+                }
+            } @catch (NSException *exception) {
+                NSLog(@"make_appimage: make install exception: %@", exception);
+                return NO;
+            }
+        } else {
+            NSLog(@"make_appimage: 'make' not found in PATH");
             return NO;
         }
     }
 
-    // (c) Copy GNUstep system tools
-    {
-        NSString *toolsDir = [self _runTool:@"/usr/bin/gnustep-config"
-                                    withArgs:@[@"--variable=GNUSTEP_SYSTEM_TOOLS"]];
+    // === (c) Copy GNUstep system tools ===
+    if (gnustepConfigPath) {
+        NSString *toolsDir = [self _runTool:gnustepConfigPath
+                                   withArgs:@[@"--variable=GNUSTEP_SYSTEM_TOOLS"]];
         if (toolsDir) {
             NSString *localBin = [_appDirPath stringByAppendingPathComponent:@"usr/local/bin"];
             [fm createDirectoryAtPath:localBin withIntermediateDirectories:YES
@@ -192,42 +260,87 @@
                         [fm copyItemAtPath:src toPath:dst error:NULL];
                     }
                 } @catch (NSException *exception) {
-                    NSLog(@"AppImageBuilder: Failed to copy %@: %@", tool, [exception reason]);
+                    if (_verbose) NSLog(@"make_appimage: failed to copy %@: %@", tool, [exception reason]);
                 }
             }
         }
     }
 
-    // (d) Create GNUstep config
+    // === (d) Create GNUstep config and copy bundles ===
+    if (_verbose) NSLog(@"make_appimage: creating GNUstep config");
     {
-        NSString *etcDir = [_appDirPath stringByAppendingPathComponent:@"usr/etc/GNUstep"];
-        [fm createDirectoryAtPath:etcDir withIntermediateDirectories:YES
+        NSString *gsLibDir = [_appDirPath stringByAppendingPathComponent:@"usr/lib/GNUstep"];
+        [fm createDirectoryAtPath:gsLibDir withIntermediateDirectories:YES
                        attributes:nil error:NULL];
 
-        NSString *configPath = [etcDir stringByAppendingPathComponent:@"GNUstep.conf"];
-        NSString *content = @"GNUSTEP_USER_CONFIG_FILE=.GNUstep.conf\n"
-                             "GNUSTEP_USER_DEFAULTS_DIR=GNUstep/Defaults\n"
-                             "GNUSTEP_SYSTEM_USERS_DIR=/home\n"
-                             "GNUSTEP_NETWORK_USERS_DIR=/home\n"
-                             "GNUSTEP_LOCAL_USERS_DIR=/home\n"
-                             "GNUSTEP_SYSTEM_LIBRARY=../../lib/GNUstep\n"
-                             "GNUSTEP_LOCAL_LIBRARY=../../lib/GNUstep\n"
-                             "GNUSTEP_NETWORK_LIBRARY=../../lib/GNUstep\n"
-                             "GNUSTEP_SYSTEM_TOOLS=../../local/bin\n"
-                             "GNUSTEP_LOCAL_TOOLS=../../local/bin\n";
+        NSString *configPath = [gsLibDir stringByAppendingPathComponent:@"GNUstep.conf"];
+        NSString *content =
+            @"GNUSTEP_USER_CONFIG_FILE=\n"
+             "GNUSTEP_USER_DEFAULTS_DIR=GNUstep/Defaults\n"
+             "GNUSTEP_SYSTEM_LIBRARIES=../../../System/Library\n"
+             "GNUSTEP_SYSTEM_LIBRARY=../../../System/Library\n"
+             "GNUSTEP_SYSTEM_TOOLS=../../../System/Library/Tools\n"
+             "GNUSTEP_NETWORK_LIBRARIES=../../../System/Library\n"
+             "GNUSTEP_NETWORK_LIBRARY=../../../System/Library\n"
+             "GNUSTEP_NETWORK_TOOLS=../../../System/Library/Tools\n"
+             "GNUSTEP_LOCAL_LIBRARIES=../../../Local/Library\n"
+             "GNUSTEP_LOCAL_LIBRARY=../../../Local/Library\n"
+             "GNUSTEP_LOCAL_TOOLS=../../../Local/Library/Tools\n"
+             "GNUSTEP_USER_DIR_LIBRARIES=../../../Local/Library\n"
+             "GNUSTEP_USER_DIR_LIBRARY=../../../Local/Library\n"
+             "GNUSTEP_USER_DIR_TOOLS=../../../Local/Library/Tools\n";
 
         NSError *err = nil;
         if (![content writeToFile:configPath atomically:YES
                          encoding:NSUTF8StringEncoding error:&err]) {
-            NSLog(@"AppImageBuilder: Failed to write GNUstep.conf: %@", err);
+            NSLog(@"make_appimage: Failed to write GNUstep.conf: %@", err);
         }
 
-        [self _runTool:@"/bin/chmod" withArgs:@[@"600", configPath] error:NULL];
+        if (chmodPath) {
+            [self _runTool:chmodPath withArgs:@[@"g-w", configPath] error:NULL];
+        }
+
+        // Copy bundles from System and Local library dirs
+        NSString *bundlesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Bundles"];
+        NSArray *srcBundlesDirs = @[@"/System/Library/Bundles", @"/Local/Library/Bundles"];
+        for (NSString *src in srcBundlesDirs) {
+            if ([fm fileExistsAtPath:src]) {
+                [fm createDirectoryAtPath:bundlesDir withIntermediateDirectories:YES
+                               attributes:nil error:NULL];
+                NSArray *entries = [fm contentsOfDirectoryAtPath:src error:NULL];
+                for (NSString *entry in entries) {
+                    NSString *fullSrc = [src stringByAppendingPathComponent:entry];
+                    NSString *fullDst = [bundlesDir stringByAppendingPathComponent:entry];
+                    if (![fm fileExistsAtPath:fullDst]) {
+                        [fm copyItemAtPath:fullSrc toPath:fullDst error:NULL];
+                    }
+                }
+            }
+        }
+
+        // Copy themes from System and Local Library
+        NSString *themesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Themes"];
+        NSArray *srcThemesDirs = @[@"/System/Library/Themes", @"/Local/Library/Themes"];
+        for (NSString *src in srcThemesDirs) {
+            if ([fm fileExistsAtPath:src]) {
+                [fm createDirectoryAtPath:themesDir withIntermediateDirectories:YES
+                               attributes:nil error:NULL];
+                NSArray *entries = [fm contentsOfDirectoryAtPath:src error:NULL];
+                for (NSString *entry in entries) {
+                    NSString *fullSrc = [src stringByAppendingPathComponent:entry];
+                    NSString *fullDst = [themesDir stringByAppendingPathComponent:entry];
+                    if (![fm fileExistsAtPath:fullDst]) {
+                        [fm copyItemAtPath:fullSrc toPath:fullDst error:NULL];
+                    }
+                }
+            }
+        }
     }
 
-    // (e) Resolve library dependencies
+    // === (e) Resolve library dependencies ===
     {
         LibraryResolver *resolver = [[LibraryResolver alloc] initWithAppDir:_appDirPath];
+        [resolver setVerbose:_verbose];
         NSArray *elfs = [resolver findAllELFsInAppDir];
         [_allELFs addObjectsFromArray:elfs];
 
@@ -235,52 +348,37 @@
         [_seenDeps addObjectsFromArray:deps];
 
         LibraryDeployer *deployer = [[LibraryDeployer alloc] initWithAppDir:_appDirPath];
+        [deployer setStandalone:_standalone];
+        [deployer setVerbose:_verbose];
         if (![deployer deployLibraries:deps]) {
-            NSLog(@"AppImageBuilder: deployLibraries failed");
+            NSLog(@"make_appimage: deployLibraries failed");
+        }
+
+        if (_verbose) {
+            NSLog(@"make_appimage: %lu ELFs, %lu dependencies", (unsigned long)[elfs count], (unsigned long)[deps count]);
         }
     }
 
-    // (f) Deploy ld-linux interpreter
+    // === (f) Deploy ld-linux interpreter ===
+    NSString *detectedInterpreter = nil;
     {
         InterpreterDeployer *deployer = [[InterpreterDeployer alloc] initWithAppDir:_appDirPath];
-        NSString *interp = [deployer detectInterpreter];
-        if (interp) {
-            if ([deployer deployInterpreter:interp]) {
-                NSString *deployedPath = [_appDirPath stringByAppendingPathComponent:interp];
-                [deployer patchInterpreter:deployedPath];
+        [deployer setVerbose:_verbose];
+        detectedInterpreter = [deployer detectInterpreter];
+        if (detectedInterpreter) {
+            if (_verbose) NSLog(@"make_appimage: interpreter: %@", detectedInterpreter);
+            if ([deployer deployInterpreter:detectedInterpreter]) {
+                if (!_standalone) {
+                    [deployer patchInterpreter:[_appDirPath stringByAppendingPathComponent:detectedInterpreter]];
+                }
             }
         }
     }
 
-    // (g) Bundle GNUstep backends
+    // === (g) Backend bundle symlink and deps ===
     {
-        NSString *libDirs = [self _runTool:@"/usr/bin/gnustep-config"
-                                   withArgs:@[@"--variable=GNUSTEP_LIBRARIES_DIRS"]];
-        if (libDirs) {
-            NSString *bundlesDir = [_appDirPath
-                stringByAppendingPathComponent:@"usr/lib/GNUstep/Bundles"];
-
-            for (NSString *dir in [libDirs componentsSeparatedByString:@" "]) {
-                if ([dir length] == 0) continue;
-
-                NSString *srcBundles = [dir stringByAppendingPathComponent:@"GNUstep/Bundles"];
-                BOOL isBundlesDir = NO;
-                if (![fm fileExistsAtPath:srcBundles isDirectory:&isBundlesDir] || !isBundlesDir)
-                    continue;
-
-                [fm createDirectoryAtPath:bundlesDir withIntermediateDirectories:YES
-                               attributes:nil error:NULL];
-
-                NSArray *entries = [fm contentsOfDirectoryAtPath:srcBundles error:NULL];
-                for (NSString *entry in entries) {
-                    NSString *src = [srcBundles stringByAppendingPathComponent:entry];
-                    NSString *dst = [bundlesDir stringByAppendingPathComponent:entry];
-                    if (![fm fileExistsAtPath:dst]) {
-                        [fm copyItemAtPath:src toPath:dst error:NULL];
-                    }
-                }
-            }
-
+        NSString *bundlesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Bundles"];
+        if ([fm fileExistsAtPath:bundlesDir]) {
             NSArray *bundleEntries = [fm contentsOfDirectoryAtPath:bundlesDir error:NULL];
             NSString *backendBundle = nil;
             for (NSString *entry in bundleEntries) {
@@ -289,76 +387,136 @@
                     break;
                 }
             }
-
             if (backendBundle) {
-                NSString *symlinkPath = [bundlesDir
-                    stringByAppendingPathComponent:@"libgnustep-back.bundle"];
+                NSString *symlinkPath = [bundlesDir stringByAppendingPathComponent:@"libgnustep-back.bundle"];
                 [fm removeItemAtPath:symlinkPath error:NULL];
-                [fm createSymbolicLinkAtPath:symlinkPath
-                         withDestinationPath:backendBundle error:NULL];
+                [fm createSymbolicLinkAtPath:symlinkPath withDestinationPath:backendBundle error:NULL];
 
-                NSString *target = [bundlesDir stringByAppendingPathComponent:backendBundle];
+                NSString *backendExecName = [backendBundle stringByDeletingPathExtension];
+                NSString *target = [[bundlesDir stringByAppendingPathComponent:backendBundle]
+                    stringByAppendingPathComponent:backendExecName];
                 LibraryResolver *br = [[LibraryResolver alloc] initWithAppDir:_appDirPath];
+                [br setVerbose:_verbose];
                 NSArray *bdeps = [br resolveDependenciesForExecutables:@[target]];
                 LibraryDeployer *bd = [[LibraryDeployer alloc] initWithAppDir:_appDirPath];
+                [bd setStandalone:_standalone];
+                [bd setVerbose:_verbose];
                 [bd deployLibraries:bdeps];
             }
         }
     }
 
-    // (h) Determine main executable
+    // === (h) Determine main executable ===
     {
         if ([_mainExec length] == 0) {
-            NSString *usrBin = [_appDirPath stringByAppendingPathComponent:@"usr/bin"];
-            BOOL isDir = NO;
-            if ([fm fileExistsAtPath:usrBin isDirectory:&isDir] && isDir) {
-                NSArray *entries = [fm contentsOfDirectoryAtPath:usrBin error:NULL];
+            NSArray *searchDirs = @[
+                [_appDirPath stringByAppendingPathComponent:@"usr/bin"],
+                [_appDirPath stringByAppendingPathComponent:@"Local/Applications"],
+                [_appDirPath stringByAppendingPathComponent:@"System/Applications"],
+                [_appDirPath stringByAppendingPathComponent:@"usr/local/bin"],
+                _appDirPath,
+            ];
+
+            for (NSString *searchDir in searchDirs) {
+                BOOL isDir = NO;
+                if (![fm fileExistsAtPath:searchDir isDirectory:&isDir] || !isDir) continue;
+
+                NSArray *entries = [fm contentsOfDirectoryAtPath:searchDir error:NULL];
                 for (NSString *entry in entries) {
-                    NSString *full = [usrBin stringByAppendingPathComponent:entry];
+                    NSString *full = [searchDir stringByAppendingPathComponent:entry];
                     BOOL eIsDir = NO;
-                    if ([fm fileExistsAtPath:full isDirectory:&eIsDir] && !eIsDir &&
-                        [fm isExecutableFileAtPath:full]) {
-                        if ([entry isEqualToString:_appName]) {
-                            _mainExec = [@"usr/bin" stringByAppendingPathComponent:entry];
+                    if (![fm fileExistsAtPath:full isDirectory:&eIsDir]) continue;
+
+                    if ([[entry pathExtension] isEqualToString:@"app"]) {
+                        NSString *execName = [entry stringByDeletingPathExtension];
+                        NSString *bundleExec = [full stringByAppendingPathComponent:execName];
+                        if ([fm isExecutableFileAtPath:bundleExec]) {
+                            _mainExec = [[searchDir stringByAppendingPathComponent:entry]
+                                stringByAppendingPathComponent:execName];
+                            if ([_mainExec hasPrefix:_appDirPath])
+                                _mainExec = [_mainExec substringFromIndex:[_appDirPath length] + 1];
+                            break;
+                        }
+                        NSString *resExec = [full stringByAppendingPathComponent:
+                            [NSString stringWithFormat:@"Resources/%@", execName]];
+                        if ([fm isExecutableFileAtPath:resExec]) {
+                            _mainExec = [[searchDir stringByAppendingPathComponent:entry]
+                                stringByAppendingPathComponent:[NSString stringWithFormat:@"Resources/%@", execName]];
+                            if ([_mainExec hasPrefix:_appDirPath])
+                                _mainExec = [_mainExec substringFromIndex:[_appDirPath length] + 1];
+                            break;
+                        }
+                    } else if (!eIsDir && [fm isExecutableFileAtPath:full]) {
+                        if ([entry isEqualToString:_appName] ||
+                            [entry isEqualToString:[_appName lastPathComponent]]) {
+                            _mainExec = [searchDir stringByAppendingPathComponent:entry];
+                            if ([_mainExec hasPrefix:_appDirPath])
+                                _mainExec = [_mainExec substringFromIndex:[_appDirPath length] + 1];
                             break;
                         }
                         if (!_mainExec) {
-                            _mainExec = [@"usr/bin" stringByAppendingPathComponent:entry];
+                            NSString *candidate = [searchDir stringByAppendingPathComponent:entry];
+                            if ([candidate hasPrefix:_appDirPath])
+                                candidate = [candidate substringFromIndex:[_appDirPath length] + 1];
+                            _mainExec = candidate;
                         }
                     }
                 }
+                if (_mainExec) break;
             }
         }
 
         if (!_mainExec) {
-            NSLog(@"AppImageBuilder: Could not determine main executable");
+            NSLog(@"make_appimage: Could not determine main executable");
             return NO;
+        }
+        if (_verbose) NSLog(@"make_appimage: main executable: %@", _mainExec);
+
+        if (detectedInterpreter && patchelfPath) {
+            NSString *mainFullPath = [_appDirPath stringByAppendingPathComponent:_mainExec];
+            NSString *relInterp = [@"." stringByAppendingString:detectedInterpreter];
+            [self _runTool:patchelfPath withArgs:@[@"--set-interpreter", relInterp, mainFullPath] error:NULL];
+            if (_verbose) NSLog(@"make_appimage: set interpreter to %@", relInterp);
         }
     }
 
-    // (i) Create AppRun
+    // === (i) Create AppRun ===
     {
         NSString *appRunPath = [_appDirPath stringByAppendingPathComponent:@"AppRun"];
         NSString *content = [NSString stringWithFormat:
             @"#!/bin/sh\n"
+            @"# Unset host environment variables that could interfere\n"
+            @"unset LD_LIBRARY_PATH GNUSTEP_CONFIG_FILE GNUSTEP_USER_CONFIG_FILE GNUSTEP_USER_DIR GNUSTEP_USER_DEFAULTS_DIR\n"
+            @"unset GNUSTEP_SYSTEM_ROOT GNUSTEP_LOCAL_ROOT GNUSTEP_NETWORK_ROOT GNUSTEP_FLATTENED\n"
+            @"unset LD_PRELOAD LD_AUDIT LD_DEBUG LD_ORIGIN_PATH\n"
+            @"\n"
             @"HERE=\"$(dirname \"$(readlink -f \"${0}\")\")\"\n"
-            @"export GNUSTEP_CONFIG_FILE=\"$HERE/usr/etc/GNUstep/GNUstep.conf\"\n"
-            @"export LD_LIBRARY_PATH=\"$HERE/usr/lib:$HERE/usr/local/lib:$HERE/libc:$LD_LIBRARY_PATH\"\n"
-            @"export PATH=\"$HERE/usr/local/bin:$HERE/usr/bin:$PATH\"\n"
+            @"export GNUSTEP_CONFIG_FILE=\"$HERE/usr/lib/GNUstep/GNUstep.conf\"\n"
+            @"export FONTCONFIG_FILE=/etc/fonts/fonts.conf\n"
+            @"export FONTCONFIG_PATH=/etc/fonts\n"
+            @"export GNUSTEP_ROOT=\"$HERE/usr\"\n"
+            @"export GNUSTEP_SYSTEM_ROOT=\"$HERE/System\"\n"
+            @"export GNUSTEP_LOCAL_ROOT=\"$HERE/Local\"\n"
+            @"export LD_LIBRARY_PATH=\"$HERE/usr/lib:$HERE/usr/local/lib\"\n"
+            @"export PATH=\"$HERE/usr/local/bin:$HERE/usr/bin:$HERE/System/Library/Tools:$HERE/Local/Library/Tools:$PATH\"\n"
+            @"\n"
+            @"cd \"$HERE\"\n"
             @"exec \"$HERE/%@\" \"$@\"\n",
             _mainExec];
 
         NSError *err = nil;
         if (![content writeToFile:appRunPath atomically:YES
                          encoding:NSUTF8StringEncoding error:&err]) {
-            NSLog(@"AppImageBuilder: Failed to write AppRun: %@", err);
+            NSLog(@"make_appimage: Failed to write AppRun: %@", err);
             return NO;
         }
 
-        [self _runTool:@"/bin/chmod" withArgs:@[@"+x", appRunPath] error:NULL];
+        if (chmodPath) {
+            [self _runTool:chmodPath withArgs:@[@"+x", appRunPath] error:NULL];
+        }
     }
 
-    // (j) Create .desktop file
+    // === (j) Create .desktop file ===
     {
         NSString *iconName = _appName;
         NSArray *extensions = @[@"png", @"svg", @"xpm"];
@@ -374,62 +532,63 @@
         }
 
         if (foundIcon) {
-            NSString *rootIcon = [_appDirPath stringByAppendingPathComponent:
-                [foundIcon lastPathComponent]];
+            NSString *rootIcon = [_appDirPath stringByAppendingPathComponent:[foundIcon lastPathComponent]];
             if (![fm fileExistsAtPath:rootIcon]) {
                 [fm copyItemAtPath:foundIcon toPath:rootIcon error:NULL];
             }
         }
 
         NSString *version = @"1.0";
-        NSString *makefileContent = [NSString stringWithContentsOfFile:
-            [_appDir stringByAppendingPathComponent:@"GNUmakefile"]
-                                                             encoding:NSUTF8StringEncoding
-                                                                error:NULL];
-        if (makefileContent) {
-            for (NSString *line in [makefileContent componentsSeparatedByString:@"\n"]) {
-                NSString *trimmed = [line stringByTrimmingCharactersInSet:
-                    [NSCharacterSet whitespaceCharacterSet]];
-                if ([trimmed hasPrefix:@"VERSION"] || [trimmed hasPrefix:@"PACKAGE_VERSION"]) {
-                    NSRange eq = [trimmed rangeOfString:@"="];
-                    if (eq.location != NSNotFound) {
-                        NSString *val = [[trimmed substringFromIndex:eq.location + 1]
-                            stringByTrimmingCharactersInSet:
-                                [NSCharacterSet whitespaceCharacterSet]];
-                        if ([val length] > 0) {
-                            version = val;
-                            break;
+        if (isPrebuiltBundle) {
+            NSString *plistPath = [_appDir stringByAppendingPathComponent:@"Resources/Info-gnustep.plist"];
+            if ([fm fileExistsAtPath:plistPath]) {
+                NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:plistPath];
+                NSString *plistVersion = [plist objectForKey:@"CFBundleVersion"];
+                if ([plistVersion length] > 0) version = plistVersion;
+            }
+        } else {
+            NSString *makefileContent = [NSString stringWithContentsOfFile:
+                [_appDir stringByAppendingPathComponent:@"GNUmakefile"]
+                                                                 encoding:NSUTF8StringEncoding error:NULL];
+            if (makefileContent) {
+                for (NSString *line in [makefileContent componentsSeparatedByString:@"\n"]) {
+                    NSString *trimmed = [line stringByTrimmingCharactersInSet:
+                        [NSCharacterSet whitespaceCharacterSet]];
+                    if ([trimmed hasPrefix:@"VERSION"] || [trimmed hasPrefix:@"PACKAGE_VERSION"]) {
+                        NSRange eq = [trimmed rangeOfString:@"="];
+                        if (eq.location != NSNotFound) {
+                            NSString *val = [[trimmed substringFromIndex:eq.location + 1]
+                                stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                            if ([val length] > 0) { version = val; break; }
                         }
                     }
                 }
             }
         }
 
-        NSString *desktopPath = [_appDirPath
-            stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.desktop", _appName]];
+        NSString *appBasename = [[_appName lastPathComponent] stringByDeletingPathExtension];
+        NSString *desktopPath = [_appDirPath stringByAppendingPathComponent:
+            [NSString stringWithFormat:@"%@.desktop", appBasename]];
         NSString *desktopContent = [NSString stringWithFormat:
-            @"[Desktop Entry]\n"
-            @"Type=Application\n"
-            @"Name=%@\n"
-            @"Comment=%@\n"
-            @"Exec=%@\n"
-            @"Icon=%@\n"
-            @"Categories=%@\n"
-            @"Terminal=false\n",
-            _appName, _comment ?: @"", _mainExec, iconName, _categories ?: @"Application"];
+            @"[Desktop Entry]\nType=Application\nName=%@\nComment=%@\nExec=%@\nIcon=%@\nCategories=%@\nTerminal=false\n",
+            appBasename, _comment ?: @"", _mainExec, iconName, _categories ?: @"Application"];
 
         NSError *err = nil;
         if (![desktopContent writeToFile:desktopPath atomically:YES
                                 encoding:NSUTF8StringEncoding error:&err]) {
-            NSLog(@"AppImageBuilder: Failed to write desktop file: %@", err);
+            NSLog(@"make_appimage: Failed to write desktop file: %@", err);
             return NO;
         }
     }
 
-    // (k) Package AppImage
+    // === (k) Package AppImage ===
     {
-        NSString *arch = [self _runTool:@"/usr/bin/uname" withArgs:@[@"-m"]];
-        NSString *os = [self _runTool:@"/usr/bin/uname" withArgs:@[@"-s"]];
+        NSString *arch = nil, *os = nil;
+        NSString *unamePath = [self _findTool:@"uname"];
+        if (unamePath) {
+            arch = [self _runTool:unamePath withArgs:@[@"-m"]];
+            os = [self _runTool:unamePath withArgs:@[@"-s"]];
+        }
 
         if (!_outputFile) {
             NSString *osLower = os ? [os lowercaseString] : @"linux";
@@ -439,14 +598,13 @@
 
         if ([fm fileExistsAtPath:_appimageTool]) {
             NSError *err = nil;
-            if (![self _runTool:_appimageTool
-                        withArgs:@[_appDirPath, _outputFile]
-                           error:&err]) {
-                NSLog(@"AppImageBuilder: appimagetool failed: %@", err);
+            if (![self _runTool:_appimageTool withArgs:@[_appDirPath, _outputFile] error:&err]) {
+                NSLog(@"make_appimage: appimagetool failed: %@", err);
+            } else {
+                NSLog(@"make_appimage: AppImage created: %@", _outputFile);
             }
         } else {
-            NSLog(@"AppImageBuilder: appimagetool not found at %@, skipping packaging",
-                  _appimageTool);
+            NSLog(@"make_appimage: appimagetool not found; AppDir ready at %@", _appDirPath);
         }
     }
 

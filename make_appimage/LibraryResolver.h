@@ -23,5 +23,6 @@
 - (NSArray *)resolveDependenciesForExecutables:(NSArray *)executables;
 - (NSArray *)findAllELFsInAppDir;
 - (NSArray *)libraryLocations;
+- (void)setVerbose:(BOOL)flag;
 
 @end
