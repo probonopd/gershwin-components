@@ -9,6 +9,7 @@
 @interface InterpreterDeployer ()
 {
     BOOL _verbose;
+    BOOL _isMusl;
     NSString *_patchelfPath;
     NSString *_readelfPath;
     NSString *_readlinkPath;
@@ -44,9 +45,16 @@
         _readelfPath = [self _findTool:@"readelf"];
         _readlinkPath = [self _findTool:@"readlink"];
         _chmodPath = [self _findTool:@"chmod"];
+        // Check whether this is a musl-based system (Alpine, etc.)
+        _isMusl = ([[NSFileManager defaultManager] isExecutableFileAtPath:@"/lib/ld-musl-x86_64.so.1"] ||
+                   [[NSFileManager defaultManager] isExecutableFileAtPath:@"/lib/ld-musl-aarch64.so.1"] ||
+                   [[NSFileManager defaultManager] isExecutableFileAtPath:@"/lib/ld-musl-armhf.so.1"] ||
+                   [[NSFileManager defaultManager] isExecutableFileAtPath:@"/lib/ld-musl-i386.so.1"]);
     }
     return self;
 }
+
+- (BOOL)isMusl { return _isMusl; }
 
 - (NSString *)detectInterpreter
 {
@@ -88,6 +96,17 @@
                 [candidates addObject:full];
             }
         }
+    }
+
+    // Also search for musl interpreters in standard locations
+    NSArray *muslPaths = @[@"/lib/ld-musl-x86_64.so.1",
+                           @"/usr/lib/ld-musl-x86_64.so.1",
+                           @"/lib/ld-musl-aarch64.so.1",
+                           @"/lib/ld-musl-armhf.so.1",
+                           @"/lib/ld-musl-i386.so.1"];
+    for (NSString *mp in muslPaths) {
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:mp])
+            [candidates addObject:mp];
     }
 
     for (NSString *fullPath in candidates) {

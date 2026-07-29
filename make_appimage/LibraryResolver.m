@@ -67,6 +67,10 @@ static NSString *lastPathComponent(NSString *path)
         _excludedLibraries = @[
             @"ld-linux.so.2",
             @"ld-linux-x86-64.so.2",
+            @"ld-musl-x86_64.so.1",
+            @"ld-musl-aarch64.so.1",
+            @"ld-musl-armhf.so.1",
+            @"ld-musl-i386.so.1",
             @"libanl.so.1",
             @"libBrokenLocale.so.1",
             @"libcidn.so.1",

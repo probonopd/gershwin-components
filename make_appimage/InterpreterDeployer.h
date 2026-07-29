@@ -22,6 +22,7 @@
 - (NSString *)detectInterpreter;
 - (BOOL)deployInterpreter:(NSString *)interpreterPath;
 - (BOOL)patchInterpreter:(NSString *)deployedPath;
+- (BOOL)isMusl;
 - (void)setVerbose:(BOOL)flag;
 
 @end
