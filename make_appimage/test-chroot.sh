@@ -62,6 +62,15 @@ if [ -d /tmp/.X11-unix ]; then
     mount --bind /tmp/.X11-unix "$CHROOT/tmp/.X11-unix" 2>/dev/null || true
 fi
 
+# Install font packages inside the chroot so GNUstep has Helvetica available.
+# The Alpine minirootfs ships without any fonts; font rendering needs at least
+# fontconfig and a Helvetica-compatible font (ttf-liberation, ttf-dejavu).
+echo "Installing fonts in Alpine chroot..."
+chroot "$CHROOT" sh -c '
+    apk add --quiet fontconfig ttf-liberation ttf-dejavu 2>/dev/null || true
+    fc-cache -f 2>/dev/null || true
+' || true
+
 echo "============================================"
 echo " Running in Alpine chroot: $CHROOT"
 echo " App: $(basename "$APPIMAGE")"
