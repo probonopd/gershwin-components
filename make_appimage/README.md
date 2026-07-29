@@ -38,7 +38,7 @@ make_appimage -e /usr/bin/SystemPreferences SystemPreferences
 
 ## Requirements
 
-- `appimagetool` — install from [AppImageKit](https://github.com/AppImage/AppImageKit)
+- `appimagetool` — download from [here](https://github.com/AppImage/appimagetool/releases), set the executable bit, and rename it to `/usr/local/bin/appimagetool`
 - `patchelf` — for ELF interpreter detection and rpath patching
 - `ldd` — for shared library dependency resolution
 - GNUstep build tools (to compile the application into the AppDir)
