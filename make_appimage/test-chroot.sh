@@ -1,13 +1,14 @@
 #!/bin/sh
 #
-# test-chroot.sh -- Run an AppImage inside a near-empty chroot to verify
-#                   that no host system libraries are needed.
+# test-chroot.sh -- Run an AppImage inside a minimal Alpine Linux chroot
+#                   to verify that no host system libraries are needed.
 #
 # Usage:  sudo ./test-chroot.sh <AppImage>
 #
-# Creates a temporary directory with only the bare minimum (no libraries,
-# no /usr, no /etc) and runs the AppImage inside a chroot.  If the AppImage
-# works, every dependency is truly self-contained.
+# Downloads a minimal Alpine Linux rootfs, extracts the AppImage into it,
+# and runs the AppImage inside the chroot.  Alpine uses musl libc, which is
+# different from glibc — if the AppImage runs successfully here, it proves
+# that every library dependency is truly self-contained.
 
 set -eu
 
@@ -19,6 +20,14 @@ if [ ! -f "$APPIMAGE" ] || [ ! -x "$APPIMAGE" ]; then
 fi
 
 APPIMAGE="$(realpath "$APPIMAGE")"
+
+# Alpine minirootfs URL (latest stable x86_64)
+ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine"
+ALPINE_VERSION="v3.21"
+ALPINE_ARCH="x86_64"
+ALPINE_TARBALL="alpine-minirootfs-3.21.3-${ALPINE_ARCH}.tar.gz"
+ALPINE_URL="${ALPINE_MIRROR}/${ALPINE_VERSION}/releases/${ALPINE_ARCH}/${ALPINE_TARBALL}"
+
 CHROOT="$(mktemp -d "/tmp/chroot-$$.XXXXXX")"
 
 cleanup() {
@@ -29,64 +38,39 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Minimal chroot — nothing but /dev, /tmp, and a shell (AppRun needs it).
-mkdir -p "$CHROOT/dev" "$CHROOT/tmp" "$CHROOT/proc" "$CHROOT/sys" "$CHROOT/bin"
-
-# /bin/sh — the AppRun script and extracted runtime need a shell.
-# Use a static copy if available, otherwise the dynamic one (which will
-# fail to link inside the chroot — that's OK, it tells us the AppImage
-# isn't truly standalone).
-if command -v busybox >/dev/null 2>&1; then
-    cp "$(command -v busybox)" "$CHROOT/bin/busybox" 2>/dev/null || true
-    ln -sf busybox "$CHROOT/bin/sh" 2>/dev/null || true
-else
-    cp /bin/sh "$CHROOT/bin/sh" 2>/dev/null || true
+# Download and extract Alpine minirootfs
+echo "Downloading Alpine minirootfs..."
+ALPINE_CACHE="/tmp/alpine-minirootfs-3.21.3-${ALPINE_ARCH}.tar.gz"
+if [ ! -f "$ALPINE_CACHE" ]; then
+    wget -q "$ALPINE_URL" -O "$ALPINE_CACHE" || {
+        echo "ERROR: failed to download Alpine minirootfs" >&2
+        exit 1
+    }
 fi
 
-# Minimal /etc/passwd so GNUstep can determine the user name
-mkdir -p "$CHROOT/etc"
-echo "root:x:0:0:root:/root:/bin/sh" > "$CHROOT/etc/passwd"
-echo "nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin" >> "$CHROOT/etc/passwd"
+echo "Extracting Alpine rootfs to chroot..."
+tar xzf "$ALPINE_CACHE" -C "$CHROOT" 2>/dev/null || {
+    echo "ERROR: failed to extract Alpine rootfs" >&2
+    exit 1
+}
 
-# Minimal fontconfig so the app can find the bundled Helvetica substitute
-mkdir -p "$CHROOT/etc/fonts"
-cat > "$CHROOT/etc/fonts/fonts.conf" << 'EOF'
-<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-<fontconfig>
-  <dir>/tmp/AppDir/usr/share/fonts</dir>
-  <dir>/tmp/AppDir/System/Library/Fonts</dir>
-  <cachedir>/tmp/fontconfig-cache</cachedir>
-</fontconfig>
-EOF
-
-# /dev/null — required by virtually everything
-mknod "$CHROOT/dev/null" c 1 3 2>/dev/null || true
-chmod 666 "$CHROOT/dev/null" 2>/dev/null || true
-
-# /dev/urandom — needed by some libc operations
-mknod "$CHROOT/dev/urandom" c 1 9 2>/dev/null || true
-
-# Mount proc so the AppRun binary can read /proc/self/exe to find its path
+# Mount proc
 mount -t proc none "$CHROOT/proc" 2>/dev/null || true
 
 echo "============================================"
-echo " Running in minimal chroot: $CHROOT"
+echo " Running in Alpine chroot: $CHROOT"
 echo " App: $(basename "$APPIMAGE")"
 echo "============================================"
 
 # Extract the AppImage on the host, then copy the AppDir into the chroot.
-# This avoids needing FUSE or the AppImage runtime inside the chroot.
-EXTRACT_DIR="$(mktemp -d "/tmp/appimage-extract-$$.XXXXXX")"
+cd /tmp
 "$APPIMAGE" --appimage-extract >/dev/null 2>&1 || true
 if [ -d squashfs-root ]; then
     mv squashfs-root "$CHROOT/tmp/AppDir"
 else
     echo "ERROR: could not extract AppImage" >&2
-    rm -rf "$EXTRACT_DIR"
     exit 1
 fi
-rm -rf "$EXTRACT_DIR"
 
 set +e
 OUTPUT=$(chroot "$CHROOT" /tmp/AppDir/AppRun 2>&1)
@@ -97,11 +81,13 @@ echo "$OUTPUT"
 echo "============================================"
 if [ $RC -eq 0 ]; then
     echo " SUCCESS: AppImage exit code $RC"
-elif echo "$OUTPUT" | grep -q "Glyph generation with no font\|Unable to determine current user"; then
-    echo " PARTIAL SUCCESS: All libraries loaded from AppDir (exit $RC)"
-    echo " Missing only fonts/user data (not library dependencies)."
+    echo " All dependencies are self-contained."
+elif echo "$OUTPUT" | grep -q "Glyph generation with no font"; then
+    echo " PARTIAL SUCCESS: All libraries loaded (exit $RC)"
+    echo " Only fonts are missing (data, not libraries)."
 else
     echo " FAILURE: AppImage exit code $RC"
+    echo " Some dependencies may be missing."
 fi
 echo "============================================"
 exit $RC
