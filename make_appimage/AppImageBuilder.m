@@ -542,7 +542,6 @@
     // may differ inside the AppImage.  Hardcoding avoids needing `defaults`
     // (or a working GNUstep installation) on the end user's machine.
     NSString *themeName = nil;
-    NSString *appRunThemeLine = @"";
     {
         NSString *defaultsPath = [self _findTool:@"defaults"];
         if (defaultsPath) {
@@ -567,7 +566,6 @@
             }
         }
         if (themeName) {
-            appRunThemeLine = [NSString stringWithFormat:@"export GNUSTEP_THEME=%@\n", themeName];
             NSLog(@"make_appimage: using theme %@", themeName);
         }
     }
@@ -646,142 +644,75 @@
         }
     }
 
-    // === (l) Create AppRun (compiled C binary, not shell script) ===
-    // A static binary has no /bin/sh dependency and works in minimal chroots,
-    // containers, or systems where /bin/sh points to a missing or incompatible
-    // shell (e.g. dash vs bash syntax differences).  Shell scripts are fragile
-    // across distros; a static C binary is universally executable even inside
-    // environments where no shell is installed.
+    // === (l) Create AppRun (precompiled static binary + settings plist) ===
+    // AppRun is compiled once during `make` and is the same for every AppImage.
+    // It reads app-specific settings from AppRun.plist, which we write here.
+    // No compiler needed at packaging time — running make_appimage does not
+    // require gcc or any C development tools.
     {
         NSString *appRunPath = [_appDirPath stringByAppendingPathComponent:@"AppRun"];
-        NSString *srcPath = [_appDirPath stringByAppendingPathComponent:@"AppRun.c"];
-
-        NSString *themeLine = themeName
-            ? [NSString stringWithFormat:@"    setenv(\"GNUSTEP_THEME\", \"%@\", 1);\n", themeName]
-            : @"";
-
-        NSString *src = [NSString stringWithFormat:
-            @"#include <unistd.h>\n"
-            "#include <stdlib.h>\n"
-            "#include <string.h>\n"
-            "#include <libgen.h>\n"
-            "#include <stdio.h>\n"
-            "#include <limits.h>\n"
-            "\n"
-            "static void unsetenv_all(const char *vars[]) {\n"
-            "    for (int i = 0; vars[i]; i++) unsetenv(vars[i]);\n"
-            "}\n"
-            "\n"
-            "int main(int argc, char *argv[]) {\n"
-            "    const char *interfering[] = {\n"
-            "        \"LD_LIBRARY_PATH\", \"GNUSTEP_CONFIG_FILE\",\n"
-            "        \"GNUSTEP_USER_CONFIG_FILE\", \"GNUSTEP_USER_DIR\",\n"
-            "        \"GNUSTEP_USER_DEFAULTS_DIR\", \"GNUSTEP_SYSTEM_ROOT\",\n"
-            "        \"GNUSTEP_LOCAL_ROOT\", \"GNUSTEP_NETWORK_ROOT\",\n"
-            "        \"GNUSTEP_FLATTENED\", \"LD_PRELOAD\", \"LD_AUDIT\",\n"
-            "        \"LD_DEBUG\", \"LD_ORIGIN_PATH\", NULL\n"
-            "    };\n"
-            "    // Unset host env vars that would interfere with bundled libs.\n"
-            "    // LD_LIBRARY_PATH would make the dynamic loader prefer host\n"
-            "    // libraries over our bundled ones.  GNUstep vars point to host\n"
-            "    // paths outside the AppDir.  LD_PRELOAD/LD_AUDIT could inject\n"
-            "    // host-specific shims that don't exist inside the AppImage.\n"
-            "    unsetenv_all(interfering);\n"
-            "\n"
-            "    char here[PATH_MAX];\n"
-            "    char self[PATH_MAX];\n"
-            "    // Use readlink(\"/proc/self/exe\") instead of argv[0] because\n"
-            "    // the AppImage runtime preserves argv[0] as the .AppImage file\n"
-            "    // path, not the AppRun binary inside the squashfs.  /proc/self/exe\n"
-            "    // always points to the actual running binary (AppRun).\n"
-            "    ssize_t slen = readlink(\"/proc/self/exe\", self, sizeof(self) - 1);\n"
-            "    if (slen > 0) {\n"
-            "        self[slen] = '\\0';\n"
-            "        // Use strncpy/dirname directly instead of realpath() to avoid\n"
-            "        // the kernel doubling the chroot path prefix.  realpath()\n"
-            "        // resolves symlinks and would prepend the chroot base path\n"
-            "        // again when the AppImage is inside a chroot or container.\n"
-            "        strncpy(here, dirname(self), sizeof(here) - 1);\n"
-            "    } else {\n"
-            "        strncpy(here, dirname(argv[0]), sizeof(here) - 1);\n"
-            "    }\n"
-            "    chdir(here);\n"
-            "\n"
-            "    char cfg[PATH_MAX];\n"
-            "    snprintf(cfg, sizeof(cfg), \"%%s/usr/lib/GNUstep/GNUstep.conf\", here);\n"
-            "    setenv(\"GNUSTEP_CONFIG_FILE\", cfg, 1);\n"
-            "    %@"
-    "    // Set fontconfig paths so the bundled Helvetica font (used by the\n"
-    "    // Gershwin theme) is discoverable.  fontconfig reads its config from\n"
-    "    // FONTCONFIG_FILE and searches for fonts under FONTCONFIG_PATH.\n"
-    "    // Use the host's fontconfig so Helvetica (or equivalent) is found.\n"
-            "    // Pointing to the bundled fonts is not needed — the X server\n"
-            "    // provides Helvetica via its own font path.\n"
-            "    unsetenv(\"FONTCONFIG_FILE\");\n"
-            "    unsetenv(\"FONTCONFIG_PATH\");\n"
-            "    setenv(\"GNUSTEP_ROOT\", here, 1);\n"
-            "    char sys[PATH_MAX]; snprintf(sys, sizeof(sys), \"%%s/System\", here); setenv(\"GNUSTEP_SYSTEM_ROOT\", sys, 1);\n"
-            "    char loc[PATH_MAX]; snprintf(loc, sizeof(loc), \"%%s/Local\", here); setenv(\"GNUSTEP_LOCAL_ROOT\", loc, 1);\n"
-            "    // Point GNUSTEP_USER_DIR to the AppDir root so user state (defaults,\n"
-            "    // cache) stays inside the AppImage.  Relying on HOME would scatter\n"
-            "    // files across the host filesystem, making the AppImage not truly\n"
-            "    // self-contained and leaving stale data on uninstall.\n"
-            "    setenv(\"GNUSTEP_USER_DIR\", here, 1);\n"
-            "    setenv(\"HOME\", here, 1);\n"
-            "    char ld[PATH_MAX]; snprintf(ld, sizeof(ld), \"%%s/usr/lib:%%s/usr/local/lib\", here, here); setenv(\"LD_LIBRARY_PATH\", ld, 1);\n"
-
-            "    char p[PATH_MAX]; snprintf(p, sizeof(p), \"%%s/usr/local/bin:%%s/usr/bin:%%s/System/Library/Tools:%%s/Local/Library/Tools\", here, here, here, here); setenv(\"PATH\", p, 1);\n"
-            "\n"
-            "    char bin[PATH_MAX];\n"
-            "    snprintf(bin, sizeof(bin), \"%%s/%@\", here);\n"
-            "    execv(bin, argv);\n"
-            "    return 1;\n"
-            "}\n",
-            themeLine, _mainExec];
-
-        NSError *err = nil;
-        if (![src writeToFile:srcPath atomically:YES
-                     encoding:NSUTF8StringEncoding error:&err]) {
-            NSLog(@"make_appimage: Failed to write AppRun.c: %@", err);
-            return NO;
+        NSString *appRunSrc = nil;
+        NSString *toolPath = [[[NSProcessInfo processInfo] arguments] objectAtIndex:0];
+        NSString *toolDir = [toolPath stringByDeletingLastPathComponent];
+        for (NSString *p in @[[toolDir stringByAppendingPathComponent:@"AppRun"],
+                               @"/System/Library/Tools/AppRun"]) {
+            if ([[NSFileManager defaultManager] isExecutableFileAtPath:p]) {
+                appRunSrc = p; break;
+            }
+        }
+        if (appRunSrc) {
+            [[NSFileManager defaultManager] copyItemAtPath:appRunSrc toPath:appRunPath error:NULL];
         }
 
-        NSString *ccPath = [self _findTool:@"gcc"] ?: [self _findTool:@"cc"];
-        if (ccPath) {
-            [self _runTool:ccPath
-                  withArgs:@[@"-static", @"-Os", @"-o", appRunPath, srcPath]
-                     error:&err];
+        // Write app-specific settings to AppRun.plist
+        NSString *plistPath = [_appDirPath stringByAppendingPathComponent:@"AppRun.plist"];
+        NSString *themeValue = themeName ?: @"";
+        NSString *plist = [NSString stringWithFormat:
+            @"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            @"<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+            @"\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+            @"<plist version=\"1.0\">\n"
+            @"<dict>\n"
+            @"  <key>mainExecutable</key>\n"
+            @"  <string>%@</string>\n"
+            @"  <key>theme</key>\n"
+            @"  <string>%@</string>\n"
+            @"</dict>\n"
+            @"</plist>\n",
+            _mainExec, themeValue];
+        [plist writeToFile:plistPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+
+        // Write GNUstep NSGlobalDomain defaults with the selected theme.
+        // GNUSTEP_THEME env var is read too late by some GNUstep versions,
+        // so we put GSTheme into NSGlobalDomain.plist where NSUserDefaults
+        // finds it immediately.  XML plist format (not old-style) required.
+        if (themeName) {
+            NSString *defaultsDir = [_appDirPath stringByAppendingPathComponent:@"GNUstep/Defaults"];
+            [fm createDirectoryAtPath:defaultsDir withIntermediateDirectories:YES attributes:nil error:NULL];
+            NSString *plistPath = [defaultsDir stringByAppendingPathComponent:@"NSGlobalDomain.plist"];
+            NSString *xml = [NSString stringWithFormat:
+                @"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                @"<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+                @"\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+                @"<plist version=\"1.0\">\n"
+                @"<dict>\n"
+                @"    <key>GSTheme</key>\n"
+                @"    <string>%@</string>\n"
+                @"</dict>\n"
+                @"</plist>\n",
+                themeName];
+            [xml writeToFile:plistPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         }
 
         if (![fm fileExistsAtPath:appRunPath]) {
-            NSLog(@"make_appimage: compiling AppRun failed, falling back to shell script");
-            NSMutableString *content = [NSMutableString string];
-            [content appendString:@"#!/bin/sh\n"];
-            [content appendString:@"unset LD_LIBRARY_PATH GNUSTEP_CONFIG_FILE GNUSTEP_USER_CONFIG_FILE GNUSTEP_USER_DIR GNUSTEP_USER_DEFAULTS_DIR\n"];
-            [content appendString:@"unset GNUSTEP_SYSTEM_ROOT GNUSTEP_LOCAL_ROOT GNUSTEP_NETWORK_ROOT GNUSTEP_FLATTENED\n"];
-            [content appendString:@"unset LD_PRELOAD LD_AUDIT LD_DEBUG LD_ORIGIN_PATH\n\n"];
-            [content appendString:@"HERE=\"$(dirname \"$(readlink -f \"${0}\")\")\"\n"];
-            [content appendFormat:@"export GNUSTEP_CONFIG_FILE=\"$HERE/usr/lib/GNUstep/GNUstep.conf\"\n"];
-            if (themeName)
-                [content appendFormat:@"export GNUSTEP_THEME=%@\n", themeName];
-            [content appendString:@"export GNUSTEP_ROOT=\"$HERE/usr\"\n"];
-            [content appendString:@"export GNUSTEP_SYSTEM_ROOT=\"$HERE/System\"\n"];
-            [content appendString:@"export GNUSTEP_LOCAL_ROOT=\"$HERE/Local\"\n"];
-            [content appendString:@"export LD_LIBRARY_PATH=\"$HERE/usr/lib:$HERE/usr/local/lib\"\n"];
-            [content appendString:@"export PATH=\"$HERE/usr/local/bin:$HERE/usr/bin:$HERE/System/Library/Tools:$HERE/Local/Library/Tools:$PATH\"\n\n"];
-            [content appendString:@"cd \"$HERE\"\n"];
-            [content appendFormat:@"exec \"$HERE/%@\" \"$@\"\n", _mainExec];
-            if (![content writeToFile:appRunPath atomically:YES
-                             encoding:NSUTF8StringEncoding error:&err]) {
-                NSLog(@"make_appimage: Failed to write AppRun: %@", err);
-                return NO;
-            }
+            NSLog(@"make_appimage: FATAL: precompiled AppRun not found — "
+                  "run 'make install' in the make_appimage source dir first");
+            return NO;
         }
 
         if (chmodPath) {
             [self _runTool:chmodPath withArgs:@[@"+x", appRunPath] error:NULL];
         }
-        [fm removeItemAtPath:srcPath error:NULL];
     }
 
     // === (j) Create .desktop file ===

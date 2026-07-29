@@ -19,6 +19,7 @@
 // finds sibling libs inside the AppDir tree.
 
 #import "LibraryResolver.h"
+#include <elf.h>
 
 @interface LibraryResolver ()
 {
@@ -27,7 +28,6 @@
     BOOL _verbose;
     BOOL _standalone;
     NSString *_lddPath;
-    NSString *_patchelfPath;
 }
 
 - (NSString *)_findTool:(NSString *)name;
@@ -76,7 +76,6 @@ static NSString *lastPathComponent(NSString *path)
         _libraryLocations = [[NSMutableArray alloc] init];
         _seenDeps = [[NSMutableArray alloc] init];
         _lddPath = [self _findTool:@"ldd"];
-        _patchelfPath = [self _findTool:@"patchelf"];
 
         // Exact-match exclusion list. These are glibc/musl internals, graphics
         // drivers, and other host-provided libraries that should not be bundled
@@ -320,140 +319,200 @@ static NSString *lastPathComponent(NSString *path)
 - (NSArray *)resolveDependenciesForExecutables:(NSArray *)executables
 {
     NSLog(@"LibraryResolver: Resolving dependencies for %lu executables", (unsigned long)[executables count]);
+
     NSMutableArray *result = [NSMutableArray array];
-    for (NSString *exe in executables) {
-        [self resolveDependenciesForPath:exe results:result];
+    NSOperationQueue *queue = [[NSOperationQueue alloc] init];
+    [queue setMaxConcurrentOperationCount:8];
+    NSMutableSet *pending = [NSMutableSet set];
+
+    for (NSString *exe in executables)
+        [pending addObject:exe];
+
+    while ([pending count] > 0) {
+        NSArray *batch = [pending allObjects];
+        [pending removeAllObjects];
+        NSMutableArray *ops = [NSMutableArray array];
+        NSMutableSet *batchSeen = [NSMutableSet set];
+
+        for (NSString *path in batch) {
+            if ([_seenDeps containsObject:path]) continue;
+            [_seenDeps addObject:path];
+            [batchSeen addObject:path];
+
+            // RPATH parsing (fast, no subprocess)
+            if (isELF(path)) {
+                [self addRPathLocationsForPath:path];
+            }
+
+            // ldd in a parallel operation
+            if (!_lddPath) continue;
+            NSBlockOperation *op = [NSBlockOperation blockOperationWithBlock:^{
+                @autoreleasepool {
+                    NSTask *task = [[NSTask alloc] init];
+                    [task setLaunchPath:_lddPath];
+                    [task setArguments:@[path]];
+                    NSPipe *outPipe = [NSPipe pipe];
+                    [task setStandardOutput:outPipe];
+                    [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+                    [task launch];
+                    [task waitUntilExit];
+                    NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
+                    NSString *output = [[NSString alloc] initWithData:outData
+                                                             encoding:NSUTF8StringEncoding];
+                    if (!output) return;
+
+                    NSArray *lines = [output componentsSeparatedByString:@"\n"];
+                    __block NSUInteger depCount = 0;
+                    for (NSString *line in lines) {
+                        NSString *trimmed = [line stringByTrimmingCharactersInSet:
+                            [NSCharacterSet whitespaceCharacterSet]];
+                        NSRange arrowRange = [trimmed rangeOfString:@" => "];
+                        if (arrowRange.location == NSNotFound) continue;
+                        NSString *libPathPart = [trimmed substringFromIndex:
+                            arrowRange.location + arrowRange.length];
+                        NSUInteger spacePos = [libPathPart rangeOfString:@" "].location;
+                        NSString *libPath = (spacePos != NSNotFound)
+                            ? [libPathPart substringToIndex:spacePos] : libPathPart;
+                        if ([libPath length] == 0) continue;
+
+                        NSString *libName = lastPathComponent(libPath);
+                        if ([self isExcludedLibrary:libName]) return;
+
+                        if (![[NSFileManager defaultManager] fileExistsAtPath:libPath]) return;
+
+                        @synchronized(result) {
+                            if (![result containsObject:libPath]) {
+                                [result addObject:libPath];
+                                depCount++;
+                                if (![_seenDeps containsObject:libPath])
+                                    [pending addObject:libPath];
+                            }
+                        }
+                    }
+                    if (_verbose) {
+                        @synchronized(self) {
+                            NSLog(@"LibraryResolver:   %@ has %lu deps",
+                                  [path lastPathComponent], (unsigned long)depCount);
+                        }
+                    }
+                }
+            }];
+            [ops addObject:op];
+        }
+
+        if ([ops count] > 0) {
+            [queue addOperations:ops waitUntilFinished:YES];
+        }
     }
+
     NSLog(@"LibraryResolver: Resolved %lu unique library dependencies", (unsigned long)[result count]);
     return result;
 }
 
-- (void)resolveDependenciesForPath:(NSString *)path results:(NSMutableArray *)results
-{
-    if ([_seenDeps containsObject:path]) {
-        if (_verbose) NSLog(@"LibraryResolver:   Already seen: %@ (circular ref)", [path lastPathComponent]);
-        return;
-    }
-    [_seenDeps addObject:path];
-
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
-        NSLog(@"LibraryResolver:   Path does not exist: %@", path);
-        return;
-    }
-
-    NSLog(@"LibraryResolver:   Resolving deps for: %@", path);
-
-    if (isELF(path)) {
-        [self addRPathLocationsForPath:path];
-    }
-
-    // Use ldd(1) to enumerate NEEDED libraries rather than parsing ELF headers
-    // directly. ldd resolves the full chain (NEEDED → file path) using the
-    // system's ld.so cache, which handles symlinks, ld.so.conf, and musl/glibc
-    // differences without extra code.
-    if (!_lddPath) return;
-    @try {
-        NSTask *task = [[NSTask alloc] init];
-        [task setLaunchPath:_lddPath];
-        [task setArguments:@[path]];
-
-        NSPipe *outPipe = [NSPipe pipe];
-        [task setStandardOutput:outPipe];
-        [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
-
-        [task launch];
-        [task waitUntilExit];
-
-        NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
-        NSString *output = [[NSString alloc] initWithData:outData
-                                                 encoding:NSUTF8StringEncoding];
-        if (!output) return;
-
-        NSArray *lines = [output componentsSeparatedByString:@"\n"];
-        NSUInteger depCount = 0;
-        for (NSString *line in lines) {
-            NSString *trimmed = [line stringByTrimmingCharactersInSet:
-                [NSCharacterSet whitespaceCharacterSet]];
-
-            NSRange arrowRange = [trimmed rangeOfString:@" => "];
-            if (arrowRange.location == NSNotFound) continue;
-
-            NSString *libPathPart = [trimmed substringFromIndex:
-                arrowRange.location + arrowRange.length];
-
-            NSUInteger spacePos = [libPathPart rangeOfString:@" "].location;
-            NSString *libPath;
-            if (spacePos != NSNotFound) {
-                libPath = [libPathPart substringToIndex:spacePos];
-            } else {
-                libPath = libPathPart;
-            }
-
-            if ([libPath length] == 0) continue;
-
-            NSString *libName = lastPathComponent(libPath);
-            if ([self isExcludedLibrary:libName]) {
-                if (_verbose) NSLog(@"LibraryResolver:     Excluded: %@ (%@)", libName, libPath);
-                continue;
-            }
-
-            if (![[NSFileManager defaultManager] fileExistsAtPath:libPath]) continue;
-
-            if (![results containsObject:libPath]) {
-                [results addObject:libPath];
-                depCount++;
-                if (_verbose) NSLog(@"LibraryResolver:     Dependency #%lu: %@", (unsigned long)depCount, libPath);
-            }
-
-            [self resolveDependenciesForPath:libPath results:results];
-        }
-        if (_verbose) NSLog(@"LibraryResolver:   %@ has %lu new dependencies", [path lastPathComponent], (unsigned long)depCount);
-    } @catch (NSException *exception) {
-        NSLog(@"LibraryResolver:   Exception running ldd on %@: %@", path, exception);
-        return;
-    }
-}
-
-// Extract RPATH entries from each ELF so ldd can resolve app-bundled libraries
-// that use $ORIGIN-relative paths. We skip $ORIGIN entries (they are evaluated
-// at runtime relative to the ELF's own location) and only add absolute RPATHs
-// to the search list so ldd finds transitive dependencies.
+// Extract RPATH/RUNPATH from an ELF by parsing its PT_DYNAMIC directly.
+// This avoids spawning patchelf for every library (the main bottleneck).
 - (void)addRPathLocationsForPath:(NSString *)path
 {
-    if (!_patchelfPath) return;
-    @try {
-        NSTask *task = [[NSTask alloc] init];
-        [task setLaunchPath:_patchelfPath];
-        [task setArguments:@[@"--print-rpath", path]];
+    const char *cpath = [path UTF8String];
+    FILE *f = fopen(cpath, "rb");
+    if (!f) return;
 
-        NSPipe *outPipe = [NSPipe pipe];
-        [task setStandardOutput:outPipe];
-        [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+    // Read ELF header
+    Elf64_Ehdr ehdr;
+    if (fread(&ehdr, 1, sizeof(ehdr), f) != sizeof(ehdr)
+        || memcmp(ehdr.e_ident, "\177ELF", 4) != 0
+        || ehdr.e_ident[EI_CLASS] != ELFCLASS64)
+        { fclose(f); return; }
 
-        [task launch];
-        [task waitUntilExit];
+    // Read program headers
+    Elf64_Phdr phdr[64];
+    if (ehdr.e_phnum > 64 || ehdr.e_phentsize != sizeof(Elf64_Phdr))
+        { fclose(f); return; }
+    fseek(f, ehdr.e_phoff, SEEK_SET);
+    if (fread(phdr, 1, ehdr.e_phnum * sizeof(Elf64_Phdr), f)
+        != ehdr.e_phnum * sizeof(Elf64_Phdr))
+        { fclose(f); return; }
 
-        NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
-        NSString *rpath = [[NSString alloc] initWithData:outData
-                                                encoding:NSUTF8StringEncoding];
-        if ([rpath length] == 0) return;
+    // Find PT_DYNAMIC and PT_LOAD for the dynamic segment
+    Elf64_Addr dyn_vaddr = 0; size_t dyn_size = 0;
+    unsigned long file_bias = 0; /* delta between vaddr and file offset */
+    for (int i = 0; i < ehdr.e_phnum; i++) {
+        if (phdr[i].p_type == PT_LOAD && phdr[i].p_vaddr == 0)
+            file_bias = phdr[i].p_offset; /* usually 0 */
+        if (phdr[i].p_type == PT_DYNAMIC) {
+            dyn_vaddr = phdr[i].p_vaddr;
+            dyn_size = phdr[i].p_memsz;
+        }
+    }
+    if (!dyn_vaddr || !dyn_size) { fclose(f); return; }
 
-        rpath = [rpath stringByTrimmingCharactersInSet:
-            [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if ([rpath length] == 0) return;
+    // Read dynamic section
+    unsigned long dyn_file_off = dyn_vaddr - (file_bias ? 0 : 0);
+    // For PIE binaries loaded at vaddr, offset = dyn_vaddr (since vaddr == file offset)
+    // Fallback: compute from first PT_LOAD
+    for (int i = 0; i < ehdr.e_phnum; i++) {
+        if (phdr[i].p_type == PT_LOAD && dyn_vaddr >= phdr[i].p_vaddr
+            && dyn_vaddr < phdr[i].p_vaddr + phdr[i].p_filesz) {
+            dyn_file_off = phdr[i].p_offset + (dyn_vaddr - phdr[i].p_vaddr);
+            break;
+        }
+    }
 
-        NSLog(@"LibraryResolver:   RPATH of %@: %@", [path lastPathComponent], rpath);
-        NSArray *paths = [rpath componentsSeparatedByString:@":"];
-        for (NSString *p in paths) {
-            if ([p length] > 0 && ![p hasPrefix:@"$ORIGIN"]
-                && ![_libraryLocations containsObject:p]) {
-                [_libraryLocations addObject:p];
-                NSLog(@"LibraryResolver:     Added RPATH dir: %@", p);
+    Elf64_Dyn *dyn = malloc(dyn_size);
+    if (!dyn) { fclose(f); return; }
+    fseek(f, dyn_file_off, SEEK_SET);
+    if (fread(dyn, 1, dyn_size, f) != dyn_size) { free(dyn); fclose(f); return; }
+    int ndyn = dyn_size / sizeof(Elf64_Dyn);
+
+    // Scan for DT_STRTAB (to locate .dynstr) and DT_RPATH/DT_RUNPATH
+    Elf64_Addr strtab_vaddr = 0;
+    Elf64_Addr rpath_str_offset = 0;
+    BOOL has_rpath = NO;
+    for (int i = 0; i < ndyn; i++) {
+        if (dyn[i].d_tag == DT_STRTAB) strtab_vaddr = dyn[i].d_un.d_ptr;
+        if (dyn[i].d_tag == DT_RPATH || dyn[i].d_tag == DT_RUNPATH) {
+            rpath_str_offset = dyn[i].d_un.d_val;
+            has_rpath = YES;
+        }
+    }
+
+    if (has_rpath && strtab_vaddr && rpath_str_offset) {
+        // Read .dynstr to find the RPATH string
+        unsigned long strtab_file_off = 0;
+        for (int i = 0; i < ehdr.e_phnum; i++) {
+            if (phdr[i].p_type == PT_LOAD && strtab_vaddr >= phdr[i].p_vaddr
+                && strtab_vaddr < phdr[i].p_vaddr + phdr[i].p_filesz) {
+                strtab_file_off = phdr[i].p_offset + (strtab_vaddr - phdr[i].p_vaddr);
+                break;
             }
         }
-    } @catch (NSException *exception) {
-        NSLog(@"LibraryResolver:   patchelf --print-rpath failed for %@: %@", path, exception);
+
+        if (strtab_file_off) {
+            // Read the RPATH string from .dynstr
+            fseek(f, strtab_file_off + rpath_str_offset, SEEK_SET);
+            char buf[4096];
+            if (fgets(buf, sizeof(buf), f)) {
+                NSString *rpath = [NSString stringWithUTF8String:buf];
+                if ([rpath length] > 0) {
+                    if (_verbose)
+                        NSLog(@"LibraryResolver:   RPATH of %@: %@",
+                              [path lastPathComponent], rpath);
+                    NSArray *paths = [rpath componentsSeparatedByString:@":"];
+                    for (NSString *p in paths) {
+                        if ([p length] > 0 && ![p hasPrefix:@"$ORIGIN"]
+                            && ![_libraryLocations containsObject:p]) {
+                            [_libraryLocations addObject:p];
+                            if (_verbose)
+                                NSLog(@"LibraryResolver:     Added RPATH dir: %@", p);
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    free(dyn);
+    fclose(f);
 }
 
 @end
