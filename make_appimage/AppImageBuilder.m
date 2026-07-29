@@ -511,11 +511,27 @@
                 _appResourcesDir = [parent stringByAppendingPathComponent:@"Resources"];
         }
 
+        // Patch the interpreter on ALL deployed ELFs so every binary and
+        // library uses the bundled ld-linux.  This prevents helper processes
+        // (gdnc, gpbs, make_services) from trying to load the host's ld-linux
+        // when executed from a directory outside the AppDir root.
         if (detectedInterpreter && patchelfPath) {
-            NSString *mainFullPath = [_appDirPath stringByAppendingPathComponent:_mainExec];
+            NSMutableSet *interpElfs = [NSMutableSet setWithArray:_allELFs];
+            NSString *iUsrLib = [_appDirPath stringByAppendingPathComponent:@"usr/lib"];
+            for (NSString *sub in [fm enumeratorAtPath:iUsrLib]) {
+                NSString *full = [iUsrLib stringByAppendingPathComponent:sub];
+                BOOL isDir = NO;
+                if ([fm fileExistsAtPath:full isDirectory:&isDir] && !isDir)
+                    [interpElfs addObject:full];
+            }
             NSString *relInterp = [@"." stringByAppendingString:detectedInterpreter];
-            [self _runTool:patchelfPath withArgs:@[@"--set-interpreter", relInterp, mainFullPath] error:NULL];
-            if (_verbose) NSLog(@"make_appimage: set interpreter to %@", relInterp);
+            for (NSString *elf in interpElfs) {
+                [self _runTool:patchelfPath
+                      withArgs:@[@"--set-interpreter", relInterp, elf]
+                         error:NULL];
+            }
+            if (_verbose) NSLog(@"make_appimage: set relative interpreter on %lu ELFs",
+                                (unsigned long)[interpElfs count]);
         }
     }
 

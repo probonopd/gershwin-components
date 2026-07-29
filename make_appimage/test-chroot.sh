@@ -62,6 +62,21 @@ if [ -d /tmp/.X11-unix ]; then
     mount --bind /tmp/.X11-unix "$CHROOT/tmp/.X11-unix" 2>/dev/null || true
 fi
 
+# Give the chroot internet access so apk can install packages (fonts, etc.)
+cp /etc/resolv.conf "$CHROOT/etc/resolv.conf" 2>/dev/null || true
+
+# Install font packages so GNUstep can render text.
+chroot "$CHROOT" apk add --quiet fontconfig ttf-dejavu ttf-liberation 2>/dev/null || true
+
+# Provide the bundled ld-linux at the standard path so unbundled helper
+# binaries (gdnc, gpbs, etc.) can also execute inside the chroot.
+mkdir -p "$CHROOT/lib64"
+cp "$CHROOT/tmp/AppDir/lib64/ld-linux-x86-64.so.2" "$CHROOT/lib64/" 2>/dev/null || true
+
+# Start gdnc (GNUstep Distributed Notification Center) — needed by most apps.
+( chroot "$CHROOT" env LD_LIBRARY_PATH=/tmp/AppDir/usr/lib /tmp/AppDir/usr/local/bin/gdnc 2>/dev/null ) &
+sleep 2
+
 echo "============================================"
 echo " Running in Alpine chroot: $CHROOT"
 echo " App: $(basename "$APPIMAGE")"
