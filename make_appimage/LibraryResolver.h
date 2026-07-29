@@ -24,5 +24,6 @@
 - (NSArray *)findAllELFsInAppDir;
 - (NSArray *)libraryLocations;
 - (void)setVerbose:(BOOL)flag;
+- (void)setStandalone:(BOOL)flag;
 
 @end

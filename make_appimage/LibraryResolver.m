@@ -11,6 +11,7 @@
     NSMutableArray *_seenDeps;
     NSArray *_excludedLibraries;
     BOOL _verbose;
+    BOOL _standalone;
     NSString *_lddPath;
     NSString *_patchelfPath;
 }
@@ -51,6 +52,7 @@ static NSString *lastPathComponent(NSString *path)
 }
 
 - (void)setVerbose:(BOOL)flag { _verbose = flag; }
+- (void)setStandalone:(BOOL)flag { _standalone = flag; }
 
 - (instancetype)initWithAppDir:(NSString *)appDirPath
 {
@@ -161,6 +163,7 @@ static NSString *lastPathComponent(NSString *path)
 
 - (BOOL)isExcludedLibrary:(NSString *)name
 {
+    if (_standalone) return NO;
     NSString *filename = lastPathComponent(name);
     return [_excludedLibraries containsObject:filename];
 }

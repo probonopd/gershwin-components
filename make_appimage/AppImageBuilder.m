@@ -341,6 +341,7 @@
     {
         LibraryResolver *resolver = [[LibraryResolver alloc] initWithAppDir:_appDirPath];
         [resolver setVerbose:_verbose];
+        [resolver setStandalone:_standalone];
         NSArray *elfs = [resolver findAllELFsInAppDir];
         [_allELFs addObjectsFromArray:elfs];
 
@@ -397,6 +398,7 @@
                     stringByAppendingPathComponent:backendExecName];
                 LibraryResolver *br = [[LibraryResolver alloc] initWithAppDir:_appDirPath];
                 [br setVerbose:_verbose];
+                [br setStandalone:_standalone];
                 NSArray *bdeps = [br resolveDependenciesForExecutables:@[target]];
                 LibraryDeployer *bd = [[LibraryDeployer alloc] initWithAppDir:_appDirPath];
                 [bd setStandalone:_standalone];
