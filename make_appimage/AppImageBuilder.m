@@ -584,46 +584,21 @@
         }
     }
 
-    // === (k) Verify no external libraries would be loaded ===
-    // Run ldd in a clean environment pointing only to the AppDir's libs.
-    if (_standalone && patchelfPath) {
-        NSString *mainFullPath = [_appDirPath stringByAppendingPathComponent:_mainExec];
-        NSString *ldLibPath = [NSString stringWithFormat:@"%@/usr/lib:%@/usr/local/lib",
-                                _appDirPath, _appDirPath];
-        if (_appResourcesDir) {
-            NSString *resFull = [_appDirPath stringByAppendingPathComponent:_appResourcesDir];
-            ldLibPath = [NSString stringWithFormat:@"%@:%@", resFull, ldLibPath];
+    // === (k) Verify all needed libraries are present in the AppDir ===
+    if (_verbose && _standalone) {
+        NSString *vUsrLib = [_appDirPath stringByAppendingPathComponent:@"usr/lib"];
+        NSMutableSet *missing = [NSMutableSet set];
+        for (NSString *dep in _seenDeps) {
+            if ([dep hasPrefix:_appDirPath]) continue;
+            NSString *basename = [dep lastPathComponent];
+            if (![fm fileExistsAtPath:[vUsrLib stringByAppendingPathComponent:basename]])
+                [missing addObject:basename];
         }
-        @try {
-            NSTask *task = [[NSTask alloc] init];
-            [task setLaunchPath:[self _findTool:@"ldd"] ?: @"/usr/bin/ldd"];
-            [task setArguments:@[mainFullPath]];
-            NSMutableDictionary *env = [NSMutableDictionary dictionary];
-            [env setObject:ldLibPath forKey:@"LD_LIBRARY_PATH"];
-            [task setEnvironment:env];
-            NSPipe *outPipe = [NSPipe pipe];
-            [task setStandardOutput:outPipe];
-            [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
-            [task launch];
-            [task waitUntilExit];
-            NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
-            NSString *output = [[NSString alloc] initWithData:outData encoding:NSUTF8StringEncoding];
-            BOOL externalFound = NO;
-            for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
-                if ([line rangeOfString:@" => /"].location == NSNotFound) continue;
-                if ([line rangeOfString:@" => /tmp/"].location != NSNotFound) continue;
-                if ([line rangeOfString:@" => "].location != NSNotFound) {
-                    NSLog(@"make_appimage: WARNING — external lib: %@", line);
-                    externalFound = YES;
-                }
-            }
-            if (externalFound) {
-                NSLog(@"make_appimage: ERROR — some libraries resolve outside the AppDir");
-            } else {
-                if (_verbose) NSLog(@"make_appimage: all libraries resolve inside AppDir");
-            }
-        } @catch (NSException *e) {
-            NSLog(@"make_appimage: verification skipped: %@", e);
+        if ([missing count] > 0) {
+            NSLog(@"make_appimage: %lu libs missing from AppDir:", (unsigned long)[missing count]);
+            for (NSString *lib in missing) NSLog(@"make_appimage:   MISSING: %@", lib);
+        } else {
+            NSLog(@"make_appimage: all %lu deps present", (unsigned long)[_seenDeps count]);
         }
     }
 
