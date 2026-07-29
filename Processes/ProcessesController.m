@@ -528,10 +528,12 @@ static ProcessesController *sharedController = nil;
                             char stateChar = '?';
                             switch (p->ki_stat) {
 #ifdef __OpenBSD__
-                                case SDEAD: stateChar = 'Z'; break;
-                                case SSTOP: stateChar = 'T'; break;
-                                case SONPROC: stateChar = 'R'; break;
-                                case SSLEEP: stateChar = 'S'; break;
+                                // OpenBSD does not expose state constants in userspace;
+                                // use numeric values: 2=SRUN, 3=SSLEEP, 4=SSTOP, 5=SZOMB
+                                case 5: stateChar = 'Z'; break;
+                                case 4: stateChar = 'T'; break;
+                                case 2: stateChar = 'R'; break;
+                                case 3: stateChar = 'S'; break;
                                 default: stateChar = 'R'; break;
 #else
                                 case SZOMB: stateChar = 'Z'; break;
