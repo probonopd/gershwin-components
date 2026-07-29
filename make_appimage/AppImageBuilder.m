@@ -286,20 +286,9 @@
         // up to the AppDir root.  Using absolute paths would break when the
         // AppImage is mounted at a different path on each run.
         NSString *content =
-            @"GNUSTEP_USER_CONFIG_FILE=\n"
-             "GNUSTEP_USER_DEFAULTS_DIR=GNUstep/Defaults\n"
-             "GNUSTEP_SYSTEM_LIBRARIES=../../../System/Library\n"
-             "GNUSTEP_SYSTEM_LIBRARY=../../../System/Library\n"
-             "GNUSTEP_SYSTEM_TOOLS=../../../System/Library/Tools\n"
-             "GNUSTEP_NETWORK_LIBRARIES=../../../System/Library\n"
-             "GNUSTEP_NETWORK_LIBRARY=../../../System/Library\n"
-             "GNUSTEP_NETWORK_TOOLS=../../../System/Library/Tools\n"
-             "GNUSTEP_LOCAL_LIBRARIES=../../../Local/Library\n"
-             "GNUSTEP_LOCAL_LIBRARY=../../../Local/Library\n"
-             "GNUSTEP_LOCAL_TOOLS=../../../Local/Library/Tools\n"
-             "GNUSTEP_USER_DIR_LIBRARIES=../../../Local/Library\n"
-             "GNUSTEP_USER_DIR_LIBRARY=../../../Local/Library\n"
-             "GNUSTEP_USER_DIR_TOOLS=../../../Local/Library/Tools\n";
+            @"GNUSTEP_SYSTEM_LIBRARIES=../../../System/Library\n"
+              "GNUSTEP_SYSTEM_LIBRARY=../../../System/Library\n"
+              "GNUSTEP_SYSTEM_TOOLS=../../../System/Library/Tools\n";
 
         NSError *err = nil;
         if (![content writeToFile:configPath atomically:YES
@@ -332,7 +321,46 @@
                     NSString *fullSrc = [src stringByAppendingPathComponent:entry];
                     NSString *fullDst = [bundlesDir stringByAppendingPathComponent:entry];
                     if (![fm fileExistsAtPath:fullDst]) {
-                        [fm copyItemAtPath:fullSrc toPath:fullDst error:NULL];
+                        // Resolve symlinks: the host may have absolute symlinks
+                        // (e.g. libgnustep-xlib-032.bundle -> /System/Library/Bundles/...)
+                        // that would break inside the AppDir.  Copy the resolved target.
+                        NSDictionary *attr = [fm attributesOfItemAtPath:fullSrc error:NULL];
+                        if ([[attr fileType] isEqual:NSFileTypeSymbolicLink]) {
+                            NSString *resolved = [self _runTool:@"readlink"
+                                                      withArgs:@[@"-f", fullSrc]];
+                            if ([resolved length] > 0 && [fm fileExistsAtPath:resolved]) {
+                                [fm copyItemAtPath:resolved toPath:fullDst error:NULL];
+                            }
+                        } else {
+                            [fm copyItemAtPath:fullSrc toPath:fullDst error:NULL];
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fix backend bundle version: Some GNUstep versions compare the
+        // version number extracted from the bundle NAME (e.g. "032" from
+        // "libgnustep-back-032.bundle") against the expected version.
+        // Set GSBundleVersion to match the name-based version "032" so
+        // both checks pass regardless of version formatting differences.
+        for (NSString *entry in [fm contentsOfDirectoryAtPath:bundlesDir error:NULL]) {
+            if ([entry hasPrefix:@"libgnustep-back-"] && [entry hasSuffix:@".bundle"]) {
+                NSString *plistPath = [bundlesDir stringByAppendingPathComponent:
+                    [NSString stringWithFormat:@"%@/Resources/Info-gnustep.plist", entry]];
+                NSMutableDictionary *plist = [NSMutableDictionary dictionaryWithContentsOfFile:plistPath];
+                if (plist) {
+                    // Extract version from bundle name: "libgnustep-back-032.bundle" -> "032"
+                    NSString *nameVersion = [[entry stringByReplacingOccurrencesOfString:@"libgnustep-back-"
+                                                                              withString:@""]
+                                               stringByReplacingOccurrencesOfString:@".bundle"
+                                                                         withString:@""];
+                    if ([nameVersion length] > 0) {
+                        [plist setObject:nameVersion forKey:@"GSBundleVersion"];
+                        [plist setObject:nameVersion forKey:@"GSBundleShortVersionString"];
+                        [plist writeToFile:plistPath atomically:YES];
+                        if (_verbose) NSLog(@"make_appimage: set bundle version to %@ (from name %@)",
+                                              nameVersion, [entry lastPathComponent]);
                     }
                 }
             }

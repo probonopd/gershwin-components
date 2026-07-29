@@ -107,9 +107,34 @@ int main(int argc, char *argv[])
     char theme[64] = "";
     plist_get_string(plist_xml, plist_len, "theme", theme, sizeof(theme));
 
-    char cfg[PATH_MAX];
-    snprintf(cfg, sizeof(cfg), "%s/usr/lib/GNUstep/GNUstep.conf", here);
-    setenv("GNUSTEP_CONFIG_FILE", cfg, 1);
+    {
+        // Only set GNUSTEP_CONFIG_FILE if the backend bundle is NOT
+        // findable via the system's default GNUstep paths.  Setting
+        // it unconditionally can cause "Tried to init dictionary with
+        // nil value" in some apps (like Clock), because GNUstep's path
+        // resolution with the config file differs from its compiled-in
+        // defaults.
+        // Check if any standard compile-time GNUSTEP_SYSTEM_ROOT
+        // location has our backend.
+        int backend_found = 0;
+        const char *check_roots[] = {
+            "/System/Library/Bundles/libgnustep-back-032.bundle",
+            "/usr/lib/GNUstep/Library/Bundles/libgnustep-back-032.bundle",
+            "/usr/local/lib/GNUstep/Library/Bundles/libgnustep-back-032.bundle",
+            NULL
+        };
+        for (int i = 0; check_roots[i]; i++) {
+            if (access(check_roots[i], F_OK) == 0) {
+                backend_found = 1;
+                break;
+            }
+        }
+        if (!backend_found) {
+            char cfg[PATH_MAX];
+            snprintf(cfg, sizeof(cfg), "%s/usr/lib/GNUstep/GNUstep.conf", here);
+            setenv("GNUSTEP_CONFIG_FILE", cfg, 1);
+        }
+    }
 
     if (theme[0])
         setenv("GNUSTEP_THEME", theme, 1);
@@ -131,20 +156,15 @@ int main(int argc, char *argv[])
         }
     }
 
-    // GNUSTEP_USER_DIR must point to a writable location.  The AppDir
-    // is inside a read-only squashfs mount when run as an AppImage, so
-    // use /tmp/<appname>-<pid> instead.
-    {
-        const char *base = getenv("HOME") ?: "/tmp";
-        char ud[PATH_MAX];
-        snprintf(ud, sizeof(ud), "%s/.cache/Gershwin/AppImage/%d",
-                 base, (int)getpid());
-        setenv("GNUSTEP_USER_DIR", ud, 1);
-    }
+    // GNUSTEP_USER_DIR is intentionally NOT set.  Letting it default to
+    // the user's home directory avoids "Tried to init dictionary with nil
+    // value" errors in apps (like Clock) that read persisted defaults at
+    // startup.  The home directory is writable and outside the squashfs.
 
-    char ld[PATH_MAX];
-    snprintf(ld, sizeof(ld), "%s/usr/lib:%s/usr/local/lib", here, here);
-    setenv("LD_LIBRARY_PATH", ld, 1);
+    // LD_LIBRARY_PATH is NOT set in the environment — it would leak to child
+    // processes (system commands, etc.) that are not part of the AppImage.
+    // Instead we pass the library path as an argument to the bundled ld-linux
+    // via --library-path, which scopes it to this process tree only.
 
     char p[PATH_MAX];
     snprintf(p, sizeof(p), "%s/usr/local/bin:%s/usr/bin:"
@@ -157,32 +177,49 @@ int main(int argc, char *argv[])
     char bin[PATH_MAX];
     snprintf(bin, sizeof(bin), "%s/%s", here, mainExec);
 
-    /* Also set LD_LIBRARY_PATH to include the app's Resources directory */
-    {
-        char ld_full[PATH_MAX * 2];
-        strncpy(ld_full, ld, sizeof(ld_full) - 1);
-        char bin_dir[PATH_MAX];
-        strncpy(bin_dir, bin, sizeof(bin_dir) - 1);
-        char *last_slash = strrchr(bin_dir, '/');
-        if (last_slash) {
-            *last_slash = '\0';
-            size_t llen = strlen(ld_full);
-            snprintf(ld_full + llen, sizeof(ld_full) - llen,
-                     ":%s/Resources", bin_dir);
-            setenv("LD_LIBRARY_PATH", ld_full, 1);
-        }
+    /* Find the bundled ld-linux */
+    char interp[PATH_MAX] = "";
+    const char *candidates[] = {
+        "/lib64/ld-linux-x86-64.so.2",
+        "/lib/ld-linux-x86-64.so.2",
+        "/lib/ld-linux.so.2",
+        "/lib/ld-musl-x86_64.so.1",
+        NULL
+    };
+    for (int i = 0; candidates[i]; i++) {
+        snprintf(interp, sizeof(interp), "%s%s", here, candidates[i]);
+        if (access(interp, F_OK) == 0) break;
+        interp[0] = '\0';
+    }
+    if (interp[0] == '\0') {
+        fprintf(stderr, "AppRun: FATAL: no ld-linux found in AppDir\n");
+        return 1;
     }
 
-    /* Set argv[0] to the actual binary path so GNUstep can find Resources */
-    char *new_argv[argc + 1];
-    new_argv[0] = bin;
-    for (int i = 1; i < argc; i++) new_argv[i] = argv[i];
-    if (argc > 0) new_argv[argc] = NULL;
+    /* Build argv: ld-linux --library-path <dirs> --argv0 <name> <binary> [args] */
+    char *new_argv[argc + 7];
+    int ai = 0;
+    new_argv[ai++] = interp;
+    new_argv[ai++] = "--library-path";
+    /* Compute library path: usr/lib + usr/local/lib + Resources dir */
+    char libpath[PATH_MAX * 3];
+    snprintf(libpath, sizeof(libpath), "%s/usr/lib:%s/usr/local/lib",
+             here, here);
+    char bin_dir[PATH_MAX];
+    strncpy(bin_dir, bin, sizeof(bin_dir) - 1);
+    char *last_slash = strrchr(bin_dir, '/');
+    if (last_slash) {
+        *last_slash = '\0';
+        size_t llen = strlen(libpath);
+        snprintf(libpath + llen, sizeof(libpath) - llen, ":%s/Resources", bin_dir);
+    }
+    new_argv[ai++] = libpath;
+    new_argv[ai++] = "--argv0";
+    new_argv[ai++] = bin;
+    new_argv[ai++] = bin;
+    for (int i = 1; i < argc; i++) new_argv[ai++] = argv[i];
+    new_argv[ai] = NULL;
 
-    /* The binary already has a relative interpreter set by patchelf --set-interpreter
-       at build time.  Running execv directly lets the kernel load the bundled ld-linux
-       via PT_INTERP.  cd to the AppDir first so the relative interpreter path resolves. */
-    chdir(here);
-    execv(bin, new_argv);
+    execv(interp, new_argv);
     return 1;
 }
