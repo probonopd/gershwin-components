@@ -229,7 +229,32 @@ static NSArray *libcPrefixes(void)
         if ([fm fileExistsAtPath:targetPath]) {
             return YES;
         }
-        if (![fm copyItemAtPath:libPath toPath:targetPath error:&err]) {
+        // Resolve symlinks: the host library may be a symlink (e.g.,
+        // libfoo.so.1 -> libfoo.so.1.0.0).  NSFileManager copies symlinks
+        // as symlinks, but the target file won't be in the AppDir, so
+        // resolve to the real file first.
+        // Resolve symlinks using readlink -f
+        NSString *resolved = libPath;
+        NSString *readlinkPath = @"/usr/bin/readlink";
+        if (![[NSFileManager defaultManager] isExecutableFileAtPath:readlinkPath])
+            readlinkPath = @"/bin/readlink";
+        @try {
+            NSTask *task = [[NSTask alloc] init];
+            [task setLaunchPath:readlinkPath];
+            [task setArguments:@[@"-f", libPath]];
+            NSPipe *pipe = [NSPipe pipe];
+            [task setStandardOutput:pipe];
+            [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+            [task launch];
+            [task waitUntilExit];
+            if ([task terminationStatus] == 0) {
+                NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+                NSString *result = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                result = [result stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                if ([result length] > 0) resolved = result;
+            }
+        } @catch (NSException *e) {}
+        if (![fm copyItemAtPath:resolved toPath:targetPath error:&err]) {
             if (_verbose) NSLog(@"LibraryDeployer:   Copy failed for %@: %@", basename, err);
             return NO;
         }
