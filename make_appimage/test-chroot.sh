@@ -32,6 +32,7 @@ CHROOT="$(mktemp -d "/tmp/chroot-$$.XXXXXX")"
 
 cleanup() {
     rc=$?
+    umount "$CHROOT/tmp/.X11-unix" 2>/dev/null || true
     umount "$CHROOT/proc" 2>/dev/null || true
     rm -rf "$CHROOT"
     exit $rc
@@ -54,8 +55,12 @@ tar xzf "$ALPINE_CACHE" -C "$CHROOT" 2>/dev/null || {
     exit 1
 }
 
-# Mount proc
+# Mount proc and bind the host's X11 socket
 mount -t proc none "$CHROOT/proc" 2>/dev/null || true
+if [ -d /tmp/.X11-unix ]; then
+    mkdir -p "$CHROOT/tmp/.X11-unix"
+    mount --bind /tmp/.X11-unix "$CHROOT/tmp/.X11-unix" 2>/dev/null || true
+fi
 
 echo "============================================"
 echo " Running in Alpine chroot: $CHROOT"
@@ -73,10 +78,13 @@ else
 fi
 
 set +e
-OUTPUT=$(chroot "$CHROOT" /tmp/AppDir/AppRun 2>&1)
+if [ -n "${DISPLAY:-}" ]; then
+    chroot "$CHROOT" env DISPLAY="$DISPLAY" /tmp/AppDir/AppRun 2>&1
+else
+    chroot "$CHROOT" /tmp/AppDir/AppRun 2>&1
+fi
 RC=$?
 set -e
-echo "$OUTPUT"
 
 echo "============================================"
 if [ $RC -eq 0 ]; then
