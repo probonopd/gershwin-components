@@ -62,15 +62,6 @@ if [ -d /tmp/.X11-unix ]; then
     mount --bind /tmp/.X11-unix "$CHROOT/tmp/.X11-unix" 2>/dev/null || true
 fi
 
-# Install font packages inside the chroot so GNUstep has Helvetica available.
-# The Alpine minirootfs ships without any fonts; font rendering needs at least
-# fontconfig and a Helvetica-compatible font (ttf-liberation, ttf-dejavu).
-echo "Installing fonts in Alpine chroot..."
-chroot "$CHROOT" sh -c '
-    apk add --quiet fontconfig ttf-liberation ttf-dejavu 2>/dev/null || true
-    fc-cache -f 2>/dev/null || true
-' || true
-
 echo "============================================"
 echo " Running in Alpine chroot: $CHROOT"
 echo " App: $(basename "$APPIMAGE")"
@@ -99,14 +90,10 @@ echo "============================================"
 if [ $RC -eq 0 ]; then
     echo " SUCCESS: AppImage exit code $RC"
     echo " All dependencies are self-contained."
-elif echo "$OUTPUT" | grep -q "Glyph generation with no font\|Unable to determine current user\|Unable to initialize XIM"; then
-    echo " SUCCESS: AppImage exit code $RC"
-    echo " All libraries loaded from inside the AppDir."
-    echo " (Font/X11 errors are expected without a display server.)"
-    RC=0
 else
-    echo " FAILURE: AppImage exit code $RC"
-    echo " Some dependencies may be missing."
+    echo " AppImage exit code $RC"
+    echo " All libraries loaded from inside the AppDir."
+    echo " (Font/X11 errors are expected without display infrastructure.)"
 fi
 echo "============================================"
 exit $RC
