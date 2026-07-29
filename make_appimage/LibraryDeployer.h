@@ -7,11 +7,12 @@
 #import <Foundation/Foundation.h>
 
 /**
- * Copies shared libraries into the AppDir, honouring an exclusion
- * list and optionally placing libraries under a libc subdirectory.
+ * LibraryDeployer — copies resolved shared-library paths into the AppDir.
  *
- * Each library is copied as a regular file (symlinks are resolved)
- * to produce a self-contained AppDir.
+ * Applies two layers of exclusion (exact filename + prefix-match) to
+ * skip host-system libraries. In standalone mode all exclusions are
+ * bypassed. Optionally places glibc internals into a libc/ subdirectory
+ * for use with libapprun_hooks.
  */
 @interface LibraryDeployer : NSObject
 {

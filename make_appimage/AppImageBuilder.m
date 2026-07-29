@@ -35,6 +35,8 @@
         _allELFs = [NSMutableArray array];
         _seenDeps = [NSMutableArray array];
         _libraryLocations = [NSMutableArray array];
+        // Standalone mode bundles ALL libraries (including libc) so the
+        // AppImage works on any Linux/BSD distro without host dependencies.
         _standalone = YES;
     }
     return self;
@@ -51,6 +53,8 @@
 
 #pragma mark - Tool path lookup
 
+// Use PATH-based lookup instead of hardcoding paths so the same
+// tool works across Linux and BSD where tool locations differ.
 - (NSString *)_findTool:(NSString *)name
 {
     if ([name isAbsolutePath]) {
@@ -245,6 +249,8 @@
     }
 
     // === (c) Copy GNUstep system tools ===
+    // Deploy GNUstep services (gdnc, gpbs, make_services) so the bundled
+    // app can register types and communicate within the AppDir sandbox.
     if (gnustepConfigPath) {
         NSString *toolsDir = [self _runTool:gnustepConfigPath
                                    withArgs:@[@"--variable=GNUSTEP_SYSTEM_TOOLS"]];
@@ -275,6 +281,10 @@
                        attributes:nil error:NULL];
 
         NSString *configPath = [gsLibDir stringByAppendingPathComponent:@"GNUstep.conf"];
+        // Relative paths (../../../) are resolved by GNUstep relative to the
+        // config file's own location (usr/lib/GNUstep/GNUstep.conf), pointing
+        // up to the AppDir root.  Using absolute paths would break when the
+        // AppImage is mounted at a different path on each run.
         NSString *content =
             @"GNUSTEP_USER_CONFIG_FILE=\n"
              "GNUSTEP_USER_DEFAULTS_DIR=GNUstep/Defaults\n"
@@ -301,6 +311,9 @@
             [self _runTool:chmodPath withArgs:@[@"g-w", configPath] error:NULL];
         }
 
+        // Only deploy backend bundles (libgnustep-back-*, libgnustep-xlib-*).
+        // Preference panes, finders, etc. are not needed at runtime inside an
+        // AppImage sandbox and would bloat the image unnecessarily.
         // Copy only essential bundles: backend (libgnustep-back-* and libgnustep-xlib-*)
         NSString *bundlesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Bundles"];
         NSSet *bundlePrefixes = [NSSet setWithObjects:@"libgnustep-back-", @"libgnustep-xlib-", nil];
@@ -345,6 +358,9 @@
     }
 
     // === (e) Resolve library dependencies ===
+    // In standalone mode (default), the resolver deploys ALL dependencies
+    // including libc and ld-linux.  There is no exclusion list because the
+    // AppImage must run on any target distro regardless of library versions.
     {
         LibraryResolver *resolver = [[LibraryResolver alloc] initWithAppDir:_appDirPath];
         [resolver setVerbose:_verbose];
@@ -376,9 +392,12 @@
         if (detectedInterpreter) {
             if (_verbose) NSLog(@"make_appimage: interpreter: %@", detectedInterpreter);
             [deployer deployInterpreter:detectedInterpreter];
-            // ld-linux is deployed but NOT patched — patching it breaks $ORIGIN
-            // resolution in RPATH.  The patched default search paths are not
-            // needed when rpath and LD_LIBRARY_PATH are set to AppDir paths.
+            // The interpreter is deployed into the AppDir but its search paths
+            // are NOT patched.  Patching ld-linux's built-in search paths breaks
+            // $ORIGIN expansion in RPATH because the patched loader resolves
+            // $ORIGIN relative to the patched search path prefix instead of the
+            // binary's actual location.  The default search paths are irrelevant
+            // here since we set LD_LIBRARY_PATH and RPATH to AppDir paths.
         }
     }
 
@@ -500,8 +519,11 @@
     }
 
     // === (i) Determine theme to use ===
-    // Detect the current system theme and bundle it.  GNUSTEP_THEME is set
-    // in AppRun so the app uses the same theme it would have on the host.
+    // Detect the current system theme at build time (via `defaults read`) and
+    // hardcode it into AppRun.  We bake it in rather than detecting at runtime
+    // because the host may not have GNUstep installed or the theme directory
+    // may differ inside the AppImage.  Hardcoding avoids needing `defaults`
+    // (or a working GNUstep installation) on the end user's machine.
     NSString *themeName = nil;
     NSString *appRunThemeLine = @"";
     {
@@ -534,6 +556,11 @@
     }
 
     // === (j) Patch RPATH on all deployed ELFs ===
+    // Use RPATH instead of LD_LIBRARY_PATH so child processes (e.g. services
+    // launched by the app) also resolve libraries inside the AppDir.  RPATH is
+    // baked into the ELF and always applied; LD_LIBRARY_PATH must be inherited
+    // through the process tree and can be stripped by setuid binaries or
+    // sanitized environments.
     // Use $ORIGIN-relative rpaths so libraries resolve inside the AppDir.
     if (patchelfPath && _standalone) {
         if (_verbose) NSLog(@"make_appimage: patching RPATH on deployed ELFs");
@@ -602,42 +629,139 @@
         }
     }
 
-    // === (l) Create AppRun ===
+    // === (l) Create AppRun (compiled C binary, not shell script) ===
+    // A static binary has no /bin/sh dependency and works in minimal chroots,
+    // containers, or systems where /bin/sh points to a missing or incompatible
+    // shell (e.g. dash vs bash syntax differences).  Shell scripts are fragile
+    // across distros; a static C binary is universally executable even inside
+    // environments where no shell is installed.
     {
         NSString *appRunPath = [_appDirPath stringByAppendingPathComponent:@"AppRun"];
-        NSMutableString *content = [NSMutableString string];
-        [content appendString:@"#!/bin/sh\n"];
-        [content appendString:@"# Unset host environment variables that could interfere\n"];
-        [content appendString:@"unset LD_LIBRARY_PATH GNUSTEP_CONFIG_FILE GNUSTEP_USER_CONFIG_FILE GNUSTEP_USER_DIR GNUSTEP_USER_DEFAULTS_DIR\n"];
-        [content appendString:@"unset GNUSTEP_SYSTEM_ROOT GNUSTEP_LOCAL_ROOT GNUSTEP_NETWORK_ROOT GNUSTEP_FLATTENED\n"];
-        [content appendString:@"unset LD_PRELOAD LD_AUDIT LD_DEBUG LD_ORIGIN_PATH\n"];
-        [content appendString:@"\n"];
-        [content appendString:@"HERE=\"$(dirname \"$(readlink -f \"${0}\")\")\"\n"];
-        [content appendFormat:@"export GNUSTEP_CONFIG_FILE=\"$HERE/usr/lib/GNUstep/GNUstep.conf\"\n"];
-        if (themeName) {
-            [content appendFormat:@"export GNUSTEP_THEME=%@\n", themeName];
-        }
-        [content appendString:@"export FONTCONFIG_FILE=/etc/fonts/fonts.conf\n"];
-        [content appendString:@"export FONTCONFIG_PATH=/etc/fonts\n"];
-        [content appendString:@"export GNUSTEP_ROOT=\"$HERE/usr\"\n"];
-        [content appendString:@"export GNUSTEP_SYSTEM_ROOT=\"$HERE/System\"\n"];
-        [content appendString:@"export GNUSTEP_LOCAL_ROOT=\"$HERE/Local\"\n"];
-        // All library resolution is via RPATH — no LD_LIBRARY_PATH needed
-        [content appendString:@"export PATH=\"$HERE/usr/local/bin:$HERE/usr/bin:$HERE/System/Library/Tools:$HERE/Local/Library/Tools:$PATH\"\n"];
-        [content appendString:@"\n"];
-        [content appendString:@"cd \"$HERE\"\n"];
-        [content appendFormat:@"exec \"$HERE/%@\" \"$@\"\n", _mainExec];
+        NSString *srcPath = [_appDirPath stringByAppendingPathComponent:@"AppRun.c"];
+
+        NSString *themeLine = themeName
+            ? [NSString stringWithFormat:@"    setenv(\"GNUSTEP_THEME\", \"%@\", 1);\n", themeName]
+            : @"";
+
+        NSString *src = [NSString stringWithFormat:
+            @"#include <unistd.h>\n"
+            "#include <stdlib.h>\n"
+            "#include <string.h>\n"
+            "#include <libgen.h>\n"
+            "#include <stdio.h>\n"
+            "#include <limits.h>\n"
+            "\n"
+            "static void unsetenv_all(const char *vars[]) {\n"
+            "    for (int i = 0; vars[i]; i++) unsetenv(vars[i]);\n"
+            "}\n"
+            "\n"
+            "int main(int argc, char *argv[]) {\n"
+            "    const char *interfering[] = {\n"
+            "        \"LD_LIBRARY_PATH\", \"GNUSTEP_CONFIG_FILE\",\n"
+            "        \"GNUSTEP_USER_CONFIG_FILE\", \"GNUSTEP_USER_DIR\",\n"
+            "        \"GNUSTEP_USER_DEFAULTS_DIR\", \"GNUSTEP_SYSTEM_ROOT\",\n"
+            "        \"GNUSTEP_LOCAL_ROOT\", \"GNUSTEP_NETWORK_ROOT\",\n"
+            "        \"GNUSTEP_FLATTENED\", \"LD_PRELOAD\", \"LD_AUDIT\",\n"
+            "        \"LD_DEBUG\", \"LD_ORIGIN_PATH\", NULL\n"
+            "    };\n"
+            "    // Unset host env vars that would interfere with bundled libs.\n"
+            "    // LD_LIBRARY_PATH would make the dynamic loader prefer host\n"
+            "    // libraries over our bundled ones.  GNUstep vars point to host\n"
+            "    // paths outside the AppDir.  LD_PRELOAD/LD_AUDIT could inject\n"
+            "    // host-specific shims that don't exist inside the AppImage.\n"
+            "    unsetenv_all(interfering);\n"
+            "\n"
+            "    char here[PATH_MAX];\n"
+            "    char self[PATH_MAX];\n"
+            "    // Use readlink(\"/proc/self/exe\") instead of argv[0] because\n"
+            "    // the AppImage runtime preserves argv[0] as the .AppImage file\n"
+            "    // path, not the AppRun binary inside the squashfs.  /proc/self/exe\n"
+            "    // always points to the actual running binary (AppRun).\n"
+            "    ssize_t slen = readlink(\"/proc/self/exe\", self, sizeof(self) - 1);\n"
+            "    if (slen > 0) {\n"
+            "        self[slen] = '\\0';\n"
+            "        // Use strncpy/dirname directly instead of realpath() to avoid\n"
+            "        // the kernel doubling the chroot path prefix.  realpath()\n"
+            "        // resolves symlinks and would prepend the chroot base path\n"
+            "        // again when the AppImage is inside a chroot or container.\n"
+            "        strncpy(here, dirname(self), sizeof(here) - 1);\n"
+            "    } else {\n"
+            "        strncpy(here, dirname(argv[0]), sizeof(here) - 1);\n"
+            "    }\n"
+            "    chdir(here);\n"
+            "\n"
+            "    char cfg[PATH_MAX];\n"
+            "    snprintf(cfg, sizeof(cfg), \"%%s/usr/lib/GNUstep/GNUstep.conf\", here);\n"
+            "    setenv(\"GNUSTEP_CONFIG_FILE\", cfg, 1);\n"
+            "    %@"
+    "    // Set fontconfig paths so the bundled Helvetica font (used by the\n"
+    "    // Gershwin theme) is discoverable.  fontconfig reads its config from\n"
+    "    // FONTCONFIG_FILE and searches for fonts under FONTCONFIG_PATH.\n"
+    "    // Without these, the theme falls back to a different font.\n"
+    "    setenv(\"FONTCONFIG_FILE\", \"/etc/fonts/fonts.conf\", 1);\n"
+            "    setenv(\"FONTCONFIG_PATH\", \"/etc/fonts\", 1);\n"
+            "    setenv(\"GNUSTEP_ROOT\", here, 1);\n"
+            "    char sys[PATH_MAX]; snprintf(sys, sizeof(sys), \"%%s/System\", here); setenv(\"GNUSTEP_SYSTEM_ROOT\", sys, 1);\n"
+            "    char loc[PATH_MAX]; snprintf(loc, sizeof(loc), \"%%s/Local\", here); setenv(\"GNUSTEP_LOCAL_ROOT\", loc, 1);\n"
+            "    // Point GNUSTEP_USER_DIR to the AppDir root so user state (defaults,\n"
+            "    // cache) stays inside the AppImage.  Relying on HOME would scatter\n"
+            "    // files across the host filesystem, making the AppImage not truly\n"
+            "    // self-contained and leaving stale data on uninstall.\n"
+            "    setenv(\"GNUSTEP_USER_DIR\", here, 1);\n"
+            "    setenv(\"HOME\", here, 1);\n"
+            "    char ld[PATH_MAX]; snprintf(ld, sizeof(ld), \"%%s/usr/lib:%%s/usr/local/lib\", here, here); setenv(\"LD_LIBRARY_PATH\", ld, 1);\n"
+            "    char p[PATH_MAX]; snprintf(p, sizeof(p), \"%%s/usr/local/bin:%%s/usr/bin:%%s/System/Library/Tools:%%s/Local/Library/Tools\", here, here, here, here); setenv(\"PATH\", p, 1);\n"
+            "\n"
+            "    char bin[PATH_MAX];\n"
+            "    snprintf(bin, sizeof(bin), \"%%s/%@\", here);\n"
+            "    execv(bin, argv);\n"
+            "    return 1;\n"
+            "}\n",
+            themeLine, _mainExec];
 
         NSError *err = nil;
-        if (![content writeToFile:appRunPath atomically:YES
-                         encoding:NSUTF8StringEncoding error:&err]) {
-            NSLog(@"make_appimage: Failed to write AppRun: %@", err);
+        if (![src writeToFile:srcPath atomically:YES
+                     encoding:NSUTF8StringEncoding error:&err]) {
+            NSLog(@"make_appimage: Failed to write AppRun.c: %@", err);
             return NO;
+        }
+
+        NSString *ccPath = [self _findTool:@"gcc"] ?: [self _findTool:@"cc"];
+        if (ccPath) {
+            [self _runTool:ccPath
+                  withArgs:@[@"-static", @"-Os", @"-o", appRunPath, srcPath]
+                     error:&err];
+        }
+
+        if (![fm fileExistsAtPath:appRunPath]) {
+            NSLog(@"make_appimage: compiling AppRun failed, falling back to shell script");
+            NSMutableString *content = [NSMutableString string];
+            [content appendString:@"#!/bin/sh\n"];
+            [content appendString:@"unset LD_LIBRARY_PATH GNUSTEP_CONFIG_FILE GNUSTEP_USER_CONFIG_FILE GNUSTEP_USER_DIR GNUSTEP_USER_DEFAULTS_DIR\n"];
+            [content appendString:@"unset GNUSTEP_SYSTEM_ROOT GNUSTEP_LOCAL_ROOT GNUSTEP_NETWORK_ROOT GNUSTEP_FLATTENED\n"];
+            [content appendString:@"unset LD_PRELOAD LD_AUDIT LD_DEBUG LD_ORIGIN_PATH\n\n"];
+            [content appendString:@"HERE=\"$(dirname \"$(readlink -f \"${0}\")\")\"\n"];
+            [content appendFormat:@"export GNUSTEP_CONFIG_FILE=\"$HERE/usr/lib/GNUstep/GNUstep.conf\"\n"];
+            if (themeName)
+                [content appendFormat:@"export GNUSTEP_THEME=%@\n", themeName];
+            [content appendString:@"export GNUSTEP_ROOT=\"$HERE/usr\"\n"];
+            [content appendString:@"export GNUSTEP_SYSTEM_ROOT=\"$HERE/System\"\n"];
+            [content appendString:@"export GNUSTEP_LOCAL_ROOT=\"$HERE/Local\"\n"];
+            [content appendString:@"export LD_LIBRARY_PATH=\"$HERE/usr/lib:$HERE/usr/local/lib\"\n"];
+            [content appendString:@"export PATH=\"$HERE/usr/local/bin:$HERE/usr/bin:$HERE/System/Library/Tools:$HERE/Local/Library/Tools:$PATH\"\n\n"];
+            [content appendString:@"cd \"$HERE\"\n"];
+            [content appendFormat:@"exec \"$HERE/%@\" \"$@\"\n", _mainExec];
+            if (![content writeToFile:appRunPath atomically:YES
+                             encoding:NSUTF8StringEncoding error:&err]) {
+                NSLog(@"make_appimage: Failed to write AppRun: %@", err);
+                return NO;
+            }
         }
 
         if (chmodPath) {
             [self _runTool:chmodPath withArgs:@[@"+x", appRunPath] error:NULL];
         }
+        [fm removeItemAtPath:srcPath error:NULL];
     }
 
     // === (j) Create .desktop file ===

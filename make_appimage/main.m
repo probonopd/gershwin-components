@@ -4,6 +4,15 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+// CLI conventions:
+//   - Single-letter flags (-o, -d, -c, -C, -e, -t) take a following argument.
+//   - Boolean flags (-s, -v, -h) and their long forms (--standalone, --verbose)
+//     are self-contained. --no-standalone explicitly unsets the default.
+//   - The positional argument is the app name (e.g., "TextEdit").
+//   - Unknown flags starting with "-" produce an error; non-flag args are
+//     treated as the app name (only one is expected).
+//   - Help (-h) or missing app name prints usage and exits.
+
 #import "AppImageBuilder.h"
 
 int

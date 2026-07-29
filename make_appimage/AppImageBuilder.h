@@ -7,13 +7,16 @@
 #import <Foundation/Foundation.h>
 
 /**
- * Builds an AppImage from a GNUstep application.
+ * AppImageBuilder — orchestrates the full AppImage build pipeline.
  *
  * Typical usage:
  *
  *     AppImageBuilder *builder = [[AppImageBuilder alloc] initWithAppName:@"TextEdit"];
  *     [builder setOutputFile:@"TextEdit-1.0-x86_64-linux.AppImage"];
  *     [builder build];
+ *
+ * Internally calls LibraryResolver → LibraryDeployer → InterpreterDeployer,
+ * then runs appimagetool to package the AppDir into an AppImage.
  */
 @interface AppImageBuilder : NSObject
 {

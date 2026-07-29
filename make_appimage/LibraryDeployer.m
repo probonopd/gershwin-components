@@ -4,6 +4,18 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+// LibraryDeployer — copies resolved shared libraries into the AppDir.
+//
+// Two exclusion layers: exact-match (by filename, same as LibraryResolver) and
+// prefix-match (libc-*, libm-*, etc.). The prefix list catches versioned
+// variants (libc-2.31.so) that exact match misses, while exact match covers
+// stable SONAME symlinks (libc.so.6). Both are needed for reliable filtering.
+// Standalone mode (`-s`) disables all exclusions for fully self-contained bundles.
+// The libc/ subdirectory exists for libapprun_hooks which can add libc/ to
+// LD_LIBRARY_PATH before usr/lib/ to ensure glibc is loaded early.
+// We skip already-deployed files (checking target path existence) to avoid
+// redundant copies and to tolerate partially-built AppDirs.
+
 #import "LibraryDeployer.h"
 #import "LibraryResolver.h"
 
@@ -130,7 +142,8 @@ static NSArray *libcPrefixes(void)
 
 - (BOOL)isExcluded:(NSString *)libName
 {
-    // In standalone mode (-s), deploy ALL libraries — no exclusions.
+    // Standalone mode: bundle everything, no filtering.
+    // The user explicitly requested a fully self-contained image.
     if (_standalone) return NO;
 
     NSString *filename = [libName lastPathComponent];
@@ -177,6 +190,9 @@ static NSArray *libcPrefixes(void)
 
     NSString *targetPath;
 
+    // libc/ subdirectory is used when libapprun_hooks is in play: the hook
+    // script adds libc/ to LD_LIBRARY_PATH first so the bundled glibc
+    // takes precedence over the system one, avoiding ABI mismatches.
     if (_useLibcSubdirectory) {
         BOOL isLibc = NO;
         for (NSString *prefix in libcPrefixes()) {
@@ -207,6 +223,8 @@ static NSArray *libcPrefixes(void)
         return NO;
     }
 
+    // Skip if the target already exists — avoids redundant copies and
+    // allows the tool to be re-run on a partially-built AppDir.
     @try {
         if ([fm fileExistsAtPath:targetPath]) {
             return YES;

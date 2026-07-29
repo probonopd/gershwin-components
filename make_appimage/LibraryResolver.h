@@ -7,11 +7,12 @@
 #import <Foundation/Foundation.h>
 
 /**
- * Resolves shared library dependencies for ELF binaries within an AppDir.
+ * LibraryResolver — discovers all shared libraries an AppDir's ELFs need.
  *
- * Uses ldd to enumerate dependencies of each executable/ELF, walks
- * the AppDir recursively to find all ELF files, and maintains a list
- * of library search paths discovered during resolution.
+ * Walks the AppDir for ELF files, runs ldd on each, resolves transitive
+ * dependencies, and excludes known system libraries. Standalone mode
+ * disables exclusions. Also extracts RPATH entries to ensure ldd can
+ * resolve app-bundled sibling libraries.
  */
 @interface LibraryResolver : NSObject
 {

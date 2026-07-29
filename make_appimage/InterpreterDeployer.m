@@ -4,6 +4,26 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+// InterpreterDeployer — detects and deploys the ld-linux (or ld-musl)
+// dynamic linker/interpreter into the AppDir.
+//
+// Why .app bundle search: GNUstep apps are often bundles (.app directories)
+// whose executables live inside. We scan inside them to find the real binary.
+// Why musl paths: Alpine Linux and other musl-based distros use ld-musl-*
+// instead of ld-linux-*. We add standard musl paths so AppImages built on
+// musl hosts work correctly on glibc hosts (and vice versa with the bundled
+// interpreter).
+// Why readlink -f: ld-linux is frequently a symlink (e.g., ld-linux-x86-64.so.2
+// → ld-2.31.so). We resolve the chain to get the real file for copying.
+// Why isMusl flag exists: musl does not ship gconv modules, locale data, or
+// nsswitch in the same way as glibc. Downstream code checks this flag to
+// skip deploying those.
+// Why we DON'T binary-patch: Earlier versions patched /lib → /XXX in the
+// interpreter binary to alter its default search path. This broke $ORIGIN-
+// based RPATH evaluation because the patched paths are longer/shorter and
+// shift offsets. Modern patchelf --set-interpreter and --set-rpath handle
+// this correctly without binary patching.
+
 #import "InterpreterDeployer.h"
 
 @interface InterpreterDeployer ()
@@ -45,7 +65,8 @@
         _readelfPath = [self _findTool:@"readelf"];
         _readlinkPath = [self _findTool:@"readlink"];
         _chmodPath = [self _findTool:@"chmod"];
-        // Check whether this is a musl-based system (Alpine, etc.)
+        // Detect musl by checking for known ld-musl paths. Used downstream to
+        // skip glibc-specific content (gconv, nss) that does not exist on musl.
         _isMusl = ([[NSFileManager defaultManager] isExecutableFileAtPath:@"/lib/ld-musl-x86_64.so.1"] ||
                    [[NSFileManager defaultManager] isExecutableFileAtPath:@"/lib/ld-musl-aarch64.so.1"] ||
                    [[NSFileManager defaultManager] isExecutableFileAtPath:@"/lib/ld-musl-armhf.so.1"] ||
@@ -63,7 +84,9 @@
     NSArray *entries = [fm contentsOfDirectoryAtPath:binDir error:NULL];
     if (!entries) return nil;
 
-    // Search also inside .app bundles
+    // Search inside .app bundles: GNUstep apps package their executables
+    // inside .app/ directories. We need to find the real binary inside the
+    // bundle to read its PT_INTERP header.
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSString *entry in entries) {
         NSString *fullPath = [binDir stringByAppendingPathComponent:entry];
@@ -98,7 +121,9 @@
         }
     }
 
-    // Also search for musl interpreters in standard locations
+    // Also search for musl interpreters in standard locations.
+    // This ensures AppImages built on Alpine can bundle ld-musl and then
+    // run on glibc hosts (the bundled interpreter bridges the gap).
     NSArray *muslPaths = @[@"/lib/ld-musl-x86_64.so.1",
                            @"/usr/lib/ld-musl-x86_64.so.1",
                            @"/lib/ld-musl-aarch64.so.1",
@@ -174,6 +199,9 @@
         [fm removeItemAtPath:targetPath error:NULL];
     }
 
+    // Resolve symlinks with readlink -f. /lib64/ld-linux-x86-64.so.2 is
+    // often a symlink to /lib/ld-2.31.so; copying the link target ensures
+    // the deployed file is a real regular file, not a dangling symlink.
     NSString *realPath = interpreterPath;
     if (_readlinkPath) {
         @try {
@@ -220,6 +248,11 @@
     return YES;
 }
 
+// NOT CURRENTLY CALLED. Binary-patching the interpreter (replacing /lib, /usr,
+// /etc with neutral placeholders) was meant to redirect its internal search
+// paths into the AppDir. However, changing path lengths shifts data offsets
+// in the ELF, which can corrupt $ORIGIN-relative RPATH entries and break
+// libraries that rely on them. Modern patchelf --set-rpath is preferred.
 - (BOOL)patchInterpreter:(NSString *)deployedPath
 {
     if (_verbose) NSLog(@"InterpreterDeployer: patching %@", deployedPath);

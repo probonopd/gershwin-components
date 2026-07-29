@@ -4,6 +4,20 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+// LibraryResolver — resolves ELF shared library dependencies for an AppDir.
+//
+// Why ldd: Parsing ldd output is simpler and more portable than reimplementing
+// ELF DT_NEEDED traversal. ldd handles cross-arch, musl, and glibc transparently.
+// Why per-system paths: We parse /etc/ld.so.conf to discover all system-wide
+// library search paths so ldd resolves correctly even on nonstandard layouts.
+// Why exclusions: Core system libraries (libc.so.6, libm.so.6, libpthread.so.0,
+// etc.) are expected on any host and inflate AppImage size if bundled.
+// Why standalone disables them: --standalone means "truly self-contained" for
+// hosts that might lack these libs (e.g., containers, musl-only systems).
+// Why RPATH preservation: Bundled ELFs often use $ORIGIN/../Resources or
+// similar app-relative RPATHs. Resolving them at deploy time ensures ldd
+// finds sibling libs inside the AppDir tree.
+
 #import "LibraryResolver.h"
 
 @interface LibraryResolver ()
@@ -64,6 +78,10 @@ static NSString *lastPathComponent(NSString *path)
         _lddPath = [self _findTool:@"ldd"];
         _patchelfPath = [self _findTool:@"patchelf"];
 
+        // Exact-match exclusion list. These are glibc/musl internals, graphics
+        // drivers, and other host-provided libraries that should not be bundled
+        // in non-standalone mode — they are guaranteed on any desktop Linux or
+        // pull in dozens of driver-specific variants that bloat the AppImage.
         _excludedLibraries = @[
             @"ld-linux.so.2",
             @"ld-linux-x86-64.so.2",
@@ -167,6 +185,9 @@ static NSString *lastPathComponent(NSString *path)
 
 - (BOOL)isExcludedLibrary:(NSString *)name
 {
+    // Standalone mode: deploy everything, no exclusions.
+    // The AppImage is meant to run on any Linux (even minimal containers),
+    // so it must carry its own copy of every library.
     if (_standalone) return NO;
     NSString *filename = lastPathComponent(name);
     return [_excludedLibraries containsObject:filename];
@@ -326,6 +347,10 @@ static NSString *lastPathComponent(NSString *path)
         [self addRPathLocationsForPath:path];
     }
 
+    // Use ldd(1) to enumerate NEEDED libraries rather than parsing ELF headers
+    // directly. ldd resolves the full chain (NEEDED → file path) using the
+    // system's ld.so cache, which handles symlinks, ld.so.conf, and musl/glibc
+    // differences without extra code.
     if (!_lddPath) return;
     @try {
         NSTask *task = [[NSTask alloc] init];
@@ -389,6 +414,10 @@ static NSString *lastPathComponent(NSString *path)
     }
 }
 
+// Extract RPATH entries from each ELF so ldd can resolve app-bundled libraries
+// that use $ORIGIN-relative paths. We skip $ORIGIN entries (they are evaluated
+// at runtime relative to the ELF's own location) and only add absolute RPATHs
+// to the search list so ldd finds transitive dependencies.
 - (void)addRPathLocationsForPath:(NSString *)path
 {
     if (!_patchelfPath) return;

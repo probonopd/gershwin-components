@@ -7,11 +7,12 @@
 #import <Foundation/Foundation.h>
 
 /**
- * Handles detection, deployment, and patching of the ld-linux
- * dynamic linker/loader within an AppDir.
+ * InterpreterDeployer — detects, deploys, and patches the ELF interpreter.
  *
- * The interpreter is copied from the host system and its embedded
- * library search path is patched to point into the AppDir.
+ * Scans .app bundles and standard system paths for ld-linux / ld-musl,
+ * copies the resolved real file into the AppDir, and optionally patches
+ * its embedded search-path strings so the deployed interpreter looks
+ * inside the AppDir for libraries.
  */
 @interface InterpreterDeployer : NSObject
 {
