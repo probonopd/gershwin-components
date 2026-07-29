@@ -355,6 +355,44 @@
                 }
             }
         }
+
+        // Bundle fonts and fontconfig so the app can render text even in
+        // environments where Helvetica is not installed (Alpine chroot, etc.).
+        // We use NimbusSans — a metric-compatible Helvetica replacement.
+        NSString *fontDir = [_appDirPath stringByAppendingPathComponent:@"usr/share/fonts"];
+        NSArray *srcFontDirs = @[@"/System/Library/Fonts"];
+        for (NSString *src in srcFontDirs) {
+            if ([fm fileExistsAtPath:src]) {
+                NSDirectoryEnumerator *en = [fm enumeratorAtPath:src];
+                for (NSString *sub in en) {
+                    NSString *ext = [sub pathExtension];
+                    if ([ext isEqualToString:@"ttf"] || [ext isEqualToString:@"otf"] ||
+                        [ext isEqualToString:@"pfa"] || [ext isEqualToString:@"pfb"]) {
+                        NSString *fullSrc = [src stringByAppendingPathComponent:sub];
+                        NSString *fullDst = [fontDir stringByAppendingPathComponent:sub];
+                        [fm createDirectoryAtPath:[fullDst stringByDeletingLastPathComponent]
+                         withIntermediateDirectories:YES attributes:nil error:NULL];
+                        [fm copyItemAtPath:fullSrc toPath:fullDst error:NULL];
+                    }
+                }
+            }
+        }
+        // Create fontconfig configuration pointing to the bundled fonts
+        NSString *fcDir = [_appDirPath stringByAppendingPathComponent:@"usr/etc/fonts"];
+        [fm createDirectoryAtPath:fcDir withIntermediateDirectories:YES
+                       attributes:nil error:NULL];
+        NSString *fcConf = [fcDir stringByAppendingPathComponent:@"fonts.conf"];
+        // Relative path with prefix=\"cwd\" tells fontconfig to resolve
+        // usr/share/fonts relative to the current working directory,
+        // which the AppRun sets to the AppDir root.
+        NSString *fcContent =
+            @"<?xml version=\"1.0\"?>\n"
+             "<!DOCTYPE fontconfig SYSTEM \"fonts.dtd\">\n"
+             "<fontconfig>\n"
+             "  <dir prefix=\"cwd\">usr/share/fonts</dir>\n"
+             "  <cachedir prefix=\"cwd\">tmp/fontconfig-cache</cachedir>\n"
+             "</fontconfig>\n";
+        [fcContent writeToFile:fcConf atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     }
 
     // === (e) Resolve library dependencies ===
@@ -697,9 +735,30 @@
     "    // Set fontconfig paths so the bundled Helvetica font (used by the\n"
     "    // Gershwin theme) is discoverable.  fontconfig reads its config from\n"
     "    // FONTCONFIG_FILE and searches for fonts under FONTCONFIG_PATH.\n"
-    "    // Without these, the theme falls back to a different font.\n"
-    "    setenv(\"FONTCONFIG_FILE\", \"/etc/fonts/fonts.conf\", 1);\n"
-            "    setenv(\"FONTCONFIG_PATH\", \"/etc/fonts\", 1);\n"
+    "    // Write fontconfig config with absolute paths so the bundled fonts\n"
+            "    // are found.  The config goes to a writable temp location because\n"
+            "    // the AppDir itself may be on a read-only FUSE mount.  We cannot\n"
+            "    // use a pre-built config because the mount point path changes on\n"
+            "    // every run and fontconfig rejects relative <dir> paths.\n"
+            "    {\n"
+            "      char p[PATH_MAX];\n"
+            "      snprintf(p, sizeof(p), \"%%s/.fonts.conf\", here);\n"
+            "      FILE *f = fopen(p, \"w\");\n"
+            "      if (!f) {\n"
+            "        snprintf(p, sizeof(p), \"/tmp/.fonts-%%d.conf\", getpid());\n"
+            "        f = fopen(p, \"w\");\n"
+            "      }\n"
+            "      if (f) {\n"
+            "        fprintf(f, \"<?xml version=\\\"1.0\\\"?>\\n\");\n"
+            "        fprintf(f, \"<!DOCTYPE fontconfig SYSTEM \\\"fonts.dtd\\\">\\n\");\n"
+            "        fprintf(f, \"<fontconfig>\\n\");\n"
+            "        fprintf(f, \"  <dir>%%s/usr/share/fonts</dir>\\n\", here);\n"
+            "        fprintf(f, \"  <cachedir>%%s/tmp/fc-cache</cachedir>\\n\", here);\n"
+            "        fprintf(f, \"</fontconfig>\\n\");\n"
+            "        fclose(f);\n"
+            "        setenv(\"FONTCONFIG_FILE\", p, 1);\n"
+            "      }\n"
+            "    }\n"
             "    setenv(\"GNUSTEP_ROOT\", here, 1);\n"
             "    char sys[PATH_MAX]; snprintf(sys, sizeof(sys), \"%%s/System\", here); setenv(\"GNUSTEP_SYSTEM_ROOT\", sys, 1);\n"
             "    char loc[PATH_MAX]; snprintf(loc, sizeof(loc), \"%%s/Local\", here); setenv(\"GNUSTEP_LOCAL_ROOT\", loc, 1);\n"
