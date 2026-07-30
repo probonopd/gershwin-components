@@ -877,22 +877,72 @@
         }
     }
 
-    // === (j) Create .desktop file ===
+    // === (j) Create .desktop file and .DirIcon ===
     {
         NSString *iconName = _appName;
-        NSArray *extensions = @[@"png", @"svg", @"xpm"];
         NSString *foundIcon = nil;
-        NSDirectoryEnumerator *enumerator = [fm enumeratorAtPath:_appDirPath];
-        NSString *subpath;
-        while ((subpath = [enumerator nextObject])) {
-            if ([extensions containsObject:[[subpath pathExtension] lowercaseString]]) {
-                foundIcon = [_appDirPath stringByAppendingPathComponent:subpath];
-                iconName = [[subpath lastPathComponent] stringByDeletingPathExtension];
-                break;
+
+        // Read icon from the app's Info.plist (takes precedence over scan)
+        NSString *plistPath = [_appDirPath stringByAppendingPathComponent:@"Resources/Info-gnustep.plist"];
+        if (![fm fileExistsAtPath:plistPath]) {
+            plistPath = [_appDirPath stringByAppendingPathComponent:@"Resources/Info.plist"];
+        }
+        if ([fm fileExistsAtPath:plistPath]) {
+            NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:plistPath];
+            NSString *plistIcon = nil;
+            for (NSString *key in @[@"ApplicationIcon", @"NSIcon", @"CFBundleIconFile", @"GSThemeIcon"]) {
+                plistIcon = [plist objectForKey:key];
+                if ([plistIcon length] > 0) break;
+            }
+            if ([plistIcon length] > 0) {
+                // Search in Resources/ for the icon file
+                NSArray *extensions = @[@"png", @"svg", @"xpm", @"tiff", @"icns", @"ico"];
+                NSString *iconBase = [plistIcon stringByDeletingPathExtension];
+                NSString *iconExt = [plistIcon pathExtension];
+                if ([iconExt length] > 0) {
+                    // Full filename with extension given
+                    NSString *fullPath = [_appDirPath stringByAppendingPathComponent:
+                        [@"Resources" stringByAppendingPathComponent:plistIcon]];
+                    if ([fm fileExistsAtPath:fullPath]) {
+                        foundIcon = fullPath;
+                        iconName = iconBase;
+                    }
+                } else {
+                    // No extension — try known extensions
+                    for (NSString *ext in extensions) {
+                        NSString *fullPath = [_appDirPath stringByAppendingPathComponent:
+                            [NSString stringWithFormat:@"Resources/%@.%@", plistIcon, ext]];
+                        if ([fm fileExistsAtPath:fullPath]) {
+                            foundIcon = fullPath;
+                            iconName = iconBase;
+                            break;
+                        }
+                    }
+                }
             }
         }
 
+        // Fallback: scan AppDir for any image file
+        if (!foundIcon) {
+            NSArray *extensions = @[@"png", @"svg", @"xpm"];
+            NSDirectoryEnumerator *enumerator = [fm enumeratorAtPath:_appDirPath];
+            NSString *subpath;
+            while ((subpath = [enumerator nextObject])) {
+                if ([extensions containsObject:[[subpath pathExtension] lowercaseString]]) {
+                    foundIcon = [_appDirPath stringByAppendingPathComponent:subpath];
+                    iconName = [[subpath lastPathComponent] stringByDeletingPathExtension];
+                    break;
+                }
+            }
+        }
+
+        // Copy icon to .DirIcon (used by appimagetool as the AppImage icon)
         if (foundIcon) {
+            NSString *dirIcon = [_appDirPath stringByAppendingPathComponent:@".DirIcon"];
+            if (![fm fileExistsAtPath:dirIcon]) {
+                [fm copyItemAtPath:foundIcon toPath:dirIcon error:NULL];
+            }
+            // Also copy to root with original name for appimagetool's icon detection
             NSString *rootIcon = [_appDirPath stringByAppendingPathComponent:[foundIcon lastPathComponent]];
             if (![fm fileExistsAtPath:rootIcon]) {
                 [fm copyItemAtPath:foundIcon toPath:rootIcon error:NULL];
@@ -901,7 +951,6 @@
 
         NSString *version = @"1.0";
         if (isPrebuiltBundle) {
-            NSString *plistPath = [_appDir stringByAppendingPathComponent:@"Resources/Info-gnustep.plist"];
             if ([fm fileExistsAtPath:plistPath]) {
                 NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:plistPath];
                 NSString *plistVersion = [plist objectForKey:@"CFBundleVersion"];
