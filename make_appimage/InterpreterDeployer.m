@@ -172,10 +172,10 @@
     if ([interpreterPath length] == 0) return NO;
 
     NSFileManager *fm = [NSFileManager defaultManager];
-    // Deploy ld-linux to Resources/ inside the .app bundle
+    // Deploy ld-linux to Resources/GNUstep/Library/Libraries/<basename>
     NSString *basename = [interpreterPath lastPathComponent];
     NSString *targetPath = [_appDirPath stringByAppendingPathComponent:
-        [@"Resources" stringByAppendingPathComponent:basename]];
+        [@"Resources/GNUstep/Library/Libraries" stringByAppendingPathComponent:basename]];
 
     if ([fm fileExistsAtPath:targetPath]) {
         [fm removeItemAtPath:targetPath error:NULL];

@@ -670,9 +670,10 @@
         _appResourcesDir = [_appDirPath stringByAppendingPathComponent:@"Resources"];
 
         // Patch the interpreter on ALL deployed ELFs so every binary and
-        // library uses the bundled ld-linux.  This prevents helper processes
-        // (gdnc, gpbs, make_services) from trying to load the host's ld-linux
-        // when executed from a directory outside the AppDir root.
+        // library uses the bundled ld-linux (deployed to Resources/<basename>).
+        // This prevents helper processes (gdnc, gpbs, make_services) from
+        // trying to load the host's ld-linux when executed from a directory
+        // outside the AppDir root.
         if (detectedInterpreter && patchelfPath) {
             NSMutableSet *interpElfs = [NSMutableSet setWithArray:_allELFs];
             NSString *iLibDir = [[self _gnustepLibraryPath] stringByAppendingPathComponent:@"Libraries"];
@@ -682,7 +683,13 @@
                 if ([fm fileExistsAtPath:full isDirectory:&isDir] && !isDir)
                     [interpElfs addObject:full];
             }
-            NSString *relInterp = [@"." stringByAppendingString:detectedInterpreter];
+            // ld-linux is deployed to Resources/GNUstep/Library/Libraries/<basename>.
+            // The ./ prefix makes the kernel resolve it relative to CWD (which
+            // AppRun sets to the AppDir root by calling chdir(here)).
+            NSString *interpBase = [detectedInterpreter lastPathComponent];
+            NSString *relInterp = [@"." stringByAppendingPathComponent:
+                [@"Resources/GNUstep/Library/Libraries" stringByAppendingPathComponent:interpBase]];
+            if (_verbose) NSLog(@"make_appimage: interpreter relative path: %@", relInterp);
             for (NSString *elf in interpElfs) {
                 [self _runTool:patchelfPath
                       withArgs:@[@"--set-interpreter", relInterp, elf]
@@ -719,7 +726,7 @@
             }
             // Fallback: use the first theme found in the AppDir
             if (!themeName) {
-                NSString *themesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Themes"];
+                NSString *themesDir = [[self _gnustepLibraryPath] stringByAppendingPathComponent:@"Themes"];
                 NSArray *entries = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:themesDir error:NULL];
                 for (NSString *entry in entries) {
                     if ([entry hasSuffix:@".theme"]) {
@@ -762,7 +769,9 @@
             }
 
             // $ORIGIN-relative path from this ELF to Libraries/
+            // If the ELF is already in Libraries/, no RPATH needed (LD_LIBRARY_PATH covers it).
             NSString *elfDir = [elf stringByDeletingLastPathComponent];
+            if ([elfDir isEqualToString:libDir]) continue;
             NSMutableString *rel = [NSMutableString string];
             NSArray *e = [elfDir pathComponents], *l = [libDir pathComponents];
             NSUInteger c = 0;
