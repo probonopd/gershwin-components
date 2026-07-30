@@ -850,7 +850,7 @@
         }
 
         // Write app-specific settings to AppRun.plist
-        NSString *plistPath = [_appDirPath stringByAppendingPathComponent:@"AppRun.plist"];
+        NSString *plistPath = [_appDirPath stringByAppendingPathComponent:@"Resources/AppRun.plist"];
         NSString *themeValue = themeName ?: @"";
         NSString *plist = [NSString stringWithFormat:
             @"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"

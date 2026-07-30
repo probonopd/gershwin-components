@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
     chdir(here);
 
     char plist_path[PATH_MAX];
-    snprintf(plist_path, sizeof(plist_path), "%s/AppRun.plist", here);
+    snprintf(plist_path, sizeof(plist_path), "%s/Resources/AppRun.plist", here);
     size_t plist_len;
     char *plist_xml = map_file(plist_path, &plist_len);
     if (!plist_xml) {
