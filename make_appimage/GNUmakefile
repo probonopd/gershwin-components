@@ -19,7 +19,7 @@ before-install:: AppRun
 
 AppRun: AppRun.c
 	@echo "  Compiling static AppRun..."
-	@gcc -static -Os -Wall -Wno-format-truncation -o AppRun AppRun.c
+	@$(CC) -static -Os -Wall -Wno-format-truncation -o AppRun AppRun.c
 
 install::
 	@if [ -f AppRun ]; then \
