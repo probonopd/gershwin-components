@@ -132,14 +132,13 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (theme[0])
-        setenv("GNUSTEP_THEME", theme, 1);
-
     setenv("GNUSTEP_ROOT", here, 1);
     char sys[PATH_MAX]; snprintf(sys, sizeof(sys), "%s/System", here);
     setenv("GNUSTEP_SYSTEM_ROOT", sys, 1);
     char loc[PATH_MAX]; snprintf(loc, sizeof(loc), "%s/Local", here);
     setenv("GNUSTEP_LOCAL_ROOT", loc, 1);
+    if (theme[0])
+        setenv("GNUSTEP_THEME", theme, 1);
 
     {
         const char *xa = getenv("XAUTHORITY");
@@ -174,11 +173,17 @@ int main(int argc, char *argv[])
 
     munmap(plist_xml, plist_len);
 
-    /* Build argv: <binary> [args] */
-    char *new_argv[argc + 1];
-    new_argv[0] = bin;
-    for (int i = 1; i < argc; i++) new_argv[i] = argv[i];
-    new_argv[argc] = NULL;
+    /* Build argv: <binary> [-GSTheme <theme>] [args] */
+    int extra = (theme[0]) ? 2 : 0;
+    char *new_argv[argc + 1 + extra];
+    int ai = 0;
+    new_argv[ai++] = bin;
+    if (theme[0]) {
+        new_argv[ai++] = "-GSTheme";
+        new_argv[ai++] = theme;
+    }
+    for (int i = 1; i < argc; i++) new_argv[ai++] = argv[i];
+    new_argv[ai] = NULL;
 
     execv(bin, new_argv);
     return 1;
