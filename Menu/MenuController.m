@@ -474,12 +474,17 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
     // Re-read the primary screen geometry (screens[0] is the xrandr primary;
     // mainScreen may return the menu's own window screen which is circular)
-    self.screenFrame = [[[NSScreen screens] objectAtIndex:0] frame];
-    self.screenSize = self.screenFrame.size;
-    NSDebugLLog(@"gwcomp", @"MenuController: New screen frame: %.0f,%.0f %.0fx%.0f",
-          self.screenFrame.origin.x, self.screenFrame.origin.y,
-          self.screenSize.width, self.screenSize.height);
-
+    NSRect sf = [[[NSScreen screens] objectAtIndex:0] frame];
+    CGFloat scaleFactor = [[[NSScreen screens] objectAtIndex:0] backingScaleFactor];
+    if (scaleFactor > 0) {
+        sf.size.width *= scaleFactor;
+        sf.size.height *= scaleFactor;
+    }
+    self.screenFrame = sf;
+    self.screenSize = sf.size;
+    NSDebugLLog(@"gwcomp", @"MenuController: New screen frame: %.0f,%.0f %.0fx%.0f (scale=%.1f)",
+          sf.origin.x, sf.origin.y,
+          sf.size.width, sf.size.height, scaleFactor);
     const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
 
     // Reposition and resize the menu bar window using the screen frame origin
@@ -923,10 +928,16 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     attributes = [NSMutableDictionary new];
     [attributes setObject:menuFont forKey:NSFontAttributeName];
     
-    self.screenFrame = [[[NSScreen screens] objectAtIndex:0] frame];
-    self.screenSize = self.screenFrame.size;
-    NSDebugLLog(@"gwcomp", @"MenuController: Screen frame: %.0f,%.0f %.0fx%.0f",
-          self.screenFrame.origin.x, self.screenFrame.origin.y, self.screenSize.width, self.screenSize.height);
+    NSRect sf = [[[NSScreen screens] objectAtIndex:0] frame];
+    CGFloat scaleFactor = [[[NSScreen screens] objectAtIndex:0] backingScaleFactor];
+    if (scaleFactor > 0) {
+        sf.size.width *= scaleFactor;
+        sf.size.height *= scaleFactor;
+    }
+    self.screenFrame = sf;
+    self.screenSize = sf.size;
+    NSDebugLLog(@"gwcomp", @"MenuController: Screen frame: %.0f,%.0f %.0fx%.0f (scale=%.1f)",
+          sf.origin.x, sf.origin.y, sf.size.width, sf.size.height, scaleFactor);
     
     color = [self backgroundColor];
     NSDebugLLog(@"gwcomp", @"MenuController: Background color: %@", color);
