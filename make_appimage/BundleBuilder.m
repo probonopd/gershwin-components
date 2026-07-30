@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#import "AppImageBuilder.h"
+#import "BundleBuilder.h"
 #import "LibraryResolver.h"
 #import "InterpreterDeployer.h"
 #import "LibraryDeployer.h"
 
-@interface AppImageBuilder ()
+@interface BundleBuilder ()
 {
     BOOL _standalone;
     BOOL _deployTheme;
@@ -27,14 +27,13 @@
 
 @end
 
-@implementation AppImageBuilder
+@implementation BundleBuilder
 
 - (instancetype)initWithAppName:(NSString *)name
 {
     self = [super init];
     if (self) {
         _appName = [name copy];
-        _appimageTool = @"appimagetool";
         _buildDir = [NSString stringWithFormat:@"/tmp/appimage-%@", name];
         _appDirPath = [_buildDir stringByAppendingPathComponent:@"AppDir"];
         _allELFs = [NSMutableArray array];
@@ -58,12 +57,10 @@
     return [[self _gnustepPath] stringByAppendingPathComponent:@"Library"];
 }
 
-- (void)setOutputFile:(NSString *)path       { _outputFile = [path copy]; }
 - (void)setBuildDirectory:(NSString *)dir    { _buildDir = [dir copy]; _appDirPath = [_buildDir stringByAppendingPathComponent:@"AppDir"]; }
 - (void)setComment:(NSString *)comment        { _comment = [comment copy]; }
 - (void)setCategories:(NSString *)categories  { _categories = [categories copy]; }
 - (void)setMainExecutable:(NSString *)path   { _mainExec = [path copy]; }
-- (void)setAppimageTool:(NSString *)path      { _appimageTool = [path copy]; }
 - (void)setStandalone:(BOOL)flag              { _standalone = flag; }
 - (void)setThemeName:(NSString *)name          { _themeName = [name copy]; }
 - (void)setDeployTheme:(BOOL)flag              { _deployTheme = flag; }
@@ -71,6 +68,12 @@
 - (void)setExtraBundles:(NSArray *)names       { _extraBundles = [names copy]; }
 - (void)setVerbose:(BOOL)flag                 { _verbose = flag; }
 - (void)setStandaloneBundle:(BOOL)flag        { _standaloneBundle = flag; }
+
+- (NSString *)appDirPath    { return _appDirPath; }
+- (NSString *)appName       { return _appName; }
+- (NSString *)mainExec      { return _mainExec; }
+- (NSString *)comment       { return _comment; }
+- (NSString *)categories    { return _categories; }
 
 #pragma mark - Tool path lookup
 
@@ -148,7 +151,7 @@
         return YES;
     } @catch (NSException *exception) {
         if (error) {
-            *error = [NSError errorWithDomain:@"AppImageBuilder"
+            *error = [NSError errorWithDomain:@"BundleBuilder"
                                         code:-1
                                     userInfo:@{NSLocalizedDescriptionKey: [exception reason]}];
         }
@@ -899,121 +902,7 @@
         }
     }
 
-    // === (j) Create .desktop file and .DirIcon ===
-    {
-        NSString *iconName = _appName;
-        NSString *foundIcon = nil;
-
-        // Read icon from the app's Info.plist (takes precedence over scan)
-        NSString *plistPath = [_appDirPath stringByAppendingPathComponent:@"Resources/Info-gnustep.plist"];
-        if (![fm fileExistsAtPath:plistPath]) {
-            plistPath = [_appDirPath stringByAppendingPathComponent:@"Resources/Info.plist"];
-        }
-        if ([fm fileExistsAtPath:plistPath]) {
-            NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:plistPath];
-            NSString *plistIcon = nil;
-            for (NSString *key in @[@"ApplicationIcon", @"NSIcon", @"CFBundleIconFile", @"GSThemeIcon"]) {
-                plistIcon = [plist objectForKey:key];
-                if ([plistIcon length] > 0) break;
-            }
-            if ([plistIcon length] > 0) {
-                // Search in Resources/ for the icon file
-                NSArray *extensions = @[@"png", @"svg", @"xpm", @"tiff", @"icns", @"ico"];
-                NSString *iconBase = [plistIcon stringByDeletingPathExtension];
-                NSString *iconExt = [plistIcon pathExtension];
-                if ([iconExt length] > 0) {
-                    // Full filename with extension given
-                    NSString *fullPath = [_appDirPath stringByAppendingPathComponent:
-                        [@"Resources" stringByAppendingPathComponent:plistIcon]];
-                    if ([fm fileExistsAtPath:fullPath]) {
-                        foundIcon = fullPath;
-                        iconName = iconBase;
-                    }
-                } else {
-                    // No extension — try known extensions
-                    for (NSString *ext in extensions) {
-                        NSString *fullPath = [_appDirPath stringByAppendingPathComponent:
-                            [NSString stringWithFormat:@"Resources/%@.%@", plistIcon, ext]];
-                        if ([fm fileExistsAtPath:fullPath]) {
-                            foundIcon = fullPath;
-                            iconName = iconBase;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Fallback: scan AppDir for any image file
-        if (!foundIcon) {
-            NSArray *extensions = @[@"png", @"svg", @"xpm"];
-            NSDirectoryEnumerator *enumerator = [fm enumeratorAtPath:_appDirPath];
-            NSString *subpath;
-            while ((subpath = [enumerator nextObject])) {
-                if ([extensions containsObject:[[subpath pathExtension] lowercaseString]]) {
-                    foundIcon = [_appDirPath stringByAppendingPathComponent:subpath];
-                    iconName = [[subpath lastPathComponent] stringByDeletingPathExtension];
-                    break;
-                }
-            }
-        }
-
-        // Copy icon to .DirIcon (used by appimagetool as the AppImage icon)
-        if (foundIcon) {
-            NSString *dirIcon = [_appDirPath stringByAppendingPathComponent:@".DirIcon"];
-            if (![fm fileExistsAtPath:dirIcon]) {
-                [fm copyItemAtPath:foundIcon toPath:dirIcon error:NULL];
-            }
-            // Also copy to root with original name for appimagetool's icon detection
-            NSString *rootIcon = [_appDirPath stringByAppendingPathComponent:[foundIcon lastPathComponent]];
-            if (![fm fileExistsAtPath:rootIcon]) {
-                [fm copyItemAtPath:foundIcon toPath:rootIcon error:NULL];
-            }
-        }
-
-        NSString *version = @"1.0";
-        if (isPrebuiltBundle) {
-            if ([fm fileExistsAtPath:plistPath]) {
-                NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:plistPath];
-                NSString *plistVersion = [plist objectForKey:@"CFBundleVersion"];
-                if ([plistVersion length] > 0) version = plistVersion;
-            }
-        } else {
-            NSString *makefileContent = [NSString stringWithContentsOfFile:
-                [_appDir stringByAppendingPathComponent:@"GNUmakefile"]
-                                                                 encoding:NSUTF8StringEncoding error:NULL];
-            if (makefileContent) {
-                for (NSString *line in [makefileContent componentsSeparatedByString:@"\n"]) {
-                    NSString *trimmed = [line stringByTrimmingCharactersInSet:
-                        [NSCharacterSet whitespaceCharacterSet]];
-                    if ([trimmed hasPrefix:@"VERSION"] || [trimmed hasPrefix:@"PACKAGE_VERSION"]) {
-                        NSRange eq = [trimmed rangeOfString:@"="];
-                        if (eq.location != NSNotFound) {
-                            NSString *val = [[trimmed substringFromIndex:eq.location + 1]
-                                stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-                            if ([val length] > 0) { version = val; break; }
-                        }
-                    }
-                }
-            }
-        }
-
-        NSString *appBasename = [[_appName lastPathComponent] stringByDeletingPathExtension];
-        NSString *desktopPath = [_appDirPath stringByAppendingPathComponent:
-            [NSString stringWithFormat:@"%@.desktop", appBasename]];
-        NSString *desktopContent = [NSString stringWithFormat:
-            @"[Desktop Entry]\nType=Application\nName=%@\nComment=%@\nExec=%@\nIcon=%@\nCategories=%@\nTerminal=false\n",
-            appBasename, _comment ?: @"", _mainExec, iconName, _categories ?: @"Application"];
-
-        NSError *err = nil;
-        if (![desktopContent writeToFile:desktopPath atomically:YES
-                                encoding:NSUTF8StringEncoding error:&err]) {
-            NSLog(@"make_appimage: Failed to write desktop file: %@", err);
-            return NO;
-        }
-    }
-
-    // === (k) Finalize ===
+    // === (k) Finalize (standalone bundle) ===
     if (_standaloneBundle) {
         NSString *plistPath = [_appDirPath stringByAppendingPathComponent:@"Resources/Info-gnustep.plist"];
         NSMutableDictionary *plist = [NSMutableDictionary dictionaryWithContentsOfFile:plistPath];
@@ -1021,7 +910,6 @@
             [plist setObject:@"AppRun" forKey:@"NSExecutable"];
             [plist writeToFile:plistPath atomically:YES];
         }
-        // Strip path and .app extension to get the bare app name
         NSString *bareName = [_appDir lastPathComponent];
         if ([[bareName pathExtension] isEqualToString:@"app"])
             bareName = [bareName stringByDeletingPathExtension];
@@ -1034,34 +922,8 @@
         [fm removeItemAtPath:bundlePath error:NULL];
         [fm moveItemAtPath:_appDirPath toPath:bundlePath error:NULL];
         NSLog(@"make_standalone: standalone .app bundle created at %@", bundlePath);
-    } else {
-        // Standard AppImage packaging
-        NSString *arch = nil, *os = nil;
-        NSString *unamePath = [self _findTool:@"uname"];
-        if (unamePath) {
-            arch = [self _runTool:unamePath withArgs:@[@"-m"]];
-            os = [self _runTool:unamePath withArgs:@[@"-s"]];
-        }
-
-        if (!_outputFile) {
-            NSString *osLower = os ? [os lowercaseString] : @"linux";
-            _outputFile = [NSString stringWithFormat:@"%@-%@-%@.AppImage",
-                           _appName, arch ?: @"unknown", osLower];
-        }
-
-        if ([fm fileExistsAtPath:_appimageTool]) {
-            NSError *err = nil;
-            if (![self _runTool:_appimageTool withArgs:@[_appDirPath, _outputFile] error:&err]) {
-                NSLog(@"make_appimage: appimagetool failed: %@", err);
-            } else {
-                NSLog(@"make_appimage: AppImage created: %@", _outputFile);
-            }
-        } else {
-            NSLog(@"make_appimage: appimagetool not found; AppDir ready at %@", _appDirPath);
-        }
     }
 
     return YES;
 }
-
 @end

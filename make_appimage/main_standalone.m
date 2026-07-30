@@ -8,13 +8,13 @@
  * is set as the bundle's NSExecutable so it runs when the .app bundle
  * is launched directly.
  *
- * Shares AppImageBuilder.m, LibraryResolver.m, LibraryDeployer.m,
+ * Shares BundleBuilder.m, LibraryResolver.m, LibraryDeployer.m,
  * InterpreterDeployer.m, and AppRun.c with make_appimage — no duplication.
  *
  * Usage: make_standalone [options] <app-name>
  */
 
-#import "AppImageBuilder.h"
+#import "BundleBuilder.h"
 
 int
 main(int argc, const char *argv[])
@@ -94,7 +94,7 @@ main(int argc, const char *argv[])
         return (appName == nil && !showHelp) ? 1 : 0;
     }
 
-    AppImageBuilder *builder = [[AppImageBuilder alloc] initWithAppName:appName];
+    BundleBuilder *builder = [[BundleBuilder alloc] initWithAppName:appName];
 
     if (buildDir == nil)
         buildDir = [NSString stringWithFormat:@"/tmp/standalone-%@", appName];

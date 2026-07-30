@@ -2,12 +2,12 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
-COMMON_OBJC_FILES = AppImageBuilder.m LibraryResolver.m InterpreterDeployer.m LibraryDeployer.m
+COMMON_OBJC_FILES = BundleBuilder.m LibraryResolver.m InterpreterDeployer.m LibraryDeployer.m
 COMMON_TOOL_LIBS = -lgnustep-base -lobjc
 
 TOOL_NAME = make_appimage make_standalone
 
-make_appimage_OBJC_FILES = main.m $(COMMON_OBJC_FILES)
+make_appimage_OBJC_FILES = main.m AppImagePackager.m $(COMMON_OBJC_FILES)
 make_appimage_TOOL_LIBS = $(COMMON_TOOL_LIBS)
 
 make_standalone_OBJC_FILES = main_standalone.m $(COMMON_OBJC_FILES)

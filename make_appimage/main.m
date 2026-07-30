@@ -2,20 +2,17 @@
  * Copyright (c) 2026 Simon Peter
  *
  * SPDX-License-Identifier: BSD-2-Clause
+ *
+ * make_appimage — builds a self-contained .app bundle with all GNUstep
+ * dependencies (via BundleBuilder), then packages it as an AppImage
+ * (via AppImagePackager).
+ *
+ * Shared code: BundleBuilder.m, LibraryResolver.m, LibraryDeployer.m,
+ * InterpreterDeployer.m are also used by make_standalone.
  */
 
-// CLI conventions:
-//   - Single-letter flags (-o, -d, -c, -C, -e, -t) take a following argument.
-//   - Boolean flags (-s, -v, -h) and their long forms (--standalone, --verbose)
-//     are self-contained. --no-standalone explicitly unsets the default.
-//   - --theme <name> specifies a theme to deploy; --no-theme skips theme deploy.
-//   - --framework and --extra-bundle are repeatable flags.
-//   - The positional argument is the app name (e.g., "TextEdit").
-//   - Unknown flags starting with "-" produce an error; non-flag args are
-//     treated as the app name (only one is expected).
-//   - Help (-h) or missing app name prints usage and exits.
-
-#import "AppImageBuilder.h"
+#import "BundleBuilder.h"
+#import "AppImagePackager.h"
 
 int
 main(int argc, const char *argv[])
@@ -141,12 +138,9 @@ main(int argc, const char *argv[])
         return (appName == nil && !showHelp) ? 1 : 0;
     }
 
-    // If no --framework flags given, auto-detection is used (nil = auto-detect)
+    // Build the bundle (shared with make_standalone)
+    BundleBuilder *builder = [[BundleBuilder alloc] initWithAppName:appName];
 
-    AppImageBuilder *builder = [[AppImageBuilder alloc] initWithAppName:appName];
-
-    if (outputFile != nil)
-        [builder setOutputFile:outputFile];
     if (buildDir != nil)
         [builder setBuildDirectory:buildDir];
     if (comment != nil)
@@ -155,21 +149,25 @@ main(int argc, const char *argv[])
         [builder setCategories:categories];
     if (mainExec != nil)
         [builder setMainExecutable:mainExec];
-    if (appimageTool != nil)
-        [builder setAppimageTool:appimageTool];
     [builder setStandalone:standalone];
     [builder setDeployTheme:deployTheme];
     if (themeName != nil)
         [builder setThemeName:themeName];
     if ([frameworks count] > 0)
         [builder setFrameworks:frameworks];
-    // else: nil triggers auto-detection in AppImageBuilder
     if ([extraBundles count] > 0)
         [builder setExtraBundles:extraBundles];
     [builder setVerbose:verbose];
 
     BOOL success = [builder build];
+    if (!success) return 1;
 
-    return success ? 0 : 1;
+    // Package as AppImage (AppImage-specific, not used by make_standalone)
+    AppImagePackager *packager = [[AppImagePackager alloc] initWithBuilder:builder];
+    if (appimageTool != nil)
+        [packager setAppimageTool:appimageTool];
+    if (outputFile != nil)
+        [packager setOutputFile:outputFile];
+    return [packager package] ? 0 : 1;
     }
 }
