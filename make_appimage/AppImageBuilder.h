@@ -33,6 +33,7 @@
     NSMutableArray *_seenDeps;
     NSMutableArray *_libraryLocations;
     NSArray *_excludedLibraries;
+    NSArray *_extraBundles;
 }
 
 - (instancetype)initWithAppName:(NSString *)name;
@@ -47,6 +48,7 @@
 - (void)setDeployTheme:(BOOL)flag;
 - (void)setFrameworks:(NSArray *)names;
 - (void)setVerbose:(BOOL)flag;
+- (void)setExtraBundles:(NSArray *)names;
 
 - (BOOL)build;
 

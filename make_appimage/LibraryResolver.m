@@ -146,7 +146,11 @@ static NSString *lastPathComponent(NSString *path)
         ];
         if (_verbose) NSLog(@"LibraryResolver: Excluded %lu system libraries", (unsigned long)[_excludedLibraries count]);
 
+        // Local first, then System, then standard paths.
+        // This ensures the app's locally-built libraries (which the app was
+        // compiled and linked against) take precedence over the system ones.
         NSArray *defaultPaths = @[
+            @"/Local/Library/Libraries", @"/System/Library/Libraries",
             @"/usr/lib64", @"/lib64", @"/usr/lib", @"/lib",
             @"/usr/lib/x86_64-linux-gnu", @"/lib/x86_64-linux-gnu",
             @"/usr/local/lib", @"/usr/local/lib/x86_64-linux-gnu",
@@ -346,11 +350,18 @@ static NSString *lastPathComponent(NSString *path)
 
             // ldd in a parallel operation
             if (!_lddPath) continue;
+            // Prepend known search paths so ldd finds GNUstep libraries
+            // even when LD_LIBRARY_PATH is unset (e.g. under sudo).
+            NSString *ldLibraryPathEnv = [_libraryLocations componentsJoinedByString:@":"];
             NSBlockOperation *op = [NSBlockOperation blockOperationWithBlock:^{
                 @autoreleasepool {
                     NSTask *task = [[NSTask alloc] init];
                     [task setLaunchPath:_lddPath];
                     [task setArguments:@[path]];
+                    NSMutableDictionary *env = [NSMutableDictionary
+                        dictionaryWithDictionary:[[NSProcessInfo processInfo] environment]];
+                    [env setObject:ldLibraryPathEnv forKey:@"LD_LIBRARY_PATH"];
+                    [task setEnvironment:env];
                     NSPipe *outPipe = [NSPipe pipe];
                     [task setStandardOutput:outPipe];
                     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];

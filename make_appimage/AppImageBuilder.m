@@ -57,6 +57,7 @@
 - (void)setThemeName:(NSString *)name          { _themeName = [name copy]; }
 - (void)setDeployTheme:(BOOL)flag              { _deployTheme = flag; }
 - (void)setFrameworks:(NSArray *)names         { _frameworks = [names copy]; }
+- (void)setExtraBundles:(NSArray *)names       { _extraBundles = [names copy]; }
 - (void)setVerbose:(BOOL)flag                 { _verbose = flag; }
 
 #pragma mark - Tool path lookup
@@ -350,10 +351,9 @@
             [self _runTool:chmodPath withArgs:@[@"g-w", configPath] error:NULL];
         }
 
-        // Only deploy backend bundles (libgnustep-back-*, libgnustep-xlib-*).
-        // Preference panes, finders, etc. are not needed at runtime inside an
-        // AppImage sandbox and would bloat the image unnecessarily.
-        // Copy only essential bundles: backend (libgnustep-back-* and libgnustep-xlib-*)
+        // Always deploy backend bundles (libgnustep-back-*, libgnustep-xlib-*).
+        // Additional bundles needed by the app at runtime (thumbnailers, finder
+        // modules, inspectors, etc.) can be specified via setExtraBundles:.
         NSString *bundlesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Bundles"];
         NSSet *bundlePrefixes = [NSSet setWithObjects:@"libgnustep-back-", @"libgnustep-xlib-", nil];
         NSArray *srcBundlesDirs = @[@"/System/Library/Bundles", @"/Local/Library/Bundles"];
@@ -366,6 +366,9 @@
                     BOOL wanted = NO;
                     for (NSString *prefix in bundlePrefixes) {
                         if ([entry hasPrefix:prefix]) { wanted = YES; break; }
+                    }
+                    if (!wanted && [_extraBundles containsObject:entry]) {
+                        wanted = YES;
                     }
                     if (!wanted) continue;
                     NSString *fullSrc = [src stringByAppendingPathComponent:entry];

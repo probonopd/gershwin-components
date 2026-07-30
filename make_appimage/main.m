@@ -9,6 +9,7 @@
 //   - Boolean flags (-s, -v, -h) and their long forms (--standalone, --verbose)
 //     are self-contained. --no-standalone explicitly unsets the default.
 //   - --theme <name> specifies a theme to deploy; --no-theme skips theme deploy.
+//   - --framework and --extra-bundle are repeatable flags.
 //   - The positional argument is the app name (e.g., "TextEdit").
 //   - Unknown flags starting with "-" produce an error; non-flag args are
 //     treated as the app name (only one is expected).
@@ -32,6 +33,7 @@ main(int argc, const char *argv[])
     NSString *appimageTool = nil;
     NSString *themeName = nil;
     NSMutableArray *frameworks = [NSMutableArray array];
+    NSMutableArray *extraBundles = [NSMutableArray array];
     BOOL standalone = YES;
     BOOL deployTheme = YES;
     BOOL verbose = NO;
@@ -97,6 +99,11 @@ main(int argc, const char *argv[])
             if (++i < count)
                 [frameworks addObject:[args objectAtIndex:i]];
         }
+        else if ([arg isEqualToString:@"--extra-bundle"])
+        {
+            if (++i < count)
+                [extraBundles addObject:[args objectAtIndex:i]];
+        }
         else if ([arg isEqualToString:@"-t"])
         {
             if (++i < count)
@@ -128,6 +135,7 @@ main(int argc, const char *argv[])
         printf("  --theme <name>  Deploy only the specified theme\n");
         printf("  --no-theme      Skip theme deployment entirely\n");
         printf("  --framework <name>  Deploy specified framework (repeatable); if unset, auto-detect\n");
+        printf("  --extra-bundle <name>  Deploy additional bundle (repeatable); e.g. ImageThumbnailer.thumb\n");
         printf("  -v, --verbose Verbose output\n");
         printf("  -h            Show help\n");
         return (appName == nil && !showHelp) ? 1 : 0;
@@ -156,6 +164,8 @@ main(int argc, const char *argv[])
     if ([frameworks count] > 0)
         [builder setFrameworks:frameworks];
     // else: nil triggers auto-detection in AppImageBuilder
+    if ([extraBundles count] > 0)
+        [builder setExtraBundles:extraBundles];
     [builder setVerbose:verbose];
 
     BOOL success = [builder build];
