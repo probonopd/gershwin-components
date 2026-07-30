@@ -111,34 +111,18 @@ int main(int argc, char *argv[])
     char theme[64] = "";
     plist_get_string(plist_xml, plist_len, "theme", theme, sizeof(theme));
 
-    {
-        int backend_found = 0;
-        const char *check_roots[] = {
-            "/System/Library/Bundles/libgnustep-back-032.bundle",
-            "/usr/lib/GNUstep/Library/Bundles/libgnustep-back-032.bundle",
-            "/usr/local/lib/GNUstep/Library/Bundles/libgnustep-back-032.bundle",
-            NULL
-        };
-        for (int i = 0; check_roots[i]; i++) {
-            if (access(check_roots[i], F_OK) == 0) {
-                backend_found = 1;
-                break;
-            }
-        }
-        if (!backend_found) {
-            char cfg[PATH_MAX];
-            snprintf(cfg, sizeof(cfg), "%s/usr/lib/GNUstep/GNUstep.conf", here);
-            setenv("GNUSTEP_CONFIG_FILE", cfg, 1);
-        }
-    }
-
     setenv("GNUSTEP_ROOT", here, 1);
-    char sys[PATH_MAX]; snprintf(sys, sizeof(sys), "%s/System", here);
-    setenv("GNUSTEP_SYSTEM_ROOT", sys, 1);
-    char loc[PATH_MAX]; snprintf(loc, sizeof(loc), "%s/Local", here);
-    setenv("GNUSTEP_LOCAL_ROOT", loc, 1);
+    char gs_root[PATH_MAX];
+    snprintf(gs_root, sizeof(gs_root), "%s/Resources/GNUstep", here);
+    setenv("GNUSTEP_SYSTEM_ROOT", gs_root, 1);
+    setenv("GNUSTEP_LOCAL_ROOT", gs_root, 1);
     if (theme[0])
         setenv("GNUSTEP_THEME", theme, 1);
+
+    // Always point to the bundled GNUstep.conf (inside Resources/GNUstep/)
+    char cfg[PATH_MAX];
+    snprintf(cfg, sizeof(cfg), "%s/Resources/GNUstep/GNUstep.conf", here);
+    setenv("GNUSTEP_CONFIG_FILE", cfg, 1);
 
     {
         const char *xa = getenv("XAUTHORITY");
@@ -151,14 +135,13 @@ int main(int argc, char *argv[])
     }
 
     char p[PATH_MAX];
-    snprintf(p, sizeof(p), "%s/usr/local/bin:%s/usr/bin:"
-             "%s/System/Library/Tools:%s/Local/Library/Tools",
-             here, here, here, here);
+    snprintf(p, sizeof(p), "%s/Resources/GNUstep/Library/Tools",
+             here);
     setenv("PATH", p, 1);
 
     char libpath[PATH_MAX * 3];
-    snprintf(libpath, sizeof(libpath), "%s/usr/lib:%s/usr/local/lib",
-             here, here);
+    snprintf(libpath, sizeof(libpath), "%s/Resources/GNUstep/Library/Libraries",
+             here);
     char bin[PATH_MAX];
     snprintf(bin, sizeof(bin), "%s/%s", here, mainExec);
     char bin_dir[PATH_MAX];

@@ -156,11 +156,15 @@ static NSString *lastPathComponent(NSString *path)
         NSString *sysLibs = [sysRoot stringByAppendingPathComponent:@"Library/Libraries"];
         NSString *locLibs = [locRoot stringByAppendingPathComponent:@"Library/Libraries"];
 
+        // AppDir library path (Resources/GNUstep/Library/Libraries/) so that
+        // the resolver finds libraries deployed in the new .app bundle layout.
+        NSString *appDirLib = [appDirPath stringByAppendingPathComponent:@"Resources/GNUstep/Library/Libraries"];
+
         // Local first, then System, then standard paths.
         // This ensures the app's locally-built libraries (which the app was
         // compiled and linked against) take precedence over the system ones.
         NSArray *defaultPaths = @[
-            locLibs, sysLibs,
+            appDirLib, locLibs, sysLibs,
             @"/usr/lib64", @"/lib64", @"/usr/lib", @"/lib",
             @"/usr/lib/x86_64-linux-gnu", @"/lib/x86_64-linux-gnu",
             @"/usr/local/lib", @"/usr/local/lib/x86_64-linux-gnu",

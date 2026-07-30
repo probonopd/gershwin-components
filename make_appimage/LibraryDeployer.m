@@ -189,6 +189,7 @@ static NSArray *libcPrefixes(void)
     }
 
     NSString *targetPath;
+    NSString *libDir = [_appDirPath stringByAppendingPathComponent:@"Resources/GNUstep/Library/Libraries"];
 
     // libc/ subdirectory is used when libapprun_hooks is in play: the hook
     // script adds libc/ to LD_LIBRARY_PATH first so the bundled glibc
@@ -205,12 +206,10 @@ static NSArray *libcPrefixes(void)
             targetPath = [_appDirPath stringByAppendingPathComponent:
                 [@"libc" stringByAppendingPathComponent:basename]];
         } else {
-            targetPath = [_appDirPath stringByAppendingPathComponent:
-                [@"usr/lib" stringByAppendingPathComponent:basename]];
+            targetPath = [libDir stringByAppendingPathComponent:basename];
         }
     } else {
-        targetPath = [_appDirPath stringByAppendingPathComponent:
-            [@"usr/lib" stringByAppendingPathComponent:basename]];
+        targetPath = [libDir stringByAppendingPathComponent:basename];
     }
 
     NSString *targetDir = [targetPath stringByDeletingLastPathComponent];

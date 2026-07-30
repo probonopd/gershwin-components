@@ -79,45 +79,24 @@
 
 - (NSString *)detectInterpreter
 {
-    NSString *binDir = [_appDirPath stringByAppendingPathComponent:@"usr/bin"];
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSArray *entries = [fm contentsOfDirectoryAtPath:binDir error:NULL];
-    if (!entries) return nil;
 
-    // Search inside .app bundles: GNUstep apps package their executables
-    // inside .app/ directories. We need to find the real binary inside the
-    // bundle to read its PT_INTERP header.
+    // In the new layout, the .app bundle IS the AppDir.  The main executable
+    // sits at the AppDir root (e.g. AppDir/Workspace).  Scan the root and
+    // Resources/ for ELF binaries.
     NSMutableArray *candidates = [NSMutableArray array];
-    for (NSString *entry in entries) {
-        NSString *fullPath = [binDir stringByAppendingPathComponent:entry];
-        BOOL isDir = NO;
-        if (![fm fileExistsAtPath:fullPath isDirectory:&isDir]) continue;
-        if (isDir) {
-            NSString *bundleExec = [fullPath stringByAppendingPathComponent:
-                [entry stringByDeletingPathExtension]];
-            if ([fm isExecutableFileAtPath:bundleExec]) {
-                [candidates addObject:bundleExec];
-            }
-        } else {
-            [candidates addObject:fullPath];
-        }
-    }
-
-    // Also scan Local/Applications and similar
-    for (NSString *sub in @[@"Local/Applications", @"System/Applications", @"usr/local/bin"]) {
-        NSString *dir = [_appDirPath stringByAppendingPathComponent:sub];
-        NSArray *subEntries = [fm contentsOfDirectoryAtPath:dir error:NULL];
-        for (NSString *entry in subEntries) {
-            NSString *full = [dir stringByAppendingPathComponent:entry];
+    for (NSString *scanDir in @[_appDirPath,
+         [_appDirPath stringByAppendingPathComponent:@"Resources"]]) {
+        NSArray *entries = [fm contentsOfDirectoryAtPath:scanDir error:NULL];
+        for (NSString *entry in entries) {
+            NSString *full = [scanDir stringByAppendingPathComponent:entry];
             BOOL isDir = NO;
-            if (![fm fileExistsAtPath:full isDirectory:&isDir]) continue;
-            if (isDir && [[entry pathExtension] isEqualToString:@"app"]) {
-                NSString *exec = [full stringByAppendingPathComponent:[entry stringByDeletingPathExtension]];
-                if ([fm isExecutableFileAtPath:exec])
-                    [candidates addObject:exec];
-            } else if (!isDir) {
-                [candidates addObject:full];
-            }
+            if (![fm fileExistsAtPath:full isDirectory:&isDir] || isDir) continue;
+            // Skip metadata files
+            if ([entry isEqualToString:@"AppRun"] ||
+                [entry hasSuffix:@".desktop"] ||
+                [entry hasSuffix:@".plist"]) continue;
+            [candidates addObject:full];
         }
     }
 
@@ -193,7 +172,10 @@
     if ([interpreterPath length] == 0) return NO;
 
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSString *targetPath = [_appDirPath stringByAppendingPathComponent:interpreterPath];
+    // Deploy ld-linux to Resources/ inside the .app bundle
+    NSString *basename = [interpreterPath lastPathComponent];
+    NSString *targetPath = [_appDirPath stringByAppendingPathComponent:
+        [@"Resources" stringByAppendingPathComponent:basename]];
 
     if ([fm fileExistsAtPath:targetPath]) {
         [fm removeItemAtPath:targetPath error:NULL];
