@@ -9,10 +9,71 @@
 #import <AppKit/AppKit.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <security/pam_appl.h>
 
 #define DS_SOCKET_PATH "/var/run/dshelper.sock"
+
+/* Outcome of asking one authentication backend about a password.
+ * "Unavailable" is distinct from "rejected": a backend that is not
+ * installed must never be read as a wrong password, or the dialog
+ * becomes impossible to satisfy. */
+typedef enum {
+    GWAuthAccepted,
+    GWAuthRejected,
+    GWAuthUnavailable
+} GWAuthResult;
+
+/* Credentials handed to the PAM conversation callback. */
+struct GWAskPassCredentials {
+    const char *username;
+    const char *password;
+};
+
+/* PAM conversation callback: answers prompts from the stored credentials
+ * rather than from a terminal, since we have no tty. */
+static int gw_askpass_pam_conv(int num_msg, const struct pam_message **msg,
+                               struct pam_response **resp, void *appdata_ptr)
+{
+    struct GWAskPassCredentials *creds =
+        (struct GWAskPassCredentials *)appdata_ptr;
+
+    if (num_msg <= 0 || !creds) {
+        return PAM_CONV_ERR;
+    }
+
+    struct pam_response *replies =
+        (struct pam_response *)calloc((size_t)num_msg, sizeof(struct pam_response));
+    if (!replies) {
+        return PAM_BUF_ERR;
+    }
+
+    for (int i = 0; i < num_msg; i++) {
+        switch (msg[i]->msg_style) {
+            case PAM_PROMPT_ECHO_OFF:
+                replies[i].resp = strdup(creds->password ? creds->password : "");
+                break;
+            case PAM_PROMPT_ECHO_ON:
+                replies[i].resp = strdup(creds->username ? creds->username : "");
+                break;
+            case PAM_ERROR_MSG:
+            case PAM_TEXT_INFO:
+                break;
+            default:
+                for (int j = 0; j < i; j++) {
+                    free(replies[j].resp);
+                }
+                free(replies);
+                return PAM_CONV_ERR;
+        }
+    }
+
+    *resp = replies;
+    return PAM_SUCCESS;
+}
 
 /* Saved stdout fd for password output — set in main() before GNUstep init
  * can pollute stdout with startup messages. */
@@ -35,6 +96,11 @@ static int savedStdoutFd = -1;
 
 - (void)showPasswordDialog;
 - (BOOL)validatePassword:(NSString *)password;
+- (NSString *)sendDirectoryServicesRequest:(NSString *)request;
+- (GWAuthResult)checkPassword:(NSString *)password
+      withDirectoryServicesUser:(NSString *)username;
+- (GWAuthResult)checkPassword:(NSString *)password withPAMUser:(NSString *)username;
+- (const char *)pamServiceName;
 - (void)shakeWindow;
 - (void)updateOKButtonState;
 - (void)okClicked:(id)sender;
@@ -303,19 +369,41 @@ static int savedStdoutFd = -1;
 
 - (BOOL)validatePassword:(NSString *)password
 {
-    // Validate password via Gershwin Directory Services dshelper socket.
-    // Using the auth protocol avoids recursively spawning sudo (which would
-    // re-invoke this askpass helper via SUDO_ASKPASS).
+    // Pre-validate so a typo can be reported in this dialog instead of
+    // being bounced back through sudo. Either backend avoids recursively
+    // spawning sudo (which would re-invoke this askpass via SUDO_ASKPASS).
+    //
+    // Whichever backend owns the account answers for it: Directory Services
+    // for DS-managed users, PAM for local OS accounts. The two coexist, so a
+    // system running dshelper still authenticates its local users correctly.
+    // If neither can render a verdict we accept and let sudo be the authority
+    // — an absent backend must not produce a dialog no password can satisfy.
 
     NSString *username = NSUserName();
     if (!username || [username length] == 0) {
         return NO;
     }
 
-    // Connect to dshelper Unix socket
+    GWAuthResult ds = [self checkPassword:password
+                withDirectoryServicesUser:username];
+    if (ds != GWAuthUnavailable) {
+        return (ds == GWAuthAccepted);
+    }
+
+    GWAuthResult pam = [self checkPassword:password withPAMUser:username];
+    if (pam != GWAuthUnavailable) {
+        return (pam == GWAuthAccepted);
+    }
+
+    return YES;
+}
+
+- (NSString *)sendDirectoryServicesRequest:(NSString *)request
+{
+    // Returns dshelper's reply, or nil if the daemon is not reachable.
     int sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) {
-        return NO;
+        return nil;
     }
 
     struct sockaddr_un addr;
@@ -325,33 +413,140 @@ static int savedStdoutFd = -1;
 
     if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(sock);
-        return NO;
+        return nil;
     }
 
-    // Send auth request: "auth:username:password"
-    NSString *request = [NSString stringWithFormat:@"auth:%@:%@", username, password];
     const char *requestBytes = [request UTF8String];
-    ssize_t written = write(sock, requestBytes, strlen(requestBytes));
-    if (written < 0) {
-        close(sock);
-        return NO;
+    size_t remaining = strlen(requestBytes);
+    while (remaining > 0) {
+        ssize_t written = write(sock, requestBytes, remaining);
+        if (written <= 0) {
+            close(sock);
+            return nil;
+        }
+        requestBytes += written;
+        remaining -= (size_t)written;
     }
 
     // Shutdown write side so dshelper knows the request is complete
     shutdown(sock, SHUT_WR);
 
-    // Read response
-    char buf[16];
-    memset(buf, 0, sizeof(buf));
-    ssize_t bytesRead = read(sock, buf, sizeof(buf) - 1);
+    // Read the whole reply; getpwnam records are longer than an auth verdict.
+    NSMutableData *reply = [NSMutableData data];
+    char buf[512];
+    ssize_t bytesRead;
+    while ((bytesRead = read(sock, buf, sizeof(buf))) > 0) {
+        [reply appendBytes:buf length:(NSUInteger)bytesRead];
+    }
     close(sock);
 
-    if (bytesRead <= 0) {
-        return NO;
+    if (bytesRead < 0 || [reply length] == 0) {
+        return nil;
+    }
+
+    NSString *response = [[[NSString alloc] initWithData:reply
+                                               encoding:NSUTF8StringEncoding] autorelease];
+    return [response stringByTrimmingCharactersInSet:
+                [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+- (GWAuthResult)checkPassword:(NSString *)password
+    withDirectoryServicesUser:(NSString *)username
+{
+    // Establish whether Directory Services owns this account before asking it
+    // to authenticate. If it does, its verdict is final — falling back to PAM
+    // for a DS-managed user would consult a stack that holds no hash for them,
+    // and pam_unix's nullok accepts ANY password for an account with no shadow
+    // entry. Local OS accounts are unknown to dshelper and fall through to PAM.
+    NSString *record = [self sendDirectoryServicesRequest:
+                            [NSString stringWithFormat:@"getpwnam:%@", username]];
+    if (!record || [record length] == 0 || [record hasPrefix:@"NOTFOUND"]) {
+        return GWAuthUnavailable;
+    }
+
+    NSString *verdict = [self sendDirectoryServicesRequest:
+                            [NSString stringWithFormat:@"auth:%@:%@", username, password]];
+    if (!verdict || [verdict length] == 0) {
+        return GWAuthUnavailable;
     }
 
     // dshelper returns "1" for success, "0" for failure
-    return (buf[0] == '1');
+    return ([verdict characterAtIndex:0] == '1') ? GWAuthAccepted : GWAuthRejected;
+}
+
+- (const char *)pamServiceName
+{
+    // Only name a service that has a policy file. An unknown service falls
+    // through to the "other" policy, which denies on Linux — that would be
+    // indistinguishable from a wrong password.
+    static const char *candidates[] = { "sudo", "login", NULL };
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    for (int i = 0; candidates[i] != NULL; i++) {
+        NSString *name = [NSString stringWithUTF8String:candidates[i]];
+        NSString *etc = [@"/etc/pam.d" stringByAppendingPathComponent:name];
+        NSString *localEtc = [@"/usr/local/etc/pam.d" stringByAppendingPathComponent:name];
+
+        if ([fm fileExistsAtPath:etc] || [fm fileExistsAtPath:localEtc]) {
+            return candidates[i];
+        }
+    }
+
+    return NULL;
+}
+
+- (GWAuthResult)checkPassword:(NSString *)password withPAMUser:(NSString *)username
+{
+    const char *service = [self pamServiceName];
+    if (!service) {
+        return GWAuthUnavailable;
+    }
+
+    struct GWAskPassCredentials creds;
+    creds.username = [username UTF8String];
+    creds.password = [password UTF8String];
+
+    struct pam_conv conversation;
+    conversation.conv = gw_askpass_pam_conv;
+    conversation.appdata_ptr = &creds;
+
+    pam_handle_t *handle = NULL;
+    int result = pam_start(service, [username UTF8String], &conversation, &handle);
+    if (result != PAM_SUCCESS || handle == NULL) {
+        if (handle) {
+            pam_end(handle, result);
+        }
+        return GWAuthUnavailable;
+    }
+
+    // Some modules expect a tty; we are launched from the GUI and may not
+    // have one, so fall back to the display.
+    const char *tty = ttyname(STDIN_FILENO);
+    if (!tty) {
+        tty = getenv("DISPLAY");
+    }
+    if (tty) {
+        pam_set_item(handle, PAM_TTY, tty);
+    }
+
+    // Authentication only. Account and session management are left to sudo:
+    // a pre-check that is stricter than sudo would reject passwords sudo
+    // would have accepted.
+    result = pam_authenticate(handle, 0);
+    pam_end(handle, result);
+
+    if (result == PAM_SUCCESS) {
+        return GWAuthAccepted;
+    }
+
+    // Distinguish "wrong password" from a stack that cannot answer at all.
+    if (result == PAM_AUTH_ERR || result == PAM_USER_UNKNOWN ||
+        result == PAM_MAXTRIES || result == PAM_CRED_INSUFFICIENT ||
+        result == PAM_PERM_DENIED) {
+        return GWAuthRejected;
+    }
+
+    return GWAuthUnavailable;
 }
 
 - (void)shakeWindow

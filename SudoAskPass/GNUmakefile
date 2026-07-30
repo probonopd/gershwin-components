@@ -6,6 +6,11 @@ SudoAskPass_APPLICATION_ICON = SudoAskPass.png
 SudoAskPass_RESOURCE_FILES = \
 	Resources/SudoAskPass.png
 
+# PAM validates passwords on systems that authenticate against the OS account
+# database rather than Gershwin Directory Services. libpam is in base on
+# FreeBSD and on the default library path on Linux, so no -L is needed.
+SudoAskPass_LDFLAGS += -lpam
+
 include $(GNUSTEP_MAKEFILES)/application.make
 
 # Custom install target that completely overrides built-in behavior
