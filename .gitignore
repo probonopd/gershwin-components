@@ -48,3 +48,6 @@ Processes/tools/safe_proc_scan
 network-helper
 core.**.AppImage
 *.AppImage
+Menu/Resources/wlanauth
+make_appimage/AppRun
+_pmsrc/
