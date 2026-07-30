@@ -200,32 +200,52 @@
     BOOL isPrebuiltBundle = NO;
     {
         BOOL isDir = NO;
+        _appDir = nil;
         if ([fm fileExistsAtPath:_appName isDirectory:&isDir] && isDir) {
             _appDir = _appName;
-            if ([[_appName pathExtension] isEqualToString:@"app"]) {
-                NSString *makefile = [_appDir stringByAppendingPathComponent:@"GNUmakefile"];
-                if ([fm fileExistsAtPath:makefile]) {
-                    isPrebuiltBundle = NO;
-                } else {
-                    isPrebuiltBundle = YES;
-                }
-            } else {
-                isPrebuiltBundle = NO;
-            }
         } else {
             NSString *appBundle = [_appName stringByAppendingPathExtension:@"app"];
             if ([fm fileExistsAtPath:appBundle isDirectory:&isDir] && isDir) {
                 _appDir = appBundle;
-                NSString *makefile = [_appDir stringByAppendingPathComponent:@"GNUmakefile"];
-                if ([fm fileExistsAtPath:makefile]) {
-                    isPrebuiltBundle = NO;
-                } else {
-                    isPrebuiltBundle = YES;
+            }
+        }
+        if (_appDir == nil) {
+            // Search standard application directories
+            NSArray *appDirs = @[
+                @"/System/Applications", @"/Local/Applications",
+                @"/usr/local/bin", @"/usr/bin",
+                [@"~" stringByExpandingTildeInPath]
+            ];
+            for (NSString *dir in appDirs) {
+                NSString *candidate = [dir stringByAppendingPathComponent:
+                    [_appName stringByAppendingPathExtension:@"app"]];
+                if ([fm fileExistsAtPath:candidate isDirectory:&isDir] && isDir) {
+                    _appDir = candidate;
+                    break;
                 }
-            } else {
+            }
+        }
+        if (_appDir == nil) {
+            // Last resort: current directory
+            if ([fm fileExistsAtPath:_appName isDirectory:&isDir] && isDir) {
                 _appDir = _appName;
+            } else {
+                NSString *appBundle = [_appName stringByAppendingPathExtension:@"app"];
+                if ([fm fileExistsAtPath:appBundle isDirectory:&isDir] && isDir) {
+                    _appDir = appBundle;
+                }
+            }
+        }
+        if (_appDir) {
+            if ([[_appDir pathExtension] isEqualToString:@"app"]) {
+                NSString *makefile = [_appDir stringByAppendingPathComponent:@"GNUmakefile"];
+                isPrebuiltBundle = ![fm fileExistsAtPath:makefile];
+            } else {
                 isPrebuiltBundle = NO;
             }
+        } else {
+            _appDir = _appName;
+            isPrebuiltBundle = NO;
         }
 
         if (!isPrebuiltBundle) {
@@ -1001,10 +1021,14 @@
             [plist setObject:@"AppRun" forKey:@"NSExecutable"];
             [plist writeToFile:plistPath atomically:YES];
         }
+        // Strip path and .app extension to get the bare app name
+        NSString *bareName = [_appDir lastPathComponent];
+        if ([[bareName pathExtension] isEqualToString:@"app"])
+            bareName = [bareName stringByDeletingPathExtension];
         NSString *desktopPath = [_appDirPath stringByAppendingPathComponent:
-            [NSString stringWithFormat:@"%@.desktop", _appName]];
+            [NSString stringWithFormat:@"%@.desktop", bareName]];
         [fm removeItemAtPath:desktopPath error:NULL];
-        NSString *appBundleName = [_appName stringByAppendingPathExtension:@"app"];
+        NSString *appBundleName = [bareName stringByAppendingPathExtension:@"app"];
         NSString *bundlePath = [[_appDirPath stringByDeletingLastPathComponent]
             stringByAppendingPathComponent:appBundleName];
         [fm removeItemAtPath:bundlePath error:NULL];
