@@ -47,3 +47,4 @@ Processes/tools/safe_proc_scan
 *.pid
 network-helper
 core.**.AppImage
+*.AppImage
