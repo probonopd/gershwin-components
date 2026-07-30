@@ -491,6 +491,20 @@
             }
         }
 
+        // Copy system Images (nsmapping.strings, common_* fallback images)
+        {
+            NSString *imagesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Images"];
+            if (![fm fileExistsAtPath:imagesDir]) {
+                for (NSString *src in @[@"/System/Library/Images", @"/Local/Library/Images"]) {
+                    if ([fm fileExistsAtPath:src]) {
+                        [fm copyItemAtPath:src toPath:imagesDir error:NULL];
+                        if (_verbose) NSLog(@"make_appimage: deployed %@", src);
+                        break;
+                    }
+                }
+            }
+        }
+
     }
 
     // === (e) Resolve library dependencies ===
