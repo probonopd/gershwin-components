@@ -12,7 +12,9 @@
 @interface AppImageBuilder ()
 {
     BOOL _standalone;
+    BOOL _deployTheme;
     BOOL _verbose;
+    NSString *_themeName;
     NSString *_appResourcesDir;
 }
 
@@ -38,6 +40,7 @@
         // Standalone mode bundles ALL libraries (including libc) so the
         // AppImage works on any Linux/BSD distro without host dependencies.
         _standalone = YES;
+        _deployTheme = YES;
     }
     return self;
 }
@@ -49,6 +52,8 @@
 - (void)setMainExecutable:(NSString *)path   { _mainExec = [path copy]; }
 - (void)setAppimageTool:(NSString *)path      { _appimageTool = [path copy]; }
 - (void)setStandalone:(BOOL)flag              { _standalone = flag; }
+- (void)setThemeName:(NSString *)name          { _themeName = [name copy]; }
+- (void)setDeployTheme:(BOOL)flag              { _deployTheme = flag; }
 - (void)setVerbose:(BOOL)flag                 { _verbose = flag; }
 
 #pragma mark - Tool path lookup
@@ -367,18 +372,38 @@
         }
 
         // Copy themes from System and Local Library
-        NSString *themesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Themes"];
-        NSArray *srcThemesDirs = @[@"/System/Library/Themes", @"/Local/Library/Themes"];
-        for (NSString *src in srcThemesDirs) {
-            if ([fm fileExistsAtPath:src]) {
-                [fm createDirectoryAtPath:themesDir withIntermediateDirectories:YES
-                               attributes:nil error:NULL];
-                NSArray *entries = [fm contentsOfDirectoryAtPath:src error:NULL];
-                for (NSString *entry in entries) {
-                    NSString *fullSrc = [src stringByAppendingPathComponent:entry];
-                    NSString *fullDst = [themesDir stringByAppendingPathComponent:entry];
-                    if (![fm fileExistsAtPath:fullDst]) {
-                        [fm copyItemAtPath:fullSrc toPath:fullDst error:NULL];
+        if (_deployTheme) {
+            NSString *themesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Themes"];
+            if (_themeName) {
+                // Deploy only the specified theme
+                NSString *themeDirName = [_themeName stringByAppendingPathExtension:@"theme"];
+                for (NSString *src in @[@"/System/Library/Themes", @"/Local/Library/Themes"]) {
+                    NSString *fullSrc = [src stringByAppendingPathComponent:themeDirName];
+                    if ([fm fileExistsAtPath:fullSrc]) {
+                        [fm createDirectoryAtPath:themesDir withIntermediateDirectories:YES
+                                       attributes:nil error:NULL];
+                        NSString *fullDst = [themesDir stringByAppendingPathComponent:themeDirName];
+                        if (![fm fileExistsAtPath:fullDst]) {
+                            [fm copyItemAtPath:fullSrc toPath:fullDst error:NULL];
+                        }
+                        break;
+                    }
+                }
+            } else {
+                // Deploy all available themes
+                NSArray *srcThemesDirs = @[@"/System/Library/Themes", @"/Local/Library/Themes"];
+                for (NSString *src in srcThemesDirs) {
+                    if ([fm fileExistsAtPath:src]) {
+                        [fm createDirectoryAtPath:themesDir withIntermediateDirectories:YES
+                                       attributes:nil error:NULL];
+                        NSArray *entries = [fm contentsOfDirectoryAtPath:src error:NULL];
+                        for (NSString *entry in entries) {
+                            NSString *fullSrc = [src stringByAppendingPathComponent:entry];
+                            NSString *fullDst = [themesDir stringByAppendingPathComponent:entry];
+                            if (![fm fileExistsAtPath:fullDst]) {
+                                [fm copyItemAtPath:fullSrc toPath:fullDst error:NULL];
+                            }
+                        }
                     }
                 }
             }
@@ -569,27 +594,33 @@
     // because the host may not have GNUstep installed or the theme directory
     // may differ inside the AppImage.  Hardcoding avoids needing `defaults`
     // (or a working GNUstep installation) on the end user's machine.
+    // If --theme was given on the command line, use that directly.
+    // If --no-theme was given, skip detection entirely.
     NSString *themeName = nil;
-    {
-        NSString *defaultsPath = [self _findTool:@"defaults"];
-        if (defaultsPath) {
-            NSString *result = [self _runTool:defaultsPath withArgs:@[@"read", @"NSGlobalDomain", @"GSTheme"]];
-            if ([result length] > 0) {
-                NSString *themeDir = [_appDirPath stringByAppendingPathComponent:
-                    [NSString stringWithFormat:@"System/Library/Themes/%@.theme", result]];
-                if ([[NSFileManager defaultManager] fileExistsAtPath:themeDir]) {
-                    themeName = result;
+    if (_deployTheme) {
+        if (_themeName) {
+            themeName = _themeName;
+        } else {
+            NSString *defaultsPath = [self _findTool:@"defaults"];
+            if (defaultsPath) {
+                NSString *result = [self _runTool:defaultsPath withArgs:@[@"read", @"NSGlobalDomain", @"GSTheme"]];
+                if ([result length] > 0) {
+                    NSString *themeDir = [_appDirPath stringByAppendingPathComponent:
+                        [NSString stringWithFormat:@"System/Library/Themes/%@.theme", result]];
+                    if ([[NSFileManager defaultManager] fileExistsAtPath:themeDir]) {
+                        themeName = result;
+                    }
                 }
             }
-        }
-        // Fallback: use the first theme found in the AppDir
-        if (!themeName) {
-            NSString *themesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Themes"];
-            NSArray *entries = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:themesDir error:NULL];
-            for (NSString *entry in entries) {
-                if ([entry hasSuffix:@".theme"]) {
-                    themeName = [entry stringByDeletingPathExtension];
-                    break;
+            // Fallback: use the first theme found in the AppDir
+            if (!themeName) {
+                NSString *themesDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Themes"];
+                NSArray *entries = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:themesDir error:NULL];
+                for (NSString *entry in entries) {
+                    if ([entry hasSuffix:@".theme"]) {
+                        themeName = [entry stringByDeletingPathExtension];
+                        break;
+                    }
                 }
             }
         }

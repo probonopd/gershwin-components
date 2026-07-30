@@ -43,6 +43,8 @@
 - (void)setMainExecutable:(NSString *)path;
 - (void)setAppimageTool:(NSString *)path;
 - (void)setStandalone:(BOOL)flag;
+- (void)setThemeName:(NSString *)name;
+- (void)setDeployTheme:(BOOL)flag;
 - (void)setVerbose:(BOOL)flag;
 
 - (BOOL)build;

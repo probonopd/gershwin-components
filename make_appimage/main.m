@@ -8,6 +8,7 @@
 //   - Single-letter flags (-o, -d, -c, -C, -e, -t) take a following argument.
 //   - Boolean flags (-s, -v, -h) and their long forms (--standalone, --verbose)
 //     are self-contained. --no-standalone explicitly unsets the default.
+//   - --theme <name> specifies a theme to deploy; --no-theme skips theme deploy.
 //   - The positional argument is the app name (e.g., "TextEdit").
 //   - Unknown flags starting with "-" produce an error; non-flag args are
 //     treated as the app name (only one is expected).
@@ -29,7 +30,9 @@ main(int argc, const char *argv[])
     NSString *categories = nil;
     NSString *mainExec = nil;
     NSString *appimageTool = nil;
+    NSString *themeName = nil;
     BOOL standalone = YES;
+    BOOL deployTheme = YES;
     BOOL verbose = NO;
     BOOL showHelp = NO;
 
@@ -79,6 +82,15 @@ main(int argc, const char *argv[])
         {
             standalone = NO;
         }
+        else if ([arg isEqualToString:@"--theme"])
+        {
+            if (++i < count)
+                themeName = [args objectAtIndex:i];
+        }
+        else if ([arg isEqualToString:@"--no-theme"])
+        {
+            deployTheme = NO;
+        }
         else if ([arg isEqualToString:@"-t"])
         {
             if (++i < count)
@@ -107,6 +119,8 @@ main(int argc, const char *argv[])
         printf("  -t <tool>     Path to appimagetool (default: appimagetool in PATH)\n");
         printf("  -s            Standalone mode: bundle all libraries (default)\n");
         printf("  --no-standalone  Use exclusion list for system libs (smaller output)\n");
+        printf("  --theme <name>  Deploy only the specified theme\n");
+        printf("  --no-theme      Skip theme deployment entirely\n");
         printf("  -v, --verbose Verbose output\n");
         printf("  -h            Show help\n");
         return (appName == nil && !showHelp) ? 1 : 0;
@@ -127,6 +141,9 @@ main(int argc, const char *argv[])
     if (appimageTool != nil)
         [builder setAppimageTool:appimageTool];
     [builder setStandalone:standalone];
+    [builder setDeployTheme:deployTheme];
+    if (themeName != nil)
+        [builder setThemeName:themeName];
     [builder setVerbose:verbose];
 
     BOOL success = [builder build];

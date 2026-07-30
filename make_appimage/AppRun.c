@@ -2,7 +2,12 @@
  * AppRun.c — Compiled into a static binary, this is the entry point for
  * every AppImage produced by make_appimage.  It reads AppRun.plist from
  * the AppDir root for app-specific settings (main executable, theme),
- * sets up the environment, and execv's the main binary.
+ * sets up the environment (LD_LIBRARY_PATH, GNUstep paths, X11 auth),
+ * and execv's the main binary.
+ *
+ * Libraries are resolved via LD_LIBRARY_PATH + RPATH.  The bundled
+ * ld-linux (interpreter) is set via patchelf --set-interpreter on
+ * every ELF at build time — no need to invoke it explicitly here.
  *
  * Precompiled at make_appimage build time — no compiler needed when
  * packaging an app.
@@ -19,7 +24,6 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <elf.h>
 
 static void unsetenv_all(const char *vars[])
 {
@@ -108,14 +112,6 @@ int main(int argc, char *argv[])
     plist_get_string(plist_xml, plist_len, "theme", theme, sizeof(theme));
 
     {
-        // Only set GNUSTEP_CONFIG_FILE if the backend bundle is NOT
-        // findable via the system's default GNUstep paths.  Setting
-        // it unconditionally can cause "Tried to init dictionary with
-        // nil value" in some apps (like Clock), because GNUstep's path
-        // resolution with the config file differs from its compiled-in
-        // defaults.
-        // Check if any standard compile-time GNUSTEP_SYSTEM_ROOT
-        // location has our backend.
         int backend_found = 0;
         const char *check_roots[] = {
             "/System/Library/Bundles/libgnustep-back-032.bundle",
@@ -144,8 +140,7 @@ int main(int argc, char *argv[])
     setenv("GNUSTEP_SYSTEM_ROOT", sys, 1);
     char loc[PATH_MAX]; snprintf(loc, sizeof(loc), "%s/Local", here);
     setenv("GNUSTEP_LOCAL_ROOT", loc, 1);
-    // X11 auth: bundled libX11 reads ~/.Xauthority.  Ensure XAUTHORITY
-    // is set explicitly since HOME may not match the user's home dir.
+
     {
         const char *xa = getenv("XAUTHORITY");
         if (!xa) {
@@ -156,55 +151,17 @@ int main(int argc, char *argv[])
         }
     }
 
-    // GNUSTEP_USER_DIR is intentionally NOT set.  Letting it default to
-    // the user's home directory avoids "Tried to init dictionary with nil
-    // value" errors in apps (like Clock) that read persisted defaults at
-    // startup.  The home directory is writable and outside the squashfs.
-
-    // LD_LIBRARY_PATH is NOT set in the environment — it would leak to child
-    // processes (system commands, etc.) that are not part of the AppImage.
-    // Instead we pass the library path as an argument to the bundled ld-linux
-    // via --library-path, which scopes it to this process tree only.
-
     char p[PATH_MAX];
     snprintf(p, sizeof(p), "%s/usr/local/bin:%s/usr/bin:"
              "%s/System/Library/Tools:%s/Local/Library/Tools",
              here, here, here, here);
     setenv("PATH", p, 1);
 
-    munmap(plist_xml, plist_len);
-
-    char bin[PATH_MAX];
-    snprintf(bin, sizeof(bin), "%s/%s", here, mainExec);
-
-    /* Find the bundled ld-linux */
-    char interp[PATH_MAX] = "";
-    const char *candidates[] = {
-        "/lib64/ld-linux-x86-64.so.2",
-        "/lib/ld-linux-x86-64.so.2",
-        "/lib/ld-linux.so.2",
-        "/lib/ld-musl-x86_64.so.1",
-        NULL
-    };
-    for (int i = 0; candidates[i]; i++) {
-        snprintf(interp, sizeof(interp), "%s%s", here, candidates[i]);
-        if (access(interp, F_OK) == 0) break;
-        interp[0] = '\0';
-    }
-    if (interp[0] == '\0') {
-        fprintf(stderr, "AppRun: FATAL: no ld-linux found in AppDir\n");
-        return 1;
-    }
-
-    /* Build argv: ld-linux --library-path <dirs> --argv0 <name> <binary> [args] */
-    char *new_argv[argc + 7];
-    int ai = 0;
-    new_argv[ai++] = interp;
-    new_argv[ai++] = "--library-path";
-    /* Compute library path: usr/lib + usr/local/lib + Resources dir */
     char libpath[PATH_MAX * 3];
     snprintf(libpath, sizeof(libpath), "%s/usr/lib:%s/usr/local/lib",
              here, here);
+    char bin[PATH_MAX];
+    snprintf(bin, sizeof(bin), "%s/%s", here, mainExec);
     char bin_dir[PATH_MAX];
     strncpy(bin_dir, bin, sizeof(bin_dir) - 1);
     char *last_slash = strrchr(bin_dir, '/');
@@ -213,13 +170,16 @@ int main(int argc, char *argv[])
         size_t llen = strlen(libpath);
         snprintf(libpath + llen, sizeof(libpath) - llen, ":%s/Resources", bin_dir);
     }
-    new_argv[ai++] = libpath;
-    new_argv[ai++] = "--argv0";
-    new_argv[ai++] = bin;
-    new_argv[ai++] = bin;
-    for (int i = 1; i < argc; i++) new_argv[ai++] = argv[i];
-    new_argv[ai] = NULL;
+    setenv("LD_LIBRARY_PATH", libpath, 1);
 
-    execv(interp, new_argv);
+    munmap(plist_xml, plist_len);
+
+    /* Build argv: <binary> [args] */
+    char *new_argv[argc + 1];
+    new_argv[0] = bin;
+    for (int i = 1; i < argc; i++) new_argv[i] = argv[i];
+    new_argv[argc] = NULL;
+
+    execv(bin, new_argv);
     return 1;
 }
