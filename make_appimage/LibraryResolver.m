@@ -146,11 +146,21 @@ static NSString *lastPathComponent(NSString *path)
         ];
         if (_verbose) NSLog(@"LibraryResolver: Excluded %lu system libraries", (unsigned long)[_excludedLibraries count]);
 
+        // Derive GNUstep library paths from the environment so we adapt to
+        // any installation layout (/Local, /System, /GNUstep, etc.) instead
+        // of hardcoding.  Fall back to the standard layout when unset.
+        NSString *sysRoot = [[[NSProcessInfo processInfo] environment]
+            objectForKey:@"GNUSTEP_SYSTEM_ROOT"] ?: @"/System";
+        NSString *locRoot = [[[NSProcessInfo processInfo] environment]
+            objectForKey:@"GNUSTEP_LOCAL_ROOT"] ?: @"/Local";
+        NSString *sysLibs = [sysRoot stringByAppendingPathComponent:@"Library/Libraries"];
+        NSString *locLibs = [locRoot stringByAppendingPathComponent:@"Library/Libraries"];
+
         // Local first, then System, then standard paths.
         // This ensures the app's locally-built libraries (which the app was
         // compiled and linked against) take precedence over the system ones.
         NSArray *defaultPaths = @[
-            @"/Local/Library/Libraries", @"/System/Library/Libraries",
+            locLibs, sysLibs,
             @"/usr/lib64", @"/lib64", @"/usr/lib", @"/lib",
             @"/usr/lib/x86_64-linux-gnu", @"/lib/x86_64-linux-gnu",
             @"/usr/local/lib", @"/usr/local/lib/x86_64-linux-gnu",
