@@ -31,6 +31,7 @@ main(int argc, const char *argv[])
     NSString *mainExec = nil;
     NSString *appimageTool = nil;
     NSString *themeName = nil;
+    NSMutableArray *frameworks = [NSMutableArray array];
     BOOL standalone = YES;
     BOOL deployTheme = YES;
     BOOL verbose = NO;
@@ -91,6 +92,11 @@ main(int argc, const char *argv[])
         {
             deployTheme = NO;
         }
+        else if ([arg isEqualToString:@"--framework"])
+        {
+            if (++i < count)
+                [frameworks addObject:[args objectAtIndex:i]];
+        }
         else if ([arg isEqualToString:@"-t"])
         {
             if (++i < count)
@@ -121,10 +127,13 @@ main(int argc, const char *argv[])
         printf("  --no-standalone  Use exclusion list for system libs (smaller output)\n");
         printf("  --theme <name>  Deploy only the specified theme\n");
         printf("  --no-theme      Skip theme deployment entirely\n");
+        printf("  --framework <name>  Deploy specified framework (repeatable); if unset, auto-detect\n");
         printf("  -v, --verbose Verbose output\n");
         printf("  -h            Show help\n");
         return (appName == nil && !showHelp) ? 1 : 0;
     }
+
+    // If no --framework flags given, auto-detection is used (nil = auto-detect)
 
     AppImageBuilder *builder = [[AppImageBuilder alloc] initWithAppName:appName];
 
@@ -144,6 +153,9 @@ main(int argc, const char *argv[])
     [builder setDeployTheme:deployTheme];
     if (themeName != nil)
         [builder setThemeName:themeName];
+    if ([frameworks count] > 0)
+        [builder setFrameworks:frameworks];
+    // else: nil triggers auto-detection in AppImageBuilder
     [builder setVerbose:verbose];
 
     BOOL success = [builder build];

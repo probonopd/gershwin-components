@@ -45,6 +45,7 @@
 - (void)setStandalone:(BOOL)flag;
 - (void)setThemeName:(NSString *)name;
 - (void)setDeployTheme:(BOOL)flag;
+- (void)setFrameworks:(NSArray *)names;
 - (void)setVerbose:(BOOL)flag;
 
 - (BOOL)build;

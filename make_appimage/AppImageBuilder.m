@@ -15,12 +15,14 @@
     BOOL _deployTheme;
     BOOL _verbose;
     NSString *_themeName;
+    NSArray *_frameworks;
     NSString *_appResourcesDir;
 }
 
 - (NSString *)_runTool:(NSString *)tool withArgs:(NSArray *)args;
 - (BOOL)_runTool:(NSString *)tool withArgs:(NSArray *)args error:(NSError **)error;
 - (NSString *)_findTool:(NSString *)name;
+- (NSArray *)_detectNeededFrameworks;
 
 @end
 
@@ -54,6 +56,7 @@
 - (void)setStandalone:(BOOL)flag              { _standalone = flag; }
 - (void)setThemeName:(NSString *)name          { _themeName = [name copy]; }
 - (void)setDeployTheme:(BOOL)flag              { _deployTheme = flag; }
+- (void)setFrameworks:(NSArray *)names         { _frameworks = [names copy]; }
 - (void)setVerbose:(BOOL)flag                 { _verbose = flag; }
 
 #pragma mark - Tool path lookup
@@ -138,6 +141,35 @@
         }
         return NO;
     }
+}
+
+#pragma mark - Framework auto-detection
+
+- (NSArray *)_detectNeededFrameworks
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *libDir = [_appDirPath stringByAppendingPathComponent:@"usr/lib"];
+    NSMutableArray *needed = [NSMutableArray array];
+
+    NSArray *frameworkSearchDirs = @[@"/System/Library/Frameworks", @"/Local/Library/Frameworks"];
+    for (NSString *fwDir in frameworkSearchDirs) {
+        NSArray *entries = [fm contentsOfDirectoryAtPath:fwDir error:NULL];
+        for (NSString *entry in entries) {
+            if (![entry hasSuffix:@".framework"]) continue;
+            NSString *fwName = [entry stringByDeletingPathExtension];
+            // Check if any library matching this framework exists in AppDir
+            NSString *pattern = [NSString stringWithFormat:@"lib%@.so", fwName];
+            NSArray *libs = [fm contentsOfDirectoryAtPath:libDir error:NULL];
+            for (NSString *lib in libs) {
+                if ([lib hasPrefix:pattern]) {
+                    [needed addObject:fwName];
+                    break;
+                }
+            }
+        }
+    }
+    if (_verbose) NSDebugLLog(@"make_appimage", @"Auto-detected frameworks: %@", needed);
+    return needed;
 }
 
 #pragma mark - Build
@@ -254,26 +286,39 @@
     }
 
     // === (c) Copy GNUstep system tools ===
-    // Deploy GNUstep services (gdnc, gpbs, make_services) so the bundled
-    // app can register types and communicate within the AppDir sandbox.
-    if (gnustepConfigPath) {
-        NSString *toolsDir = [self _runTool:gnustepConfigPath
-                                   withArgs:@[@"--variable=GNUSTEP_SYSTEM_TOOLS"]];
-        if (toolsDir) {
-            NSString *localBin = [_appDirPath stringByAppendingPathComponent:@"usr/local/bin"];
-            [fm createDirectoryAtPath:localBin withIntermediateDirectories:YES
-                           attributes:nil error:NULL];
+    // Deploy services (gdnc, gpbs, make_services) and Workspace helper
+    // daemons (fswatcher, ddbd, mdextractor) so the bundled app can find
+    // them via NSTask launchPathForTool: at runtime.
+    {
+        NSString *localBin = [_appDirPath stringByAppendingPathComponent:@"usr/local/bin"];
+        [fm createDirectoryAtPath:localBin withIntermediateDirectories:YES
+                       attributes:nil error:NULL];
 
-            for (NSString *tool in @[@"gdnc", @"gpbs", @"make_services"]) {
-                @try {
-                    NSString *src = [toolsDir stringByAppendingPathComponent:tool];
+        NSArray *toolsToDeploy = @[@"gdnc", @"gpbs", @"make_services",
+                                   @"fswatcher", @"ddbd", @"mdextractor"];
+        NSArray *toolSearchDirs = @[gnustepConfigPath ?
+            [self _runTool:gnustepConfigPath withArgs:@[@"--variable=GNUSTEP_SYSTEM_TOOLS"]] : nil,
+            gnustepConfigPath ?
+            [self _runTool:gnustepConfigPath withArgs:@[@"--variable=GNUSTEP_LOCAL_TOOLS"]] : nil,
+            @"/System/Library/Tools", @"/Local/Library/Tools"];
+        for (NSString *tool in toolsToDeploy) {
+            @try {
+                NSString *src = nil;
+                for (NSString *dir in toolSearchDirs) {
+                    if ([dir length] == 0) continue;
+                    NSString *candidate = [dir stringByAppendingPathComponent:tool];
+                    if ([fm fileExistsAtPath:candidate]) {
+                        src = candidate; break;
+                    }
+                }
+                if (src) {
                     NSString *dst = [localBin stringByAppendingPathComponent:tool];
-                    if ([fm fileExistsAtPath:src]) {
+                    if (![fm fileExistsAtPath:dst]) {
                         [fm copyItemAtPath:src toPath:dst error:NULL];
                     }
-                } @catch (NSException *exception) {
-                    if (_verbose) NSLog(@"make_appimage: failed to copy %@: %@", tool, [exception reason]);
                 }
+            } @catch (NSException *exception) {
+                if (_verbose) NSLog(@"make_appimage: failed to copy %@: %@", tool, [exception reason]);
             }
         }
     }
@@ -366,6 +411,40 @@
                         [plist writeToFile:plistPath atomically:YES];
                         if (_verbose) NSLog(@"make_appimage: set bundle version to %@ (from name %@)",
                                               nameVersion, [entry lastPathComponent]);
+                    }
+                }
+            }
+        }
+
+        // Copy frameworks from System and Local Library
+        {
+            // Auto-detect needed frameworks when none explicitly specified
+            NSArray *frameworksToDeploy = _frameworks;
+            if (!frameworksToDeploy) {
+                frameworksToDeploy = [self _detectNeededFrameworks];
+                if ([frameworksToDeploy count] == 0) {
+                    NSLog(@"make_appimage: no frameworks detected; deploying all");
+                    frameworksToDeploy = nil;
+                } else if (_verbose) {
+                    NSLog(@"make_appimage: auto-detected %lu frameworks", (unsigned long)[frameworksToDeploy count]);
+                }
+            }
+            NSString *frameworksDir = [_appDirPath stringByAppendingPathComponent:@"System/Library/Frameworks"];
+            for (NSString *src in @[@"/System/Library/Frameworks", @"/Local/Library/Frameworks"]) {
+                if ([fm fileExistsAtPath:src]) {
+                    NSArray *entries = [fm contentsOfDirectoryAtPath:src error:NULL];
+                    for (NSString *entry in entries) {
+                        if (![entry hasSuffix:@".framework"]) continue;
+                        NSString *name = [entry stringByDeletingPathExtension];
+                        if (frameworksToDeploy && ![frameworksToDeploy containsObject:name]) continue;
+                        NSString *fullSrc = [src stringByAppendingPathComponent:entry];
+                        NSString *fullDst = [frameworksDir stringByAppendingPathComponent:entry];
+                        if (![fm fileExistsAtPath:fullDst]) {
+                            [fm createDirectoryAtPath:frameworksDir withIntermediateDirectories:YES
+                                           attributes:nil error:NULL];
+                            [fm copyItemAtPath:fullSrc toPath:fullDst error:NULL];
+                            if (_verbose) NSLog(@"make_appimage: deployed framework %@", name);
+                        }
                     }
                 }
             }

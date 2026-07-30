@@ -150,7 +150,9 @@ static NSString *lastPathComponent(NSString *path)
             @"/usr/lib64", @"/lib64", @"/usr/lib", @"/lib",
             @"/usr/lib/x86_64-linux-gnu", @"/lib/x86_64-linux-gnu",
             @"/usr/local/lib", @"/usr/local/lib/x86_64-linux-gnu",
-            @"/lib32", @"/usr/lib32"
+            @"/lib32", @"/usr/lib32",
+            @"/System/Library/Libraries", @"/Local/Library/Libraries",
+            @"/Network/Library/Libraries"
         ];
         for (NSString *p in defaultPaths) {
             if (![_libraryLocations containsObject:p]) {
@@ -351,6 +353,15 @@ static NSString *lastPathComponent(NSString *path)
                     NSTask *task = [[NSTask alloc] init];
                     [task setLaunchPath:_lddPath];
                     [task setArguments:@[path]];
+                    // Ensure ldd finds libraries in Gershwin/GNUstep locations
+                    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+                    NSString *oldLdPath = [env objectForKey:@"LD_LIBRARY_PATH"];
+                    NSMutableArray *libDirs = [NSMutableArray array];
+                    if ([oldLdPath length] > 0) [libDirs addObject:oldLdPath];
+                    [libDirs addObject:@"/Local/Library/Libraries"];
+                    [libDirs addObject:@"/System/Library/Libraries"];
+                    [env setObject:[libDirs componentsJoinedByString:@":"] forKey:@"LD_LIBRARY_PATH"];
+                    [task setEnvironment:env];
                     NSPipe *outPipe = [NSPipe pipe];
                     [task setStandardOutput:outPipe];
                     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
