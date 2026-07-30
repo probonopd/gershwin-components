@@ -2,18 +2,23 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
-TOOL_NAME = make_appimage
-make_appimage_OBJC_FILES = main.m AppImageBuilder.m LibraryResolver.m InterpreterDeployer.m LibraryDeployer.m
-make_appimage_TOOL_LIBS = -lgnustep-base -lobjc
+COMMON_OBJC_FILES = AppImageBuilder.m LibraryResolver.m InterpreterDeployer.m LibraryDeployer.m
+COMMON_TOOL_LIBS = -lgnustep-base -lobjc
+
+TOOL_NAME = make_appimage make_standalone
+
+make_appimage_OBJC_FILES = main.m $(COMMON_OBJC_FILES)
+make_appimage_TOOL_LIBS = $(COMMON_TOOL_LIBS)
+
+make_standalone_OBJC_FILES = main_standalone.m $(COMMON_OBJC_FILES)
+make_standalone_TOOL_LIBS = $(COMMON_TOOL_LIBS)
 
 ADDITIONAL_OBJCFLAGS = -Wall -Wextra -fobjc-arc
 
 include $(GNUSTEP_MAKEFILES)/tool.make
 
-# Precompile a static AppRun binary that is shared by all AppImages.
-# AppRun reads its app-specific settings from AppRun.plist, so it
-# does not need to be regenerated per application — the make_appimage
-# tool only writes AppRun.plist and copies the precompiled binary.
+# Precompile a static AppRun binary that is shared by all AppImages
+# and standalone bundles.
 before-install:: AppRun
 	@true
 

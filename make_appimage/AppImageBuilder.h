@@ -49,6 +49,7 @@
 - (void)setFrameworks:(NSArray *)names;
 - (void)setVerbose:(BOOL)flag;
 - (void)setExtraBundles:(NSArray *)names;
+- (void)setStandaloneBundle:(BOOL)flag;
 
 - (BOOL)build;
 

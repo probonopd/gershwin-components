@@ -14,6 +14,7 @@
     BOOL _standalone;
     BOOL _deployTheme;
     BOOL _verbose;
+    BOOL _standaloneBundle;
     NSString *_themeName;
     NSArray *_frameworks;
     NSString *_appResourcesDir;
@@ -69,6 +70,7 @@
 - (void)setFrameworks:(NSArray *)names         { _frameworks = [names copy]; }
 - (void)setExtraBundles:(NSArray *)names       { _extraBundles = [names copy]; }
 - (void)setVerbose:(BOOL)flag                 { _verbose = flag; }
+- (void)setStandaloneBundle:(BOOL)flag        { _standaloneBundle = flag; }
 
 #pragma mark - Tool path lookup
 
@@ -991,8 +993,25 @@
         }
     }
 
-    // === (k) Package AppImage ===
-    {
+    // === (k) Finalize ===
+    if (_standaloneBundle) {
+        NSString *plistPath = [_appDirPath stringByAppendingPathComponent:@"Resources/Info-gnustep.plist"];
+        NSMutableDictionary *plist = [NSMutableDictionary dictionaryWithContentsOfFile:plistPath];
+        if (plist) {
+            [plist setObject:@"AppRun" forKey:@"NSExecutable"];
+            [plist writeToFile:plistPath atomically:YES];
+        }
+        NSString *desktopPath = [_appDirPath stringByAppendingPathComponent:
+            [NSString stringWithFormat:@"%@.desktop", _appName]];
+        [fm removeItemAtPath:desktopPath error:NULL];
+        NSString *appBundleName = [_appName stringByAppendingPathExtension:@"app"];
+        NSString *bundlePath = [[_appDirPath stringByDeletingLastPathComponent]
+            stringByAppendingPathComponent:appBundleName];
+        [fm removeItemAtPath:bundlePath error:NULL];
+        [fm moveItemAtPath:_appDirPath toPath:bundlePath error:NULL];
+        NSLog(@"make_standalone: standalone .app bundle created at %@", bundlePath);
+    } else {
+        // Standard AppImage packaging
         NSString *arch = nil, *os = nil;
         NSString *unamePath = [self _findTool:@"uname"];
         if (unamePath) {
