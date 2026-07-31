@@ -71,6 +71,7 @@
 }
 @end
 #import "GNUstepGUI/GSTheme.h"
+#include <GNUstepGUI/GSDisplayServer.h>
 #import <X11/Xlib.h>
 #import <X11/XF86keysym.h>
 #import <X11/Xatom.h>
@@ -288,8 +289,14 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             }
 
             // Prefer top-strip windows with bar-like geometry.
-            if ((CGFloat)attrs.height > (menuBarHeight * 2.0) || attrs.width < 100) {
-                continue;
+            // Account for GSScaleFactor: the X11 window height is
+            // menuBarHeight * scaleFactor, so the filter must scale too.
+            {
+                CGFloat sf = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
+                if (sf < 1.0) sf = 1.0;
+                if ((CGFloat)attrs.height > (menuBarHeight * sf * 2.0) || attrs.width < 100) {
+                    continue;
+                }
             }
 
             NSNumber *candidate = [NSNumber numberWithUnsignedLong:(unsigned long)w];
@@ -376,7 +383,6 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
 - (void)applyMenuBarDockAndStrutProperties
 {
-    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
     Display *display = [MenuUtils sharedDisplay];
     if (!display) {
         NSDebugLLog(@"gwcomp", @"MenuController: Cannot open X11 display to apply menu bar struts");
@@ -388,70 +394,92 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         return;
     }
 
-    NSArray *menuBarWindows = [self menuBarX11Windows];
-    if ([menuBarWindows count] == 0) {
-        NSDebugLLog(@"gwcomp", @"MenuController: Could not resolve menu bar X11 window id yet");
+    /*
+     * Obtain the X11 window ID directly from the GNUstep display server.
+     * This is far more reliable than searching root children by title/geometry,
+     * which can fail when GSScaleFactor causes the X11 window height to exceed
+     * heuristic filters.
+     */
+    GSDisplayServer *srv = GSServerForWindow(self.menuBar);
+    if (!srv)
+        srv = GSCurrentServer();
+    if (!srv) {
+        NSDebugLLog(@"gwcomp", @"MenuController: No GSDisplayServer available for strut setup");
         return;
     }
 
+    int winNum = [self.menuBar windowNumber];
+    if (winNum <= 0) {
+        NSDebugLLog(@"gwcomp", @"MenuController: menuBar windowNumber is %d, not mapped yet", winNum);
+        return;
+    }
+
+    Window menuBarWindow = (Window)(uintptr_t)[srv windowDevice: winNum];
+    if (menuBarWindow == (Window)0) {
+        NSDebugLLog(@"gwcomp", @"MenuController: Could not resolve X11 window from windowNumber %d", winNum);
+        return;
+    }
+
+    XWindowAttributes attrs;
+    if (XGetWindowAttributes(display, menuBarWindow, &attrs) == 0 || attrs.map_state == IsUnmapped) {
+        NSDebugLLog(@"gwcomp", @"MenuController: Menu bar X11 window 0x%lx not yet mapped",
+                    (unsigned long)menuBarWindow);
+        return;
+    }
+
+    Window root = DefaultRootWindow(display);
+    Window child = None;
+    int rootX = 0;
+    int rootY = 0;
+    if (XTranslateCoordinates(display, menuBarWindow, root, 0, 0, &rootX, &rootY, &child) == False) {
+        rootX = attrs.x;
+        rootY = attrs.y;
+    }
+
+    unsigned int width = (unsigned int)MAX((CGFloat)1.0, (CGFloat)attrs.width);
+    unsigned int height = (unsigned int)MAX((CGFloat)1.0, (CGFloat)attrs.height);
+    unsigned long startX = (rootX < 0) ? 0 : (unsigned long)rootX;
+    unsigned long endX = startX + (unsigned long)width - 1;
+    unsigned long topStrut = (rootY < 0) ? (unsigned long)height : (unsigned long)(rootY + (int)height);
+    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    unsigned int fallbackHeight = (unsigned int)MAX((CGFloat)1.0, menuBarHeight);
+    if (topStrut == 0) {
+        topStrut = fallbackHeight;
+    }
+
+    unsigned long strut[4] = {0, 0, topStrut, 0};
+    unsigned long strutPartial[12] = {0, 0, topStrut, 0,
+                                      0, 0, 0, 0,
+                                      startX, endX, 0, 0};
+
     Atom strutAtom = XInternAtom(display, "_NET_WM_STRUT", False);
     Atom strutPartialAtom = XInternAtom(display, "_NET_WM_STRUT_PARTIAL", False);
+    XChangeProperty(display, menuBarWindow, strutAtom, XA_CARDINAL, 32,
+                    PropModeReplace, (unsigned char *)strut, 4);
+    XChangeProperty(display, menuBarWindow, strutPartialAtom, XA_CARDINAL, 32,
+                    PropModeReplace, (unsigned char *)strutPartial, 12);
+
     Atom stateAtom = XInternAtom(display, "_NET_WM_STATE", False);
     Atom stickyAtom = XInternAtom(display, "_NET_WM_STATE_STICKY", False);
     Atom skipTaskbarAtom = XInternAtom(display, "_NET_WM_STATE_SKIP_TASKBAR", False);
     Atom skipPagerAtom = XInternAtom(display, "_NET_WM_STATE_SKIP_PAGER", False);
     Atom stateAtoms[3] = {stickyAtom, skipTaskbarAtom, skipPagerAtom};
+    XChangeProperty(display, menuBarWindow, stateAtom, XA_ATOM, 32,
+                    PropModeReplace, (unsigned char *)stateAtoms, 3);
+
+    // Explicitly set _NET_WM_WINDOW_TYPE_DOCK so the WM treats this
+    // window as a panel/dock (reserves space, keeps above, etc.).
     Atom wmTypeAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE", False);
-
-    Window root = DefaultRootWindow(display);
-    for (NSNumber *candidate in menuBarWindows) {
-        Window menuBarWindow = (Window)[candidate unsignedLongValue];
-        XWindowAttributes attrs;
-        if (XGetWindowAttributes(display, menuBarWindow, &attrs) == 0 || attrs.map_state == IsUnmapped) {
-            continue;
-        }
-
-        Window child = None;
-        int rootX = 0;
-        int rootY = 0;
-        if (XTranslateCoordinates(display, menuBarWindow, root, 0, 0, &rootX, &rootY, &child) == False) {
-            rootX = attrs.x;
-            rootY = attrs.y;
-        }
-
-        unsigned int width = (unsigned int)MAX((CGFloat)1.0, (CGFloat)attrs.width);
-        unsigned int height = (unsigned int)MAX((CGFloat)1.0, (CGFloat)attrs.height);
-        unsigned long startX = (rootX < 0) ? 0 : (unsigned long)rootX;
-        unsigned long endX = startX + (unsigned long)width - 1;
-        unsigned long topStrut = (rootY < 0) ? (unsigned long)height : (unsigned long)(rootY + (int)height);
-        unsigned int fallbackHeight = (unsigned int)MAX((CGFloat)1.0, menuBarHeight);
-        if (topStrut == 0) {
-            topStrut = fallbackHeight;
-        }
-
-        unsigned long strut[4] = {0, 0, topStrut, 0};
-        unsigned long strutPartial[12] = {0, 0, topStrut, 0,
-                                          0, 0, 0, 0,
-                                          startX, endX, 0, 0};
-        XChangeProperty(display, menuBarWindow, strutAtom, XA_CARDINAL, 32,
-                        PropModeReplace, (unsigned char *)strut, 4);
-        XChangeProperty(display, menuBarWindow, strutPartialAtom, XA_CARDINAL, 32,
-                        PropModeReplace, (unsigned char *)strutPartial, 12);
-
-        XChangeProperty(display, menuBarWindow, stateAtom, XA_ATOM, 32,
-                        PropModeReplace, (unsigned char *)stateAtoms, 3);
-
-        // Explicitly set _NET_WM_WINDOW_TYPE_DOCK so the WM treats this
-        // window as a panel/dock (reserves space, keeps above, etc.).
-        Atom dockAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DOCK", False);
-        XChangeProperty(display, menuBarWindow, wmTypeAtom, XA_ATOM, 32,
-                        PropModeReplace, (unsigned char *)&dockAtom, 1);
-
-        NSDebugLLog(@"gwcomp", @"MenuController: Applied dock/strut properties to XID 0x%lx (root=(%d,%d) size=%ux%u top=%lu x-range=%lu..%lu)",
-              (unsigned long)menuBarWindow, rootX, rootY, width, height, topStrut, startX, endX);
-    }
+    Atom dockAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DOCK", False);
+    XChangeProperty(display, menuBarWindow, wmTypeAtom, XA_ATOM, 32,
+                    PropModeReplace, (unsigned char *)&dockAtom, 1);
 
     XSync(display, False);
+
+    NSLog(@"MenuController: Applied strut properties to XID 0x%lx "
+          @"(root=(%d,%d) size=%ux%u top=%lu x-range=%lu..%lu)",
+          (unsigned long)menuBarWindow, rootX, rootY, width, height,
+          topStrut, startX, endX);
 }
 
 - (void)extrasEnabledSetDidChange:(NSNotification *)notification
