@@ -40,6 +40,8 @@
     DisplayView *displayView;
     NSView *mainView;
     NSPopUpButton *resolutionPopup;
+    NSSlider *scaleSlider;
+    NSTextField *scaleValueLabel;
     NSButton *mirrorDisplaysCheckbox;
     X11DisplayManager *x11;
     DisplayInfo *selectedDisplay; // Currently selected display for resolution changes
@@ -65,6 +67,7 @@
 - (void)resolutionKeepClicked:(id)sender;
 - (void)selectDisplay:(DisplayInfo *)display;
 - (DisplayInfo *)selectedDisplay;
+- (void)scaleFactorChanged:(id)sender;
 - (void)autoConfigureDisplays;
 - (void)saveSettings:(id)sender;
 - (void)updateSaveButtonState;

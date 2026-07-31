@@ -70,6 +70,8 @@ static NSMutableDictionary *activeDialogsByID = nil;
     [displayView release];
     [mainView release];
     [resolutionPopup release];
+    [scaleSlider release];
+    [scaleValueLabel release];
     [mirrorDisplaysCheckbox release];
     [x11 release];
     [saveButton release];
@@ -156,6 +158,42 @@ static NSMutableDictionary *activeDialogsByID = nil;
     [mirrorDisplaysCheckbox setTarget:self];
     [mirrorDisplaysCheckbox setAction:@selector(mirrorDisplaysChanged:)];
     [mainView addSubview:mirrorDisplaysCheckbox];
+    
+    // Scale factor slider (sets GSScaleFactor, 0.8 - 2.0, default 1.0)
+    NSTextField *scaleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 88, 100, 20)];
+    [scaleLabel setStringValue:@"Scale Factor:"];
+    [scaleLabel setBezeled:NO];
+    [scaleLabel setDrawsBackground:NO];
+    [scaleLabel setEditable:NO];
+    [scaleLabel setSelectable:NO];
+    [mainView addSubview:scaleLabel];
+    [scaleLabel release];
+    
+    double currentScaleFactor = 1.0;
+    NSDictionary *domain = [[NSUserDefaults standardUserDefaults] persistentDomainForName:@"org.gnustep.SystemPreferences"];
+    NSNumber *storedFactor = [domain objectForKey:@"GSScaleFactor"];
+    if (storedFactor) {
+        currentScaleFactor = [storedFactor doubleValue];
+        if (currentScaleFactor < 0.8) currentScaleFactor = 0.8;
+        if (currentScaleFactor > 2.0) currentScaleFactor = 2.0;
+    }
+    
+    scaleSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(130, 85, 200, 25)];
+    [scaleSlider setMinValue:0.8];
+    [scaleSlider setMaxValue:2.0];
+    [scaleSlider setDoubleValue:currentScaleFactor];
+    [scaleSlider setContinuous:YES];
+    [scaleSlider setTarget:self];
+    [scaleSlider setAction:@selector(scaleFactorChanged:)];
+    [mainView addSubview:scaleSlider];
+    
+    scaleValueLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(335, 88, 45, 20)];
+    [scaleValueLabel setStringValue:[NSString stringWithFormat:@"%.2fx", currentScaleFactor]];
+    [scaleValueLabel setBezeled:NO];
+    [scaleValueLabel setDrawsBackground:NO];
+    [scaleValueLabel setEditable:NO];
+    [scaleValueLabel setSelectable:NO];
+    [mainView addSubview:scaleValueLabel];
     
     // Resolution popup
     NSTextField *resLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 35, 80, 20)];
@@ -872,6 +910,17 @@ static NSString *const GERSHWIN_END   = @"# END Gershwin Display Settings";
 
     [conf appendString:GERSHWIN_END];
     return conf;
+}
+
+- (void)scaleFactorChanged:(id)sender
+{
+    double factor = [sender doubleValue];
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSMutableDictionary *domain = [NSMutableDictionary dictionaryWithDictionary:[defaults persistentDomainForName:@"org.gnustep.SystemPreferences"]];
+    [domain setObject:[NSNumber numberWithDouble:factor] forKey:@"GSScaleFactor"];
+    [defaults setPersistentDomain:domain forName:@"org.gnustep.SystemPreferences"];
+    [defaults synchronize];
+    [scaleValueLabel setStringValue:[NSString stringWithFormat:@"%.2fx", factor]];
 }
 
 - (void)saveSettings:(id)sender
