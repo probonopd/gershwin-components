@@ -257,6 +257,7 @@ static NSString *ConfigKey(NSString *key)
 
 - (void)showFailureAlert
 {
+    /* Commented out: no dialog on build failure.
     NSMutableArray *failedRepos = [NSMutableArray array];
     for (NSString *repoStr in _repos) {
         NSString *status = [_repoStatuses objectForKey: repoStr];
@@ -290,6 +291,7 @@ static NSString *ConfigKey(NSString *key)
             [[NSWorkspace sharedWorkspace] openURL: [NSURL URLWithString: urlStr]];
         }
     }
+    */
 }
 
 - (void)showRateLimitAlert
