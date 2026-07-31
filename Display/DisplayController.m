@@ -72,6 +72,7 @@ static NSMutableDictionary *activeDialogsByID = nil;
     [resolutionPopup release];
     [scaleSlider release];
     [scaleValueLabel release];
+    [scaleFactorHintLabel release];
     [mirrorDisplaysCheckbox release];
     [x11 release];
     [saveButton release];
@@ -152,51 +153,15 @@ static NSMutableDictionary *activeDialogsByID = nil;
 
     
     // Mirror displays checkbox
-    mirrorDisplaysCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, 65, 200, 20)];
+    mirrorDisplaysCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, 90, 200, 20)];
     [mirrorDisplaysCheckbox setButtonType:NSSwitchButton];
     [mirrorDisplaysCheckbox setTitle:@"Mirror Displays"];
     [mirrorDisplaysCheckbox setTarget:self];
     [mirrorDisplaysCheckbox setAction:@selector(mirrorDisplaysChanged:)];
     [mainView addSubview:mirrorDisplaysCheckbox];
     
-    // Scale factor slider (sets GSScaleFactor, 0.8 - 2.0, default 1.0)
-    NSTextField *scaleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 88, 100, 20)];
-    [scaleLabel setStringValue:@"Scale Factor:"];
-    [scaleLabel setBezeled:NO];
-    [scaleLabel setDrawsBackground:NO];
-    [scaleLabel setEditable:NO];
-    [scaleLabel setSelectable:NO];
-    [mainView addSubview:scaleLabel];
-    [scaleLabel release];
-    
-    double currentScaleFactor = 1.0;
-    NSDictionary *domain = [[NSUserDefaults standardUserDefaults] persistentDomainForName:@"org.gnustep.SystemPreferences"];
-    NSNumber *storedFactor = [domain objectForKey:@"GSScaleFactor"];
-    if (storedFactor) {
-        currentScaleFactor = [storedFactor doubleValue];
-        if (currentScaleFactor < 0.8) currentScaleFactor = 0.8;
-        if (currentScaleFactor > 2.0) currentScaleFactor = 2.0;
-    }
-    
-    scaleSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(130, 85, 200, 25)];
-    [scaleSlider setMinValue:0.8];
-    [scaleSlider setMaxValue:2.0];
-    [scaleSlider setDoubleValue:currentScaleFactor];
-    [scaleSlider setContinuous:YES];
-    [scaleSlider setTarget:self];
-    [scaleSlider setAction:@selector(scaleFactorChanged:)];
-    [mainView addSubview:scaleSlider];
-    
-    scaleValueLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(335, 88, 45, 20)];
-    [scaleValueLabel setStringValue:[NSString stringWithFormat:@"%.2fx", currentScaleFactor]];
-    [scaleValueLabel setBezeled:NO];
-    [scaleValueLabel setDrawsBackground:NO];
-    [scaleValueLabel setEditable:NO];
-    [scaleValueLabel setSelectable:NO];
-    [mainView addSubview:scaleValueLabel];
-    
     // Resolution popup
-    NSTextField *resLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 35, 80, 20)];
+    NSTextField *resLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 54, 80, 20)];
     [resLabel setStringValue:@"Resolution:"];
     [resLabel setBezeled:NO];
     [resLabel setDrawsBackground:NO];
@@ -205,13 +170,13 @@ static NSMutableDictionary *activeDialogsByID = nil;
     [mainView addSubview:resLabel];
     [resLabel release];
     
-    resolutionPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(110, 32, 180, 25)];
+    resolutionPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(110, 51, 180, 25)];
     [resolutionPopup setTarget:self];
     [resolutionPopup setAction:@selector(resolutionChanged:)];
     [mainView addSubview:resolutionPopup];
 
     // Save Settings button
-    saveButton = [[NSButton alloc] initWithFrame:NSMakeRect(availableWidth - 120, 32, 100, 25)];
+    saveButton = [[NSButton alloc] initWithFrame:NSMakeRect(availableWidth - 120, 51, 100, 25)];
     [saveButton setTitle:@"Save Settings"];
     [saveButton setButtonType:NSMomentaryPushInButton];
     [saveButton setBezelStyle:NSRoundedBezelStyle];
@@ -219,6 +184,53 @@ static NSMutableDictionary *activeDialogsByID = nil;
     [saveButton setAction:@selector(saveSettings:)];
     [saveButton setEnabled:NO];
     [mainView addSubview:saveButton];
+
+    // Scale factor slider at the bottom of the pane (sets GSScaleFactor, 0.8 - 2.0, default 1.0)
+    double currentScaleFactor = 1.0;
+    NSDictionary *domain = [[NSUserDefaults standardUserDefaults] persistentDomainForName:NSGlobalDomain];
+    NSNumber *storedFactor = [domain objectForKey:@"GSScaleFactor"];
+    if (storedFactor) {
+        currentScaleFactor = [storedFactor doubleValue];
+        if (currentScaleFactor < 0.8) currentScaleFactor = 0.8;
+        if (currentScaleFactor > 2.0) currentScaleFactor = 2.0;
+    }
+    
+    NSTextField *scaleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 26, 100, 20)];
+    [scaleLabel setStringValue:@"Scale Factor:"];
+    [scaleLabel setBezeled:NO];
+    [scaleLabel setDrawsBackground:NO];
+    [scaleLabel setEditable:NO];
+    [scaleLabel setSelectable:NO];
+    [mainView addSubview:scaleLabel];
+    [scaleLabel release];
+    
+    scaleSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(130, 23, 200, 25)];
+    [scaleSlider setMinValue:0.8];
+    [scaleSlider setMaxValue:2.0];
+    [scaleSlider setDoubleValue:currentScaleFactor];
+    [scaleSlider setContinuous:YES];
+    [scaleSlider setTarget:self];
+    [scaleSlider setAction:@selector(scaleFactorChanged:)];
+    [mainView addSubview:scaleSlider];
+    
+    scaleValueLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(335, 26, 45, 20)];
+    [scaleValueLabel setStringValue:[NSString stringWithFormat:@"%.2fx", currentScaleFactor]];
+    [scaleValueLabel setBezeled:NO];
+    [scaleValueLabel setDrawsBackground:NO];
+    [scaleValueLabel setEditable:NO];
+    [scaleValueLabel setSelectable:NO];
+    [mainView addSubview:scaleValueLabel];
+    
+    scaleFactorHintLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 2, availableWidth - 40, 20)];
+    [scaleFactorHintLabel setStringValue:@"Changes will take effect for newly started applications"];
+    [scaleFactorHintLabel setBezeled:NO];
+    [scaleFactorHintLabel setDrawsBackground:NO];
+    [scaleFactorHintLabel setEditable:NO];
+    [scaleFactorHintLabel setSelectable:NO];
+    [scaleFactorHintLabel setFont:[NSFont systemFontOfSize:11]];
+    [scaleFactorHintLabel setTextColor:[NSColor grayColor]];
+    [scaleFactorHintLabel setHidden:YES];
+    [mainView addSubview:scaleFactorHintLabel];
 
     // Do not call refreshDisplays: here — the DisplayPane's didSelect
     // will trigger it once the view is in the window hierarchy.
@@ -916,11 +928,12 @@ static NSString *const GERSHWIN_END   = @"# END Gershwin Display Settings";
 {
     double factor = [sender doubleValue];
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSMutableDictionary *domain = [NSMutableDictionary dictionaryWithDictionary:[defaults persistentDomainForName:@"org.gnustep.SystemPreferences"]];
+    NSMutableDictionary *domain = [NSMutableDictionary dictionaryWithDictionary:[defaults persistentDomainForName:NSGlobalDomain]];
     [domain setObject:[NSNumber numberWithDouble:factor] forKey:@"GSScaleFactor"];
-    [defaults setPersistentDomain:domain forName:@"org.gnustep.SystemPreferences"];
+    [defaults setPersistentDomain:domain forName:NSGlobalDomain];
     [defaults synchronize];
     [scaleValueLabel setStringValue:[NSString stringWithFormat:@"%.2fx", factor]];
+    [scaleFactorHintLabel setHidden:NO];
 }
 
 - (void)saveSettings:(id)sender

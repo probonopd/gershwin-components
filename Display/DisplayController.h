@@ -42,6 +42,7 @@
     NSPopUpButton *resolutionPopup;
     NSSlider *scaleSlider;
     NSTextField *scaleValueLabel;
+    NSTextField *scaleFactorHintLabel;
     NSButton *mirrorDisplaysCheckbox;
     X11DisplayManager *x11;
     DisplayInfo *selectedDisplay; // Currently selected display for resolution changes
