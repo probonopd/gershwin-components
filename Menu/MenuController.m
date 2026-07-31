@@ -506,7 +506,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     CGFloat factor = 1.0;
     id val = [[NSUserDefaults standardUserDefaults] objectForKey:@"GSScaleFactor"];
     if (val) factor = [val floatValue];
-    if (factor > 1.0) {
+    if (factor != 1.0) {
         sf.size.width /= factor;
     }
     self.screenFrame = sf;
@@ -962,7 +962,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     CGFloat factor = 1.0;
     id val = [[NSUserDefaults standardUserDefaults] objectForKey:@"GSScaleFactor"];
     if (val) factor = [val floatValue];
-    if (factor > 1.0) {
+    if (factor != 1.0) {
         sf.size.width /= factor;
     }
     self.screenFrame = sf;
