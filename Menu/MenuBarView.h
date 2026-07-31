@@ -10,11 +10,8 @@
 
 @interface MenuBarView : NSView
 {
-    NSGradient *_gradient;
     BOOL _needsRedraw;
 }
-
-@property (nonatomic, strong) NSGradient *gradient;
 
 - (void)drawRect:(NSRect)dirtyRect;
 - (void)setNeedsRedraw;

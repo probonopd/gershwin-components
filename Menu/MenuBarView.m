@@ -6,7 +6,9 @@
 
 
 #import "MenuBarView.h"
+#import "CustomMenuPanel.h"
 #import "MenuProfiler.h"
+#import <GNUstepGUI/GSTheme.h>
 
 @implementation MenuBarView
 
@@ -14,16 +16,6 @@
 {
     self = [super initWithFrame:frameRect];
     if (self) {
-        NSColor *startColor = [NSColor colorWithCalibratedRed:0.95
-                                                         green:0.95
-                                                          blue:0.95
-                                                         alpha:0.95];
-        NSColor *endColor = [NSColor colorWithCalibratedRed:0.85
-                                                       green:0.85
-                                                        blue:0.85
-                                                       alpha:0.85];
-        _gradient = [[NSGradient alloc] initWithStartingColor:startColor
-                                                   endingColor:endColor];
         _needsRedraw = YES;
     }
     return self;
@@ -39,11 +31,20 @@
 {
     MENU_PROFILE_BEGIN(MenuBarViewDraw);
 
-    if (_gradient) {
-        [_gradient drawInRect:[self bounds] angle:-90];
-    } else {
-        [[NSColor colorWithCalibratedWhite:0.95 alpha:1.0] set];
+    // The window hook wraps the main menu window's content view with a
+    // MenuGradientView that draws the theme's menu bar gradient.  When that is
+    // in place, this view only acts as a transparent container.  As a fallback
+    // (e.g. before the hook has run), draw the same gradient here so the bar is
+    // never blank.
+    NSWindow *window = [self window];
+    if (window && [[window contentView] isKindOfClass:[MenuGradientView class]]) {
+        [[NSColor clearColor] set];
         NSRectFill([self bounds]);
+    } else {
+        [[GSTheme theme] drawMenuRect:[self bounds]
+                               inView:self
+                         isHorizontal:YES
+                            itemCells:@[]];
     }
 
     MENU_PROFILE_END(MenuBarViewDraw);
