@@ -557,7 +557,6 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
           sf.size.width, sf.size.height, MenuControllerScaleFactor());
 
     const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
-
     /* Content views live in the window's user coordinate space, which GNUstep
      * scales by GSScaleFactor when rendering (device = user * sf).  Size them
      * in that space so they render to the device window size; the window frame
@@ -568,13 +567,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
     // Reposition and resize the menu bar window using the screen frame origin
     // (the origin may be non-zero if the virtual desktop geometry changed)
-    CGFloat originX = self.screenFrame.origin.x;
-    CGFloat originY = self.screenFrame.origin.y;
-    NSRect menuRect = NSMakeRect(originX,
-                                 originY + self.screenSize.height - menuBarHeight,
-                                 self.screenSize.width, menuBarHeight);
-    [self.menuBar setFrame:menuRect display:NO];
-    [self.menuBar setFrameTopLeftPoint:NSMakePoint(originX, originY + self.screenSize.height)];
+    [self positionMenuBarWindow];
 
     // Resize the background view
     [self.menuBarView setFrame:NSMakeRect(0, 0, contentW, contentH)];
@@ -617,6 +610,34 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     // Redraw
     [self.menuBar display];
     NSDebugLLog(@"gwcomp", @"MenuController: Menu bar repositioned successfully");
+
+    /* The GNUstep backend may still convert GNUstep -> X11 coordinates with
+     * the previous screen height right after a resolution change, misplacing
+     * the bar.  Re-apply the position once the backend has settled. */
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(repositionMenuBarAfterScreenChange)
+                                               object:nil];
+    [self performSelector:@selector(repositionMenuBarAfterScreenChange)
+               withObject:nil
+               afterDelay:0.5];
+}
+
+- (void)positionMenuBarWindow
+{
+    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
+    CGFloat originX = self.screenFrame.origin.x;
+    CGFloat originY = self.screenFrame.origin.y;
+    NSRect menuRect = NSMakeRect(originX,
+                                 originY + self.screenSize.height - menuBarHeight,
+                                 self.screenSize.width, menuBarHeight);
+    [self.menuBar setFrame:menuRect display:NO];
+    [self.menuBar setFrameTopLeftPoint:NSMakePoint(originX, originY + self.screenSize.height)];
+}
+
+- (void)repositionMenuBarAfterScreenChange
+{
+    [self positionMenuBarWindow];
+    [self applyMenuBarDockAndStrutProperties];
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
