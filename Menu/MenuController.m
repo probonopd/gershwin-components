@@ -129,6 +129,36 @@ static NSTimeInterval _lastBrightnessAdjust = 0;
 
 @implementation MenuController
 
+static CGFloat MenuControllerLastScaleFactor = 1.0;
+
+/* Current GSScaleFactor (1.0 when unset or non-positive). */
+static CGFloat MenuControllerScaleFactor(void)
+{
+  CGFloat factor = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
+  return (factor > 0.0) ? factor : 1.0;
+}
+
+/* True physical screen width queried directly from X11 - GSScaleFactor is
+ * never applied to it, unlike the screen size GNUstep may report. */
+static CGFloat MenuControllerScreenWidth(void)
+{
+  Display *display = XOpenDisplay(NULL);
+  if (display == NULL)
+    {
+      return [[[NSScreen screens] objectAtIndex:0] frame].size.width;
+    }
+  int width = DisplayWidth(display, DefaultScreen(display));
+  XCloseDisplay(display);
+  return (CGFloat)width;
+}
+
+/* Menu bar height scaled by GSScaleFactor: the bar keeps its full screen
+ * width but its height grows/shrinks with the scale factor. */
+static CGFloat MenuControllerMenuBarHeight(void)
+{
+  return [[GSTheme theme] menuBarHeight] * MenuControllerScaleFactor();
+}
+
 #if MENU_PROFILING
 static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 {
@@ -262,7 +292,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     NSString *menuBarTitle = [self.menuBar title];
     NSArray *windows = [MenuUtils getAllWindows];
     NSMutableArray *candidates = [NSMutableArray array];
-    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
 
     // Discover directly from root children first. This catches windows even when
     // they are temporarily absent from _NET_CLIENT_LIST.
@@ -289,12 +319,9 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             }
 
             // Prefer top-strip windows with bar-like geometry.
-            // Account for GSScaleFactor: the X11 window height is
-            // menuBarHeight * scaleFactor, so the filter must scale too.
+            // menuBarHeight already accounts for GSScaleFactor.
             {
-                CGFloat sf = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
-                if (sf < 1.0) sf = 1.0;
-                if ((CGFloat)attrs.height > (menuBarHeight * sf * 2.0) || attrs.width < 100) {
+                if ((CGFloat)attrs.height > (menuBarHeight * 2.0) || attrs.width < 100) {
                     continue;
                 }
             }
@@ -441,7 +468,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     unsigned long startX = (rootX < 0) ? 0 : (unsigned long)rootX;
     unsigned long endX = startX + (unsigned long)width - 1;
     unsigned long topStrut = (rootY < 0) ? (unsigned long)height : (unsigned long)(rootY + (int)height);
-    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
     unsigned int fallbackHeight = (unsigned int)MAX((CGFloat)1.0, menuBarHeight);
     if (topStrut == 0) {
         topStrut = fallbackHeight;
@@ -491,6 +518,24 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     [self.menuBarView setNeedsDisplay:YES];
 }
 
+- (void)checkScaleFactor:(NSTimer *)timer
+{
+    // GNUstep caches defaults per-process; synchronize re-reads the store so
+    // external writes (defaults tool, Display prefPane) become visible.
+    [[NSUserDefaults standardUserDefaults] synchronize];
+
+    CGFloat factor = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
+    if (factor == 0.0)
+        factor = 1.0;
+
+    if (factor == MenuControllerLastScaleFactor)
+        return;
+
+    NSDebugLLog(@"gwcomp", @"MenuController: GSScaleFactor changed from %.3f to %.3f", MenuControllerLastScaleFactor, factor);
+    MenuControllerLastScaleFactor = factor;
+    [self screenParametersChanged: nil];
+}
+
 - (void)screenParametersChanged:(NSNotification *)notification
 {
     NSDebugLLog(@"gwcomp", @"MenuController: Screen parameters changed, repositioning menu bar");
@@ -501,21 +546,25 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     }
 
     // Re-read the primary screen geometry (screens[0] is the xrandr primary;
-    // mainScreen may return the menu's own window screen which is circular)
+    // mainScreen may return the menu's own window screen which is circular).
+    // Use the true X11 width so GSScaleFactor cannot change the bar's width.
     NSRect sf = [[[NSScreen screens] objectAtIndex:0] frame];
-    CGFloat factor = 1.0;
-    id val = [[NSUserDefaults standardUserDefaults] objectForKey:@"GSScaleFactor"];
-    if (val) factor = [val floatValue];
-    if (factor != 1.0) {
-        sf.size.width /= factor;
-    }
+    sf.size.width = MenuControllerScreenWidth();
     self.screenFrame = sf;
     self.screenSize = sf.size;
     NSDebugLLog(@"gwcomp", @"MenuController: New screen frame: %.0f,%.0f %.0fx%.0f (scale=%.1f)",
           sf.origin.x, sf.origin.y,
-          sf.size.width, sf.size.height, factor);
+          sf.size.width, sf.size.height, MenuControllerScaleFactor());
 
-    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
+
+    /* Content views live in the window's user coordinate space, which GNUstep
+     * scales by GSScaleFactor when rendering (device = user * sf).  Size them
+     * in that space so they render to the device window size; the window frame
+     * itself is set to the device size below. */
+    CGFloat scale = MenuControllerScaleFactor();
+    CGFloat contentW = MenuControllerScreenWidth() / scale;
+    CGFloat contentH = [[GSTheme theme] menuBarHeight];
 
     // Reposition and resize the menu bar window using the screen frame origin
     // (the origin may be non-zero if the virtual desktop geometry changed)
@@ -528,7 +577,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     [self.menuBar setFrameTopLeftPoint:NSMakePoint(originX, originY + self.screenSize.height)];
 
     // Resize the background view
-    [self.menuBarView setFrame:NSMakeRect(0, 0, self.screenSize.width, menuBarHeight)];
+    [self.menuBarView setFrame:NSMakeRect(0, 0, contentW, contentH)];
 
     // Reposition menu extras at the right edge
     NSView *extrasMenuView = nil;
@@ -541,18 +590,23 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
     CGFloat extrasMenuWidth = [self.menuExtraManager extrasMenuWidth];
     if (extrasMenuView) {
-        [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - extrasMenuWidth - 8, 0,
-                                            extrasMenuWidth, menuBarHeight)];
+        [extrasMenuView setFrame:NSMakeRect(contentW - extrasMenuWidth - 8, 0,
+                                            extrasMenuWidth, contentH)];
     }
 
     // Resize app menu widget to fill remaining space
-    CGFloat menuWidgetWidth = self.screenSize.width - extrasMenuWidth - 8;
-    [self.appMenuWidget setFrame:NSMakeRect(0, 0, menuWidgetWidth, menuBarHeight)];
+    CGFloat menuWidgetWidth = contentW - extrasMenuWidth - 8;
+    [self.appMenuWidget setFrame:NSMakeRect(0, 0, menuWidgetWidth, contentH)];
+
+    // Re-layout the menu items so they reflow to the new bar width/height
+    // (fonts/images scale with GSScaleFactor, changing item widths).
+    [self.appMenuWidget.menuView sizeToFit];
+    [self.appMenuWidget setNeedsDisplay:YES];
 
     // Resize rounded corners view
     CGFloat cornerHeight = 10.0;
-    [self.roundedCornersView setFrame:NSMakeRect(0, menuBarHeight - cornerHeight,
-                                                  self.screenSize.width, cornerHeight)];
+    [self.roundedCornersView setFrame:NSMakeRect(0, contentH - cornerHeight,
+                                                  contentW, cornerHeight)];
 
     // Update the MenuExtraManager's cached screen width
     [self.menuExtraManager setScreenWidth:self.screenSize.width];
@@ -947,6 +1001,8 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 - (void)createMenuBar
 {
     NSDebugLLog(@"gwcomp", @"MenuController: ===== CREATING MENU BAR =====");
+    /* Raw theme height: GNUstep multiplies the window frame by the scale
+     * factor at creation, so the resulting device height is 22 * sf. */
     const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
     NSDebugLLog(@"gwcomp", @"MenuController: Menu bar height: %.0f", menuBarHeight);
     
@@ -959,16 +1015,12 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     [attributes setObject:menuFont forKey:NSFontAttributeName];
     
     NSRect sf = [[[NSScreen screens] objectAtIndex:0] frame];
-    CGFloat factor = 1.0;
-    id val = [[NSUserDefaults standardUserDefaults] objectForKey:@"GSScaleFactor"];
-    if (val) factor = [val floatValue];
-    if (factor != 1.0) {
-        sf.size.width /= factor;
-    }
+    sf.size.width = MenuControllerScreenWidth();
+    sf.size.width /= MenuControllerScaleFactor();
     self.screenFrame = sf;
     self.screenSize = sf.size;
     NSDebugLLog(@"gwcomp", @"MenuController: Screen frame: %.0f,%.0f %.0fx%.0f (scale=%.1f)",
-          sf.origin.x, sf.origin.y, sf.size.width, sf.size.height, factor);
+          sf.origin.x, sf.origin.y, sf.size.width, sf.size.height, MenuControllerScaleFactor());
     
     color = [self backgroundColor];
     NSDebugLLog(@"gwcomp", @"MenuController: Background color: %@", color);
@@ -1155,10 +1207,28 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
                                              selector:@selector(screenParametersChanged:)
                                                  name:NSApplicationDidChangeScreenParametersNotification
                                                object:nil];
+
+    // React live to GSScaleFactor changes.  GNUstep only posts
+    // NSUserDefaultsDidChangeNotification for changes made in this process,
+    // so instead poll: synchronize re-reads external writes, then diff
+    // against the last seen value so unrelated changes are ignored.
+    [NSTimer scheduledTimerWithTimeInterval:1.0
+                                     target:self
+                                   selector:@selector(checkScaleFactor:)
+                                   userInfo:nil
+                                    repeats:YES];
 }
 
 - (void)setupMenuBar
 {
+    /* GNUstep loads the defaults lazily; synchronize up front so the first
+     * GSScaleFactor read (used when creating the menu bar below) sees the
+     * externally-written value instead of a stale one. */
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    MenuControllerLastScaleFactor = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
+    if (MenuControllerLastScaleFactor == 0.0)
+        MenuControllerLastScaleFactor = 1.0;
+
     NSDebugLLog(@"gwcomp", @"MenuController: Setting up menu bar using createMenuBar method");
     [self createMenuBar];
     NSDebugLLog(@"gwcomp", @"MenuController: Menu bar setup complete at %.0f,%.0f %.0fx%.0f", self.screenFrame.origin.x, self.screenFrame.origin.y, self.screenSize.width, [[GSTheme theme] menuBarHeight]);
@@ -1625,7 +1695,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
 - (void)animateMenuSlideIn
 {
-    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
     
     // Start animation timer for smooth slide-in from above
     self.slideInStartTime = [NSDate timeIntervalSinceReferenceDate];
@@ -1642,7 +1712,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
 - (void)updateSlideInAnimation
 {
-    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
     NSTimeInterval elapsed = [NSDate timeIntervalSinceReferenceDate] - self.slideInStartTime;
     NSTimeInterval duration = 0.3;
     
