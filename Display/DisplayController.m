@@ -207,6 +207,9 @@ static NSMutableDictionary *activeDialogsByID = nil;
     scaleSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(130, 23, 200, 25)];
     [scaleSlider setMinValue:0.8];
     [scaleSlider setMaxValue:2.0];
+    [scaleSlider setNumberOfTickMarks:13];
+    [scaleSlider setAllowsTickMarkValuesOnly:YES];
+    currentScaleFactor = round(currentScaleFactor * 10.0) / 10.0;
     [scaleSlider setDoubleValue:currentScaleFactor];
     [scaleSlider setContinuous:YES];
     [scaleSlider setTarget:self];
@@ -214,7 +217,7 @@ static NSMutableDictionary *activeDialogsByID = nil;
     [mainView addSubview:scaleSlider];
     
     scaleValueLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(335, 26, 45, 20)];
-    [scaleValueLabel setStringValue:[NSString stringWithFormat:@"%.2fx", currentScaleFactor]];
+    [scaleValueLabel setStringValue:[NSString stringWithFormat:@"%.1fx", currentScaleFactor]];
     [scaleValueLabel setBezeled:NO];
     [scaleValueLabel setDrawsBackground:NO];
     [scaleValueLabel setEditable:NO];
@@ -927,12 +930,15 @@ static NSString *const GERSHWIN_END   = @"# END Gershwin Display Settings";
 - (void)scaleFactorChanged:(id)sender
 {
     double factor = [sender doubleValue];
+    /* Snap to one decimal place. */
+    factor = round(factor * 10.0) / 10.0;
+    [sender setDoubleValue:factor];
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSMutableDictionary *domain = [NSMutableDictionary dictionaryWithDictionary:[defaults persistentDomainForName:NSGlobalDomain]];
     [domain setObject:[NSNumber numberWithDouble:factor] forKey:@"GSScaleFactor"];
     [defaults setPersistentDomain:domain forName:NSGlobalDomain];
     [defaults synchronize];
-    [scaleValueLabel setStringValue:[NSString stringWithFormat:@"%.2fx", factor]];
+    [scaleValueLabel setStringValue:[NSString stringWithFormat:@"%.1fx", factor]];
     [scaleFactorHintLabel setHidden:NO];
 }
 
