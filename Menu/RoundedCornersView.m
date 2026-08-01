@@ -77,7 +77,18 @@
 
 - (NSView *)hitTest:(NSPoint)aPoint
 {
-    // This view should not intercept mouse events - pass them through to underlying views
+    // This view draws the rounded corner masks on top of the menu bar but must
+    // not absorb mouse events: forward the hit to the sibling views below (the
+    // menu bar background with its menu titles) so that clicking the very top
+    // row of the screen still opens the dropdown menus.
+    NSView *superview = [self superview];
+    if (superview) {
+        for (NSView *sibling in [superview subviews]) {
+            if (sibling == self) continue;
+            NSView *hit = [sibling hitTest:aPoint];
+            if (hit != nil) return hit;
+        }
+    }
     return nil;
 }
 
