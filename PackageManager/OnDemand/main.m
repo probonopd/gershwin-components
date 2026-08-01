@@ -26,20 +26,28 @@ int main(int argc, const char *argv[])
   gController = [[OnDemandController alloc] init];
   [[NSApplication sharedApplication] setDelegate:gController];
 
-  /* Direct install mode: file path provided */
+  /* Direct install mode: file path provided.
+     Workspace launches apps with "-GSFilePath <path>", so skip that flag. */
   if (argc > 1)
     {
-      NSString *path = [NSString stringWithUTF8String:argv[1]];
-      NSLog(@"OnDemand -> main: direct install mode for %@", path);
-      if (![gController setupFromFile:path])
+      int idx = 1;
+      NSString *flag = [NSString stringWithUTF8String:argv[1]];
+      if ([flag isEqualToString:@"-GSFilePath"])
+        idx = 2;
+      if (idx < argc)
         {
-          NSLog(@"OnDemand [FAIL] main: failed to handle %@", path);
-          [gController showError:[NSString stringWithFormat:
-            @"Could not install %@.\n\nThe format may not be supported or the file may be corrupt.",
-            [path lastPathComponent]]];
+          NSString *path = [NSString stringWithUTF8String:argv[idx]];
+          NSLog(@"OnDemand -> main: direct install mode for %@", path);
+          if (![gController setupFromFile:path])
+            {
+              NSLog(@"OnDemand [FAIL] main: failed to handle %@", path);
+              [gController showError:[NSString stringWithFormat:
+                @"Could not install %@.\n\nThe format may not be supported or the file may be corrupt.",
+                [path lastPathComponent]]];
+            }
+          [[NSApplication sharedApplication] run];
+          return 0;
         }
-      [[NSApplication sharedApplication] run];
-      return 0;
     }
 
   if (![gController setupFromPlist])
