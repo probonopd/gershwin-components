@@ -230,18 +230,25 @@ static NSString *SystemActionsExecutable(NSArray *paths)
         NSArray *remaining = [self waitForApplicationsToExit:requested
                                                      timeout:POWER_APP_TERMINATE_TIMEOUT];
         if ([remaining count] > 0) {
-            __block BOOL kill = NO;
+            /* If the user refuses to kill the stubborn applications, abort the
+               whole power action - the shutdown/restart/logout must not happen
+               while an application is still running. */
+            __block BOOL proceed = NO;
             dispatch_sync(dispatch_get_main_queue(), ^{
-                kill = [self askToKillApplications:remaining action:action];
+                proceed = [self askToKillApplications:remaining action:action];
             });
-            if (kill) {
+            if (proceed) {
                 for (NSDictionary *app in remaining) {
                     [self killApplication:app];
                 }
                 [NSThread sleepForTimeInterval:2.0];
+                [self executePowerCommandForAction:action];
+            } else {
+                NSLog(@"SystemActions: User cancelled %@ - applications still running, not executing", action);
             }
+        } else {
+            [self executePowerCommandForAction:action];
         }
-        [self executePowerCommandForAction:action];
     });
 }
 
