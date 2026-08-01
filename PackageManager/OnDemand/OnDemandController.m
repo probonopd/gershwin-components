@@ -445,12 +445,20 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
         return;
       }
 
-    /* User confirmed — now show the progress window and install */
+    /* User confirmed — show the progress window, then start the install.
+       showWindow orders the window front synchronously, so it is visible
+       before the install's progress updates arrive. */
     dispatch_async(dispatch_get_main_queue(), ^{
       [self showWindow];
       [self installDidProgress:0.0 message:@"Installing package..."];
+      [self _runInstallAndFinish];
     });
+  });
+}
 
+- (void)_runInstallAndFinish
+{
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
     setenv("SUDO_ASKPASS", "/bin/false", 1);
     GWPackageManager *pm = [[GWPackageManager alloc] initWithBackend:nil];
     BOOL ok = [pm installPackages:@[]
@@ -695,10 +703,10 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
   [_window setTitle:_appName];
   [_window center];
 
-  // Defer display to next run loop iteration to avoid window system crashes
-  dispatch_async(dispatch_get_main_queue(), ^{
-    [_window orderFront:nil];
-  });
+  // Order front synchronously so the window is visible before the install
+  // starts updating progress (a deferred orderFront could be preempted by a
+  // fast completion, leaving the window hidden).
+  [_window orderFront:nil];
 }
 
 #pragma mark - Progress Handler
