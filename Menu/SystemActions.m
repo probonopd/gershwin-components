@@ -125,8 +125,11 @@ static NSString *SystemActionsExecutable(NSArray *paths)
  * supported operating system. */
 + (NSArray *)logoutCommand
 {
-    NSString *pkill = SystemActionsExecutable(@[@"/usr/bin/pkill", @"/bin/pkill"]);
-    if (pkill) return @[pkill, @"-TERM", @"-x", @"Workspace"];
+    /* The Workspace is the root process of the Gershwin session, so killing it
+       (SIGKILL, no delay) makes the display manager end the session and return
+       to the login screen immediately on every supported operating system. */
+    NSString *killall = SystemActionsExecutable(@[@"/usr/bin/killall", @"/bin/killall"]);
+    if (killall) return @[killall, @"-9", @"Workspace"];
     return nil;
 }
 
