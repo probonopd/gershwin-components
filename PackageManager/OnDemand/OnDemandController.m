@@ -432,8 +432,9 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
 {
   if (!_directFilePath || !_directFormat) return;
 
-  [self installDidProgress:0.0 message:@"Checking dependencies..."];
-
+  /* Ask for confirmation first. Only show the progress window after the
+     user confirms. Runs on a background thread; _confirmInstall shows the
+     modal alert on the main thread and waits for the answer. */
   dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
     NSString *pkgName = [_directFilePath lastPathComponent];
     if (!_confirmInstall(pkgName, _directFilePath, _directFormat))
@@ -444,9 +445,12 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
         return;
       }
 
-    /* Install via the existing GWPackageManager backend.
-       Prevent sudo from hanging on password prompt. */
-    [self installDidProgress:0.0 message:@"Installing package..."];
+    /* User confirmed — now show the progress window and install */
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [self showWindow];
+      [self installDidProgress:0.0 message:@"Installing package..."];
+    });
+
     setenv("SUDO_ASKPASS", "/bin/false", 1);
     GWPackageManager *pm = [[GWPackageManager alloc] initWithBackend:nil];
     BOOL ok = [pm installPackages:@[]
@@ -456,12 +460,11 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
 
     if (ok)
       {
-        NSString *pkgName = _packageNameFromFile(_directFilePath, _directFormat);
-        if (pkgName)
+        NSString *installedName = _packageNameFromFile(_directFilePath, _directFormat);
+        if (installedName)
           {
-            /* Wrap any .desktop files */
             [self installDidProgress:0.95 message:@"Creating application wrappers..."];
-            _wrapPackageDesktopFiles(pkgName, _directFormat);
+            _wrapPackageDesktopFiles(installedName, _directFormat);
           }
       }
 
@@ -1468,12 +1471,14 @@ static double _parseSizeBefore(NSString *line, NSString *marker)
 
   [NSApp setMainMenu:mainMenu];
 
-  [self showWindow];
-
-  /* In direct install mode, start installation immediately */
   if (_isDirectInstall)
     {
+      /* Direct install: ask for confirmation first, only then show progress */
       [self performDirectInstall];
+    }
+  else
+    {
+      [self showWindow];
     }
 }
 
