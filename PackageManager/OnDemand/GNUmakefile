@@ -1,5 +1,7 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
+
 APP_NAME = OnDemand
 PACKAGE_NAME = OnDemand
 OnDemand_PRINCIPAL_CLASS = NSApplication
