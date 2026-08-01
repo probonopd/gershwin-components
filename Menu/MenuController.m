@@ -125,6 +125,10 @@ static NSTimeInterval _lastBrightnessAdjust = 0;
     volatile BOOL _micMuteMonitorRunning;
     int _micMuteFDs[16];
     int _micMuteFDCount;
+    NSThread *_powerKeyThread;
+    volatile BOOL _powerKeyMonitorRunning;
+    int _powerKeyFDs[16];
+    int _powerKeyFDCount;
 }
 @end
 
@@ -1064,6 +1068,132 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     _micMuteThread = nil;
 }
 
+#pragma mark - Power key (evdev)
+
+/* The X server does not reliably deliver the physical power button to the
+ * root window grab (the keycode/keysym mapping differs per input device), so
+ * read KEY_POWER directly from the kernel input devices instead.  This is the
+ * same approach used for the mic-mute LED key. */
+- (void)startPowerKeyMonitor
+{
+#ifdef __linux__
+    _powerKeyFDCount = 0;
+    memset(_powerKeyFDs, -1, sizeof(_powerKeyFDs));
+
+    // Scan /proc/bus/input/devices for devices that report KEY_POWER (116)
+    FILE *fp = fopen("/proc/bus/input/devices", "r");
+    if (!fp) return;
+    char line[512];
+    BOOL hasPower = NO;
+    int eventNum = -1;
+    while (fgets(line, sizeof(line), fp)) {
+        if (strncmp(line, "N: Name=", 8) == 0) {
+            hasPower = NO;
+            eventNum = -1;
+        } else if (strncmp(line, "B: KEY=", 7) == 0) {
+            // Check for KEY_POWER (116) in the key bitmap
+            unsigned long bits[8] = {0};
+            char *p = line + 7;
+            for (int i = 0; i < 8 && *p; i++) {
+                bits[i] = strtoul(p, &p, 16);
+            }
+            unsigned long word = bits[116 / (sizeof(long) * 8)];
+            unsigned long bit = 1UL << (116 % (sizeof(long) * 8));
+            if (word & bit) {
+                hasPower = YES;
+            }
+        } else if (strncmp(line, "H: Handlers=", 12) == 0) {
+            char *h = line + 12;
+            char *tok = strtok(h, " \t\n");
+            while (tok) {
+                if (strncmp(tok, "event", 5) == 0) {
+                    eventNum = atoi(tok + 5);
+                }
+                tok = strtok(NULL, " \t\n");
+            }
+        } else if (line[0] == '\n' && hasPower && eventNum >= 0) {
+            // Found a device with the power key
+            char path[64];
+            snprintf(path, sizeof(path), "/dev/input/event%d", eventNum);
+            int fd = open(path, O_RDONLY);
+            if (fd >= 0) {
+                _powerKeyFDs[_powerKeyFDCount++] = fd;
+            }
+            hasPower = NO;
+            eventNum = -1;
+            if (_powerKeyFDCount >= 16) break;
+        }
+    }
+    fclose(fp);
+
+    if (_powerKeyFDCount == 0) return;
+
+    _powerKeyMonitorRunning = YES;
+    _powerKeyThread = [[NSThread alloc] initWithTarget:self
+                                              selector:@selector(_powerKeyMonitorThread)
+                                                object:nil];
+    [_powerKeyThread start];
+#else
+    NSDebugLLog(@"gwcomp", @"MenuController: Power key evdev monitor not available on this platform");
+#endif
+}
+
+- (void)_powerKeyMonitorThread
+{
+#ifdef __linux__
+    @autoreleasepool {
+        struct pollfd fds[16];
+        int nfds = 0;
+        for (int i = 0; i < _powerKeyFDCount; i++) {
+            fds[nfds].fd = _powerKeyFDs[i];
+            fds[nfds].events = POLLIN;
+            fds[nfds].revents = 0;
+            nfds++;
+        }
+
+        while (_powerKeyMonitorRunning) {
+            int ret = poll(fds, nfds, 1000);
+            if (ret < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            if (ret == 0) continue;
+
+            for (int i = 0; i < nfds; i++) {
+                if (fds[i].revents & POLLIN) {
+                    struct input_event ev;
+                    while (read(fds[i].fd, &ev, sizeof(ev)) == sizeof(ev)) {
+                        if (ev.type == EV_KEY && ev.code == KEY_POWER && ev.value == 1) {
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                [self _xf86PowerKeyPressed];
+                            });
+                        } else if (ev.type == EV_KEY && ev.code == KEY_POWER && ev.value == 0) {
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                [self _xf86PowerKeyReleased];
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Cleanup FDs
+        for (int i = 0; i < _powerKeyFDCount; i++) {
+            if (_powerKeyFDs[i] >= 0) {
+                close(_powerKeyFDs[i]);
+                _powerKeyFDs[i] = -1;
+            }
+        }
+    }
+#endif
+}
+
+- (void)_stopPowerKeyMonitor
+{
+    _powerKeyMonitorRunning = NO;
+    _powerKeyThread = nil;
+}
+
 - (void)applicationWillTerminate:(NSNotification *)notification
 {
     NSDebugLLog(@"gwcomp", @"MenuController: Application will terminate");
@@ -1088,6 +1218,9 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
     // Stop mic mute evdev monitor
     [self _stopMicMuteMonitor];
+
+    // Stop the power key evdev monitor
+    [self _stopPowerKeyMonitor];
 
     // Clean up global shortcuts
     NSDebugLLog(@"gwcomp", @"MenuController: Cleaning up global shortcuts...");
@@ -1309,6 +1442,11 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
                   releaseAction:@selector(_xf86PowerKeyReleased)];
         NSDebugLLog(@"gwcomp", @"MenuController: Registered power key (XF86PowerOff)");
     }
+
+    // The physical power button is not reliably delivered to the X11 grab on
+    // every machine, so also monitor it directly via evdev (KEY_POWER).  The
+    // X11 registration above stays as a secondary path.
+    [self startPowerKeyMonitor];
 
     // Mic mute uses evdev (not XGrabKey) so the system mic-mute LED still works.
     [self startMicMuteMonitor];
