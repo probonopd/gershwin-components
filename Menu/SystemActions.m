@@ -18,6 +18,15 @@
  * to kill them, matching the Workspace's logout countdown. */
 #define POWER_APP_TERMINATE_TIMEOUT 30.0
 
+/* Windows in _NET_CLIENT_LIST may already be gone; ignore the error instead
+ * of letting the default handler terminate the process. */
+static int SystemActionsXErrorHandler(Display *display, XErrorEvent *error)
+{
+    (void)display;
+    (void)error;
+    return 0;
+}
+
 /* Operating systems that carry the BSD shutdown(8) command syntax. */
 static BOOL SystemActionsIsBSD(NSString *system)
 {
@@ -204,11 +213,21 @@ static NSString *SystemActionsExecutable(NSArray *paths)
     NSLog(@"SystemActions: Gracefully terminating %lu application(s) before %@",
           (unsigned long)[apps count], action);
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        /* Only GNUstep applications (those with a reachable DO service) are
+           actually asked to quit and waited on; other window owners such as
+           GTK/Electron apps are left to the OS shutdown. */
+        NSMutableArray *requested = [NSMutableArray array];
         for (NSDictionary *app in apps) {
-            [self requestGracefulTermination:app];
+            if ([self requestGracefulTermination:app]) {
+                [requested addObject:app];
+            }
+        }
+        if ([requested count] == 0) {
+            [self executePowerCommandForAction:action];
+            return;
         }
 
-        NSArray *remaining = [self waitForApplicationsToExit:apps
+        NSArray *remaining = [self waitForApplicationsToExit:requested
                                                      timeout:POWER_APP_TERMINATE_TIMEOUT];
         if ([remaining count] > 0) {
             __block BOOL kill = NO;
@@ -239,43 +258,54 @@ static NSString *SystemActionsExecutable(NSArray *paths)
         return @[];
     }
 
+    /* A stale window in the client list must not crash the process. */
+    XErrorHandler previousHandler = XSetErrorHandler(SystemActionsXErrorHandler);
+
     Atom clientListAtom = XInternAtom(display, "_NET_CLIENT_LIST", False);
     Atom pidAtom = XInternAtom(display, "_NET_WM_PID", False);
-    Atom actualType;
-    int actualFormat;
-    unsigned long nitems, bytesAfter;
+    Atom wmClassAtom = XInternAtom(display, "WM_CLASS", False);
+    Atom listType, propType, pidType;
+    int listFormat, propFormat, pidFormat;
+    unsigned long listNitems, propNitems, pidNitems;
+    unsigned long listBytesAfter, propBytesAfter, pidBytesAfter;
     unsigned char *prop = NULL;
 
     if (XGetWindowProperty(display, DefaultRootWindow(display), clientListAtom,
                            0, 1024, False, XA_WINDOW,
-                           &actualType, &actualFormat, &nitems, &bytesAfter,
+                           &listType, &listFormat, &listNitems, &listBytesAfter,
                            &prop) == 0 && prop) {
         Window *wins = (Window *)prop;
-        for (unsigned long i = 0; i < nitems; i++) {
-            pid_t pid = 0;
-            unsigned char *pidProp = NULL;
-            if (XGetWindowProperty(display, wins[i], pidAtom, 0, 1, False,
-                                   XA_CARDINAL, &actualType, &actualFormat,
-                                   &nitems, &bytesAfter, &pidProp) == 0 && pidProp) {
-                if (actualFormat == 32 && nitems > 0) {
-                    pid = (pid_t)((long *)pidProp)[0];
+        for (unsigned long i = 0; i < listNitems; i++) {
+            /* WM_CLASS is two null-terminated strings; the class (used as the
+               application's DO service name) is the second one. */
+            unsigned char *classProp = NULL;
+            if (XGetWindowProperty(display, wins[i], wmClassAtom, 0, 32, False,
+                                   XA_STRING, &propType, &propFormat, &propNitems,
+                                   &propBytesAfter, &classProp) == 0
+                && classProp && propFormat == 8) {
+                char *p = strchr((char *)classProp, '\0');
+                if (p && p[1] != '\0') {
+                    NSString *name = [NSString stringWithUTF8String:p + 1];
+                    unsigned char *pidProp = NULL;
+                    pid_t pid = 0;
+                    if (XGetWindowProperty(display, wins[i], pidAtom, 0, 1, False,
+                                           XA_CARDINAL, &pidType, &pidFormat,
+                                           &pidNitems, &pidBytesAfter,
+                                           &pidProp) == 0 && pidProp && pidFormat == 32) {
+                        pid = (pid_t)((long *)pidProp)[0];
+                        XFree(pidProp);
+                    }
+                    if (pid > 0) {
+                        [apps setObject:[NSNumber numberWithInt:(int)pid] forKey:name];
+                    }
                 }
-                XFree(pidProp);
+                XFree(classProp);
             }
-            if (pid <= 0) continue;
-
-            XClassHint classHint = {NULL, NULL};
-            if (XGetClassHint(display, wins[i], &classHint) == Success
-                && classHint.res_class && strlen(classHint.res_class) > 0) {
-                NSString *name = [NSString stringWithUTF8String:classHint.res_class];
-                [apps setObject:[NSNumber numberWithInt:(int)pid] forKey:name];
-            }
-            if (classHint.res_class) XFree(classHint.res_class);
-            if (classHint.res_name) XFree(classHint.res_name);
         }
         XFree(prop);
     }
     XCloseDisplay(display);
+    XSetErrorHandler(previousHandler);
 
     /* Never terminate ourselves. */
     [apps removeObjectForKey:[[NSProcessInfo processInfo] processName]];
@@ -295,8 +325,10 @@ static NSString *SystemActionsExecutable(NSArray *paths)
 }
 
 /* Asks a GNUstep application to quit gracefully by sending terminate: over
- * its Distributed Objects connection (the same mechanism the Workspace uses). */
-+ (void)requestGracefulTermination:(NSDictionary *)app
+ * its Distributed Objects connection (the same mechanism the Workspace uses).
+ * Returns YES if the application's DO service was reachable, i.e. it is a
+ * GNUstep application that we actually asked to quit. */
++ (BOOL)requestGracefulTermination:(NSDictionary *)app
 {
     NSString *name = [app objectForKey:@"name"];
     @try {
@@ -307,10 +339,12 @@ static NSString *SystemActionsExecutable(NSArray *paths)
             [conn setRequestTimeout:3.0];
             NSLog(@"SystemActions: Asking %@ to quit gracefully", name);
             [proxy terminate:nil];
+            return YES;
         }
     } @catch (NSException *e) {
         NSLog(@"SystemActions: Could not ask %@ to quit gracefully: %@", name, e);
     }
+    return NO;
 }
 
 /* Polls the process ids until they have exited or the timeout has elapsed.
