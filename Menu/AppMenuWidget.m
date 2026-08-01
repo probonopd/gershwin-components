@@ -38,6 +38,11 @@
 /* Minimum interval between system menu (⌘) app-list rebuilds. */
 #define SYSTEM_MENU_CACHE_TTL   30.0
 
+/* Delay after the dropdown menu is dismissed before the modal power-action
+   confirmation appears, so the dialog is not shown on top of the menu that
+   is still closing. */
+#define POWER_CONFIRM_DELAY_SECS  0.3
+
 /* Startup desktop menu retry budget */
 #define STARTUP_RETRY_INTERVAL  0.5
 #define STARTUP_RETRY_MAX       15       /* 15 × 0.5 = 7.5 seconds budget */
@@ -1452,6 +1457,25 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     }
 
     NSLog(@"AppMenuWidget: Power action '%@' invoked, showing confirmation", actionType);
+
+    /* Let the dropdown menu finish closing before the modal confirmation
+       appears, so the dialog is not shown on top of the still-open menu. */
+    NSDictionary *info = @{
+        @"title": title ?: @"",
+        @"message": message ?: @"",
+        @"action": actionType ?: @""
+    };
+    [self performSelector:@selector(showPowerActionConfirmation:)
+               withObject:info
+               afterDelay:POWER_CONFIRM_DELAY_SECS];
+}
+
+- (void)showPowerActionConfirmation:(NSDictionary *)info
+{
+    NSString *title = [info objectForKey:@"title"];
+    NSString *message = [info objectForKey:@"message"];
+    NSString *actionType = [info objectForKey:@"action"];
+
     if (NSRunAlertPanel(title, message, title, NSLocalizedString(@"Cancel", nil), nil)) {
         NSLog(@"AppMenuWidget: User confirmed %@", actionType);
         if ([actionType isEqualToString:@"shutdown"]) {
