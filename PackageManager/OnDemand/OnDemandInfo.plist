@@ -1,0 +1,24 @@
+{
+    NSTypes = (
+        {
+            NSUnixExtensions = ( deb );
+            NSTypeName = "Debian Package";
+            NSRole = Editor;
+        },
+        {
+            NSUnixExtensions = ( txz, tbz );
+            NSTypeName = "FreeBSD Package";
+            NSRole = Editor;
+        },
+        {
+            NSUnixExtensions = ( tgz );
+            NSTypeName = "OpenBSD Package";
+            NSRole = Editor;
+        },
+        {
+            NSUnixExtensions = ( "pkg.tar.zst", "pkg.tar.xz", "pkg.tar.gz" );
+            NSTypeName = "Arch Linux Package";
+            NSRole = Editor;
+        }
+    );
+}
