@@ -34,7 +34,8 @@
     id t = _target;
     if (t) {
         @try {
-            ((void (*)(id, SEL))[t methodForSelector:_selector])(t, _selector);
+            void (*fn)(id, SEL, ...) = (void (*)(id, SEL, ...))(void *)[t methodForSelector:_selector];
+            fn(t, _selector);
         } @catch (NSException *e) {
             NSLog(@"GSWeakTimer: exception: %@", e);
         }

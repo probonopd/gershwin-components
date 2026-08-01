@@ -556,7 +556,6 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
           sf.origin.x, sf.origin.y,
           sf.size.width, sf.size.height, MenuControllerScaleFactor());
 
-    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
     /* Content views live in the window's user coordinate space, which GNUstep
      * scales by GSScaleFactor when rendering (device = user * sf).  Size them
      * in that space so they render to the device window size; the window frame
