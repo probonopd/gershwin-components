@@ -129,4 +129,22 @@
  */
 - (BOOL)registerXF86Key:(KeySym)keysym target:(id)target action:(SEL)action;
 
+/**
+ * Register a special XF86 key with separate press and release handlers.
+ * Used for keys that need press/release tracking (e.g. the power key, where
+ * a short press and a long press perform different actions).  The key is
+ * grabbed the same way as registerXF86Key:target:action:.
+ * @param keysym The X11 keysym (e.g. XF86XK_PowerOff)
+ * @param target The target for the press action
+ * @param action The selector called on press
+ * @param releaseTarget The target for the release action
+ * @param releaseAction The selector called on release
+ * @return YES on success
+ */
+- (BOOL)registerXF86Key:(KeySym)keysym
+                 target:(id)target
+                 action:(SEL)action
+          releaseTarget:(id)releaseTarget
+          releaseAction:(SEL)releaseAction;
+
 @end

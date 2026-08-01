@@ -65,6 +65,10 @@
 // Track if the last window state was zero (used to detect modal dialog recovery)
 @property (nonatomic, assign) BOOL lastWindowStateWasZero;
 
+// Power key (XF86PowerOff) short/long-press detection
+@property (nonatomic, strong) NSTimer *powerKeyTimer;
+@property (nonatomic, assign) BOOL powerKeyTriggered;
+
 - (id)init;
 - (NSColor *)backgroundColor;
 - (NSColor *)transparentColor;
@@ -84,6 +88,10 @@
 - (void)screenParametersChanged:(NSNotification *)notification;
 - (void)createTimeMenu;
 - (void)updateTimeMenu;
+- (void)_xf86PowerKeyPressed;
+- (void)_xf86PowerKeyReleased;
+- (void)powerKeyLongPressTimerFired:(NSTimer *)timer;
+- (void)showPowerActionConfirmation:(NSDictionary *)info;
 #if MENU_PROFILING
 - (void)startCPUUsageLogging;
 - (void)stopCPUUsageLogging;

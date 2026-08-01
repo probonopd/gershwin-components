@@ -64,6 +64,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     
     // XF86 special key shortcuts (volume, brightness, etc.)
     NSMutableDictionary *_xf86Actions;  // keysym NSNumber -> @{@"target": id, @"action": NSString}
+    NSMutableDictionary *_xf86ReleaseActions;  // keysym NSNumber -> @{@"target": id, @"action": NSString}
     unsigned int _alt_mask;      // detected mask for Alt (Mod1/Mod2/..)
     unsigned int _super_mask;    // detected mask for Super/Cmd (Mod4/..)
 }
@@ -90,6 +91,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         _menuItemToConnectionMap = [[NSMutableDictionary alloc] init];
         _menuItemToActionNameMap = [[NSMutableDictionary alloc] init];
         _xf86Actions = [[NSMutableDictionary alloc] init];
+        _xf86ReleaseActions = [[NSMutableDictionary alloc] init];
         
         // Initialize X11 display for shortcuts
         _display = XOpenDisplay(NULL);
@@ -426,6 +428,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     @try {
         [self unregisterAllShortcuts];
         [_xf86Actions removeAllObjects];
+        [_xf86ReleaseActions removeAllObjects];
         
         if (_display) {
             XCloseDisplay(_display);
@@ -440,6 +443,16 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
 
 - (BOOL)registerXF86Key:(KeySym)keysym target:(id)target action:(SEL)action
 {
+    return [self registerXF86Key:keysym target:target action:action
+                   releaseTarget:nil releaseAction:NULL];
+}
+
+- (BOOL)registerXF86Key:(KeySym)keysym
+                 target:(id)target
+                 action:(SEL)action
+          releaseTarget:(id)releaseTarget
+          releaseAction:(SEL)releaseAction
+{
     if (!_display || keysym == NoSymbol) {
         return NO;
     }
@@ -451,6 +464,12 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     NSDictionary *actionDict = @{@"target": target,
                                  @"action": NSStringFromSelector(action)};
     [_xf86Actions setObject:actionDict forKey:ksNum];
+
+    if (releaseTarget && releaseAction) {
+        NSDictionary *releaseDict = @{@"target": releaseTarget,
+                                      @"action": NSStringFromSelector(releaseAction)};
+        [_xf86ReleaseActions setObject:releaseDict forKey:ksNum];
+    }
 
     KeyCode keycode = XKeysymToKeycode(_display, keysym);
     if (keycode != 0) {
@@ -1017,8 +1036,10 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     // Without this, XGrabKey won't deliver events to us
     Window root = DefaultRootWindow(_display);
     
-    // Use KeyPressMask and also StructureNotifyMask for better event handling
-    XSelectInput(_display, root, KeyPressMask | StructureNotifyMask);
+    // Use KeyPressMask, KeyReleaseMask and also StructureNotifyMask for
+    // better event handling.  KeyReleaseMask is needed for XF86 keys that
+    // distinguish short from long press (e.g. the power key).
+    XSelectInput(_display, root, KeyPressMask | KeyReleaseMask | StructureNotifyMask);
     XSync(_display, False);
     
     // Make sure the X11 connection is flushed
@@ -1111,6 +1132,21 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                                 }
                             } else {
                                 NSDebugLog(@"X11ShortcutManager: No matching shortcut found for key: %@", keycodeModifierKey);
+                            }
+                        } else if (event.type == KeyRelease) {
+                            // Dispatch XF86 key release actions (e.g. power key
+                            // short/long-press detection needs the release event).
+                            XKeyEvent *keyEvent = &event.xkey;
+                            KeySym ks = XkbKeycodeToKeysym(_display, keyEvent->keycode, 0, 0);
+                            if (ks != NoSymbol && [_xf86ReleaseActions count] > 0) {
+                                NSNumber *ksNum = @((unsigned long)ks);
+                                NSDictionary *action = [_xf86ReleaseActions objectForKey:ksNum];
+                                if (action) {
+                                    NSLog(@"X11ShortcutManager: Found XF86 key release action for keysym 0x%lx (%s)", (unsigned long)ks, XKeysymToString(ks));
+                                    dispatch_async(dispatch_get_main_queue(), ^{
+                                        [self triggerXF86Action:action];
+                                    });
+                                }
                             }
                         }
                     }

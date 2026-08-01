@@ -25,6 +25,7 @@
 #import "SysfsBacklightBackend.h"
 #import "EvdevBrightnessKeySource.h"
 #import "ALSABackend.h"
+#import "SystemActions.h"
 
 @interface GSVolumeControl : NSObject
 + (void)increaseVolume;
@@ -857,6 +858,94 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraBrightnessDown" object:nil];
 }
 
+#pragma mark - Power key (short/long press)
+
+/* Long-press threshold for the hardware power key. */
+#define POWER_KEY_LONG_PRESS 5.0
+
+/* Power key pressed: start a long-press timer.  If the key is released
+ * before the timer fires it is a short press (shutdown confirmation); if
+ * the timer fires the user held the key (immediate shutdown). */
+- (void)_xf86PowerKeyPressed
+{
+    if (self.powerKeyTimer) {
+        [self.powerKeyTimer invalidate];
+    }
+    self.powerKeyTriggered = NO;
+    self.powerKeyTimer = [NSTimer scheduledTimerWithTimeInterval:POWER_KEY_LONG_PRESS
+                                                          target:self
+                                                        selector:@selector(powerKeyLongPressTimerFired:)
+                                                        userInfo:nil
+                                                         repeats:NO];
+    NSDebugLLog(@"gwcomp", @"MenuController: Power key pressed, started long-press timer (%.1fs)", POWER_KEY_LONG_PRESS);
+}
+
+/* Power key released: if the long-press timer is still active it was a
+ * short press - show the shutdown confirmation.  If the long press already
+ * triggered, just reset the state. */
+- (void)_xf86PowerKeyReleased
+{
+    if (self.powerKeyTimer) {
+        [self.powerKeyTimer invalidate];
+        self.powerKeyTimer = nil;
+        self.powerKeyTriggered = NO;
+        [self showShutdownConfirmation];
+    } else if (self.powerKeyTriggered) {
+        self.powerKeyTriggered = NO;
+    }
+}
+
+/* Long press: shut down immediately without asking. */
+- (void)powerKeyLongPressTimerFired:(NSTimer *)timer
+{
+    self.powerKeyTimer = nil;
+    self.powerKeyTriggered = YES;
+    NSDebugLLog(@"gwcomp", @"MenuController: Power key long-press detected: shutting down");
+    [SystemActions executeShutdown];
+}
+
+/* Confirms the shutdown with the same dialog the menu uses, then shuts
+ * down. */
+- (void)showShutdownConfirmation
+{
+    NSString *title = NSLocalizedString(@"Shut Down", nil);
+    NSString *message = NSLocalizedString(@"Are you sure you want to quit\nall applications and shut down now?", nil);
+    NSDebugLLog(@"gwcomp", @"MenuController: Power key short press - showing shutdown confirmation");
+
+    /* Defer so the modal appears after any menu closes, mirroring the
+     * menu path. */
+    NSDictionary *info = @{
+        @"title": title,
+        @"message": message,
+        @"action": @"shutdown"
+    };
+    [self performSelector:@selector(showPowerActionConfirmation:)
+               withObject:info
+               afterDelay:0.15];
+}
+
+/* Shows the confirmation dialog for a power action and executes it on
+ * confirmation (shared with the power key path). */
+- (void)showPowerActionConfirmation:(NSDictionary *)info
+{
+    NSString *title = [info objectForKey:@"title"];
+    NSString *message = [info objectForKey:@"message"];
+    NSString *actionType = [info objectForKey:@"action"];
+
+    if (NSRunAlertPanel(title, message, title, NSLocalizedString(@"Cancel", nil), nil)) {
+        NSDebugLLog(@"gwcomp", @"MenuController: User confirmed %@", actionType);
+        if ([actionType isEqualToString:@"shutdown"]) {
+            [SystemActions executeShutdown];
+        } else if ([actionType isEqualToString:@"restart"]) {
+            [SystemActions executeRestart];
+        } else {
+            [SystemActions executeLogout];
+        }
+    } else {
+        NSDebugLLog(@"gwcomp", @"MenuController: User cancelled %@", actionType);
+    }
+}
+
 #pragma mark - Mic mute (evdev, to preserve hardware LED)
 
 - (void)startMicMuteMonitor
@@ -1206,6 +1295,19 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         [volMgr registerXF86Key:XF86XK_AudioLowerVolume target:self action:@selector(_xf86VolumeDown)];
         [volMgr registerXF86Key:XF86XK_AudioMute target:self action:@selector(_xf86Mute)];
         NSDebugLLog(@"gwcomp", @"MenuController: Registered XF86Audio volume keys via notifications");
+    }
+
+    // Register the hardware power key (XF86PowerOff).  A short press shows the
+    // shutdown confirmation; a long press (> POWER_KEY_LONG_PRESS) shuts down
+    // immediately.  This used to live in the Workspace.
+    X11ShortcutManager *pwrMgr = [X11ShortcutManager sharedManager];
+    if (pwrMgr) {
+        [pwrMgr registerXF86Key:XF86XK_PowerOff
+                         target:self
+                         action:@selector(_xf86PowerKeyPressed)
+                  releaseTarget:self
+                  releaseAction:@selector(_xf86PowerKeyReleased)];
+        NSDebugLLog(@"gwcomp", @"MenuController: Registered power key (XF86PowerOff)");
     }
 
     // Mic mute uses evdev (not XGrabKey) so the system mic-mute LED still works.
