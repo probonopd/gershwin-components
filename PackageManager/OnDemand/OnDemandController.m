@@ -275,35 +275,38 @@ static NSString *_runCmd(NSString *path, NSArray *args)
 }
 
 /* Parse the dry-run output and show a confirmation dialog.
+   Always shows what will happen and what will be downloaded.
    Returns YES if the user clicked "Install", NO for "Cancel". */
-static BOOL _confirmDependencies(NSString *pkgName, NSString *filePath, NSString *fmt)
+static BOOL _confirmInstall(NSString *pkgName, NSString *filePath, NSString *fmt)
 {
-  NSString *info = nil;
+  NSString *detail = @"";
 
   if ([fmt isEqualToString:@"deb"])
     {
-      /* Debian/Ubuntu: apt-get --dry-run shows what -f would install */
-      NSString *out = _runCmd(@"/usr/bin/apt-get", @[@"--dry-run", @"install", @"-f"]);
-      if (!out) return YES; /* no extra deps needed — proceed */
-      /* Parse: "X upgraded, Y newly installed", "Need to get XX.X MB" */
-      NSString *summary = @"";
-      NSString *dlSize = @"";
-      for (NSString *line in [out componentsSeparatedByString:@"\n"])
+      /* Debian/Ubuntu: apt-get --simulate install ./<file> shows the local
+         package plus any dependencies that would be downloaded */
+      NSString *out = _runCmd(@"/usr/bin/apt-get",
+        @[@"--simulate", @"install", [@"./" stringByAppendingPathComponent:filePath]]);
+      if (out)
         {
-          if ([line rangeOfString:@"upgraded"].location != NSNotFound ||
-              [line rangeOfString:@"newly installed"].location != NSNotFound)
-            summary = [line stringByTrimmingCharactersInSet:
-              [NSCharacterSet whitespaceCharacterSet]];
-          if ([line hasPrefix:@"Need to get"])
-            dlSize = [line stringByTrimmingCharactersInSet:
-              [NSCharacterSet whitespaceCharacterSet]];
+          NSString *summary = @"";
+          NSString *dlSize = @"";
+          for (NSString *line in [out componentsSeparatedByString:@"\n"])
+            {
+              if ([line rangeOfString:@"upgraded"].location != NSNotFound ||
+                  [line rangeOfString:@"newly installed"].location != NSNotFound)
+                summary = [line stringByTrimmingCharactersInSet:
+                  [NSCharacterSet whitespaceCharacterSet]];
+              if ([line hasPrefix:@"Need to get"])
+                dlSize = [line stringByTrimmingCharactersInSet:
+                  [NSCharacterSet whitespaceCharacterSet]];
+            }
+          if ([dlSize length] > 0)
+            detail = [NSString stringWithFormat:@"\n\n%@\n%@",
+              summary, dlSize];
+          else
+            detail = @"\n\nNo additional packages will be downloaded — the package is self-contained.";
         }
-      if ([summary length] == 0)
-        return YES; /* nothing to download — proceed */
-      info = [NSString stringWithFormat:
-        @"Installing “%@” requires additional software:\n\n%@\n%@\n\n"
-        @"This will be downloaded from the Internet.",
-        pkgName, summary, dlSize];
     }
   else if ([fmt isEqualToString:@"arch"])
     {
@@ -311,32 +314,34 @@ static BOOL _confirmDependencies(NSString *pkgName, NSString *filePath, NSString
       NSString *out = _runCmd(@"/usr/bin/pacman", @[@"-U", @"--print", filePath]);
       if (out && [out length] > 0)
         {
-          /* Output lists all packages that would be installed/upgraded */
           NSUInteger count = 0;
           for (NSString *line in [out componentsSeparatedByString:@"\n"])
             if ([line length] > 0) count++;
-          info = [NSString stringWithFormat:
-            @"Installing “%@” will affect %lu package(s).\n\n"
-            @"This will be downloaded from the Internet.",
-            pkgName, (unsigned long)count];
+          detail = [NSString stringWithFormat:
+            @"\n\nThis will install/affect %lu package(s).",
+            (unsigned long)count];
         }
       else
-        return YES; /* no extra info — proceed */
+        detail = @"\n\nNo additional packages will be downloaded.";
     }
   else
     {
-      /* FreeBSD/OpenBSD: just proceed without confirmation */
-      return YES;
+      /* FreeBSD/OpenBSD: pkg add / pkg_add install the local file.
+         Dependencies are resolved from repositories at install time. */
+      detail = @"\n\nDependencies will be resolved by the system package manager.";
     }
 
-  if (!info) return YES;
+  NSString *info = [NSString stringWithFormat:
+    @"The package “%@” will be installed using the system package manager.\n"
+    @"The file itself is already downloaded.%@",
+    pkgName, detail];
 
   /* Show confirmation dialog */
   __block BOOL result = NO;
   dispatch_semaphore_t sem = dispatch_semaphore_create(0);
   dispatch_async(dispatch_get_main_queue(), ^{
     NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:@"Additional Software Required"];
+    [alert setMessageText:[NSString stringWithFormat:@"Install %@?", pkgName]];
     [alert setInformativeText:info];
     [alert addButtonWithTitle:@"Install"];
     [alert addButtonWithTitle:@"Cancel"];
@@ -431,10 +436,10 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
 
   dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
     NSString *pkgName = [_directFilePath lastPathComponent];
-    if (!_confirmDependencies(pkgName, _directFilePath, _directFormat))
+    if (!_confirmInstall(pkgName, _directFilePath, _directFormat))
       {
         dispatch_async(dispatch_get_main_queue(), ^{
-          [self _finishWithSuccess];
+          [self _finishWithCancel];
         });
         return;
       }
@@ -483,6 +488,11 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
   [alert setInformativeText:message];
   [alert addButtonWithTitle:@"OK"];
   [alert runModal];
+  [NSApp terminate:nil];
+}
+
+- (void)_finishWithCancel
+{
   [NSApp terminate:nil];
 }
 
