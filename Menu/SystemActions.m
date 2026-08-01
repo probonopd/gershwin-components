@@ -8,7 +8,15 @@
 
 #import <AppKit/AppKit.h>
 #import <dispatch/dispatch.h>
+#import <signal.h>
 #import <sys/utsname.h>
+#import <X11/Xlib.h>
+#import <X11/Xutil.h>
+#import <X11/Xatom.h>
+
+/* How long to wait for applications to terminate gracefully before offering
+ * to kill them, matching the Workspace's logout countdown. */
+#define POWER_APP_TERMINATE_TIMEOUT 30.0
 
 /* Operating systems that carry the BSD shutdown(8) command syntax. */
 static BOOL SystemActionsIsBSD(NSString *system)
@@ -166,20 +174,210 @@ static NSString *SystemActionsExecutable(NSArray *paths)
 
 + (void)executeShutdown
 {
-    [self executeCommand:[self shutdownCommand]
-            failureText:NSLocalizedString(@"Failed to shut down the computer.", nil)];
+    [self beginPowerAction:@"shutdown"];
 }
 
 + (void)executeRestart
 {
-    [self executeCommand:[self restartCommand]
-            failureText:NSLocalizedString(@"Failed to restart the computer.", nil)];
+    [self beginPowerAction:@"restart"];
 }
 
 + (void)executeLogout
 {
-    [self executeCommand:[self logoutCommand]
-            failureText:NSLocalizedString(@"Failed to log out.", nil)];
+    [self beginPowerAction:@"logout"];
+}
+
+#pragma mark - Graceful application termination
+
+/* Before running the actual system command we ask the running GNUstep
+ * applications to terminate gracefully (over their Distributed Objects
+ * connection), like the Workspace does, so that unsaved work is not lost
+ * when the system goes down.  Only then is the single per-OS command run. */
++ (void)beginPowerAction:(NSString *)action
+{
+    NSArray *apps = [self runningGNUstepApplicationsForAction:action];
+    if ([apps count] == 0) {
+        [self executePowerCommandForAction:action];
+        return;
+    }
+
+    NSLog(@"SystemActions: Gracefully terminating %lu application(s) before %@",
+          (unsigned long)[apps count], action);
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        for (NSDictionary *app in apps) {
+            [self requestGracefulTermination:app];
+        }
+
+        NSArray *remaining = [self waitForApplicationsToExit:apps
+                                                     timeout:POWER_APP_TERMINATE_TIMEOUT];
+        if ([remaining count] > 0) {
+            __block BOOL kill = NO;
+            dispatch_sync(dispatch_get_main_queue(), ^{
+                kill = [self askToKillApplications:remaining action:action];
+            });
+            if (kill) {
+                for (NSDictionary *app in remaining) {
+                    [self killApplication:app];
+                }
+                [NSThread sleepForTimeInterval:2.0];
+            }
+        }
+        [self executePowerCommandForAction:action];
+    });
+}
+
+/* Discovers the running applications that own visible windows and returns
+ * name/pid pairs.  The Menu itself and the Workspace (the session root, which
+ * must stay alive until the OS command runs or is killed at logout) are
+ * excluded. */
++ (NSArray *)runningGNUstepApplicationsForAction:(NSString *)action
+{
+    (void)action;
+    NSMutableDictionary *apps = [NSMutableDictionary dictionary]; /* name -> pid */
+    Display *display = XOpenDisplay(NULL);
+    if (display == NULL) {
+        return @[];
+    }
+
+    Atom clientListAtom = XInternAtom(display, "_NET_CLIENT_LIST", False);
+    Atom pidAtom = XInternAtom(display, "_NET_WM_PID", False);
+    Atom actualType;
+    int actualFormat;
+    unsigned long nitems, bytesAfter;
+    unsigned char *prop = NULL;
+
+    if (XGetWindowProperty(display, DefaultRootWindow(display), clientListAtom,
+                           0, 1024, False, XA_WINDOW,
+                           &actualType, &actualFormat, &nitems, &bytesAfter,
+                           &prop) == 0 && prop) {
+        Window *wins = (Window *)prop;
+        for (unsigned long i = 0; i < nitems; i++) {
+            pid_t pid = 0;
+            unsigned char *pidProp = NULL;
+            if (XGetWindowProperty(display, wins[i], pidAtom, 0, 1, False,
+                                   XA_CARDINAL, &actualType, &actualFormat,
+                                   &nitems, &bytesAfter, &pidProp) == 0 && pidProp) {
+                if (actualFormat == 32 && nitems > 0) {
+                    pid = (pid_t)((long *)pidProp)[0];
+                }
+                XFree(pidProp);
+            }
+            if (pid <= 0) continue;
+
+            XClassHint classHint = {NULL, NULL};
+            if (XGetClassHint(display, wins[i], &classHint) == Success
+                && classHint.res_class && strlen(classHint.res_class) > 0) {
+                NSString *name = [NSString stringWithUTF8String:classHint.res_class];
+                [apps setObject:[NSNumber numberWithInt:(int)pid] forKey:name];
+            }
+            if (classHint.res_class) XFree(classHint.res_class);
+            if (classHint.res_name) XFree(classHint.res_name);
+        }
+        XFree(prop);
+    }
+    XCloseDisplay(display);
+
+    /* Never terminate ourselves. */
+    [apps removeObjectForKey:[[NSProcessInfo processInfo] processName]];
+    [apps removeObjectForKey:@"Menu"];
+
+    /* The Workspace is the session root; it is killed at logout and handled
+       by the OS during shutdown/restart, so it is not asked to quit here. */
+    [apps removeObjectForKey:@"Workspace"];
+
+    NSMutableArray *result = [NSMutableArray array];
+    for (NSString *name in apps) {
+        [result addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+            name, @"name",
+            [apps objectForKey:name], @"pid", nil]];
+    }
+    return result;
+}
+
+/* Asks a GNUstep application to quit gracefully by sending terminate: over
+ * its Distributed Objects connection (the same mechanism the Workspace uses). */
++ (void)requestGracefulTermination:(NSDictionary *)app
+{
+    NSString *name = [app objectForKey:@"name"];
+    @try {
+        id proxy = [NSConnection rootProxyForConnectionWithRegisteredName:name
+                                                                      host:@""];
+        if (proxy) {
+            NSConnection *conn = [proxy connectionForProxy];
+            [conn setRequestTimeout:3.0];
+            NSLog(@"SystemActions: Asking %@ to quit gracefully", name);
+            [proxy terminate:nil];
+        }
+    } @catch (NSException *e) {
+        NSLog(@"SystemActions: Could not ask %@ to quit gracefully: %@", name, e);
+    }
+}
+
+/* Polls the process ids until they have exited or the timeout has elapsed.
+ * Returns the applications that are still running. */
++ (NSArray *)waitForApplicationsToExit:(NSArray *)apps timeout:(NSTimeInterval)timeout
+{
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+    NSMutableArray *remaining = [NSMutableArray arrayWithArray:apps];
+    while ([remaining count] > 0 && [deadline timeIntervalSinceNow] > 0) {
+        for (NSDictionary *app in [remaining copy]) {
+            pid_t pid = (pid_t)[[app objectForKey:@"pid"] intValue];
+            if (pid > 0 && kill(pid, 0) != 0) {
+                [remaining removeObject:app];
+            }
+        }
+        if ([remaining count] > 0) {
+            [NSThread sleepForTimeInterval:0.5];
+        }
+    }
+    return remaining;
+}
+
+/* Asks whether the applications that refuse to terminate should be killed,
+ * mirroring the Workspace's dialog.  Runs on the main thread. */
++ (BOOL)askToKillApplications:(NSArray *)apps action:(NSString *)action
+{
+    NSMutableString *names = [NSMutableString string];
+    for (NSDictionary *app in apps) {
+        if ([names length] > 0) [names appendString:@", "];
+        [names appendString:[app objectForKey:@"name"]];
+    }
+
+    NSString *title = NSLocalizedString(@"Log Out", nil);
+    if ([action isEqualToString:@"restart"]) title = NSLocalizedString(@"Restart", nil);
+    else if ([action isEqualToString:@"shutdown"]) title = NSLocalizedString(@"Shut Down", nil);
+
+    NSString *msg = [NSString stringWithFormat:@"%@\n%@\n%@",
+        NSLocalizedString(@"The following applications:", nil),
+        names,
+        NSLocalizedString(@"refuse to terminate.", nil)];
+
+    return NSRunAlertPanel(title, msg,
+                           NSLocalizedString(@"Kill applications", nil),
+                           NSLocalizedString(@"Cancel", nil), nil);
+}
+
++ (void)killApplication:(NSDictionary *)app
+{
+    pid_t pid = (pid_t)[[app objectForKey:@"pid"] intValue];
+    if (pid > 0) {
+        NSLog(@"SystemActions: Killing %@ (pid %d)", [app objectForKey:@"name"], (int)pid);
+        kill(pid, SIGTERM);
+    }
+}
+
++ (void)executePowerCommandForAction:(NSString *)action
+{
+    if ([action isEqualToString:@"shutdown"]) {
+        [self executeCommand:[self shutdownCommand]
+                failureText:NSLocalizedString(@"Failed to shut down the computer.", nil)];
+    } else if ([action isEqualToString:@"restart"]) {
+        [self executeCommand:[self restartCommand]
+                failureText:NSLocalizedString(@"Failed to restart the computer.", nil)];
+    } else {
+        [self executeCommand:[self logoutCommand]
+                failureText:NSLocalizedString(@"Failed to log out.", nil)];
+    }
 }
 
 @end
