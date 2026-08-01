@@ -68,6 +68,11 @@
 /* System submenu actions */
 - (void)openSystemPreferences:(NSMenuItem *)sender;
 - (void)openApplicationBundle:(NSMenuItem *)sender;
+
+/* Power actions (shut down / restart / log out) in the Command menu */
+- (void)restart:(NSMenuItem *)sender;
+- (void)shutDown:(NSMenuItem *)sender;
+- (void)logOut:(NSMenuItem *)sender;
 - (void)openFolderInWorkspace:(NSMenuItem *)sender;
 
 /* Debug */

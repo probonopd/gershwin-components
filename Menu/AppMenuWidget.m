@@ -16,6 +16,7 @@
 #import "DBusMenuActionHandler.h"
 #import "DBusConnection.h"
 #import "ActionSearch.h"
+#import "SystemActions.h"
 #import "MenuProfiler.h"
 #import <X11/Xlib.h>
 #import <X11/Xutil.h>
@@ -745,6 +746,30 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [sysMenu addItem:prefsItem];
         [sysMenu addItem:[NSMenuItem separatorItem]];
 
+        /* Power actions: shut down, restart and log out, ported from the
+         * Workspace main menu into the Command menu.  The separator above
+         * them separates the actions from the Applications submenu that gets
+         * inserted dynamically above them. */
+        [sysMenu addItem:[NSMenuItem separatorItem]];
+        NSMenuItem *restartItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Restart...", nil)
+                                                             action:@selector(restart:)
+                                                      keyEquivalent:@""];
+        [restartItem setTarget:self];
+        [sysMenu addItem:restartItem];
+
+        NSMenuItem *shutDownItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Shut Down...", nil)
+                                                              action:@selector(shutDown:)
+                                                       keyEquivalent:@""];
+        [shutDownItem setTarget:self];
+        [sysMenu addItem:shutDownItem];
+
+        NSMenuItem *logOutItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Log Out...", nil)
+                                                            action:@selector(logOut:)
+                                                     keyEquivalent:@""];
+        [logOutItem setTarget:self];
+        [sysMenu addItem:logOutItem];
+        NSLog(@"AppMenuWidget: System menu built with %ld items: %@", (long)[sysMenu numberOfItems], [sysMenu itemArray]);
+
         self.systemMenu = sysMenu;
         self.systemMenuPopulatedFromCache = NO;
         [sysMenu setDelegate:self];
@@ -1075,17 +1100,25 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     NSLog(@"AppMenuWidget: populateSystemMenu proceeding (cacheValid=%d, populated=%d)", cacheValid, self.systemMenuPopulatedFromCache);
 
-    /* Find insertion point (after "System Preferences" + separator). */
+    /* Find the insertion point for the dynamic "Applications" submenu: right
+       after "System Preferences" + separator.  The power actions (Restart.../
+       Shut Down.../Log Out...) and their separator below are permanent and
+       must survive the refresh, so only the previous "Applications" item is
+       replaced. */
     NSArray *items = [menu itemArray];
     NSInteger startIndex = 3;
+    NSInteger appsIndex = NSNotFound;
     for (NSUInteger i = 0; i < [items count]; i++) {
-        if ([[[items objectAtIndex:i] title] isEqualToString:NSLocalizedString(@"System Preferences", nil)]) {
+        NSString *title = [[items objectAtIndex:i] title];
+        if ([title isEqualToString:NSLocalizedString(@"System Preferences", nil)]) {
             startIndex = (NSInteger)i + 2;
-            break;
+        } else if ([title isEqualToString:NSLocalizedString(@"Applications", nil)]) {
+            appsIndex = (NSInteger)i;
         }
     }
-    while ([menu numberOfItems] > startIndex) {
-        [menu removeItemAtIndex:startIndex];
+    if (appsIndex != NSNotFound) {
+        [menu removeItemAtIndex:appsIndex];
+        if (appsIndex < startIndex) startIndex--;
     }
 
     NSDictionary *appTree;
@@ -1401,6 +1434,60 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         }
         NSLog(@"AppMenuWidget: Could not find System Preferences to launch");
     });
+}
+
+#pragma mark - Power actions (Command menu)
+
+/* Confirms the action with the same dialog the Workspace uses, then hands the
+ * actual command execution over to SystemActions (a single command chosen for
+ * the operating system at hand). */
+- (void)confirmSystemAction:(NSMenuItem *)sender
+                      title:(NSString *)title
+                    message:(NSString *)message
+                 actionType:(NSString *)actionType
+{
+    NSMenu *parentMenu = [sender menu];
+    if (parentMenu && [parentMenu respondsToSelector:@selector(cancelTracking)]) {
+        [parentMenu performSelector:@selector(cancelTracking)];
+    }
+
+    NSLog(@"AppMenuWidget: Power action '%@' invoked, showing confirmation", actionType);
+    if (NSRunAlertPanel(title, message, title, NSLocalizedString(@"Cancel", nil), nil)) {
+        NSLog(@"AppMenuWidget: User confirmed %@", actionType);
+        if ([actionType isEqualToString:@"shutdown"]) {
+            [SystemActions executeShutdown];
+        } else if ([actionType isEqualToString:@"restart"]) {
+            [SystemActions executeRestart];
+        } else {
+            [SystemActions executeLogout];
+        }
+    } else {
+        NSLog(@"AppMenuWidget: User cancelled %@", actionType);
+    }
+}
+
+- (void)restart:(NSMenuItem *)sender
+{
+    [self confirmSystemAction:sender
+                        title:NSLocalizedString(@"Restart", nil)
+                      message:NSLocalizedString(@"Are you sure you want to quit\nall applications and restart now?", nil)
+                   actionType:@"restart"];
+}
+
+- (void)shutDown:(NSMenuItem *)sender
+{
+    [self confirmSystemAction:sender
+                        title:NSLocalizedString(@"Shut Down", nil)
+                      message:NSLocalizedString(@"Are you sure you want to quit\nall applications and shut down now?", nil)
+                   actionType:@"shutdown"];
+}
+
+- (void)logOut:(NSMenuItem *)sender
+{
+    [self confirmSystemAction:sender
+                        title:NSLocalizedString(@"Log Out", nil)
+                      message:NSLocalizedString(@"Are you sure you want to quit\nall applications and log out now?", nil)
+                   actionType:@"logout"];
 }
 
 - (void)openApplicationBundle:(NSMenuItem *)sender

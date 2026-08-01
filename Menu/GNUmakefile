@@ -41,6 +41,7 @@ Menu_OBJC_FILES = \
 	X11ShortcutManager.m \
 	RoundedCornersView.m \
 	ActionSearch.m \
+	SystemActions.m \
 	MenuExtraManager.m \
 	GSMenuExtraContext.m \
 	GSMenuExtraBundle.m \
@@ -81,6 +82,7 @@ Menu_HEADER_FILES = \
 	X11ShortcutManager.h \
 	RoundedCornersView.h \
 	ActionSearch.h \
+	SystemActions.h \
 	GSMenuExtra.h \
 	GSMenuExtraContext.h \
 	GSMenuExtraBundle.h \
