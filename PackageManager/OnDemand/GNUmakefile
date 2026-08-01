@@ -68,14 +68,9 @@ SUDO := $(shell if [ "$$(id -u)" = "0" ]; then echo ""; \
 	else echo ""; fi)
 
 system-install: $(APP_NAME).app
-	$(SUDO) mkdir -p /System/Library/Services
-	$(SUDO) rm -rf /System/Library/Services/$(APP_NAME).app
-	$(SUDO) cp -R $(APP_NAME).app /System/Library/Services/
-	$(SUDO) chmod -R a+rX /System/Library/Services/$(APP_NAME).app
-	# Also install to Applications so make_services finds its document types
 	$(SUDO) mkdir -p /System/Applications/Utilities
 	$(SUDO) rm -rf /System/Applications/Utilities/$(APP_NAME).app
 	$(SUDO) cp -R $(APP_NAME).app /System/Applications/Utilities/
 	$(SUDO) chmod -R a+rX /System/Applications/Utilities/$(APP_NAME).app
 	$(SUDO) make_services
-	@echo "Installed $(APP_NAME).app to /System/Library/Services/ and /System/Applications/Utilities/; services database updated"
+	@echo "Installed $(APP_NAME).app to /System/Applications/Utilities/; services database updated"
