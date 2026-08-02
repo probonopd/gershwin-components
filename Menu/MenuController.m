@@ -503,20 +503,20 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         return;
     }
 
-    Window root = DefaultRootWindow(display);
-    Window child = None;
-    int rootX = 0;
-    int rootY = 0;
-    if (XTranslateCoordinates(display, menuBarWindow, root, 0, 0, &rootX, &rootY, &child) == False) {
-        rootX = attrs.x;
-        rootY = attrs.y;
-    }
-
+    /* The strut must reserve the strip where the bar is SUPPOSED to be - the
+     * top of the primary screen - not where the window currently happens to
+     * be.  Right after a resolution change the GNUstep backend can still
+     * convert coordinates using the previous screen height, briefly placing
+     * the bar at a wrong Y; deriving the strut from that transient position
+     * (as XTranslateCoordinates would) leaves a stale, oversized strut. */
     unsigned int width = (unsigned int)MAX((CGFloat)1.0, (CGFloat)attrs.width);
     unsigned int height = (unsigned int)MAX((CGFloat)1.0, (CGFloat)attrs.height);
-    unsigned long startX = (rootX < 0) ? 0 : (unsigned long)rootX;
+    unsigned long startX = (self.screenFrame.origin.x < 0)
+        ? 0 : (unsigned long)self.screenFrame.origin.x;
     unsigned long endX = startX + (unsigned long)width - 1;
-    unsigned long topStrut = (rootY < 0) ? (unsigned long)height : (unsigned long)(rootY + (int)height);
+    unsigned long topStrut = (self.screenFrame.origin.y < 0)
+        ? (unsigned long)height
+        : (unsigned long)(self.screenFrame.origin.y + (int)height);
     const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
     unsigned int fallbackHeight = (unsigned int)MAX((CGFloat)1.0, menuBarHeight);
     if (topStrut == 0) {
@@ -553,8 +553,8 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     XSync(display, False);
 
     NSLog(@"MenuController: Applied strut properties to XID 0x%lx "
-          @"(root=(%d,%d) size=%ux%u top=%lu x-range=%lu..%lu)",
-          (unsigned long)menuBarWindow, rootX, rootY, width, height,
+          @"(size=%ux%u top=%lu x-range=%lu..%lu)",
+          (unsigned long)menuBarWindow, width, height,
           topStrut, startX, endX);
 }
 
