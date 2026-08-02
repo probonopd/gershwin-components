@@ -116,14 +116,28 @@ The Gershwin Workspace reads the caches produced here:
 ### `findApplications` in the Workspace
 
 `[NSWorkspace findApplications]` refreshes the caches while the Workspace is
-running.  It is called in two places:
+running.  It is triggered only when an application cannot be resolved, never
+on a schedule:
 
-* by `[NSWorkspace sharedWorkspace]` at startup, if the application list has
-  not been read yet;
-* by the Workspace's `launchApplication:arguments:` whenever an application
-  name cannot be resolved to a path - it then re-runs the resolution after
-  the refresh, so a newly installed application (or a freshly downloaded
-  AppImage) is found without logging out and back in.
+* **at startup** (in `libs-gui`, not the Workspace app): the shared
+  `NSWorkspace` instance calls `findApplications` once during its
+  initialization when the application list has not been read yet;
+* **lazily inside the Workspace's `launchApplication:arguments:`** whenever a
+  requested application name cannot be resolved to a path.  That method has
+  two fallback call sites, both hit only when resolution fails:
+  1. after `locateApplicationBinary:` returns nothing and no cached app path
+     exists, it re-runs `findApplications` and retries;
+  2. if `applicationName:andPath:forName:` still yields no path, it calls
+     `findApplications` again and retries before giving up.
+
+So the refresh happens on demand when a launch is attempted for an app that is
+not yet known to the running Workspace (a freshly installed application, a
+newly downloaded AppImage, or a name that fails to resolve).  The
+`launchApplication:` entry points that lead here are: opening files
+(`openFile:withApplication:andDeactivate:`, `openTempFile:`), Dock icon clicks,
+opening a selection from the desktop (`GWDesktopManager.openSelectionInNewViewer:`),
+a viewer/browser "Open" action (`GWViewersManager.openSelectionInViewer:`), the
+Finder's result list (`openFoundSelection:`), and the Run dialog.
 
 Calling it does the following:
 
