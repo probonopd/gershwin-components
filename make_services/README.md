@@ -99,10 +99,9 @@ The Gershwin Workspace reads the caches produced here:
   are found.
 * The Workspace "Open With" submenu is populated from the `GSExtensionsMap`
   via `[NSWorkspace infoForExtension:]`.
-* `[NSWorkspace findApplications]` (called when an application is not found)
-  reruns this `make_services` binary, so regenerating the caches keeps the
-  AppImage entries.  After rerunning it also clears the per-extension icon
-  cache, so newly generated document icons appear without a Workspace change.
+* `[NSWorkspace findApplications]` keeps the running Workspace in sync with
+  newly installed applications and AppImages - see "findApplications in the
+  Workspace" below.
 * File icons come from `NSWorkspace`'s existing extension-icon lookup: for an
   extension handled by an AppImage, the absolute-path `NSIcon` entry in the
   extension map is loaded directly, so files of that type show the generated
@@ -113,6 +112,119 @@ The Gershwin Workspace reads the caches produced here:
   executables: when the resolved application is a regular executable file (no
   `.app` bundle), it is started with the opened file path as a plain argument
   instead of the GNUstep `-GSFilePath` option.
+
+### `findApplications` in the Workspace
+
+`[NSWorkspace findApplications]` refreshes the caches while the Workspace is
+running.  It is called in two places:
+
+* by `[NSWorkspace sharedWorkspace]` at startup, if the application list has
+  not been read yet;
+* by the Workspace's `launchApplication:arguments:` whenever an application
+  name cannot be resolved to a path - it then re-runs the resolution after
+  the refresh, so a newly installed application (or a freshly downloaded
+  AppImage) is found without logging out and back in.
+
+Calling it does the following:
+
+1. locates `make_services` with `[NSTask launchPathForTool:]` and runs it,
+   waiting for it to finish - this rebuilds `.GNUstepAppList` and
+   `.GNUstepServices` from the current application directories (see
+   "What it scans");
+2. posts the `GSWorkspacePreferencesChanged` notification, which makes
+   `NSWorkspace` re-read `.GNUstepAppList`, `.GNUstepExtPrefs` and
+   `.GNUstepURLPrefs` from disk and drop its per-extension icon cache, so
+   updated extension associations, default applications and document icons
+   are picked up immediately.
+
+## Inspecting the caches (pldes)
+
+All caches are binary property lists.  They can be dumped in a readable form
+with the GNUstep `pldes` tool:
+
+```
+pldes ~/Library/Services/.GNUstepAppList
+pldes ~/Library/Services/.GNUstepExtPrefs
+pldes ~/Library/Services/.GNUstepServices
+pldes ~/Library/Services/.GNUstepURLPrefs
+```
+
+(`pldes` is installed in the GNUstep tools directory, e.g.
+`/System/Library/Tools/pldes`.)
+
+### `.GNUstepAppList`
+
+Written by `make_services`.  The top level maps application names to paths and
+contains the two extension/scheme maps used by `NSWorkspace`:
+
+```
+"TextEdit.app" = "/Local/Applications/TextEdit.app";
+"OrcaSlicer.app" = "/Local/Users/admin/Downloads/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.4.2.AppImage";
+GSExtensionsMap = {
+    stl = {
+        OrcaSlicer = {
+            NSIcon = "/Local/Users/admin/Library/Services/DocumentIcons/OrcaSlicer-doc-stl.png";
+            NSUnixExtensions = stl;
+        };
+    };
+};
+GSSchemesMap = {
+    "jitsi-meet" = {
+        "Jitsi Meet" = { NSURLScheme = "jitsi-meet"; };
+    };
+};
+```
+
+* the `<Name>.app` entries resolve an application name to its absolute path
+  (`fullPathForApplication:`), which is how the Workspace finds AppImages even
+  though they are plain executables;
+* `GSExtensionsMap` maps each file extension (lowercase, plus the `*` wildcard)
+  to the applications that open it and their type information
+  (`NSHumanReadableName`, `NSMIMETypes`, `NSRole`, `NSIcon`, ...) - the source
+  for `[NSWorkspace infoForExtension:]`, the "Open With" menu and file-type
+  descriptions;
+* `GSSchemesMap` maps each URL scheme to the applications that register it.
+
+### `.GNUstepServices`
+
+Written by `make_services` from the `NSServices` declarations in application
+Info.plists.  It backs the OpenStep services facility and contains the
+`ByPath`, `ByService`, `ByFilter`, `ByPrint` and `BySpell` lookup tables used
+by `NSApplication`/`NSWorkspace` to populate the Services menu.
+
+### `.GNUstepExtPrefs`
+
+Written by `NSWorkspace` when a default application is chosen for a file type
+(e.g. via `setEditor:forFileType:`).  It records the user's preferred
+application per extension:
+
+```
+{
+    mp3 = { Editor = "Player.app"; };
+}
+```
+
+### `.GNUstepURLPrefs`
+
+Written by `NSWorkspace` when a default application is chosen for a URL scheme.
+Same shape as `.GNUstepExtPrefs`, keyed by scheme instead of extension:
+
+```
+{
+    http = { Editor = "WebBrowser.app"; };
+    https = { Editor = "WebBrowser.app"; };
+}
+```
+
+### How it all fits together
+
+`make_services` rebuilds `.GNUstepAppList` and `.GNUstepServices` from the
+installed applications (see "What it scans").  `NSWorkspace` reads them at
+startup and re-reads them after `findApplications` reruns `make_services`;
+user choices for default applications go into the two `.GNUstep*Prefs` files,
+which take precedence over what the app list would otherwise pick.  The
+`--extensions` and `--schemes` options of `make_services` print the same
+information as `pldes` for the extension and scheme maps in a compact table.
 
 ## Building
 

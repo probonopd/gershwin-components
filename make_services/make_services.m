@@ -1377,7 +1377,7 @@ addMimeTypeForApplication(NSString *mimeType, NSString *app,
       NSString		*scheme;
       NSMutableDictionary	*d;
 
-      scheme = [[type substringFromIndex: 16] lowercaseString];
+      scheme = [[type substringFromIndex: 17] lowercaseString];
       if ([scheme length] == 0)
 	{
 	  return;
