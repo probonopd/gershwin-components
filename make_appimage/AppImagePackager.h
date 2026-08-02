@@ -14,6 +14,7 @@
 
 @interface AppImagePackager : NSObject
 
++ (BOOL)findAppImageTool;
 - (instancetype)initWithBuilder:(BundleBuilder *)builder;
 - (void)setAppimageTool:(NSString *)path;
 - (void)setOutputFile:(NSString *)path;

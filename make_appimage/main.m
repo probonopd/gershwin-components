@@ -15,7 +15,7 @@
 #import "AppImagePackager.h"
 
 int
-main(int argc, const char *argv[])
+main(void)
 {
     @autoreleasepool
     {
@@ -136,6 +136,16 @@ main(int argc, const char *argv[])
         printf("  -v, --verbose Verbose output\n");
         printf("  -h            Show help\n");
         return (appName == nil && !showHelp) ? 1 : 0;
+    }
+
+    // Require appimagetool on PATH up front so we fail fast instead of
+    // spending minutes building an AppDir we can never turn into an AppImage.
+    NSString *toolPath = appimageTool ?: @"appimagetool";
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:toolPath] == NO &&
+        [AppImagePackager findAppImageTool] == NO)
+    {
+        fprintf(stderr, "make_appimage: appimagetool not found in PATH; install it or use -t <path>\n");
+        return 1;
     }
 
     // Build the bundle (shared with make_standalone)

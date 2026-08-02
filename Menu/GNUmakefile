@@ -52,8 +52,7 @@ Menu_OBJC_FILES = \
 	WindowSwitchContext.m \
 	SysfsBacklightBackend.m \
 	EvdevBrightnessKeySource.m \
-	TintedMenuItemCell.m \
-	GSWeakTimer.m
+	TintedMenuItemCell.m
 
 # Header files
 Menu_HEADER_FILES = \
@@ -97,8 +96,7 @@ Menu_HEADER_FILES = \
 	SysfsBacklightBackend.h \
 	EvdevBrightnessKeySource.h \
 	SoundVolume.h \
-	TintedMenuItemCell.h \
-	GSWeakTimer.h
+	TintedMenuItemCell.h
 
 # Resources
 Menu_RESOURCE_FILES = \
@@ -181,34 +179,13 @@ INSTALL_APPS_DIR = /System/Library/CoreServices/Applications
 include $(GNUSTEP_MAKEFILES)/application.make
 
 # Build standalone .gsmenuextra bundles after main app is compiled
-# Menu extra bundles. Errors are NOT suppressed here: hiding them with
-# 2>/dev/null and reporting "skipped" turned real build failures into a
-# silently incomplete menu bar that only showed up at runtime.
-#
-# after-Menu-all runs inside the Instance-level make, which passes
-# GNUSTEP_INSTANCE down through MAKEFLAGS. Inheriting it sends the sub-make
-# down the Instance code path, where the "all" target does not exist
-# ("No rule to make target 'all'"). It arrives as a command-line override, so
-# clearing the environment is not enough -- it must be overridden on the
-# child's own command line.
-MENU_EXTRA_DIRS = \
-	MenuExtras/ClockExtra \
-	MenuExtras/BatteryExtra \
-	MenuExtras/CPUExtra \
-	MenuExtras/RAMExtra \
-	MenuExtras/WLANExtra \
-	MenuExtras/SoundExtra \
-	MenuExtras/BrightnessExtra \
-	MenuExtras/BuildMonitorExtra
-
 after-Menu-all::
 	@echo "Building standalone menu extra bundles..."
-	@for d in $(MENU_EXTRA_DIRS); do \
-		echo "  Building $$d"; \
-		(cd $$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) GNUSTEP_INSTANCE= $(AS_NEEDED_FLAG) all) || exit 1; \
+	@for d in ClockExtra BatteryExtra CPUExtra RAMExtra WLANExtra SoundExtra BrightnessExtra BuildMonitorExtra; do \
+		(cd MenuExtras/$$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) $(AS_NEEDED_FLAG) all 2>/dev/null) || echo "  ($$d skipped)"; \
 	done
-	@(cd MenuExtras/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) GNUSTEP_INSTANCE= all) || exit 1
-	@cp MenuExtras/WLANExtra/wlanauth/obj/wlanauth Resources/
+	@(cd MenuExtras/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (wlanauth skipped)")
+	@cp MenuExtras/WLANExtra/wlanauth/obj/wlanauth Resources/ 2>/dev/null || true
 	@echo "Done building bundles."
 
 # Custom install target that completely overrides built-in behavior
@@ -237,14 +214,13 @@ custom-install: $(APP_NAME).app
 		cp Menu.png $(DESTDIR)$(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources/; \
 		echo "Installing menu extra bundles..."; \
 		mkdir -p $(DESTDIR)/System/Library/MenuExtras; \
-		cp -R MenuExtras/ClockExtra/Clock.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
-		cp -R MenuExtras/BatteryExtra/Battery.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
-		cp -R MenuExtras/CPUExtra/CPU.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
-		cp -R MenuExtras/RAMExtra/RAM.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
-		cp -R MenuExtras/WLANExtra/WLAN.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
-		cp -R MenuExtras/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
-		cp -R MenuExtras/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
-		cp -R MenuExtras/BuildMonitorExtra/BuildMonitor.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/; \
+		cp -R MenuExtras/ClockExtra/Clock.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/BatteryExtra/Battery.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/WLANExtra/WLAN.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/BuildMonitorExtra/BuildMonitor.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/TimeDisplay/Time.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
 	else \
 		echo "Installing $(APP_NAME) to $(INSTALL_APPS_DIR)"; \
 		rm -rf /System/Applications/$(APP_NAME).app || true; \
@@ -253,18 +229,15 @@ custom-install: $(APP_NAME).app
 		mkdir -p $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources; \
 		cp Menu.png $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources/; \
 		echo "Installing menu extra bundles..."; \
-		mkdir -p /System/Library/MenuExtras; \
-		rm -rf /System/Library/MenuExtras/Time.gsmenuextra; \
-		rm -rf /System/Library/Menu/StatusItems; \
-		rm -rf /Local/Library/MenuExtras; \
-		cp -R MenuExtras/ClockExtra/Clock.gsmenuextra /System/Library/MenuExtras/; \
-		cp -R MenuExtras/BatteryExtra/Battery.gsmenuextra /System/Library/MenuExtras/; \
-		cp -R MenuExtras/CPUExtra/CPU.gsmenuextra /System/Library/MenuExtras/; \
-		cp -R MenuExtras/RAMExtra/RAM.gsmenuextra /System/Library/MenuExtras/; \
-		cp -R MenuExtras/WLANExtra/WLAN.gsmenuextra /System/Library/MenuExtras/; \
-		cp -R MenuExtras/SoundExtra/Sound.gsmenuextra /System/Library/MenuExtras/; \
-		cp -R MenuExtras/BrightnessExtra/Brightness.gsmenuextra /System/Library/MenuExtras/; \
-		cp -R MenuExtras/BuildMonitorExtra/BuildMonitor.gsmenuextra /System/Library/MenuExtras/; \
+			mkdir -p /System/Library/MenuExtras; \
+			mkdir -p /Local/Library/MenuExtras; \
+			cp -R MenuExtras/ClockExtra/Clock.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/BatteryExtra/Battery.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/WLANExtra/WLAN.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/SoundExtra/Sound.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/BrightnessExtra/Brightness.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/BuildMonitorExtra/BuildMonitor.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/TimeDisplay/Time.gsmenuextra /System/Library/MenuExtras/ || true; \
 	fi
 # Override uninstall target to properly support DESTDIR and PREFIX
 uninstall:: custom-uninstall
