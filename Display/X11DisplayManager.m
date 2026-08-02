@@ -235,6 +235,45 @@
     }
 
     XSync(dpy, False);
+
+    /* XRRSetCrtcConfig only changes the output's mode; the root window (and
+     * therefore the X screen size that the Menu bar, Workspace etc. size to)
+     * is not resized unless XRRSetScreenSize is called - which the xrandr
+     * CLI does automatically.  Compute the bounding box of all configured
+     * CRTCs and resize the screen to it, keeping the physical size (mm) so
+     * the DPI follows the new resolution like xrandr does.
+     *
+     * Always call XRRSetScreenSize: the client's cached DisplayWidth/Height on
+     * this raw connection is NOT refreshed when other clients (or a previous
+     * call) change the screen size, so comparing against it would skip the
+     * resize whenever the cache is stale.  Setting the same size is a no-op. */
+    if (ok) {
+        int bw = 0, bh = 0;
+        for (int i = 0; i < res->noutput; i++) {
+            XRROutputInfo *oi = XRRGetOutputInfo(dpy, res, res->outputs[i]);
+            if (oi) {
+                if (oi->crtc) {
+                    XRRCrtcInfo *ci = XRRGetCrtcInfo(dpy, res, oi->crtc);
+                    if (ci) {
+                        int right = ci->x + ci->width;
+                        int bottom = ci->y + ci->height;
+                        if (right > bw) bw = right;
+                        if (bottom > bh) bh = bottom;
+                        XRRFreeCrtcInfo(ci);
+                    }
+                }
+                XRRFreeOutputInfo(oi);
+            }
+        }
+        if (bw > 0 && bh > 0) {
+            /* Same 96 DPI assumption the other screen-size calls in this file
+             * use, so the physical size stays consistent across resolutions. */
+            int mmW = (int)(bw * 25.4 / 96.0);
+            int mmH = (int)(bh * 25.4 / 96.0);
+            XRRSetScreenSize(dpy, _root, bw, bh, mmW, mmH);
+        }
+    }
+
     XRRFreeScreenResources(res);
     return ok;
 }
