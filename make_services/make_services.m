@@ -41,8 +41,10 @@ static NSMutableArray *validateEntry(id svcs, NSString* path, BOOL checkLive);
 static NSMutableDictionary *validateService(NSDictionary *service, NSString* path, unsigned i);
 static NSString *extensionForMimeType(NSString *mimeType);
 static void printLookupForValue(NSString *value);
+#ifdef HAVE_LIBSQUASHFS
 static void addMimeTypeForApplication(NSString *mimeType, NSString *app,
   NSString *iconPath);
+#endif
 
 static NSString		*appsName = @".GNUstepAppList";
 static NSString		*cacheName = @".GNUstepServices";
@@ -61,12 +63,16 @@ static Class aClass;
 static Class dClass;
 static Class sClass;
 
+#ifdef HAVE_LIBSQUASHFS
 /* Generated document icons for AppImage file types are cached in
    ~/Library/Services/DocumentIcons/ (next to the .GNUstepAppList that refers
    to them by absolute path) so NSWorkspace can load them without a bundle. */
 static NSString		*iconCacheDir = nil;
 static BOOL		guiReady = NO;
 static BOOL		guiAttempted = NO;
+#else  /* !HAVE_LIBSQUASHFS */
+static BOOL		appImageWarningShown = NO;
+#endif  /* HAVE_LIBSQUASHFS */
 
 static BOOL CheckDirectory(NSString *path, NSError **error)
 {
@@ -844,6 +850,7 @@ scanDirectory(NSMutableDictionary *services, NSString *path)
 }
 #endif
 
+#ifdef HAVE_LIBSQUASHFS
 /* Minimal parser for the keys of a freedesktop.org .desktop file.  Returns
    the keys of the [Desktop Entry] section (localized keys are ignored). */
 static NSDictionary *
@@ -881,6 +888,7 @@ parseDesktopFile(NSString *content)
     }
   return result;
 }
+#endif  /* HAVE_LIBSQUASHFS */
 
 /* Mime types whose file extension cannot be derived from the subtype alone. */
 static NSString *
@@ -914,6 +922,7 @@ extensionForMimeType(NSString *mimeType)
   return [special objectForKey: [mimeType lowercaseString]];
 }
 
+#ifdef HAVE_LIBSQUASHFS
 /* The extension a mime type maps to (the subtype, or an explicit mapping).
    Shared by the extension-map registration and the document-icon generator
    so the extension drawn on the icon always matches the registered one. */
@@ -1299,6 +1308,7 @@ generateDocumentIconsForAppImage(NSDictionary *files, NSDictionary *desktop,
       addMimeTypeForApplication(trimmed, appName, docPath);
     }
 }
+#endif  /* HAVE_LIBSQUASHFS */
 
 /* Show which application(s) can open the given filename extension or mime
    type.  A mime type is resolved to its extension via extensionForMimeType. */
@@ -1343,6 +1353,7 @@ printLookupForValue(NSString *value)
     }
 }
 
+#ifdef HAVE_LIBSQUASHFS
 /* Register a single mime type from a .desktop file.  URL schemes
    (x-scheme-handler/...) go into schemesMap, everything else becomes a
    GNUstep extension association in extensionsMap. */
@@ -1416,12 +1427,14 @@ addMimeTypeForApplication(NSString *mimeType, NSString *app,
       }
   }
 }
+#endif  /* HAVE_LIBSQUASHFS */
 
 /* Register an AppImage application: the file types it can handle are read
    from the top-level *.desktop file inside the AppImage. */
 static void
 scanAppImage(NSMutableDictionary *services, NSString *newPath)
 {
+#ifdef HAVE_LIBSQUASHFS
   NSDictionary	*files;
   NSString	*desktopName = nil;
   NSData	*data;
@@ -1515,6 +1528,16 @@ scanAppImage(NSMutableDictionary *services, NSString *newPath)
       NSLog(@"found AppImage application %@ - %@", appName, newPath);
     }
   (void)services;
+#else  /* !HAVE_LIBSQUASHFS */
+  /* libsquashfs is unavailable: AppImage contents cannot be read, so no
+     AppImage applications are registered on this system.  Warn once. */
+  if (appImageWarningShown == NO)
+    {
+      appImageWarningShown = YES;
+      NSLog(@"AppImage applications are NOT registered: libsquashfs "
+	@"(squashfs-tools-ng) is not available on this system");
+    }
+#endif  /* HAVE_LIBSQUASHFS */
 }
 
 static void

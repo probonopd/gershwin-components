@@ -19,6 +19,11 @@
 #import <sys/stat.h>
 #import <sys/types.h>
 
+/* libsquashfs is not packaged on every supported OS (e.g. Arch, OpenBSD);
+   the GNUmakefile defines HAVE_LIBSQUASHFS only when it is available, so
+   make_services still builds there, just without AppImage registration. */
+#ifdef HAVE_LIBSQUASHFS
+
 #import <sqfs/predef.h>
 #import <sqfs/error.h>
 #import <sqfs/super.h>
@@ -924,3 +929,24 @@ cleanup:
 }
 
 @end
+
+#else  /* !HAVE_LIBSQUASHFS */
+
+/* libsquashfs is unavailable: AppImage contents cannot be read, so AppImage
+   applications are simply not registered on this platform. */
+@implementation AppImageReader
+
++ (BOOL)looksLikeAppImage:(NSString *)path
+{
+  return NO;
+}
+
++ (NSDictionary *)topLevelFilesInAppImage:(NSString *)path
+                                  maxSize:(NSUInteger)maxSize
+{
+  return nil;
+}
+
+@end
+
+#endif  /* HAVE_LIBSQUASHFS */

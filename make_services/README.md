@@ -33,6 +33,11 @@ applications.  `AppImageReader.m` (linking `libsquashfs`) locates the SquashFS
 payload inside a Type-2 AppImage, reads the top-level `*.desktop` file and
 exposes the top-level regular files.
 
+libsquashfs (squashfs-tools-ng) is detected at build time and is optional: on
+systems without it (e.g. Arch, OpenBSD) `make_services` still builds, but
+AppImage functionality is disabled and a warning is printed both at build time
+and at run time, so no AppImage applications are registered there.
+
 For each AppImage the `.desktop` file is parsed and the application is
 registered just like an app bundle:
 
@@ -111,9 +116,10 @@ The Gershwin Workspace reads the caches produced here:
 
 ## Building
 
-Requires `libsquashfs` (squashfs-tools-ng) and links GNUstep's AppKit
-(`libs-gui`) for the document-icon rendering.  Built and installed together
-with `gershwin-components`:
+Links GNUstep's AppKit (`libs-gui`) for the document-icon rendering.
+`libsquashfs` (squashfs-tools-ng) is optional - it is auto-detected, and
+AppImage support is only built when it is present.  Built and installed
+together with `gershwin-components`:
 
 ```
 sudo gmake install        # from the gershwin-components top level

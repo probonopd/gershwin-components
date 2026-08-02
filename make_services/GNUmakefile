@@ -20,10 +20,21 @@ make_services_INSTALL_DIR = /System/Library/Tools
 CC ?= $(shell command -v clang19 2>/dev/null || command -v clang 2>/dev/null || echo cc)
 ADDITIONAL_OBJCFLAGS += -Wall -Wextra -Wno-unused-parameter -O2
 
-# make_services is a Foundation tool; libsquashfs is used to read the
-# *.desktop file out of AppImage applications.  AppKit (via -lgnustep-gui) is
-# needed to composite the document icons for AppImage file types.
-ADDITIONAL_LDFLAGS += -lgnustep-base -lgnustep-gui -lsquashfs
+# make_services is a Foundation tool; AppKit (via -lgnustep-gui) is needed to
+# composite the document icons for AppImage file types.
+ADDITIONAL_LDFLAGS += -lgnustep-base -lgnustep-gui
+
+# libsquashfs (squashfs-tools-ng) provides the sqfs/ headers used to read
+# *.desktop files out of AppImage applications.  It is not packaged on every
+# supported OS (e.g. Arch and OpenBSD), so it is detected at build time: when
+# absent make_services still builds, just without AppImage support.
+SQUASHFS_AVAILABLE := $(shell echo '#include <sqfs/predef.h>' | $(CC) -fsyntax-only -x c - 2>/dev/null && echo YES)
+ifeq ($(SQUASHFS_AVAILABLE),YES)
+ADDITIONAL_OBJCFLAGS += -DHAVE_LIBSQUASHFS=1
+ADDITIONAL_LDFLAGS += -lsquashfs
+else
+$(warning libsquashfs (squashfs-tools-ng) not found: make_services will be built WITHOUT AppImage application support)
+endif
 
 # GWDocumentIcon.m/GWUtils.m live in ../appwrap
 ADDITIONAL_CPPFLAGS += -I../appwrap
