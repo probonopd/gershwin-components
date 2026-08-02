@@ -73,6 +73,7 @@
 - (NSColor *)backgroundColor;
 - (NSColor *)transparentColor;
 - (void)applyMenuBarDockAndStrutProperties;
+- (void)removeMenuBarStruts;
 - (void)createMenuBar;
 - (void)applicationDidFinishLaunching:(NSNotification *)notification;
 - (void)applicationWillTerminate:(NSNotification *)notification;

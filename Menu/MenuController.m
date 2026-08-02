@@ -413,6 +413,75 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     return candidates;
 }
 
+/* Resolve the menu bar's X11 window ID directly from the GNUstep display
+   server.  This is far more reliable than searching root children by
+   title/geometry, which can fail when GSScaleFactor causes the X11 window
+   height to exceed heuristic filters.  Returns 0 when the bar does not exist
+   or is not yet mapped. */
+- (Window)menuBarX11Window
+{
+    if (!self.menuBar) {
+        NSDebugLLog(@"gwcomp", @"MenuController: No menuBar window to resolve X11 window for");
+        return (Window)0;
+    }
+
+    GSDisplayServer *srv = GSServerForWindow(self.menuBar);
+    if (!srv)
+        srv = GSCurrentServer();
+    if (!srv) {
+        NSDebugLLog(@"gwcomp", @"MenuController: No GSDisplayServer available for strut setup");
+        return (Window)0;
+    }
+
+    int winNum = [self.menuBar windowNumber];
+    if (winNum <= 0) {
+        NSDebugLLog(@"gwcomp", @"MenuController: menuBar windowNumber is %d, not mapped yet", winNum);
+        return (Window)0;
+    }
+
+    Window menuBarWindow = (Window)(uintptr_t)[srv windowDevice: winNum];
+    if (menuBarWindow == (Window)0) {
+        NSDebugLLog(@"gwcomp", @"MenuController: Could not resolve X11 window from windowNumber %d", winNum);
+        return (Window)0;
+    }
+    return menuBarWindow;
+}
+
+/* Clear the EWMH strut properties so the window manager releases the screen
+   area the menu bar reserved.  This must be done BEFORE the bar is moved or
+   resized on a screen geometry or scale-factor change; the struts are only
+   re-applied (applyMenuBarDockAndStrutProperties) once the bar has been
+   repositioned and resized, so the WM never keeps stale reserved space. */
+- (void)removeMenuBarStruts
+{
+    Display *display = [MenuUtils sharedDisplay];
+    if (!display) {
+        NSDebugLLog(@"gwcomp", @"MenuController: Cannot open X11 display to clear menu bar struts");
+        return;
+    }
+
+    Window menuBarWindow = [self menuBarX11Window];
+    if (menuBarWindow == (Window)0) {
+        NSDebugLLog(@"gwcomp", @"MenuController: No menu bar X11 window to clear struts");
+        return;
+    }
+
+    unsigned long zero[4] = {0, 0, 0, 0};
+    unsigned long zeroPartial[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    XChangeProperty(display, menuBarWindow,
+                    XInternAtom(display, "_NET_WM_STRUT", False),
+                    XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)zero, 4);
+    XChangeProperty(display, menuBarWindow,
+                    XInternAtom(display, "_NET_WM_STRUT_PARTIAL", False),
+                    XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)zeroPartial, 12);
+    XSync(display, False);
+
+    NSDebugLLog(@"gwcomp", @"MenuController: Cleared menu bar struts on XID 0x%lx",
+                (unsigned long)menuBarWindow);
+}
+
 - (void)applyMenuBarDockAndStrutProperties
 {
     Display *display = [MenuUtils sharedDisplay];
@@ -421,34 +490,9 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         return;
     }
 
-    if (!self.menuBar) {
-        NSDebugLLog(@"gwcomp", @"MenuController: No menuBar window to apply X11 struts");
-        return;
-    }
-
-    /*
-     * Obtain the X11 window ID directly from the GNUstep display server.
-     * This is far more reliable than searching root children by title/geometry,
-     * which can fail when GSScaleFactor causes the X11 window height to exceed
-     * heuristic filters.
-     */
-    GSDisplayServer *srv = GSServerForWindow(self.menuBar);
-    if (!srv)
-        srv = GSCurrentServer();
-    if (!srv) {
-        NSDebugLLog(@"gwcomp", @"MenuController: No GSDisplayServer available for strut setup");
-        return;
-    }
-
-    int winNum = [self.menuBar windowNumber];
-    if (winNum <= 0) {
-        NSDebugLLog(@"gwcomp", @"MenuController: menuBar windowNumber is %d, not mapped yet", winNum);
-        return;
-    }
-
-    Window menuBarWindow = (Window)(uintptr_t)[srv windowDevice: winNum];
+    Window menuBarWindow = [self menuBarX11Window];
     if (menuBarWindow == (Window)0) {
-        NSDebugLLog(@"gwcomp", @"MenuController: Could not resolve X11 window from windowNumber %d", winNum);
+        NSDebugLLog(@"gwcomp", @"MenuController: No menu bar X11 window for strut setup");
         return;
     }
 
@@ -550,6 +594,11 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         return;
     }
 
+    /* First release the screen area the old struts reserved, so the window
+     * manager does not keep stale space while we move and resize the bar
+     * below.  The struts are re-applied at the end once the bar is in place. */
+    [self removeMenuBarStruts];
+
     // Re-read the primary screen geometry (screens[0] is the xrandr primary;
     // mainScreen may return the menu's own window screen which is circular).
     // Use the true X11 width so GSScaleFactor cannot change the bar's width.
@@ -640,6 +689,9 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
 - (void)repositionMenuBarAfterScreenChange
 {
+    /* Same ordering as in screenParametersChanged:: clear the struts first,
+       reposition, then re-apply them. */
+    [self removeMenuBarStruts];
     [self positionMenuBarWindow];
     [self applyMenuBarDockAndStrutProperties];
 }
