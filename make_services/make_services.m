@@ -28,8 +28,11 @@
 
 #include <stdlib.h>
 #import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 
 #import "AppImageReader.h"
+#import "GWDocumentIcon.h"
+#import "GWUtils.h"
 
 static void scanApplications(NSMutableDictionary *services, NSString *path);
 static void scanServices(NSMutableDictionary *services, NSString *path);
@@ -38,6 +41,8 @@ static NSMutableArray *validateEntry(id svcs, NSString* path, BOOL checkLive);
 static NSMutableDictionary *validateService(NSDictionary *service, NSString* path, unsigned i);
 static NSString *extensionForMimeType(NSString *mimeType);
 static void printLookupForValue(NSString *value);
+static void addMimeTypeForApplication(NSString *mimeType, NSString *app,
+  NSString *iconPath);
 
 static NSString		*appsName = @".GNUstepAppList";
 static NSString		*cacheName = @".GNUstepServices";
@@ -55,6 +60,13 @@ static	NSMutableDictionary	*schemesMap;
 static Class aClass;
 static Class dClass;
 static Class sClass;
+
+/* Generated document icons for AppImage file types are cached in
+   ~/Library/Services/DocumentIcons/ (next to the .GNUstepAppList that refers
+   to them by absolute path) so NSWorkspace can load them without a bundle. */
+static NSString		*iconCacheDir = nil;
+static BOOL		guiReady = NO;
+static BOOL		guiAttempted = NO;
 
 static BOOL CheckDirectory(NSString *path, NSError **error)
 {
@@ -902,6 +914,392 @@ extensionForMimeType(NSString *mimeType)
   return [special objectForKey: [mimeType lowercaseString]];
 }
 
+/* The extension a mime type maps to (the subtype, or an explicit mapping).
+   Shared by the extension-map registration and the document-icon generator
+   so the extension drawn on the icon always matches the registered one. */
+static NSString *
+extensionForMimeTypeString(NSString *type)
+{
+  NSString	*ext = extensionForMimeType(type);
+  NSRange	slash;
+
+  if (ext == nil)
+    {
+      slash = [type rangeOfString: @"/"];
+      if (slash.location == NSNotFound)
+	{
+	  return nil;
+	}
+      ext = [[type substringFromIndex: slash.location + 1] lowercaseString];
+      if ([ext hasPrefix: @"x-"])
+	{
+	  ext = [ext substringFromIndex: 2];
+	}
+    }
+  if ([ext length] == 0)
+    {
+      return nil;
+    }
+  return ext;
+}
+
+/* Initialize AppKit lazily, exactly when document icons must be rendered.
+   Only the image-drawing parts of AppKit are needed; make_services must keep
+   working (without icons) when run headless, e.g. during package builds. */
+static BOOL
+initializeAppKit(void)
+{
+  if (guiAttempted == NO)
+    {
+      guiAttempted = YES;
+      NS_DURING
+	{
+	  [[NSUserDefaults standardUserDefaults] setBool: YES
+	    forKey: @"NSApplicationSuppressPSN"];
+	  (void)[NSApplication sharedApplication];
+	  guiReady = YES;
+	}
+      NS_HANDLER
+	{
+	  guiReady = NO;
+	}
+      NS_ENDHANDLER
+    }
+  return guiReady;
+}
+
+/* The directory where generated document icons (and cached AppImage app
+   icons) are stored.  Returned autoreleased; nil if it cannot be created. */
+static NSString *
+documentIconCacheDirectory(void)
+{
+  if (iconCacheDir == nil)
+    {
+      NSString	*lib = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory,
+	NSUserDomainMask, YES) lastObject];
+      NSError	*error = nil;
+
+      iconCacheDir = [[[lib stringByAppendingPathComponent: @"Services"]
+	stringByAppendingPathComponent: @"DocumentIcons"] retain];
+      if ([[NSFileManager defaultManager] createDirectoryAtPath: iconCacheDir
+	withIntermediateDirectories: YES attributes: nil error: &error] == NO)
+	{
+	  if (verbose > 0)
+	    {
+	      NSLog(@"couldn't create %@ error: %@", iconCacheDir, error);
+	    }
+	  DESTROY(iconCacheDir);
+	}
+    }
+  return iconCacheDir;
+}
+
+static BOOL
+hasImageExtension(NSString *name)
+{
+  NSString	*ext = [[name pathExtension] lowercaseString];
+  NSArray	*imgs = [NSArray arrayWithObjects: @"png", @"svg", @"ico",
+			    @"xpm", @"jpg", @"jpeg", @"gif", nil];
+
+  return [imgs containsObject: ext];
+}
+
+/* Find a top-level file in 'files' whose base name (ignoring the extension)
+   matches 'name', case-insensitively.  Used to pick the AppImage's embedded
+   icon (e.g. Icon=OrcaSlicer -> OrcaSlicer.png). */
+static NSString *
+findTopLevelImage(NSDictionary *files, NSString *name)
+{
+  NSString	*base = [name stringByDeletingPathExtension];
+
+  for (NSString *key in files)
+    {
+      if (hasImageExtension(key)
+	&& [[[key stringByDeletingPathExtension] lowercaseString]
+	  isEqualToString: [base lowercaseString]])
+	{
+	  return key;
+	}
+    }
+  return nil;
+}
+
+/* Simplified port of appwrap's GWBundleCreator resolveIconPath: search the
+   host icon themes for 'iconName' when the AppImage does not embed it. */
+static NSString *
+resolveThemeIconPath(NSString *iconName)
+{
+  NSFileManager	*mgr = [NSFileManager defaultManager];
+  NSArray	*bases;
+  NSString	*best = nil;
+  int		bestScore = -1;
+  NSEnumerator	*e;
+
+  if (iconName == nil || [iconName length] == 0)
+    {
+      return nil;
+    }
+  if ([iconName hasPrefix: @"/"] && [mgr fileExistsAtPath: iconName])
+    {
+      return iconName;
+    }
+  bases = [NSArray arrayWithObjects: @"/usr/share/icons",
+    @"/usr/local/share/icons", @"/usr/share/pixmaps",
+    @"/usr/local/share/pixmaps",
+    [NSHomeDirectory() stringByAppendingPathComponent: @".local/share/icons"],
+    [NSHomeDirectory() stringByAppendingPathComponent: @".local/share/pixmaps"],
+    nil];
+  e = [bases objectEnumerator];
+  for (NSString *base in e)
+    {
+      NSString	*file;
+      NSDirectoryEnumerator	*de;
+
+      if ([mgr fileExistsAtPath: base] == NO)
+	{
+	  continue;
+	}
+      de = [mgr enumeratorAtPath: base];
+      while ((file = [de nextObject]) != nil)
+	{
+	  NSString	*fname = [file lastPathComponent];
+	  NSString	*fbase = [fname stringByDeletingPathExtension];
+	  NSString	*ext;
+	  int		score = 0;
+
+	  if ([[fbase lowercaseString] isEqualToString:
+	    [iconName lowercaseString]] == NO)
+	    {
+	      continue;
+	    }
+	  ext = [fname pathExtension];
+	  if ([ext isEqualToString: @"png"]) score += 100;
+	  else if ([ext isEqualToString: @"svg"]) score += 90;
+	  else if ([ext isEqualToString: @"xpm"]) score += 70;
+	  else if ([ext isEqualToString: @"ico"]) score += 60;
+	  if ([file rangeOfString: @"hicolor"
+	    options: NSCaseInsensitiveSearch].location != NSNotFound)
+	    score += 50;
+	  if ([file rangeOfString: @"256x256"
+	    options: NSCaseInsensitiveSearch].location != NSNotFound)
+	    score += 30;
+	  else if ([file rangeOfString: @"128x128"
+	    options: NSCaseInsensitiveSearch].location != NSNotFound)
+	    score += 20;
+	  if ([file rangeOfString: @"-symbolic"
+	    options: NSCaseInsensitiveSearch].location != NSNotFound)
+	    score -= 30;
+	  if ([file rangeOfString: @"scalable"
+	    options: NSCaseInsensitiveSearch].location != NSNotFound)
+	    score += 200;
+	  if (score > bestScore)
+	    {
+	      bestScore = score;
+	      best = [base stringByAppendingPathComponent: file];
+	    }
+	}
+      if (best != nil)
+	{
+	  break;
+	}
+    }
+  return best;
+}
+
+/* Resolve the application icon for an AppImage: its embedded top-level icon
+   (.desktop Icon= name, the app name, .DirIcon, or any top-level image),
+   falling back to a host-theme search.  The icon is cached next to the
+   document icons as "<AppName>.png".  Returns nil if none is usable. */
+static NSImage *
+appImageAppIcon(NSDictionary *files, NSDictionary *desktop, NSString *appName,
+  NSString *cacheDir)
+{
+  NSString	*iconName = [desktop objectForKey: @"Icon"];
+  NSString	*key = nil;
+  NSString	*sanApp = [GWUtils sanitizeFileName: appName];
+  NSString	*dest = [cacheDir stringByAppendingPathComponent:
+    [sanApp stringByAppendingPathExtension: @"png"]];
+  NSFileManager	*mgr = [NSFileManager defaultManager];
+
+  if ([iconName length] > 0)
+    {
+      key = findTopLevelImage(files, iconName);
+    }
+  if (key == nil && [appName length] > 0)
+    {
+      key = findTopLevelImage(files, appName);
+    }
+  if (key == nil && [files objectForKey: @".DirIcon"] != nil)
+    {
+      key = @".DirIcon";
+    }
+  if (key == nil)
+    {
+      /* First usable top-level image of any kind. */
+      for (NSString *k in files)
+	{
+	  if (hasImageExtension(k))
+	    {
+	      key = k;
+	      break;
+	    }
+	}
+    }
+
+  if (key != nil)
+    {
+      NSData	*data = [files objectForKey: key];
+      NSImage	*image = [[[NSImage alloc] initWithData: data] autorelease];
+
+      if (image != nil && [image size].width > 0)
+	{
+	  if ([mgr fileExistsAtPath: dest] == NO)
+	    {
+	      [data writeToFile: dest atomically: YES];
+	    }
+	  return image;
+	}
+    }
+
+  if ([iconName length] > 0)
+    {
+      NSString	*theme = resolveThemeIconPath(iconName);
+
+      if (theme != nil)
+	{
+	  NSData	*data = [NSData dataWithContentsOfFile: theme];
+	  NSImage	*image = [[[NSImage alloc] initWithData: data]
+	    autorelease];
+
+	  if (image != nil && [image size].width > 0)
+	    {
+	      if ([mgr fileExistsAtPath: dest] == NO)
+		{
+		  [data writeToFile: dest atomically: YES];
+		}
+	      return image;
+	    }
+	}
+    }
+  return nil;
+}
+
+/* Generate the document icon for one mime type of an AppImage application.
+   The icon is a composite (like appwrap's) of the generic document image, a
+   small version of the app icon and the extension label, written to the
+   document-icon cache.  The registered extension entry then points at the
+   PNG by absolute path, which NSWorkspace loads without needing a bundle. */
+static void
+generateDocumentIconsForAppImage(NSDictionary *files, NSDictionary *desktop,
+  NSString *appName, NSString *newPath)
+{
+  NSString	*mimeTypes = [desktop objectForKey: @"MimeType"];
+  NSString	*cacheDir;
+  NSImage	*appIcon;
+  NSString	*sanApp;
+  NSFileManager	*mgr = [NSFileManager defaultManager];
+  NSDate	*appMTime;
+  NSArray	*types;
+  NSMutableArray	*fileMimes;
+  unsigned	i;
+
+  if (mimeTypes == nil || [mimeTypes length] == 0)
+    {
+      return;
+    }
+  types = [mimeTypes componentsSeparatedByString: @";"];
+
+  /* First pass: register URL scheme handlers (they get no document icon) and
+     collect the file types.  If there are no file types there is nothing to
+     render, so the AppKit setup and app-icon work can be skipped entirely. */
+  fileMimes = [NSMutableArray arrayWithCapacity: [types count]];
+  for (i = 0; i < [types count]; i++)
+    {
+      NSString	*trimmed = [[types objectAtIndex: i]
+	stringByTrimmingCharactersInSet:
+	  [NSCharacterSet whitespaceCharacterSet]];
+
+      if ([trimmed hasPrefix: @"x-scheme-handler/"])
+	{
+	  addMimeTypeForApplication(trimmed, appName, nil);
+	}
+      else if ([trimmed length] > 0)
+	{
+	  [fileMimes addObject: trimmed];
+	}
+    }
+  if ([fileMimes count] == 0)
+    {
+      return;
+    }
+
+  if (initializeAppKit() == NO)
+    {
+      /* Headless run: register the types without icons. */
+      for (i = 0; i < [fileMimes count]; i++)
+	{
+	  addMimeTypeForApplication([fileMimes objectAtIndex: i],
+	    appName, nil);
+	}
+      return;
+    }
+  cacheDir = documentIconCacheDirectory();
+  if (cacheDir == nil)
+    {
+      for (i = 0; i < [fileMimes count]; i++)
+	{
+	  addMimeTypeForApplication([fileMimes objectAtIndex: i],
+	    appName, nil);
+	}
+      return;
+    }
+
+  appIcon = appImageAppIcon(files, desktop, appName, cacheDir);
+  sanApp = [GWUtils sanitizeFileName: appName];
+  appMTime = [[mgr attributesOfItemAtPath: newPath error: NULL]
+    objectForKey: NSFileModificationDate];
+
+  for (i = 0; i < [fileMimes count]; i++)
+    {
+      NSString	*trimmed = [fileMimes objectAtIndex: i];
+      NSString	*ext;
+      NSString	*docPath;
+      NSDate	*iconMTime;
+
+      ext = extensionForMimeTypeString(trimmed);
+      if (ext == nil)
+	{
+	  continue;
+	}
+      docPath = [cacheDir stringByAppendingPathComponent:
+	[NSString stringWithFormat: @"%@-doc-%@.png", sanApp, ext]];
+      iconMTime = [[mgr attributesOfItemAtPath: docPath error: NULL]
+	objectForKey: NSFileModificationDate];
+
+      /* Regenerate only when the icon is missing or older than the AppImage,
+	 so re-running make_services stays cheap. */
+      if (iconMTime == nil || (appMTime != nil
+	&& [appMTime compare: iconMTime] == NSOrderedDescending))
+	{
+	  NSData	*png = [GWDocumentIcon createCombinedIconPNGWithAppIcon:
+	    appIcon extensionText: [ext uppercaseString] size: 256];
+
+	  if (png != nil && [png writeToFile: docPath atomically: YES])
+	    {
+	      if (verbose > 0)
+		{
+		  NSLog(@"created document icon %@", docPath);
+		}
+	    }
+	  else if (verbose > 0)
+	    {
+	      NSLog(@"couldn't create document icon %@", docPath);
+	    }
+	}
+      addMimeTypeForApplication(trimmed, appName, docPath);
+    }
+}
+
 /* Show which application(s) can open the given filename extension or mime
    type.  A mime type is resolved to its extension via extensionForMimeType. */
 static void
@@ -949,9 +1347,9 @@ printLookupForValue(NSString *value)
    (x-scheme-handler/...) go into schemesMap, everything else becomes a
    GNUstep extension association in extensionsMap. */
 static void
-addMimeTypeForApplication(NSString *mimeType, NSString *app)
+addMimeTypeForApplication(NSString *mimeType, NSString *app,
+  NSString *iconPath)
 {
-  NSRange	slash;
   NSString	*type;
   NSString	*ext;
 
@@ -988,30 +1386,15 @@ addMimeTypeForApplication(NSString *mimeType, NSString *app)
       return;
     }
 
-  slash = [type rangeOfString: @"/"];
-  if (slash.location == NSNotFound)
-    {
-      return;
-    }
-
-  ext = extensionForMimeType(type);
+  ext = extensionForMimeTypeString(type);
   if (ext == nil)
-    {
-      /* Fall back to the subtype (lowercased, x- prefix stripped). */
-      ext = [[type substringFromIndex: slash.location + 1] lowercaseString];
-      if ([ext hasPrefix: @"x-"])
-	{
-	  ext = [ext substringFromIndex: 2];
-	}
-    }
-  if ([ext length] == 0)
     {
       return;
     }
 
   {
     NSMutableDictionary	*d = [extensionsMap objectForKey: ext];
-    NSDictionary	*t;
+    NSMutableDictionary	*t;
 
     if (d == nil)
       {
@@ -1020,31 +1403,18 @@ addMimeTypeForApplication(NSString *mimeType, NSString *app)
       }
     if ([d objectForKey: app] == nil)
       {
-	t = [NSDictionary dictionaryWithObject: ext forKey: @"NSUnixExtensions"];
+	t = [NSMutableDictionary dictionaryWithObject: ext
+	  forKey: @"NSUnixExtensions"];
+	/* For AppImage applications iconPath is an absolute path to a generated
+	   document icon; NSWorkspace loads absolute paths directly, without
+	   needing a bundle (which an AppImage is not). */
+	if (iconPath != nil)
+	  {
+	    [t setObject: iconPath forKey: @"NSIcon"];
+	  }
 	[d setObject: t forKey: app];
       }
   }
-}
-
-/* Register the file types an application can handle.  The MimeType list from
-   a .desktop file (e.g. "text/plain;image/png") is turned into GNUstep
-   extension associations (the subtype of each mime type is used as the
-   extension, with a table of exceptions). */
-static void
-addMimeTypesForApplication(NSString *mimeTypes, NSString *app)
-{
-  NSArray	*types;
-  unsigned	i;
-
-  if (mimeTypes == nil)
-    {
-      return;
-    }
-  types = [mimeTypes componentsSeparatedByString: @";"];
-  for (i = 0; i < [types count]; i++)
-    {
-      addMimeTypeForApplication([types objectAtIndex: i], app);
-    }
 }
 
 /* Register an AppImage application: the file types it can handle are read
@@ -1135,7 +1505,9 @@ scanAppImage(NSMutableDictionary *services, NSString *newPath)
   mimeTypes = [desktop objectForKey: @"MimeType"];
   if (mimeTypes)
     {
-      addMimeTypesForApplication(mimeTypes, appName);
+      /* Registers the types and, when AppKit is usable, generates a document
+	 icon for each so files of these types show the app's icon. */
+      generateDocumentIconsForAppImage(files, desktop, appName, newPath);
     }
 
   if (verbose > 0)

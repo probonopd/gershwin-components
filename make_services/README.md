@@ -45,6 +45,32 @@ registered just like an app bundle:
   -> `3mf`, `text/plain` -> `txt`);
 * `x-scheme-handler/...` mime types become URL scheme associations.
 
+### Document icons for AppImage file types
+
+Like `appwrap` does for wrapped applications, `make_services` generates a
+document icon for each file type an AppImage registers.  Since an AppImage is
+a single executable file and not a bundle, there is no `Resources` directory
+to hold the icons, so they are written as PNG files to
+`~/Library/Services/DocumentIcons/` (next to the `.GNUstepAppList` cache that
+references them).
+
+The application icon used for the composite is taken from the top level of the
+AppImage itself (the `.desktop` `Icon=` name, the application name, `.DirIcon`,
+or any top-level image), falling back to a host icon-theme search.
+
+The extension entry stored in the app list points at each generated icon by
+*absolute path*:
+
+```
+NSIcon = "/Local/Users/admin/Library/Services/DocumentIcons/OrcaSlicer-doc-stl.png";
+```
+
+`NSWorkspace` loads absolute icon paths directly, so files of these types show
+the AppImage's document icon without an `.app` bundle.  Icons are only
+regenerated when missing or older than the AppImage, and when `make_services`
+runs headless (no display server) the file types are still registered, just
+without icons.
+
 ### `--lookup=` command
 
 Shows which applications can open a given filename extension or mime type:
@@ -70,7 +96,14 @@ The Gershwin Workspace reads the caches produced here:
   via `[NSWorkspace infoForExtension:]`.
 * `[NSWorkspace findApplications]` (called when an application is not found)
   reruns this `make_services` binary, so regenerating the caches keeps the
-  AppImage entries.
+  AppImage entries.  After rerunning it also clears the per-extension icon
+  cache, so newly generated document icons appear without a Workspace change.
+* File icons come from `NSWorkspace`'s existing extension-icon lookup: for an
+  extension handled by an AppImage, the absolute-path `NSIcon` entry in the
+  extension map is loaded directly, so files of that type show the generated
+  document icon.  (The Workspace's own `AppImageIconProvider` swizzle only
+  intercepts AppImage files themselves and does not interfere with document
+  files.)
 * The Workspace's `launchApplication:arguments:` launches AppImages as plain
   executables: when the resolved application is a regular executable file (no
   `.app` bundle), it is started with the opened file path as a plain argument
@@ -78,8 +111,9 @@ The Gershwin Workspace reads the caches produced here:
 
 ## Building
 
-Requires `libsquashfs` (squashfs-tools-ng).  Built and installed together with
-`gershwin-components`:
+Requires `libsquashfs` (squashfs-tools-ng) and links GNUstep's AppKit
+(`libs-gui`) for the document-icon rendering.  Built and installed together
+with `gershwin-components`:
 
 ```
 sudo gmake install        # from the gershwin-components top level
