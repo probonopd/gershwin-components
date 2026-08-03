@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//GNUstep//DTD plist 0.9//EN" "http://www.gnustep.org/plist-0_9.xml">
+<plist version="0.9">
+<dict>
+    <key>ApplicationName</key>
+    <string>SystemEmulator</string>
+    <key>ApplicationDescription</key>
+    <string>A QEMU-based virtual machine manager for GNUstep</string>
+    <key>ApplicationRelease</key>
+    <string>0.1</string>
+    <key>Authors</key>
+    <string>SystemEmulator Team</string>
+    <key>Copyright</key>
+    <string>Copyright (c) 2026 Simon Peter</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2026 Simon Peter</string>
+    <key>NSDocumentTypes</key>
+    <array>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>UTM Virtual Machine Bundle</string>
+            <key>NSHumanReadableName</key>
+            <string>UTM Virtual Machine</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>utm</string>
+            </array>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>utm</string>
+            </array>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+        </dict>
+    </array>
+</dict>
+</plist>

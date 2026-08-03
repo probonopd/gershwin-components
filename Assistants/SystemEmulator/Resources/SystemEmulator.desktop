@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SystemEmulator
+Comment=QEMU-based virtual machine manager
+Exec=SystemEmulator %f
+Icon=SystemEmulator.png
+Terminal=false
+Categories=Emulator;System;
+MimeType=application/x-utm-bundle;
