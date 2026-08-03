@@ -208,17 +208,17 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
         [tf setEditable:YES];
         [tf setSelectable:YES];
         [tf setEnabled:YES];
-        [tf setFont:[NSFont systemFontOfSize:12]];
+        [tf setFont:[NSFont menuFontOfSize:0]];
         self.searchField = tf;
       }
     [self.searchField setDelegate:self];
-    [self.searchField setFont:[NSFont systemFontOfSize:12]];
+    [self.searchField setFont:[NSFont menuFontOfSize:0]];
 
     NSAttributedString *placeholder = [[NSAttributedString alloc]
         initWithString:@"Search menus..."
         attributes:@{
             NSForegroundColorAttributeName: [NSColor grayColor],
-            NSFontAttributeName: [NSFont systemFontOfSize:12]
+            NSFontAttributeName: [NSFont menuFontOfSize:0]
         }];
     [[self.searchField cell] setPlaceholderAttributedString:placeholder];
 
