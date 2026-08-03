@@ -1,6 +1,8 @@
 # make_appimage
 
-Package a GNUstep application as a Linux AppImage.
+Package a GNUstep application as a Linux AppImage. The input is an
+already-built `.app` bundle; the tool deploys all GNUstep dependencies and
+produces a self-contained AppImage.
 
 ## Usage
 
@@ -8,8 +10,9 @@ Package a GNUstep application as a Linux AppImage.
 make_appimage [options] <app-name>
 ```
 
-`<app-name>` is the name of a GNUstep app directory containing a `GNUmakefile`,
-or a path to a built `.app` bundle.
+`<app-name>` is a path to a built `.app` bundle (or its bare name, resolved
+against the standard application directories). Source trees with `GNUmakefile`
+are not supported - build the app first, then package the resulting bundle.
 
 ### Options
 
@@ -28,14 +31,14 @@ or a path to a built `.app` bundle.
 ## Examples
 
 ```sh
-# Basic usage — app name matching a subdirectory with GNUmakefile
-make_appimage TextEdit
+# Package a built .app bundle
+make_appimage /System/Library/CoreServices/Applications/Menu.app
 
 # Specify output file and working directory
-make_appimage -o MyApp.AppImage -d /tmp/myapp Terminal
+make_appimage -o MyApp.AppImage -d /tmp/myapp /System/Applications/Terminal.app
 
 # Explicit main executable path
-make_appimage -e /usr/bin/SystemPreferences SystemPreferences
+make_appimage -e /usr/bin/SystemPreferences /System/Applications/SystemPreferences.app
 
 # Deploy additional bundles (thumbnailers, finder modules, inspectors)
 make_appimage \
@@ -51,7 +54,7 @@ make_appimage \
   --extra-bundle AppViewer.inspector \
   --extra-bundle FolderViewer.inspector \
   --extra-bundle MDModuleAnnotations.mdm \
-  Workspace
+  /System/Library/CoreServices/Applications/Workspace.app
 ```
 
 ## Requirements
@@ -59,11 +62,11 @@ make_appimage \
 - `appimagetool` — download from [here](https://github.com/AppImage/appimagetool/releases), set the executable bit, and rename it to `/usr/local/bin/appimagetool`
 - `patchelf` — for ELF interpreter detection and rpath patching
 - `ldd` — for shared library dependency resolution
-- GNUstep build tools (to compile the application into the AppDir)
+- An already-built `.app` bundle (no GNUstep build tools needed at packaging time)
 
 ## What it does
 
-1. Builds the application into a temporary AppDir via `make install DESTDIR=...`
+1. Copies the built `.app` bundle into a temporary AppDir
 2. Scans the AppDir for ELF binaries and resolves all shared library dependencies
 3. Deploys `ld-linux` (the dynamic linker) with embedded path patching
 4. Copies required libraries into `usr/lib/`, skipping system libraries that are expected on the host

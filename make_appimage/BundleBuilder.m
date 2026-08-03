@@ -193,14 +193,12 @@
 - (BOOL)build
 {
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSString *makePath = [self _findTool:@"make"];
     NSString *chmodPath = [self _findTool:@"chmod"];
     NSString *patchelfPath = [self _findTool:@"patchelf"];
     NSString *gnustepConfigPath = [self _findTool:@"gnustep-config"];
 
-    // === (a) Find the application source/bundle ===
-    NSLog(@"make_appimage: building %@", _appName);
-    BOOL isPrebuiltBundle = NO;
+    // === (a) Find the application bundle ===
+    NSLog(@"make_appimage: packaging %@", _appName);
     {
         BOOL isDir = NO;
         _appDir = nil;
@@ -216,6 +214,7 @@
             // Search standard application directories
             NSArray *appDirs = @[
                 @"/System/Applications", @"/Local/Applications",
+                @"/System/Library/CoreServices/Applications",
                 @"/usr/local/bin", @"/usr/bin",
                 [@"~" stringByExpandingTildeInPath]
             ];
@@ -229,36 +228,10 @@
             }
         }
         if (_appDir == nil) {
-            // Last resort: current directory
-            if ([fm fileExistsAtPath:_appName isDirectory:&isDir] && isDir) {
-                _appDir = _appName;
-            } else {
-                NSString *appBundle = [_appName stringByAppendingPathExtension:@"app"];
-                if ([fm fileExistsAtPath:appBundle isDirectory:&isDir] && isDir) {
-                    _appDir = appBundle;
-                }
-            }
+            NSLog(@"make_appimage: %@ not found; pass a path to a built .app bundle", _appName);
+            return NO;
         }
-        if (_appDir) {
-            if ([[_appDir pathExtension] isEqualToString:@"app"]) {
-                NSString *makefile = [_appDir stringByAppendingPathComponent:@"GNUmakefile"];
-                isPrebuiltBundle = ![fm fileExistsAtPath:makefile];
-            } else {
-                isPrebuiltBundle = NO;
-            }
-        } else {
-            _appDir = _appName;
-            isPrebuiltBundle = NO;
-        }
-
-        if (!isPrebuiltBundle) {
-            NSString *makefile = [_appDir stringByAppendingPathComponent:@"GNUmakefile"];
-            if (![fm fileExistsAtPath:makefile]) {
-                NSLog(@"make_appimage: No GNUmakefile in %@", _appDir);
-                return NO;
-            }
-        }
-        if (_verbose) NSLog(@"make_appimage: using %@ (source=%d)", _appDir, !isPrebuiltBundle);
+        if (_verbose) NSLog(@"make_appimage: using bundle %@", _appDir);
     }
 
     // === (b) Install application to AppDir ===
@@ -271,89 +244,19 @@
         [fm createDirectoryAtPath:_appDirPath withIntermediateDirectories:YES
                         attributes:nil error:NULL];
 
-        if (isPrebuiltBundle) {
-            // Copy the .app bundle CONTENTS directly to AppDir root
-            NSArray *items = [fm contentsOfDirectoryAtPath:_appDir error:NULL];
-            for (NSString *item in items) {
-                NSString *src = [_appDir stringByAppendingPathComponent:item];
-                NSString *dst = [_appDirPath stringByAppendingPathComponent:item];
-                if (![fm copyItemAtPath:src toPath:dst error:&err]) {
-                    NSLog(@"make_appimage: Failed to copy %@: %@", item, err);
-                    // stamp.make is a build artifact, skip it
-                    if ([item isEqualToString:@"stamp.make"]) continue;
-                    return NO;
-                }
-            }
-            if (_verbose) NSLog(@"make_appimage: deployed bundle contents to %@", _appDirPath);
-        } else if (makePath) {
-            // Build into a temp DESTDIR, then move the .app bundle to AppDir
-            NSString *tempDir = [_buildDir stringByAppendingPathComponent:@"destdir"];
-            [fm removeItemAtPath:tempDir error:NULL];
-            @try {
-                NSTask *task = [[NSTask alloc] init];
-                [task setLaunchPath:makePath];
-                [task setArguments:@[@"install",
-                    [NSString stringWithFormat:@"DESTDIR=%@", tempDir]]];
-                [task setCurrentDirectoryPath:_appDir];
-
-                NSPipe *errPipe = [NSPipe pipe];
-                [task setStandardOutput:[NSFileHandle fileHandleWithNullDevice]];
-                [task setStandardError:errPipe];
-
-                if (_verbose) NSLog(@"make_appimage: make install DESTDIR=%@", tempDir);
-                [task launch];
-                [task waitUntilExit];
-
-                if ([task terminationStatus] != 0) {
-                    NSData *errData = [[errPipe fileHandleForReading] readDataToEndOfFile];
-                    NSString *errStr = [[NSString alloc] initWithData:errData
-                                                             encoding:NSUTF8StringEncoding];
-                    NSLog(@"make_appimage: make install failed: %@", errStr);
-                    return NO;
-                }
-            } @catch (NSException *exception) {
-                NSLog(@"make_appimage: make install exception: %@", exception);
+        // Copy the .app bundle CONTENTS directly to AppDir root
+        NSArray *items = [fm contentsOfDirectoryAtPath:_appDir error:NULL];
+        for (NSString *item in items) {
+            NSString *src = [_appDir stringByAppendingPathComponent:item];
+            NSString *dst = [_appDirPath stringByAppendingPathComponent:item];
+            if (![fm copyItemAtPath:src toPath:dst error:&err]) {
+                NSLog(@"make_appimage: Failed to copy %@: %@", item, err);
+                // stamp.make is a build artifact, skip it
+                if ([item isEqualToString:@"stamp.make"]) continue;
                 return NO;
             }
-
-            // Find the .app bundle inside the temp DESTDIR
-            NSArray *appDirs = @[@"System/Applications", @"Applications",
-                                 @"Local/Applications", @"usr/bin"];
-            NSString *bundlePath = nil;
-            for (NSString *relDir in appDirs) {
-                NSString *dir = [tempDir stringByAppendingPathComponent:relDir];
-                BOOL isDir = NO;
-                if (![fm fileExistsAtPath:dir isDirectory:&isDir] || !isDir) continue;
-                NSArray *entries = [fm contentsOfDirectoryAtPath:dir error:NULL];
-                for (NSString *entry in entries) {
-                    if ([[entry pathExtension] isEqualToString:@"app"]) {
-                        bundlePath = [dir stringByAppendingPathComponent:entry];
-                        break;
-                    }
-                }
-                if (bundlePath) break;
-            }
-
-            if (!bundlePath) {
-                NSLog(@"make_appimage: Could not find .app bundle in DESTDIR");
-                return NO;
-            }
-
-            NSArray *items = [fm contentsOfDirectoryAtPath:bundlePath error:NULL];
-            for (NSString *item in items) {
-                NSString *src = [bundlePath stringByAppendingPathComponent:item];
-                NSString *dst = [_appDirPath stringByAppendingPathComponent:item];
-                if (![fm copyItemAtPath:src toPath:dst error:&err]) {
-                    NSLog(@"make_appimage: Failed to copy %@: %@", item, err);
-                    return NO;
-                }
-            }
-            [fm removeItemAtPath:tempDir error:NULL];
-            if (_verbose) NSLog(@"make_appimage: deployed bundle from %@", bundlePath);
-        } else {
-            NSLog(@"make_appimage: 'make' not found in PATH");
-            return NO;
         }
+        if (_verbose) NSLog(@"make_appimage: deployed bundle contents to %@", _appDirPath);
     }
 
     // === (c) Copy GNUstep system tools ===

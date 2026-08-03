@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * make_standalone — same build pipeline as make_appimage but produces a
- * self-contained .app bundle instead of an AppImage.  The AppRun binary
- * is set as the bundle's NSExecutable so it runs when the .app bundle
- * is launched directly.
+ * make_standalone — takes an already-built .app bundle and deploys all
+ * GNUstep dependencies into it, producing a self-contained .app bundle
+ * instead of an AppImage.  The AppRun binary is set as the bundle's
+ * NSExecutable so it runs when the .app bundle is launched directly.
  *
  * Shares BundleBuilder.m, LibraryResolver.m, LibraryDeployer.m,
  * InterpreterDeployer.m, and AppRun.c with make_appimage — no duplication.
@@ -83,6 +83,7 @@ main(void)
     if (showHelp || appName == nil)
     {
         printf("Usage: make_standalone [options] <app-name>\n\n");
+        printf("Packs an already-built .app bundle into a self-contained .app bundle.\n\n");
         printf("Options:\n");
         printf("  -d <dir>      Working directory (default: /tmp/standalone-<app>)\n");
         printf("  --theme <name>  Deploy only the specified theme\n");

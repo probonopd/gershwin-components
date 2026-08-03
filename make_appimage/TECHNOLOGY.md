@@ -12,7 +12,7 @@ at runtime.
 
 ```
 main.m  (CLI entry point)
-  └── AppImageBuilder            — orchestrator
+  └── BundleBuilder            — orchestrator
         ├── LibraryResolver          — ELF discovery + ldd dependency resolution
         ├── LibraryDeployer          — copies libraries, resolves symlinks
         ├── InterpreterDeployer      — ld-linux deployment
@@ -23,7 +23,8 @@ main.m  (CLI entry point)
 
 | File | Role |
 |------|------|
-| `AppImageBuilder.h/.m` | Orchestrates all build steps |
+| `BundleBuilder.h/.m` | Orchestrates all packaging steps |
+| `AppImagePackager.h/.m` | appimagetool invocation, desktop entry, icon |
 | `LibraryResolver.h/.m` | Scans AppDir for ELFs, resolves `DT_NEEDED` |
 | `LibraryDeployer.h/.m` | Copies libraries, resolves symlinks, exclusion list |
 | `InterpreterDeployer.h/.m` | Deploys ld-linux, musl detection |
@@ -33,13 +34,12 @@ main.m  (CLI entry point)
 
 ## Build Pipeline
 
-### 1. Source detection
+### 1. Input: already-built .app bundle
 
-Accepts either a source directory with `GNUmakefile` (runs `make install
-DESTDIR=<AppDir>`) or a pre-built `.app` bundle (copied directly).
-
-If the path ends with `.app` and contains a `GNUmakefile`, it is treated
-as source; otherwise as a pre-built bundle.
+The input is always an already-built `.app` bundle (a path to one, or a bare
+name resolved against the standard application directories).  No source tree
+is accepted and the application's `GNUmakefile` is never invoked — build the
+app first, then package the resulting bundle.
 
 ### 2. AppDir structure
 
@@ -53,7 +53,7 @@ AppDir/
   System/Library/
     Bundles/              # libgnustep-back-*.bundle only (no prefPanes)
     Themes/               # Eau.theme (and others)
-  Local/Applications/     # installed .app (from make install)
+  Local/Applications/     # installed .app (from a previous make install)
 ```
 
 ### 3. GNUstep configuration

@@ -7,12 +7,12 @@ from go-appimage to Objective-C / GNUstep.
 
 ```
 main.m
-  └── AppImageBuilder (main class)
+  └── BundleBuilder (main class)
         ├── LibraryResolver          — ELF dependency scanning via ldd/patchelf
         ├── InterpreterDeployer      — ld-linux detection, patching, deployment
         ├── LibraryDeployer          — libc handling, exclusion, copy to AppDir
-        ├── AppRunCreator            — AppRun script generation
-        └── DesktopFileCreator       — .desktop file generation
+        ├── AppImagePackager         — appimagetool invocation, desktop/icon
+        └── AppRun (precompiled)     — AppRun binary used as entry point
 ```
 
 ## Files
@@ -20,22 +20,27 @@ main.m
 | File | Responsibility |
 |------|---------------|
 | `main.m` | CLI entry point, argument parsing via NSProcessInfo |
-| `AppImageBuilder.h/.m` | Orchestrator: build → resolve deps → deploy → package |
+| `BundleBuilder.h/.m` | Orchestrator: copy .app bundle → resolve deps → deploy → package |
+| `AppImagePackager.h/.m` | appimagetool invocation and desktop/icon generation |
 | `LibraryResolver.h/.m` | Find all ELFs, resolve DT_NEEDED via ldd, search library paths |
 | `InterpreterDeployer.h/.m` | Detect ld-linux via patchelf, copy, binary-patch paths |
 | `LibraryDeployer.h/.m` | Filter excluded libs, copy to AppDir, optional libc/ subdir |
-| `GNUmakefile` | GNUstep tool build |
+| `GNUmakefile` | GNUstep tool build (builds the tools and AppRun helper) |
 
 ## Data Flow
 
-1. `AppImageBuilder -build`
-   → `make install DESTDIR=AppDir`
+1. `BundleBuilder -build`
+   → copy the built `.app` bundle into AppDir (no source build)
    → scan AppDir for ELF binaries
    → resolve all DT_NEEDED dependencies
    → deploy ld-linux (patchelf + binary patch)
    → deploy required libraries (skip excluded list)
    → create AppRun + .desktop
    → run appimagetool
+
+The input is always an already-built `.app` bundle; no GNUmakefile of the
+application is ever invoked. The project's own `GNUmakefile` only builds the
+`make_appimage`/`make_standalone` tools and the `AppRun` helper binary.
 
 ## Library Resolution (ported from go-appimage)
 

@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * make_appimage — builds a self-contained .app bundle with all GNUstep
- * dependencies (via BundleBuilder), then packages it as an AppImage
+ * make_appimage — takes an already-built .app bundle, deploys all GNUstep
+ * dependencies into it (via BundleBuilder), then packages it as an AppImage
  * (via AppImagePackager).
  *
  * Shared code: BundleBuilder.m, LibraryResolver.m, LibraryDeployer.m,
@@ -120,6 +120,7 @@ main(void)
     if (showHelp || appName == nil)
     {
         printf("Usage: make_appimage [options] <app-name>\n\n");
+        printf("Packs an already-built .app bundle into a self-contained AppImage.\n\n");
         printf("Options:\n");
         printf("  -o <file>     Output AppImage filename\n");
         printf("  -d <dir>      Working directory for AppDir build (default: /tmp/appimage-<app>)\n");
