@@ -423,7 +423,13 @@ static dispatch_once_t _sharedDisplayOnce;
         for (unsigned int i = 0; i < nchildren; i++) {
             XWindowAttributes attrs;
             if (XGetWindowAttributes(display, children[i], &attrs) == Success) {
-                if (attrs.map_state == IsViewable && attrs.class == InputOutput) {
+                /* Skip override-redirect windows: dropdown menus, popups and
+                 * tooltips are transient, churn constantly while being
+                 * opened/closed, and are never menu-bar or menu-service hosts.
+                 * Not querying them avoids both wasted work and the stale-XID
+                 * races that produce BadWindow errors. */
+                if (attrs.map_state == IsViewable && attrs.class == InputOutput
+                    && !attrs.override_redirect) {
                     [windows addObject:[NSNumber numberWithUnsignedLong:children[i]]];
                 }
             }

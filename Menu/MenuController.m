@@ -314,6 +314,11 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             if (XGetWindowAttributes(display, w, &attrs) == 0 || attrs.map_state == IsUnmapped) {
                 continue;
             }
+            /* Transient override-redirect windows (dropdown menus, popups,
+               tooltips) are never the menu bar; skip before querying them. */
+            if (attrs.override_redirect) {
+                continue;
+            }
 
             NSString *name = [MenuUtils getWindowProperty:(unsigned long)w atomName:@"_NET_WM_NAME"];
             if (!name || [name length] == 0) {
@@ -1313,9 +1318,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     sf.size.width /= MenuControllerScaleFactor();
     self.screenFrame = sf;
     self.screenSize = sf.size;
-    NSDebugLLog(@"gwcomp", @"MenuController: Screen frame: %.0f,%.0f %.0fx%.0f (scale=%.1f)",
-          sf.origin.x, sf.origin.y, sf.size.width, sf.size.height, MenuControllerScaleFactor());
-    
+
     color = [self backgroundColor];
     NSDebugLLog(@"gwcomp", @"MenuController: Background color: %@", color);
         

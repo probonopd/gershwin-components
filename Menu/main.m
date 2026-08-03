@@ -110,6 +110,23 @@ static void killOtherInstances(void) {
     closedir(procDir);
 }
 
+/* The Menu app routinely walks the window tree while other clients - and its
+   own popup menus - create and destroy transient windows.  A query that races
+   a window teardown fails with BadWindow/BadDrawable, and every call site
+   already handles that via the return value, so the default Xlib handler's
+   per-error spew is pure noise.  Suppress it; anything else is logged once so
+   real errors remain visible. */
+static int menuXErrorHandler(Display *display, XErrorEvent *event)
+{
+    (void)display;
+    if (event->error_code == BadWindow || event->error_code == BadDrawable)
+        return 0;
+    fprintf(stderr, "Menu.app: X11 error %d (request %d) on resource 0x%lx\n",
+            (int)event->error_code, (int)event->request_code,
+            (unsigned long)event->resourceid);
+    return 0;
+}
+
 int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) argv[])
 {
     MenuInstallCrashHandlers();
@@ -119,6 +136,9 @@ int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) 
         fprintf(stderr, "Menu.app: Failed to initialize X11 threading support\n");
         return 1;
     }
+
+    // Keep the flood of BadWindow errors from racing window scans off the log.
+    XSetErrorHandler(menuXErrorHandler);
 
     NSDebugLLog(@"gwcomp", @"Menu.app: Starting application initialization...");
     
