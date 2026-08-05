@@ -1,0 +1,26 @@
+# Demonstrate the control-flow additions that need no running application:
+# repeat, if/else, macro/call, and record.  Run with:
+#   drive_script examples/control_flow.dsl
+set ATTEMPTS="3"
+
+macro report
+  if not window "example-window-nx"
+    log "target window present"
+  else
+    log "target window absent"
+  end
+end
+
+call report
+
+repeat ${ATTEMPTS}
+  log "attempt"
+end
+
+if not dialog "never-open-xyz"
+  log "dialog closed"
+else
+  log "dialog open"
+end
+
+log "control flow done"

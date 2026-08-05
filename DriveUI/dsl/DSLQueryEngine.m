@@ -393,6 +393,58 @@ static void SetErr(NSString **err, NSString *m)
   return NO;
 }
 
+- (BOOL)hoverRole:(DSLRole)role title:(NSString *)title error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
+  /* `hover` needs no widget resolution convenience here because drive_ui
+   * resolves the id to a screen position and moves the real pointer over it;
+   * we only hand it the id. */
+  NSString *objID = [self objectIDForRole: role title: title error: err];
+  if (!objID) return NO;
+  NSMutableArray *args = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"hover"]];
+  [args addObject: objID];
+  return [self runCollect: args error: err] != nil;
+}
+
+- (BOOL)scrollRole:(DSLRole)role title:(NSString *)title
+        direction:(NSString *)direction amount:(int)amount error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
+  NSMutableArray *args = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"scroll"]];
+  if (role != DDSRoleAny)
+    {
+      NSString *objID = [self objectIDForRole: role title: title error: err];
+      if (!objID) return NO;
+      [args addObject: objID];
+    }
+  /* Without a target widget drive_ui scrolls at the current pointer position. */
+  if (direction) [args addObject: direction];
+  [args addObject: [NSString stringWithFormat: @"%d", amount]];
+  return [self runCollect: args error: err] != nil;
+}
+
+- (BOOL)dragRole:(DSLRole)role title:(NSString *)title
+            byX:(double)dx byY:(double)dy error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
+  NSString *objID = [self objectIDForRole: role title: title error: err];
+  if (!objID) return NO;
+  NSMutableArray *args = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"drag"]];
+  [args addObject: objID];
+  [args addObject: [NSString stringWithFormat: @"%g", dx]];
+  [args addObject: [NSString stringWithFormat: @"%g", dy]];
+  return [self runCollect: args error: err] != nil;
+}
+
+- (NSString *)widgetTreeText
+{
+  if (pid_ == 0) return nil;
+  return [self runCollect: [self argvForSubcommand: @"get_full_tree"] error: nil];
+}
+
 - (BOOL)type:(NSString *)text error:(NSString **)err
 {
   /* sendkeys types into the focused field directly; it is a global X11

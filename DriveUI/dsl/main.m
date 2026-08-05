@@ -58,6 +58,8 @@ int main(int argc, const char *argv[])
     autorelease];
   int rc = [exec run];
 
+  if (rc != 0 && [[exec log] length] > 0)
+    fprintf(stderr, "%s\n", [[exec log] UTF8String]);
   /* the executor logs failures to stderr; echo nothing on success */
   [pool release];
   return rc;

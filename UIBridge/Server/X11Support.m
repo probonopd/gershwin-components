@@ -317,6 +317,77 @@ static void SendKey(Display *d, Window w, KeyCode code,
     XSync(d, False);
 }
 
+// Press button 1 where the pointer is now, move it smoothly in ~12 steps by
+// the pixel delta, then release over the end position.  The real pointer
+// motion (XWarpPointer generates genuine MotionNotify events) is what GNUstep
+// app treats as the drag; press and release are sent as synthetic button
+// events to the GNUstep window under each position.
++ (void)simulateDragBy:(NSPoint)delta {
+    Display *d = [self display];
+    if (!d) return;
+    Window root = DefaultRootWindow(d), r, child;
+    int rx = 0, ry = 0, wx = 0, wy = 0;
+    unsigned int mask = 0;
+    if (!XQueryPointer(d, root, &r, &child, &rx, &ry, &wx, &wy, &mask)) return;
+
+    int tx = 0, ty = 0;
+    Window target = ResolveWindowAt(d, rx, ry, &tx, &ty);
+    Time t = ServerTime(d);
+    SendButton(d, target, tx, ty, rx, ry, True, 1, 0, t);
+    XFlush(d);
+    usleep(kPressHoldMicroseconds);
+
+    const int steps = 12;
+    for (int i = 1; i <= steps; i++) {
+        double frac = (double)i / steps;
+        int nx = rx + (int)lround(delta.x * frac);
+        int ny = ry + (int)lround(delta.y * frac);
+        XWarpPointer(d, None, root, 0, 0, 0, 0, nx, ny);
+        XSync(d, False);
+        usleep(12000);
+    }
+
+    // Release over the final position, resolving the window there so a drag
+    // that crosses windows ends at the target (drag-and-drop semantics).
+    int frx = 0, fry = 0, ftx = 0, fty = 0;
+    XQueryPointer(d, root, &r, &child, &frx, &fry, &wx, &wy, &mask);
+    Window ftarget = ResolveWindowAt(d, frx, fry, &ftx, &fty);
+    SendButton(d, ftarget, ftx, fty, frx, fry, False, 1, Button1Mask, t + 1);
+    XSync(d, False);
+}
+
+// Emit wheel (or tilt) steps at the current pointer location.  Up/down/left/
+// right are X buttons 4/5/6/7; each is a press/release addressed to the
+// GNUstep window under the pointer, mirroring a real wheel notch so controls
+// (scroll bars, NSScroller) advance by one unit per step.
++ (void)simulateScrollWheel:(NSString *)direction count:(int)count {
+    Display *d = [self display];
+    if (!d) return;
+    NSString *dir = [direction lowercaseString];
+    unsigned int button = 5;  /* down */
+    if ([dir isEqualToString: @"up"]) button = 4;
+    else if ([dir isEqualToString: @"left"]) button = 6;
+    else if ([dir isEqualToString: @"right"]) button = 7;
+    if (count <= 0) count = 1;
+
+    Window root = DefaultRootWindow(d), r, child;
+    int rx = 0, ry = 0, wx = 0, wy = 0;
+    unsigned int mask = 0;
+    if (!XQueryPointer(d, root, &r, &child, &rx, &ry, &wx, &wy, &mask)) return;
+
+    int tx = 0, ty = 0;
+    Window target = ResolveWindowAt(d, rx, ry, &tx, &ty);
+    Time t = ServerTime(d);
+    for (int i = 0; i < count; i++) {
+        SendButton(d, target, tx, ty, rx, ry, True, button, 0, t); t++;
+        XFlush(d);
+        usleep(kPressHoldMicroseconds);
+        SendButton(d, target, tx, ty, rx, ry, False, button, 0, t); t++;
+        XSync(d, False);
+        usleep(kPressHoldMicroseconds);
+    }
+}
+
 + (void)activateWindow:(unsigned long)xid {
     Display *d = [self display];
     if (!d || xid == 0) return;

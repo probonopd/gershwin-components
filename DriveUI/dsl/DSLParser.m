@@ -23,6 +23,8 @@
       string_ = nil;
       string2_ = nil;
       words_ = [[NSMutableArray alloc] init];
+      body_ = [[NSMutableArray alloc] init];
+      elseBody_ = [[NSMutableArray alloc] init];
       line_ = line;
       col_ = col;
     }
@@ -33,6 +35,8 @@
   [string_ release];
   [string2_ release];
   [words_ release];
+  [body_ release];
+  [elseBody_ release];
   [super dealloc];
 }
 - (DSLCommandType)type { return type_; }
@@ -46,6 +50,8 @@
 - (NSString *)string2 { return string2_; }
 - (void)setString2:(NSString *)s { [s retain]; [string2_ release]; string2_ = s; }
 - (NSMutableArray *)words { return words_; }
+- (NSMutableArray *)body { return body_; }
+- (NSMutableArray *)elseBody { return elseBody_; }
 - (NSUInteger)line { return line_; }
 - (void)setLine:(NSUInteger)l { line_ = l; }
 - (NSUInteger)col { return col_; }
@@ -137,10 +143,59 @@ NSString *DSLRoleClassName(DSLRole role)
       case DDSRoleTab:        case DDSRoleTabItem:  return @"NSTabView";
       case DDSRoleSlider:                       return @"NSSlider";
       case DDSRoleProgress:                     return @"NSProgressIndicator";
-      case DDSRoleLabel:                        return @"NSTextField";
+case DDSRoleLabel:                        return @"NSTextField";
       default:                                  return nil;
     }
 }
+
+/* A nested block being parsed (repeat/if/macro).  type_ names the block
+ * keyword, target_ is the array receiving the block's commands (the `then`
+ * body of an if, or its else body after `else`), and elseSeen_ tracks whether
+ * an if block has consumed its `else` clause. */
+@interface DDSBlockCtx : NSObject
+{
+  NSString *type_;
+  NSMutableArray *target_;
+  NSMutableArray *elseTarget_; /* an if block's else body (nil otherwise) */
+  BOOL elseSeen_ : 1;
+}
+- (id)initWithType:(NSString *)type target:(NSMutableArray *)target
+         elseTarget:(NSMutableArray *)elseTarget;
+@property (copy) NSString *type;
+@property (retain) NSMutableArray *target;
+@property (retain) NSMutableArray *elseTarget;
+@property BOOL elseSeen;
+@end
+
+@implementation DDSBlockCtx
+- (id)initWithType:(NSString *)type target:(NSMutableArray *)target
+         elseTarget:(NSMutableArray *)elseTarget
+{
+  if ((self = [super init]))
+    {
+      type_ = [type copy];
+      target_ = [target retain];
+      elseTarget_ = [elseTarget retain];
+      elseSeen_ = NO;
+    }
+  return self;
+}
+- (void)dealloc
+{
+  [type_ release];
+  [target_ release];
+  [elseTarget_ release];
+  [super dealloc];
+}
+- (NSString *)type { return type_; }
+- (void)setType:(NSString *)t { [t retain]; [type_ release]; type_ = t; }
+- (NSMutableArray *)target { return target_; }
+- (void)setTarget:(NSMutableArray *)t { [t retain]; [target_ release]; target_ = t; }
+- (NSMutableArray *)elseTarget { return elseTarget_; }
+- (void)setElseTarget:(NSMutableArray *)t { [t retain]; [elseTarget_ release]; elseTarget_ = t; }
+- (BOOL)elseSeen { return elseSeen_; }
+- (void)setElseSeen:(BOOL)b { elseSeen_ = b; }
+@end
 
 @implementation DSLParser
 
@@ -167,6 +222,7 @@ NSString *DSLRoleClassName(DSLRole role)
 - (DSLProgram *)parseString:(NSString *)text sourceName:(NSString *)name
                      program:(DSLProgram *)prog error:(NSString **)err
 {
+  if (!blockStack_) blockStack_ = [[NSMutableArray alloc] init];
   NSArray *lines = [text componentsSeparatedByString: @"\n"];
   NSUInteger lineNo = 0;
   for (NSString *rawLine in lines)
@@ -283,6 +339,55 @@ NSString *DSLRoleClassName(DSLRole role)
           return nil;
         }
       [words removeObjectAtIndex: 0];
+
+      /* The array the current command lands in: the innermost open block's
+       * body, or the top level of the program. */
+      NSMutableArray *target = prog.commands;
+      DDSBlockCtx *top = [blockStack_ lastObject];
+      if (top) target = top.target;
+
+      /* Block keywords manage the parser stack and produce no command. */
+      if ([kw isEqualToString: @"end"])
+        {
+          if ([blockStack_ count] == 0)
+            {
+              if (err) *err = [NSString stringWithFormat: @"%@:%lu: end without a matching block",
+                name, (unsigned long)lineNo];
+              return nil;
+            }
+          if ([words count] > 0)
+            {
+              NSString *closing = [[words objectAtIndex: 0] lowercaseString];
+              NSString *openType = [top.type lowercaseString];
+              if (![closing isEqualToString: openType])
+                {
+                  if (err) *err = [NSString stringWithFormat:
+                    @"%@:%lu: 'end %@' does not close '%@' block",
+                    name, (unsigned long)lineNo, closing, top.type];
+                  return nil;
+                }
+            }
+          [blockStack_ removeLastObject];
+          continue;
+        }
+      else if ([kw isEqualToString: @"else"])
+        {
+          if (![top.type isEqualToString: @"if"] || top.elseSeen)
+            {
+              if (err) *err = [NSString stringWithFormat: @"%@:%lu: else outside an if block",
+                name, (unsigned long)lineNo];
+              return nil;
+            }
+          if ([words count] > 0)
+            {
+              if (err) *err = [NSString stringWithFormat:
+                @"%@:%lu: unexpected tokens after else", name, (unsigned long)lineNo];
+              return nil;
+            }
+          top.target = top.elseTarget;
+          top.elseSeen = YES;
+          continue;
+        }
 
       DSLCommand *cmd = nil;
       if ([kw isEqualToString: @"activate"])
@@ -431,6 +536,132 @@ NSString *DSLRoleClassName(DSLRole role)
             line: lineNo col: 1] autorelease];
           [cmd.words addObjectsFromArray: words];
         }
+      else if ([kw isEqualToString: @"hover"])
+        {
+          /* hover [role] "title" - move the pointer over the widget. */
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdHover
+            line: lineNo col: 1] autorelease];
+          cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+          if ([words count] > 0) [words removeObjectAtIndex: 0];
+          cmd.string = str1;
+        }
+      else if ([kw isEqualToString: @"scroll"])
+        {
+          /* scroll [role] "title" <up|down|left|right> [amount]
+           * or: scroll <up|down|left|right> [amount]  (scroll at the pointer) */
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdScroll
+            line: lineNo col: 1] autorelease];
+          if ([words count] > 0)
+            {
+              NSString *first = [[words objectAtIndex: 0] lowercaseString];
+              if ([first isEqualToString: @"up"] || [first isEqualToString: @"down"]
+                  || [first isEqualToString: @"left"] || [first isEqualToString: @"right"])
+                {
+                  /* no target widget: scroll at the current pointer position */
+                  cmd.role = DDSRoleAny;
+                  [cmd.words addObject: first];
+                  [words removeObjectAtIndex: 0];
+                  if ([words count] > 0) [cmd.words addObject: [words objectAtIndex: 0]];
+                }
+              else
+                {
+                  cmd.role = DSLRoleFromName(first);
+                  if (cmd.role != DDSRoleAny) [words removeObjectAtIndex: 0];
+                  cmd.string = str1;
+                  if ([words count] > 0) [cmd.words addObject: [[words objectAtIndex: 0] lowercaseString]];
+                  if ([words count] > 1) [cmd.words addObject: [words objectAtIndex: 1]];
+                }
+            }
+        }
+      else if ([kw isEqualToString: @"drag"])
+        {
+          /* drag [role] "title" [by] <dx> <dy> - press at the widget and drag
+           * it by the given pixel offset. */
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdDrag
+            line: lineNo col: 1] autorelease];
+          cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+          if ([words count] > 0 && cmd.role != DDSRoleAny)
+            [words removeObjectAtIndex: 0];
+          cmd.string = str1;
+          if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"by"])
+            [words removeObjectAtIndex: 0];
+          if ([words count] > 0) [cmd.words addObject: [words objectAtIndex: 0]];
+          if ([words count] > 1) [cmd.words addObject: [words objectAtIndex: 1]];
+        }
+      else if ([kw isEqualToString: @"repeat"])
+        {
+          if ([words count] == 0)
+            {
+              if (err) *err = [NSString stringWithFormat: @"%@:%lu: repeat needs a count",
+                name, (unsigned long)lineNo];
+              return nil;
+            }
+          int count = [[words objectAtIndex: 0] intValue];
+          if (count <= 0)
+            {
+              if (err) *err = [NSString stringWithFormat: @"%@:%lu: repeat count must be positive",
+                name, (unsigned long)lineNo];
+              return nil;
+            }
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdRepeat
+            line: lineNo col: 1] autorelease];
+          [cmd.words addObject: [words objectAtIndex: 0]];
+          [blockStack_ addObject: [[[DDSBlockCtx alloc] initWithType: @"repeat"
+            target: cmd.body elseTarget: nil] autorelease]];
+        }
+      else if ([kw isEqualToString: @"if"])
+        {
+          /* if [not] [exists] [role] "title" */
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdIf
+            line: lineNo col: 1] autorelease];
+          if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"not"])
+            {
+              cmd.assertKind = DDSAssertNotExists;
+              [words removeObjectAtIndex: 0];
+            }
+          if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"exists"])
+            [words removeObjectAtIndex: 0];
+          cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+          if ([words count] > 0) [words removeObjectAtIndex: 0];
+          cmd.string = str1;
+          [blockStack_ addObject: [[[DDSBlockCtx alloc] initWithType: @"if"
+            target: cmd.body elseTarget: cmd.elseBody] autorelease]];
+        }
+      else if ([kw isEqualToString: @"macro"])
+        {
+          /* macro NAME ... end - define a named, reusable block. */
+          NSString *macroName = ([words count] > 0) ? [words objectAtIndex: 0] : str1;
+          if ([macroName length] == 0)
+            {
+              if (err) *err = [NSString stringWithFormat: @"%@:%lu: macro needs a name",
+                name, (unsigned long)lineNo];
+              return nil;
+            }
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdMacro
+            line: lineNo col: 1] autorelease];
+          cmd.string = macroName;
+          [blockStack_ addObject: [[[DDSBlockCtx alloc] initWithType: @"macro"
+            target: cmd.body elseTarget: nil] autorelease]];
+        }
+      else if ([kw isEqualToString: @"call"])
+        {
+          NSString *macroName = ([words count] > 0) ? [words objectAtIndex: 0] : str1;
+          if ([macroName length] == 0)
+            {
+              if (err) *err = [NSString stringWithFormat: @"%@:%lu: call needs a macro name",
+                name, (unsigned long)lineNo];
+              return nil;
+            }
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdCall
+            line: lineNo col: 1] autorelease];
+          cmd.string = macroName;
+        }
+      else if ([kw isEqualToString: @"record"])
+        {
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdRecord
+            line: lineNo col: 1] autorelease];
+          cmd.string = str1;
+        }
       else
         {
           if (err) *err = [NSString stringWithFormat: @"%@:%lu: unknown command '%@'",
@@ -438,7 +669,15 @@ NSString *DSLRoleClassName(DSLRole role)
           return nil;
         }
 
-      [[prog commands] addObject: cmd];
+      [target addObject: cmd];
+    }
+
+  if ([blockStack_ count] > 0)
+    {
+      DDSBlockCtx *open = [blockStack_ lastObject];
+      if (err) *err = [NSString stringWithFormat: @"%@:%d: unterminated '%@' block (missing end)",
+        name, 0, open.type];
+      return nil;
     }
   return prog;
 }

@@ -17,6 +17,15 @@
 + (void)simulateClick:(int)button; // 1=left, 2=middle, 3=right
 + (void)simulateKeyStroke:(NSString *)keyString;
 
+// Press button 1 at the current pointer position and drag by the given pixel
+// offset, releasing over the end position (moving windows, sliders,
+// scrollbars, drag-and-drop).
++ (void)simulateDragBy:(NSPoint)delta;
+
+// Emit `count` wheel steps at the current pointer position.  direction is one
+// of "up"/"down"/"left"/"right" (X buttons 4/5/6/7).
++ (void)simulateScrollWheel:(NSString *)direction count:(int)count;
+
 // Raise + focus a window so subsequent keyboard input is delivered to it rather
 // than an occluding window. Needed because the desktop usually has overlapping
 // windows.

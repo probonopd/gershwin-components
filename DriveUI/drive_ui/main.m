@@ -19,6 +19,10 @@
  *   drive_ui [--pid N] click <object_id> | --text <label> [--class C]
  *   drive_ui [--pid N] doubleclick <object_id> | --text <label> [--class C]
  *   drive_ui [--pid N] rightclick <object_id> | --text <label> [--class C]
+ *   drive_ui [--pid N] hover <object_id>      (move pointer over the widget)
+ *   drive_ui [--pid N] scroll <object_id> <dir> [n]
+ *   drive_ui [--pid N] scroll <dir> [n]       (scroll at the current pointer)
+ *   drive_ui [--pid N] drag <object_id> <dx> <dy>   (press + drag by dx,dy)
  *   drive_ui [--pid N] type <object_id> <text> | --text <label> <text> [--class C]
  *   drive_ui [--pid N] sendkeys <text>          (type into the focused field)
  *   drive_ui [--pid N] clear <object_id> | --text <label> [--class C]
@@ -214,6 +218,10 @@ static void Usage(void)
   printf("  drive_ui [--pid N] click <object_id> | --text <label> [--class C]\n");
   printf("  drive_ui [--pid N] doubleclick <object_id> | --text <label> [--class C]\n");
   printf("  drive_ui [--pid N] rightclick <object_id> | --text <label> [--class C]\n");
+  printf("  drive_ui [--pid N] hover <object_id>          (move pointer over it)\n");
+  printf("  drive_ui [--pid N] scroll <object_id> <dir> [n]   (dir=up/down/left/right)\n");
+  printf("  drive_ui [--pid N] scroll <dir> [n]           (scroll at pointer)\n");
+  printf("  drive_ui [--pid N] drag <object_id> <dx> <dy> (press + drag by dx,dy)\n");
   printf("  drive_ui [--pid N] type <object_id> <text> | --text <label> <text> [--class C]\n");
   printf("  drive_ui [--pid N] sendkeys <text>          (type into focused field)\n");
   printf("  drive_ui [--pid N] clear <object_id> | --text <label> [--class C]\n");
@@ -436,6 +444,124 @@ int main(int argc, const char *argv[])
           [X11Support simulateClick: button];
           if (count > 1) usleep(60000);  /* let a double-click register as such */
         }
+    }
+  else if ([command isEqualToString: @"hover"])
+    {
+      /* hover <object_id> - move the real pointer over the widget's center
+       * without clicking (mouse-over effects, tooltips, hover menus). */
+      if (idArg == nil)
+        {
+          fprintf(stderr, "drive_ui: hover needs <object_id>\n");
+          [pool release];
+          return 1;
+        }
+      NSArray *row = ResolveRowByID(ParseTree(FetchTree(pid)), idArg);
+      if (row == nil)
+        {
+          fprintf(stderr, "drive_ui: hover: widget not found\n");
+          [pool release];
+          return 1;
+        }
+      NSPoint c = CenterOfRow(row);
+      if (c.x == 0 && c.y == 0)
+        {
+          fprintf(stderr, "drive_ui: hover: widget has no usable screen_frame\n");
+          [pool release];
+          return 1;
+        }
+      [X11Support simulateMouseMoveTo: c];
+      usleep(40000);  /* let the pointer motion settle */
+    }
+  else if ([command isEqualToString: @"scroll"])
+    {
+      /* scroll [<object_id>] <up|down|left|right> [amount]
+       * With an object_id the pointer is first moved over the widget, so a
+       * scrollable control scrolls itself; without one the wheel turns at the
+       * current pointer position. */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      NSString *target = nil;
+      if ([positionals count] > 0 && [[positionals objectAtIndex: 0] hasPrefix: @"objc:"])
+        {
+          target = [positionals objectAtIndex: 0];
+          [positionals removeObjectAtIndex: 0];
+        }
+      if ([positionals count] == 0)
+        {
+          fprintf(stderr, "drive_ui: scroll needs a direction (up/down/left/right)\n");
+          [pool release];
+          return 1;
+        }
+      NSString *dir = [positionals objectAtIndex: 0];
+      int amount = 1;
+      if ([positionals count] > 1) amount = atoi([[positionals objectAtIndex: 1] UTF8String]);
+      if (amount <= 0) amount = 1;
+
+      if (target)
+        {
+          NSArray *row = ResolveRowByID(ParseTree(FetchTree(pid)), target);
+          if (row == nil)
+            {
+              fprintf(stderr, "drive_ui: scroll: widget not found\n");
+              [pool release];
+              return 1;
+            }
+          NSPoint c = CenterOfRow(row);
+          if (c.x == 0 && c.y == 0)
+            {
+              fprintf(stderr, "drive_ui: scroll: widget has no usable screen_frame\n");
+              [pool release];
+              return 1;
+            }
+          [X11Support simulateMouseMoveTo: c];
+          usleep(40000);
+        }
+      [X11Support simulateScrollWheel: dir count: amount];
+    }
+  else if ([command isEqualToString: @"drag"])
+    {
+      /* drag <object_id> <dx> <dy> - press button 1 at the widget's center and
+       * drag by the given pixel offset (moving windows, sliders, scrollbars,
+       * drag-and-drop). */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      if ([positionals count] < 3)
+        {
+          fprintf(stderr, "drive_ui: drag needs <object_id> <dx> <dy>\n");
+          [pool release];
+          return 1;
+        }
+      NSString *target = [positionals objectAtIndex: 0];
+      double dx = atof([[positionals objectAtIndex: 1] UTF8String]);
+      double dy = atof([[positionals objectAtIndex: 2] UTF8String]);
+
+      NSArray *row = ResolveRowByID(ParseTree(FetchTree(pid)), target);
+      if (row == nil)
+        {
+          fprintf(stderr, "drive_ui: drag: widget not found\n");
+          [pool release];
+          return 1;
+        }
+      NSPoint c = CenterOfRow(row);
+      if (c.x == 0 && c.y == 0)
+        {
+          fprintf(stderr, "drive_ui: drag: widget has no usable screen_frame\n");
+          [pool release];
+          return 1;
+        }
+      [X11Support simulateMouseMoveTo: c];
+      usleep(40000);
+      [X11Support simulateDragBy: NSMakePoint(dx, dy)];
     }
   else if ([command isEqualToString: @"press"])
     {

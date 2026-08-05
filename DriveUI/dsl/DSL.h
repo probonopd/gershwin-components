@@ -57,6 +57,9 @@ typedef enum
   DDSCmdClick,
   DDSCmdDoubleClick,
   DDSCmdRightClick,
+  DDSCmdHover,
+  DDSCmdScroll,
+  DDSCmdDrag,
   DDSCmdType,
   DDSCmdClear,
   DDSCmdPress,
@@ -64,9 +67,14 @@ typedef enum
   DDSCmdWaitUntil,
   DDSCmdAssert,
   DDSCmdCapture,
+  DDSCmdRecord,
   DDSCmdLog,
   DDSCmdSet,
-  DDSCmdOptions
+  DDSCmdOptions,
+  DDSCmdRepeat,
+  DDSCmdIf,
+  DDSCmdMacro,
+  DDSCmdCall
 } DSLCommandType;
 
 typedef enum
@@ -118,6 +126,8 @@ typedef enum
   NSString *string_;       /* the quoted main string (title/text/path)   */
   NSString *string2_;      /* optional second string (e.g. assert target) */
   NSMutableArray *words_;  /* free-form word tokens for this command */
+  NSMutableArray *body_;   /* sub-commands of a repeat/if/macro block    */
+  NSMutableArray *elseBody_; /* sub-commands of an if block's else clause */
   NSUInteger line_;
   NSUInteger col_;
 }
@@ -128,6 +138,8 @@ typedef enum
 @property (retain) NSString *string;
 @property (retain) NSString *string2;
 @property (readonly) NSMutableArray *words;
+@property (readonly) NSMutableArray *body;
+@property (readonly) NSMutableArray *elseBody;
 @property NSUInteger line;
 @property NSUInteger col;
 @end
@@ -145,6 +157,9 @@ typedef enum
 @end
 
 @interface DSLParser : NSObject
+{
+  NSMutableArray *blockStack_; /* nested repeat/if/macro block contexts */
+}
 - (DSLProgram *)parseFile:(NSString *)path error:(NSString **)err;
 - (DSLProgram *)parseString:(NSString *)text sourceName:(NSString *)name
                      program:(DSLProgram *)prog error:(NSString **)err;
@@ -186,11 +201,20 @@ typedef enum
            contains:(NSString *)needle error:(NSString **)err;
 - (BOOL)clickRole:(DSLRole)role title:(NSString *)title
           button:(int)button count:(int)count error:(NSString **)err;
+- (BOOL)hoverRole:(DSLRole)role title:(NSString *)title error:(NSString **)err;
+- (BOOL)scrollRole:(DSLRole)role title:(NSString *)title
+        direction:(NSString *)direction amount:(int)amount error:(NSString **)err;
+- (BOOL)dragRole:(DSLRole)role title:(NSString *)title
+            byX:(double)dx byY:(double)dy error:(NSString **)err;
 - (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err;
 - (NSString *)localizeString:(NSString *)english;
 - (BOOL)type:(NSString *)text error:(NSString **)err;
 - (BOOL)clearRole:(DSLRole)role title:(NSString *)title error:(NSString **)err;
 - (BOOL)pressKeyCombo:(NSString *)combo error:(NSString **)err;
+
+/* Dump the current visible widget tree as text (used by `record`).  Returns
+ * nil if there is no target application. */
+- (NSString *)widgetTreeText;
 
 /* Read the live properties (enabled/checked) of the widget matching role+title.
  * Both out params may be NULL.  Uses drive_ui's read-only `props` command. */
@@ -214,6 +238,7 @@ typedef enum
   NSString *policy_;      /* stop/continue/retry */
   int retryCount_;
   NSMutableString *log_;
+  NSMutableDictionary *macros_; /* macro name -> body (built before running) */
 }
 - (id)initWithProgram:(DSLProgram *)program engine:(DSLQueryEngine *)engine;
 - (int)run;

@@ -555,13 +555,18 @@ static void WriteAll(int fd, const char *bytes)
 {
   @try
     {
+      /* `[win frame]` is already in screen coordinates, so it doubles as the
+       * screen_frame that lets driving commands (click/hover/scroll/drag)
+       * resolve an on-screen position for the window itself. */
+      NSString *screenFrame = [win isVisible]
+        ? NSStringFromRect([win frame]) : @"";
       [items addObject: [NSArray arrayWithObjects:
                           [NSNumber numberWithInt: depth],
                           NSStringFromClass([win class]),
                           [win title] ?: @"",
                           @"",
                           NSStringFromRect([win frame]),
-                          @"",
+                          screenFrame,
                           [NSNumber numberWithInt: [win isVisible] ? 0 : 1],
                           [self objectIDForObject: win],
                           nil]];

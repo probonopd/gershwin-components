@@ -136,6 +136,40 @@ rightclick row "Project"
 Performs the primary action on the matching widget using real pointer events
 at its on-screen position.
 
+### hover
+
+```text
+hover button "Send"
+hover window "Details"
+```
+
+Moves the pointer over the widget without pressing a button - mouse-over
+effects, tooltips, and hover menus.
+
+### scroll
+
+```text
+scroll table "Results" down
+scroll window "Preview" up 3
+scroll left 2
+```
+
+Emits wheel steps over a widget (scrolling it if it is scrollable), or - with
+no widget - over the current pointer position.  Direction is
+`up`/`down`/`left`/`right`; the optional trailing number is the step count
+(default 1).
+
+### drag
+
+```text
+drag window "Inspector" by 40 -20
+drag slider "Volume" by -30 0
+drag row "Document" by 0 60
+```
+
+Presses button 1 at the widget and drags it by the given pixel offset
+(moving windows and sliders, adjusting scrollbars, drag-and-drop).
+
 ### type
 
 ```text
@@ -225,6 +259,74 @@ log "Workspace loaded"
 ```
 
 Writes a message to the execution log.
+
+### record
+
+```text
+record
+record "after-install"
+```
+
+Dumps the current on-screen widget tree (class, title and state of every
+visible widget) to the execution log.  Useful for inspecting what is actually
+on screen - the textual complement of `capture screenshot` (which saves a
+PNG).
+
+## Blocks and control flow
+
+`repeat`, `if`/`else` and `macro` open a block that runs a list of commands
+until the matching `end`.  Blocks nest to any depth.  The closing `end` may
+name the block it closes (`end if`, `end repeat`, `end macro`) for clarity.
+
+### repeat
+
+```text
+repeat 3
+  click button "Try"
+end
+```
+
+Runs the block a fixed number of times.  The count may be a variable:
+
+```text
+set ATTEMPTS="3"
+repeat ${ATTEMPTS}
+  click button "Try"
+end
+```
+
+### if / else
+
+```text
+if window "Welcome"
+  click button "Continue"
+end
+
+if not button "Update"
+  log "No update available"
+else
+  click button "Update"
+end
+```
+
+Runs the block when a widget exists (or, with `not`, when it does not), the
+`else` clause otherwise.  Titles are language-independent, as elsewhere.
+
+### macro / call
+
+```text
+macro open_about
+  select menu "Workspace/About This Computer"
+  wait until window "About This Computer"
+  assert window "About This Computer"
+end
+
+call open_about
+```
+
+`macro NAME ... end` defines a named, reusable block of commands; `call NAME`
+runs it wherever needed.  A macro may be called even before its definition
+appears, and its commands may themselves use blocks.
 
 ## Variables
 
@@ -318,10 +420,22 @@ Find `examples/about_this_computer.dsl` and
 `examples/ueber_diesen_computer.dsl` in the `drive_script` source tree for
 these ready to run.
 
-## Future extensions
+Control flow needs no running application, so `examples/control_flow.dsl`
+demonstrates `repeat`, `if/else` and `macro`/`call` straight away:
 
-Planned additions include `repeat`, `if`/`else`, `drag`, `scroll`, `hover`,
-`record` and `macro`.  They will keep the language declarative.
+```text
+macro report
+  if not window "example-window-nx"
+    log "target window present"
+  else
+    log "target window absent"
+  end
+end
+
+repeat 3
+  log "attempt"
+end
+```
 
 ## Design principles
 
