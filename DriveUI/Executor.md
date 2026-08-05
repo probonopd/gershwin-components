@@ -1,638 +1,331 @@
-# GNUstep UI Automation DSL and Executor Specification
+# GNUstep UI Automation DSL
 
-**Version:** 1.0 Draft
+`drive_script` runs plain-language scripts that automate GNUstep
+applications.  You describe what should happen (open a window, choose a menu
+item, type text, check the result) and the tool drives the app's real UI on
+your X display.
 
----
-
-# 1. Overview
-
-The GNUstep UI Automation DSL is a declarative language for automating GNUstep graphical applications.
-
-The language is designed to be:
-
-* Human-readable
-* Easy to write
-* Easy to parse
-* Deterministic
-* Stable
-* Accessible to non-programmers
-
-Scripts describe **what** should happen, not **how** to perform it.
-
-Example:
+A complete example - open Workspace's "About This Computer" panel, verify it,
+and save a screenshot:
 
 ```text
-activate application "ProjectCenter"
-
-select menu "Tools/Go To"
-
-wait until window "Go To"
-
-type "/projects"
-
-press Enter
-
-wait until window "Workspace"
-
-capture screenshot "workspace.png"
+activate application "Workspace"
+select menu "Workspace/About This Computer"
+wait until window "About This Computer"
+assert window "About This Computer"
+assert text contains "Processor"
+capture screenshot "/tmp/about_this_computer.png"
+log "About panel shown"
 ```
 
----
-
-# 2. Goals
-
-The project has four goals:
-
-1. Provide a readable automation language.
-2. Execute scripts using GNUstep accessibility.
-3. Remain independent of implementation details.
-4. Be easily extensible.
-
----
-
-# 3. Non-Goals
-
-The project is **not**:
-
-* A general programming language.
-* A macro recorder.
-* A coordinate-based automation system.
-* A cross-platform automation framework.
-
-Version 1 targets **GNUstep applications only**.
-
----
-
-# 4. Architecture
-
-```
-Script
-   │
-Lexer
-   │
-Parser
-   │
-AST
-   │
-Executor
-   │
-Query Engine
-   │
-GNUstep Accessibility
-   │
-Target Application
-```
-
-The executor never manipulates accessibility objects directly.
-
-It creates semantic queries which are resolved by the Query Engine.
-
----
-
-# 5. Language
-
-## General Rules
-
-* One command per line.
-* Blank lines are ignored.
-* Keywords are case-insensitive.
-* Strings use double quotes.
-* Commands execute sequentially.
-
-Example:
+Run it:
 
 ```text
-click button "OK"
+drive_script --drive-tool /System/Library/Tools/drive_ui script.dsl
+```
 
-press Enter
+The script exits `0` when every command succeeds and a non-zero code (see
+Exit Codes) when something fails.
 
+## Requirements
+
+The target application must be running with the DriveUI bundle loaded (Eau
+theme, `GSAppKitUserBundles`), `$DISPLAY` must point at your X session, and
+`drive_script` must find the `drive_ui` CLI (pass `--drive-tool` if it is not
+`/System/Library/Tools/drive_ui`).
+
+## Language basics
+
+Each line is one command.  Blank lines are ignored.  Keywords are
+case-insensitive.  Strings are double-quoted.
+
+Comments begin with `#` and run to the end of the line:
+
+```text
+# Open the project dialog
+select menu "File/Open"
+```
+
+### Strings and escapes
+
+Inside double quotes the escapes `\\`, `\"`, `\n` and `\t` are supported:
+
+```text
+type "line one\nline two"
+type "a \"quoted\" word"
+```
+
+### Durations
+
+`wait` and `wait until` accept durations with an `ms`, `s`, or `m` suffix:
+
+```text
+wait 500ms
 wait 2s
+wait 5m
 ```
 
----
+### Object types
 
-# 6. Comments
-
-Comments begin with `#`.
+Many commands accept an object type that scopes which widget is found:
 
 ```text
-# Open project
+application   window     dialog    sheet    button
+menu          menuitem   textfield textarea  checkbox
+radio         popup      combobox  table    row
+column        list       image     toolbar  tab
+tabitem       slider     progress  label
 ```
 
----
+Object types map to the widget's on-screen title or label, so you can name a
+button or window by what the user sees.
 
-# 7. Strings
+### Language-independent names
 
-Strings are enclosed in double quotes.
+Titles may be written in English or in the running language.  When a title is
+not found as typed, the app's own translations are used, so a script works
+whether Workspace runs in English, German, or any other shipped language:
 
 ```text
-type "/tmp/project"
+select menu "Workspace/About This Computer"      # German UI also works
+wait until window "About This Computer"
 ```
 
-Supported escapes:
+## Commands
 
-```
-\\
-\"
-\n
-\t
-```
-
----
-
-# 8. Durations
-
-Supported units:
+### activate application
 
 ```text
-100ms
-
-2s
-
-30s
-
-5m
+activate application "Workspace"
 ```
 
----
+Resolves the app by name (matching its running process) and raises its
+frontmost window if it has one.  Applications that have no clickable window,
+such as a desktop, are still selected as the target for later commands.
 
-# 9. Supported Object Types
+### focus window
 
-The language recognizes the following UI object types.
-
-```
-application
-window
-dialog
-sheet
-button
-menu
-menuitem
-textfield
-textarea
-checkbox
-radio
-popup
-combobox
-table
-row
-column
-list
-image
-toolbar
-tab
-tabitem
-slider
-progress
-label
-```
-
----
-
-# 10. Commands
-
-## activate application
-
-```
-activate application "ProjectCenter"
-```
-
-Activates an application.
-
----
-
-## focus window
-
-```
+```text
 focus window "Workspace"
 ```
 
-Makes a window active.
+Raises and focuses a window of the active application.
 
----
+### select menu
 
-## select menu
-
-```
+```text
 select menu "File/Open"
-
 select menu "Tools/Go To"
+select menu "Workspace/About This Computer"
 ```
 
-Menu paths are separated with `/`.
+Chooses a menu item.  Menu paths are separated with `/` and each segment may
+be named in English or in the running language.  Selection is done in-process
+on the application itself, so it is fast and does not depend on opening the
+on-screen menu bar.
 
-Menu resolution is language independent: the script may name each menu segment
-by its title in the running language (e.g. German `"Workspace/About This Computer"`)
-or, because the app is the one executing, any of the app's shipped translations
-(the English string is used as the `.strings` key).  So the example below works
-whether Workspace runs in English, German, or another shipped language:
+### click / doubleclick / rightclick
 
-```
-select menu "Workspace/Über diesen Computer"
-```
-
-Title matching similarly accepts the English or the localized spelling for
-`assert` / `wait until` / `click` targets.
-
----
-
-## click
-
-```
+```text
 click button "OK"
-
 click checkbox "Remember"
-
-click row "Document"
-```
-
-Performs the primary action.
-
----
-
-## doubleclick
-
-```
 doubleclick row "Document"
-```
-
----
-
-## rightclick
-
-```
 rightclick row "Project"
 ```
 
----
+Performs the primary action on the matching widget using real pointer events
+at its on-screen position.
 
-## type
+### type
 
-```
+```text
 type "/tmp/project"
 ```
 
-Types literal text into the currently focused editable control.
+Types text as key events into the currently focused editable control.  Click
+the field first if it is not already focused:
 
----
-
-## clear
-
+```text
+click textfield "Name"
+type "Alice"
 ```
+
+### clear
+
+```text
 clear textfield "Search"
 ```
 
-Clears the value of a control.
+Clears an editable control: focuses it, selects all, and deletes.
 
----
+### press
 
-## press
-
-```
+```text
 press Enter
-
 press Escape
-
 press Tab
-
 press Ctrl+C
-
 press Cmd+Q
 ```
 
-Presses a keyboard key or key combination.
+Presses a key or a key combination.  GNUstep's Command key is the left Alt
+key in X11, so `Cmd+...` presses Alt.
 
----
+### wait
 
-## wait
-
-```
+```text
 wait 2s
-
 wait 500ms
 ```
 
-Pauses execution.
+Pauses execution for a fixed duration.
 
----
+### wait until
 
-## wait until
-
-```
+```text
 wait until window "Workspace"
-
 wait until button "OK"
-
-wait until text contains "Finished"
-
 wait until not exists dialog "Loading"
 ```
 
-Optional timeout:
+Waits until a widget exists (or, with `not exists`, disappears).  The default
+timeout is 30 seconds; override it with `timeout`:
 
+```text
+wait until button "OK" timeout 60s
 ```
-wait until button "OK" timeout 30s
-```
 
----
+### assert
 
-## assert
-
-```
+```text
 assert window "Workspace"
-
 assert button "Save" enabled
-
 assert checkbox "Remember" checked
-
 assert text contains "Complete"
+assert not exists dialog "Loading"
 ```
 
-Assertions terminate execution if they fail.
+Checks that a condition holds and stops the script with an assertion error if
+it does not.  `text contains` searches the visible text of every widget.
 
----
+### capture screenshot
 
-## capture screenshot
-
-```
+```text
 capture screenshot
-
 capture screenshot "workspace.png"
 ```
 
-Captures the current screen.
+Captures the whole screen to a PNG.  Without a filename the screenshot is
+written to `/tmp/drive_script-<timestamp>.png`.
 
----
+### log
 
-## log
-
-```
+```text
 log "Workspace loaded"
 ```
 
 Writes a message to the execution log.
 
----
+## Variables
 
-# 11. Error Policy
+`set` declares a variable; `${NAME}` expands it anywhere on later lines.
+Variables are expanded while the script is parsed.
 
-Default behavior:
-
-* Stop execution.
-* Print the error.
-* Return a non-zero exit code.
-
-Optional policies:
-
-```
-on_error stop
-
-on_error continue
-
-on_error retry 3
-
-on_error screenshot
-```
-
----
-
-# 12. Variables
-
-```
+```text
 set PROJECT="/tmp/project"
+set OPEN_WITH="ProjectCenter"
 
+activate application "${OPEN_WITH}"
+select menu "File/Open"
 type "${PROJECT}"
 ```
 
-Variables are expanded before execution.
+## Includes
 
----
-
-# 13. Includes
-
-```
+```text
 include "common.dsl"
 ```
 
-Loads another script.
+Loads another script (resolved relative to the including file) at that point.
 
----
+## Error handling
 
-# 14. Parsing
+By default execution stops at the first failing command, the error is
+reported, and a non-zero exit code is returned.  The `on_error` command
+changes this:
 
-The parser produces an immutable Abstract Syntax Tree.
-
-Example:
-
-```
-ClickNode
-    role = Button
-    title = "OK"
-
-PressNode
-    key = Enter
+```text
+on_error stop          # default: stop at the first failure
+on_error continue      # keep going, report each failure
+on_error retry 3       # retry the failing command up to 3 times
 ```
 
-Syntax errors report:
+## How a script runs
 
-* file
-* line
-* column
-* expected token
+The parser reads the script into a list of commands.  The executor runs them
+one by one.  Each command is turned into a semantic query answered by the
+query engine, which talks to the target application's DriveUI socket and
+drives the UI with real X11 events.  The script never deals with object
+pointers, coordinates, or widget trees.
 
----
+## Logging
 
-# 15. Executor
+Every command is logged with its wall-clock time and duration:
 
-The executor walks the AST sequentially.
-
-Pseudo-code:
-
-```
-for each node
-
-    execute(node)
-
-    if failed
-
-        apply error policy
-```
-
-The executor contains no GNUstep-specific logic.
-
-Its responsibility is to translate AST nodes into semantic queries.
-
----
-
-# 16. Query Model
-
-The executor communicates using semantic queries.
-
-Example:
-
-```
-click button "OK"
-```
-
-becomes
-
-```
-Action: Click
-
-Target:
-    Role: Button
-    Title: "OK"
-```
-
-Another example:
-
-```
-assert window "Workspace"
-```
-
-becomes
-
-```
-Condition:
-    Exists
-
-Target:
-    Role: Window
-    Title: "Workspace"
-```
-
-The Query Engine resolves these requests.
-
----
-
-# 17. Query Resolution
-
-Queries are resolved using GNUstep accessibility.
-
-Resolution order is:
-
-1. Exact identifier (if available)
-2. Accessibility label
-3. Accessibility title
-4. Visible text
-5. Role
-
-The Query Engine returns either:
-
-* Success
-* Not Found
-* Multiple Matches
-* Unsupported
-* Error
-
----
-
-# 18. GNUstep Accessibility
-
-The Query Engine is responsible for interacting with GNUstep accessibility.
-
-Its responsibilities include:
-
-* Enumerating applications
-* Enumerating windows
-* Enumerating accessible objects
-* Reading object properties
-* Invoking accessibility actions
-* Reading values
-* Writing values
-* Tracking focus
-* Waiting for UI changes
-
-Accessibility objects are never exposed outside the Query Engine.
-
----
-
-# 19. Logging
-
-Every executed command is logged.
-
-Example:
-
-```
-00.001 activate application "ProjectCenter"
-
-SUCCESS
-
-12 ms
-
+```text
+00.001 activate application "Workspace"
+  SUCCESS  12 ms
 00.024 click button "Open"
-
-SUCCESS
-
-5 ms
+  SUCCESS  5 ms
 ```
 
----
+## Exit Codes
 
-# 20. Exit Codes
-
-```
+```text
 0  Success
-
 1  Parse Error
-
 2  Runtime Error
-
 3  Timeout
-
-4  Accessibility Error
-
+4  Accessibility Error (app not found, widget not found, action failed)
 5  Assertion Failed
 ```
 
----
+## Worked examples
 
-# 21. Future Extensions
+Open the About panel in English and in German, then close it again:
 
-Potential additions include:
-
-```
-repeat
-
-if
-
-else
-
-drag
-
-scroll
-
-hover
-
-record
-
-macro
-
-function
+```text
+activate application "Workspace"
+select menu "Workspace/About This Computer"
+wait until window "About This Computer"
+assert text contains "Processor"
+capture screenshot "/tmp/about_this_computer.png"
+press Escape
 ```
 
-These additions must preserve the declarative nature of the language.
+German equivalent (works on an English-running Workspace too):
 
----
-
-# 22. Design Philosophy
-
-The DSL expresses **intent**.
-
-For example,
-
-```
-click button "OK"
+```text
+activate application "Workspace"
+select menu "Workspace/Über diesen Computer"
+wait until window "Über diesen Computer"
+assert text contains "Prozessor"
+capture screenshot "/tmp/about_this_computer_de.png"
+press Escape
 ```
 
-means:
+Find `examples/about_this_computer.dsl` and
+`examples/ueber_diesen_computer.dsl` in the `drive_script` source tree for
+these ready to run.
 
-> Locate the semantic button named "OK" and invoke its primary action.
+## Future extensions
 
-The script never specifies coordinates, widget hierarchy, or implementation details.
+Planned additions include `repeat`, `if`/`else`, `drag`, `scroll`, `hover`,
+`record` and `macro`.  They will keep the language declarative.
 
-The executor translates user intent into semantic queries.
+## Design principles
 
-The Query Engine resolves those queries using GNUstep accessibility.
-
-This separation keeps the language stable, the executor simple, and the accessibility implementation isolated from the scripting language.
+The DSL expresses intent: `click button "OK"` means "find the button the user
+sees as OK and press it".  Scripts never name coordinates, object IDs, or
+widget hierarchies.  The executor and query engine isolate all GNUstep and X11
+details, so scripts stay short, readable, and stable across applications.
