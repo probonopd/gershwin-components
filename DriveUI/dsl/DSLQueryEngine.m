@@ -1,0 +1,627 @@
+/*
+ * Copyright (c) 2026 Simon Peter
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
+ * Executor + QueryEngine for the GNUstep UI Automation DSL (see DSL.h).
+ *
+ * The QueryEngine is the only component that talks to drive_ui / X11; every
+ * interaction is a spawned `drive_ui` subprocess.  The executor walks the AST
+ * and translates each DSLCommand into a semantic query answered by the engine
+ * - no GNUstep-specific logic lives here.
+ *
+ * drive_ui takes a PID; the engine resolves an app name to that PID by
+ * scanning the /tmp/driveui.<pid>.sock sockets and asking each for its app
+ * name via the read-only `app` command added to the DriveUI bundle.
+ */
+
+#import "DSL.h"
+
+@implementation DSLQueryEngine
+
+/* Node in the menu-title trie built from the DriveUI `menu` reply. */
+typedef struct DDSMenuNode { NSString *title; int index; struct DDSMenuNode **kids; int nkids; } DDSMenuNode;
+
+static void DDSMenuNodeFree(DDSMenuNode *n)
+{
+  if (!n) return;
+  for (int i = 0; i < n->nkids; i++) DDSMenuNodeFree(n->kids[i]);
+  free(n->kids);
+  [n->title release];
+  free(n);
+}
+
+- (id)initWithDriveTool:(NSString *)toolPath
+{
+  if ((self = [super init]))
+    {
+      pid_ = 0;
+      appName_ = nil;
+      driveTool_ = [toolPath copy];
+      localizeCache_ = [[NSMutableDictionary alloc] init];
+    }
+  return self;
+}
+- (void)dealloc
+{
+  [appName_ release];
+  [driveTool_ release];
+  [localizeCache_ release];
+  [super dealloc];
+}
+- (int)pid { return pid_; }
+- (NSString *)appName { return appName_; }
+
+/* Run a drive_ui invocation, wait for it, and return its stdout (nil if the
+ * exit status was non-zero). */
+- (NSString *)runCollect:(NSArray *)argv error:(NSString **)err
+{
+  return [self runTool: driveTool_ argv: argv error: err];
+}
+
+/* Run an arbitrary executable, wait for it, and return its stdout (nil if the
+ * exit status was non-zero). */
+- (NSString *)runTool:(NSString *)path argv:(NSArray *)argv error:(NSString **)err
+{
+  NSTask *task = [[NSTask alloc] init];
+  [task setLaunchPath: path];
+  [task setArguments: argv];
+  NSPipe *outPipe = [NSPipe pipe];
+  NSPipe *errPipe = [NSPipe pipe];
+  [task setStandardOutput: outPipe];
+  [task setStandardError: errPipe];
+  [task launch];
+  [task waitUntilExit];
+  NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
+  NSString *out = [[[NSString alloc] initWithData: outData
+    encoding: NSUTF8StringEncoding] autorelease];
+  if ([task terminationStatus] != 0)
+    {
+      NSData *errData = [[errPipe fileHandleForReading] readDataToEndOfFile];
+      NSString *stderrStr = [[[NSString alloc] initWithData: errData
+        encoding: NSUTF8StringEncoding] autorelease];
+      if (err && [stderrStr length] > 0)
+        *err = [stderrStr stringByTrimmingCharactersInSet:
+          [NSCharacterSet newlineCharacterSet]];
+      [task release];
+      return nil;
+    }
+  [task release];
+  return out;
+}
+
+/* Build the --pid argv for the current target app. */
+- (NSArray *)argvForSubcommand:(NSString *)subcommand
+{
+  return [NSArray arrayWithObjects:
+    [NSString stringWithFormat: @"--pid=%d", pid_], subcommand, nil];
+}
+
+/* Resolve an app name to a pid by scanning the /tmp/driveui.<pid>.sock
+ * sockets (each answers the read-only `app` command). */
+- (BOOL)resolveApplication:(NSString *)name error:(NSString **)err
+{
+  NSString *tmp = @"/tmp";
+  NSArray *entries = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:
+    tmp error: nil];
+  NSInteger bestDist = NSIntegerMax, bestPid = 0;
+  for (NSString *e in entries)
+    {
+      if (![e hasPrefix: @"driveui."] || ![e hasSuffix: @".sock"]) continue;
+      NSString *pidStr = [e substringWithRange: NSMakeRange(8,
+        [e length] - 8 - [@".sock" length])];
+      int maybePid = [pidStr intValue];
+      NSString *out = [self runCollect: [NSArray arrayWithObjects:
+        [NSString stringWithFormat: @"--pid=%d", maybePid], @"app", nil]
+        error: nil];
+      if (!out) continue;
+      NSString *found = [out stringByTrimmingCharactersInSet:
+        [NSCharacterSet newlineCharacterSet]];
+      if ([found length] == 0) continue;
+      if ([found isEqualToString: name])
+        {
+          pid_ = maybePid;
+          appName_ = [name copy];
+          return YES;
+        }
+      if ([found hasPrefix: name])
+        {
+          int dist = [found length] - [name length];
+          if (dist < bestDist) { bestDist = dist; bestPid = maybePid; }
+        }
+    }
+  if (bestPid > 0)
+    {
+      pid_ = bestPid;
+      appName_ = [name copy];
+      return YES;
+    }
+  if (err) *err = [NSString stringWithFormat:
+    @"application '%@' not running (DriveUI bundle not loaded?)", name];
+  return NO;
+}
+
+/* Apply an error; callers set *err with a human message. */
+static void SetErr(NSString **err, NSString *m)
+{
+  if (err) *err = m;
+}
+
+/* Translate an English string to the app's current language, so DSL scripts
+ * work regardless of locale.  Reads the app's own .strings via the bundle's
+ * `localize` command (cached; falls back to the original string). */
+- (NSString *)localizeString:(NSString *)english
+{
+  if (english == nil || [english length] == 0 || pid_ == 0) return english;
+  NSString *cached = [localizeCache_ objectForKey: english];
+  if (cached) return cached;
+  NSString *out = [self runCollect: [NSArray arrayWithObjects:
+    [NSString stringWithFormat: @"--pid=%d", pid_], @"localize", english, nil]
+    error: nil];
+  NSString *localized = out ? [out stringByTrimmingCharactersInSet:
+    [NSCharacterSet newlineCharacterSet]] : english;
+  if ([localized length] == 0) localized = english;
+  [localizeCache_ setObject: localized forKey: english];
+  return localized;
+}
+
+/* Case-insensitive substring match that also accepts the localized spelling of
+ * the needle, so a DSL script can name a title/button in English or German and
+ * still match a German-running UI. */
+- (BOOL)title:(NSString *)title matches:(NSString *)segOrEnglish
+{
+  if ([title rangeOfString: segOrEnglish options: NSCaseInsensitiveSearch].location != NSNotFound)
+    return YES;
+  NSString *localized = [self localizeString: segOrEnglish];
+  if (![localized isEqualToString: segOrEnglish] &&
+      [title rangeOfString: localized options: NSCaseInsensitiveSearch].location != NSNotFound)
+    return YES;
+  return NO;
+}
+
+/* Does a snapshot row's class satisfy the DSL role's class filter?  A subclass
+ * name (AboutWindow, GWDesktopWindow) does not contain "NSWindow", so window
+ * roles match any class ending in "Window" as well. */
+- (BOOL)class:(NSString *)lineClass matchesRoleClass:(NSString *)wantClass
+{
+  if (wantClass == nil || [wantClass length] == 0) return YES;
+  if ([lineClass rangeOfString: wantClass].location != NSNotFound) return YES;
+  if ([wantClass isEqualToString: @"NSWindow"] &&
+      [lineClass hasSuffix: @"Window"]) return YES;
+  return NO;
+}
+
+/* Raise + focus the app's main window by clicking it (activate).  The app is
+ * already the resolved PID target; raising its frontmost window is best-effort
+ * (some apps, e.g. a desktop, have no clickable title bar, and window facades
+ * may not carry a screen frame). */
+- (BOOL)activate:(NSString **)err
+{
+  NSArray *argv = [self argvForSubcommand: @"get_full_tree"];
+  NSString *tree = [self runCollect: argv error: err];
+  if (!tree) return NO;
+  NSString *target = nil;
+  for (NSString *line in [tree componentsSeparatedByString: @"\n"])
+    {
+      NSArray *f = [line componentsSeparatedByString: @"\t"];
+      if ([f count] < 8) continue;
+      if ([[f objectAtIndex: 6] isEqualToString: @"1"]) continue;   /* hidden */
+      NSString *sf = [f objectAtIndex: 5];
+      if ([sf length] == 0) continue;                              /* no frame to click */
+      target = [f objectAtIndex: 7];
+      break;
+    }
+  /* Nothing clickable to raise - the app is already our PID target, so this is
+   * fine; the subsequent commands drive it directly. */
+  if (target == nil) return YES;
+  return [self clickObjectID: target button: 1 count: 1 error: err];
+}
+
+- (BOOL)focusMainWindow:(NSString **)err
+{
+  return [self activate: err];
+}
+
+/* Build arglist for find/click against a role+title. */
+- (NSArray *)resolveArgsRole:(DSLRole)role title:(NSString *)title
+{
+  NSMutableArray *args = [NSMutableArray array];
+  NSString *cls = DSLRoleClassName(role);
+  if (cls) [args addObjectsFromArray: [NSArray arrayWithObjects: @"--class", cls, nil]];
+  if (title)
+    [args addObjectsFromArray: [NSArray arrayWithObjects: @"--text", title, nil]];
+  return args;
+}
+
+/* Locate a matching widget's object_id via drive_ui find_widgets / get tree.
+ * Returns the object_id line (field 8) or nil. */
+- (NSString *)objectIDForRole:(DSLRole)role title:(NSString *)title
+                  error:(NSString **)err
+{
+  NSMutableArray *argv = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"get_full_tree"]];
+  NSString *out = [self runCollect: argv error: err];
+  if (!out) return nil;
+  NSString *cls = DSLRoleClassName(role);
+  for (NSString *line in [out componentsSeparatedByString: @"\n"])
+    {
+      NSArray *f = [line componentsSeparatedByString: @"\t"];
+      if ([f count] < 8) continue;
+      if ([[f objectAtIndex: 6] isEqualToString: @"1"]) continue;
+      if (![self class: [f objectAtIndex: 1] matchesRoleClass: cls]) continue;
+      if (title && ![self title: [f objectAtIndex: 2] matches: title]) continue;
+      return [f objectAtIndex: 7];
+    }
+  SetErr(err, [NSString stringWithFormat: @"no widget matching role/title"]);
+  return nil;
+}
+
+- (BOOL)clickRole:(DSLRole)role title:(NSString *)title
+          button:(int)button count:(int)count error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
+  NSString *objID = [self objectIDForRole: role title: title error: err];
+  if (!objID) return NO;
+  return [self clickObjectID: objID button: button count: count error: err];
+}
+
+/* Select a menu item by its title path, e.g. "About This Computer" or
+ * "File/Open".  Resolution is in-process (the app's own main menu), so it is
+ * fast and does not depend on the on-screen menu bar or X11 timing.
+ *
+ * The bundle's `menu` command returns one line per item:
+ *   depth\tindex\ttitle\tenabled\thas_submenu
+ * with submenu items listed directly after their parent at depth+1.  We build
+ * a tree of (title -> index) and walk the DSL path through it; the resulting
+ * index path is passed to `menu_invoke`, which performs the leaf item's
+ * action (exactly what a real menu selection does). */
+- (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
+  if (path == nil || [path length] == 0)
+    { SetErr(err, @"select menu needs a path (use \"Top/Sub\")"); return NO; }
+
+  NSString *tree = [self runCollect: [self argvForSubcommand: @"menu"]
+                              error: err];
+  if (!tree) return NO;
+
+  DDSMenuNode *root = calloc(1, sizeof(DDSMenuNode));
+  root->title = @"";
+  root->index = -1;
+
+  /* parents[d] = the node whose submenu items sit at depth d.  parents[0] is
+   * the virtual root holding the top-level bar items; a node with a submenu
+   * becomes the parent of its children at depth+1.  Because the serialized
+   * lines are ordered depth-first, setting parents[depth+1] when we see a
+   * submenu node always yields the correct ancestor for the lines that follow.
+   * max depth is bounded by the menu; 64 is far deeper than any real one. */
+  DDSMenuNode *parents[64];
+  memset(parents, 0, sizeof(parents));
+  parents[0] = root;
+
+  NSArray *lines = [tree componentsSeparatedByString: @"\n"];
+  BOOL anyItem = NO;
+  for (NSString *line in lines)
+    {
+      NSArray *f = [line componentsSeparatedByString: @"\t"];
+      if ([f count] < 5) continue;
+      int depth = [[f objectAtIndex: 0] intValue];
+      int index = [[f objectAtIndex: 1] intValue];
+      NSString *title = [f objectAtIndex: 2];
+      BOOL hasSubmenu = [[f objectAtIndex: 4] isEqualToString: @"1"];
+      if (depth < 0 || depth >= 64) continue;
+      anyItem = YES;
+
+      DDSMenuNode *parent = parents[depth];
+      if (parent == NULL)
+        {
+          /* Depth jumped in a way we cannot interpret; skip this item. */
+          continue;
+        }
+      parent->kids = realloc(parent->kids, sizeof(DDSMenuNode *) *
+          (parent->nkids + 1));
+      DDSMenuNode *node = calloc(1, sizeof(DDSMenuNode));
+      node->title = [title copy];
+      node->index = index;
+      parent->kids[parent->nkids++] = node;
+
+      if (hasSubmenu && depth + 1 < 64)
+        parents[depth + 1] = node;
+    }
+
+  if (!anyItem)
+    {
+      SetErr(err, @"application has no menu (DriveUI menu unsupported?)");
+      DDSMenuNodeFree(root);
+      return NO;
+    }
+
+  /* Walk the DSL path (split on "/") through the tree. */
+  NSArray *segs = [path componentsSeparatedByString: @"/"];
+  NSMutableArray *indices = [NSMutableArray array];
+  DDSMenuNode *current = root;
+  BOOL found = YES;
+  for (NSString *seg in segs)
+    {
+      if ([seg length] == 0) continue;
+      DDSMenuNode *match = NULL;
+      for (int i = 0; i < current->nkids; i++)
+        {
+          DDSMenuNode *k = current->kids[i];
+          if ([self title: k->title matches: seg])
+            { match = k; break; }
+        }
+      if (match == NULL) { found = NO; break; }
+      [indices addObject: @(match->index)];
+      current = match;
+    }
+
+  if (!found || [indices count] == 0)
+    {
+      SetErr(err, [NSString stringWithFormat:
+        @"menu item '%@' not found in '%@'", path, appName_ ?: @"app"]);
+      DDSMenuNodeFree(root);
+      return NO;
+    }
+  DDSMenuNodeFree(root);
+
+  /* Perform the action by index path (menu_invoke takes integer args). */
+  NSMutableArray *argv = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"menu_invoke"]];
+  for (NSNumber *idx in indices)
+    [argv addObject: [idx stringValue]];
+  NSString *reply = [self runCollect: argv error: err];
+  if (!reply) return NO;
+  if ([reply hasPrefix: @"error:"])
+    {
+      SetErr(err, [reply stringByTrimmingCharactersInSet:
+        [NSCharacterSet newlineCharacterSet]]);
+      return NO;
+    }
+  return YES;
+}
+
+/* Click/double-click/right-click an object by its ID with real X11 events. */
+- (BOOL)clickObjectID:(NSString *)objID button:(int)button count:(int)count
+                error:(NSString **)err
+{
+  NSString *cmd = (count == 2) ? @"doubleclick" : ((button == 3) ? @"rightclick" : @"click");
+  NSMutableArray *args = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: cmd]];
+  [args addObject: objID];
+  if ([self runCollect: args error: err]) return YES;
+  return NO;
+}
+
+- (BOOL)type:(NSString *)text error:(NSString **)err
+{
+  /* sendkeys types into the focused field directly; it is a global X11
+   * action, so no target app is strictly needed. */
+  NSString *out = [self runCollect: [NSArray arrayWithObjects:
+    [NSString stringWithFormat: @"--pid=%d", pid_], @"sendkeys", text, nil]
+    error: err];
+  return out != nil;
+}
+
+- (BOOL)clearRole:(DSLRole)role title:(NSString *)title error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
+  NSString *objID = [self objectIDForRole: role title: title error: err];
+  if (!objID) return NO;
+  NSMutableArray *args = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"clear"]];
+  [args addObject: objID];
+  return [self runCollect: args error: err] != nil;
+}
+
+- (BOOL)pressKeyCombo:(NSString *)combo error:(NSString **)err
+{
+  /* Global X11 key action - no target app required. */
+  /* combo like "Enter", "Escape", "Ctrl+C", "Cmd+Q". */
+  NSArray *parts = [combo componentsSeparatedByString: @"+"];
+  NSMutableArray *args = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: (parts.count > 1) ? @"chord" : @"press"]];
+  if (parts.count > 1)
+    {
+      for (NSUInteger i = 0; i < [parts count] - 1; i++)
+        [args addObject: [self normalizeMod: [parts objectAtIndex: i]]];
+      [args addObject: [self normalizeKey: [parts lastObject]]];
+    }
+  else
+    [args addObject: [parts lastObject]];
+  NSString *out = [self runCollect: args error: err];
+  return out != nil;
+}
+
+/* Translate a DSL key to the key name drive_ui's X11Support expects. */
+- (NSString *)normalizeKey:(NSString *)key
+{
+  NSString *k = [key lowercaseString];
+  if ([k isEqualToString: @"enter"] || [k isEqualToString: @"return"])
+    return @"Return";
+  if ([k isEqualToString: @"esc"] || [k isEqualToString: @"escape"])
+    return @"Escape";
+  if ([k isEqualToString: @"tab"]) return @"Tab";
+  if ([k isEqualToString: @"backspace"]) return @"BackSpace";
+  if ([k isEqualToString: @"del"] || [k isEqualToString: @"delete"])
+    return @"Delete";
+  if ([k isEqualToString: @"up"]) return @"Up";
+  if ([k isEqualToString: @"down"]) return @"Down";
+  if ([k isEqualToString: @"left"]) return @"Left";
+  if ([k isEqualToString: @"right"]) return @"Right";
+  if (k.length == 1)
+    {
+      unichar c = [k characterAtIndex: 0];
+      if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) return key;
+    }
+  return key;
+}
+
+- (NSString *)normalizeMod:(NSString *)mod
+{
+  NSString *m = [mod lowercaseString];
+  /* GNUstep Command maps to Left Alt in drive_ui's X11 simulation. */
+  if ([m isEqualToString: @"cmd"] || [m isEqualToString: @"command"] ||
+      [m isEqualToString: @"meta"] || [m isEqualToString: @"alt"])
+    return @"alt";
+  if ([m isEqualToString: @"ctrl"] || [m isEqualToString: @"control"]) return @"control";
+  if ([m isEqualToString: @"shift"]) return @"shift";
+  if ([m isEqualToString: @"super"]) return @"super";
+  if ([m isEqualToString: @"win"]) return @"super";
+  return m;
+}
+
+- (BOOL)doesWidgetExist:(DSLRole)role title:(NSString *)title
+           contains:(NSString *)needle error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
+  NSString *cls = DSLRoleClassName(role);
+  NSString *tree = [self runCollect: [self argvForSubcommand: @"get_full_tree"]
+    error: err];
+  if (!tree) return NO;
+  for (NSString *line in [tree componentsSeparatedByString: @"\n"])
+    {
+      NSArray *f = [line componentsSeparatedByString: @"\t"];
+      if ([f count] < 8) continue;
+      NSString *lineCls = [f objectAtIndex: 1];
+      NSString *lineText = [f objectAtIndex: 2];
+      NSString *hidden = [f objectAtIndex: 6];
+      if ([hidden isEqualToString: @"1"]) continue;
+      if (![self class: lineCls matchesRoleClass: cls]) continue;
+      if (title && ![self title: lineText matches: title]) continue;
+      if (needle)
+        {
+          if ([self title: lineText matches: needle] == NO) continue;
+        }
+      return YES;
+    }
+  return NO;
+}
+
+- (BOOL)assertRole:(DSLRole)role title:(NSString *)title kind:(DSLAssertKind)kind
+        needle:(NSString *)needle error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
+  BOOL exists = (kind == DDSAssertContains)
+    ? [self doesWidgetExist: DDSRoleAny title: nil contains: needle error: err]
+    : [self doesWidget: role title: title error: err];
+  switch (kind)
+    {
+      case DDSAssertExists:
+        if (!exists) { SetErr(err, [NSString stringWithFormat:
+          @"assert failed: widget not found"]); return NO; }
+        break;
+      case DDSAssertNotExists:
+        if (exists) { SetErr(err, @"assert failed: widget unexpectedly present"); return NO; }
+        break;
+      case DDSAssertContains:
+        if (!exists) { SetErr(err, @"assert failed: text not found"); return NO; }
+        break;
+      case DDSAssertEnabled:
+      case DDSAssertChecked:
+      {
+        if (!exists) { SetErr(err, @"assert failed: widget not found"); return NO; }
+        BOOL enabled = NO, checked = NO;
+        if (![self propsForRole: role title: title enabled: &enabled
+                        checked: &checked error: err])
+          { if (err && *err == nil) SetErr(err, @"assert failed: cannot read widget state"); return NO; }
+        if (kind == DDSAssertEnabled && !enabled)
+          { SetErr(err, @"assert failed: widget is disabled"); return NO; }
+        if (kind == DDSAssertChecked && !checked)
+          { SetErr(err, @"assert failed: widget is not checked"); return NO; }
+        break;
+      }
+    }
+  return YES;
+}
+
+/* Internal helper: does a widget matching role+title exist right now? */
+- (BOOL)doesWidget:(DSLRole)role title:(NSString *)title error:(NSString **)err
+{
+  return [self doesWidgetExist: role title: title contains: nil error: err];
+}
+
+/* Parse a "enabled=1 state=0" reply from drive_ui's props command. */
+- (BOOL)parsePropsReply:(NSString *)reply enabled:(BOOL *)enabled
+                checked:(BOOL *)checked
+{
+  if (!reply) return NO;
+  if (enabled) *enabled = NO;
+  if (checked) *checked = NO;
+  BOOL foundEnabled = NO, foundChecked = NO;
+  NSArray *pairs = [[reply stringByTrimmingCharactersInSet:
+    [NSCharacterSet newlineCharacterSet]]
+    componentsSeparatedByString: @" "];
+  for (NSString *pair in pairs)
+    {
+      NSArray *kv = [pair componentsSeparatedByString: @"="];
+      if ([kv count] != 2) continue;
+      NSString *key = [kv objectAtIndex: 0];
+      int val = [[kv objectAtIndex: 1] intValue];
+      if ([key isEqualToString: @"enabled"])
+        {
+          if (enabled) *enabled = (val == 1);
+          foundEnabled = YES;
+        }
+      else if ([key isEqualToString: @"state"])
+        {
+          if (checked) *checked = (val == 1);
+          foundChecked = YES;
+        }
+    }
+  return foundEnabled || foundChecked;
+}
+
+- (BOOL)propsForRole:(DSLRole)role title:(NSString *)title
+             enabled:(BOOL *)enabled checked:(BOOL *)checked error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
+  NSString *objID = [self objectIDForRole: role title: title error: err];
+  if (!objID) return NO;
+  NSArray *argv = [NSArray arrayWithObjects:
+    [NSString stringWithFormat: @"--pid=%d", pid_], @"props", objID, nil];
+  NSString *out = [self runCollect: argv error: err];
+  if (!out) return NO;
+  if (![self parsePropsReply: out enabled: enabled checked: checked])
+    {
+      SetErr(err, @"props: malformed reply");
+      return NO;
+    }
+  return YES;
+}
+
+- (BOOL)captureScreenshotToPath:(NSString *)path outPath:(NSString **)outPath
+                          error:(NSString **)err
+{
+  NSString *target = path;
+  if (target == nil || [target length] == 0)
+    {
+      /* default name: /tmp/drive_script-<timestamp>.png */
+      NSDateFormatter *fmt = [[[NSDateFormatter alloc] init] autorelease];
+      [fmt setDateFormat: @"yyyyMMdd-HHmmss"];
+      target = [NSString stringWithFormat: @"/tmp/drive_script-%@.png",
+        [fmt stringFromDate: [NSDate date]]];
+    }
+  if (outPath) *outPath = target;
+
+  /* ffmpeg's x11grab is our screen-capture backend (the same approach the
+   * Screenshot component takes for X11); it is always present on systems with
+   * libav.  Capture the whole root window so hidden/off-screen state does not
+   * matter. */
+  NSString *display = [[NSProcessInfo processInfo] environment][@"DISPLAY"];
+  if (display == nil || [display length] == 0) display = @":0";
+  NSArray *argv = [NSArray arrayWithObjects:
+    @"-f", @"x11grab",
+    @"-i", display,
+    @"-frames:v", @"1",
+    @"-update", @"1",
+    @"-y", target, nil];
+  if ([self runTool: @"/bin/ffmpeg" argv: argv error: err] == nil)
+    {
+      if (err) *err = [NSString stringWithFormat: @"screenshot failed (ffmpeg): %@", *err ?: @""];
+      return NO;
+    }
+  return YES;
+}
+
+@end

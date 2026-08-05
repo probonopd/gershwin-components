@@ -17,9 +17,18 @@
  *   drive_ui [--pid N] get_full_tree
  *   drive_ui [--pid N] find_widgets [--class C] [--text T] [--tag N] [--visible]
  *   drive_ui [--pid N] click <object_id> | --text <label> [--class C]
+ *   drive_ui [--pid N] doubleclick <object_id> | --text <label> [--class C]
+ *   drive_ui [--pid N] rightclick <object_id> | --text <label> [--class C]
  *   drive_ui [--pid N] type <object_id> <text> | --text <label> <text> [--class C]
+ *   drive_ui [--pid N] sendkeys <text>          (type into the focused field)
+ *   drive_ui [--pid N] clear <object_id> | --text <label> [--class C]
  *   drive_ui [--pid N] focus <object_id> | --text <label> [--class C]
  *   drive_ui [--pid N] get <object_id> | --text <label> [--class C]
+ *   drive_ui [--pid N] app                     (read-only: app name)
+ *   drive_ui [--pid N] props <object_id>        (read-only: enabled/state)
+ *   drive_ui [--pid N] menu                    (read-only: main menu tree)
+ *   drive_ui [--pid N] menu_invoke <i0> <i1>.. (perform menu action by index)
+ *   drive_ui [--pid N] localize <english>       (translate to app language)
  *   drive_ui [--pid N] press                     (press Return)
  *   drive_ui [--pid N] chord <mods> <key>        (e.g. chord control c)
  *
@@ -27,7 +36,10 @@
  *
  * Because `text` is the displayed (localized) title/stringValue, widgets can be
  * located by their on-screen label; the driving commands then act at that
- * widget's screen position, so they work on any language.
+ * widget's screen position, so they work on any language.  `menu` + `menu_invoke`
+ * resolve and trigger menu items in-process on the app (fast, localization-safe);
+ * `localize` maps an English string to the app's current language so script
+ * titles can be written in English for any locale.
  */
 
 #import <Foundation/Foundation.h>
@@ -170,6 +182,18 @@ static NSArray *ResolveRow(NSArray *rows, NSString *wantClass, NSString *wantTex
   return nil;
 }
 
+/* Resolve a widget row by object_id. */
+static NSArray *ResolveRowByID(NSArray *rows, NSString *objID)
+{
+  if (!objID) return nil;
+  for (NSArray *f in rows)
+    {
+      if ([f count] < 8) continue;
+      if ([[f objectAtIndex: 7] isEqualToString: objID]) return f;
+    }
+  return nil;
+}
+
 /* Given a snapshot row, return the center of its screen_frame (used for
  * clicking/typing), or NSZeroPoint if unavailable. */
 static NSPoint CenterOfRow(NSArray *f)
@@ -188,9 +212,18 @@ static void Usage(void)
   printf("  drive_ui [--pid N] get_full_tree\n");
   printf("  drive_ui [--pid N] find_widgets [--class C] [--text T] [--tag N] [--visible]\n");
   printf("  drive_ui [--pid N] click <object_id> | --text <label> [--class C]\n");
+  printf("  drive_ui [--pid N] doubleclick <object_id> | --text <label> [--class C]\n");
+  printf("  drive_ui [--pid N] rightclick <object_id> | --text <label> [--class C]\n");
   printf("  drive_ui [--pid N] type <object_id> <text> | --text <label> <text> [--class C]\n");
+  printf("  drive_ui [--pid N] sendkeys <text>          (type into focused field)\n");
+  printf("  drive_ui [--pid N] clear <object_id> | --text <label> [--class C]\n");
   printf("  drive_ui [--pid N] focus <object_id> | --text <label> [--class C]\n");
   printf("  drive_ui [--pid N] get <object_id> | --text <label> [--class C]\n");
+  printf("  drive_ui [--pid N] app                       (read-only: app name)\n");
+  printf("  drive_ui [--pid N] props <object_id>          (read-only: props)\n");
+  printf("  drive_ui [--pid N] menu                       (read-only: main menu tree)\n");
+  printf("  drive_ui [--pid N] menu_invoke <i0> <i1> ...  (perform menu action by index)\n");
+  printf("  drive_ui [--pid N] localize <english>          (translate to app language)\n");
   printf("  drive_ui [--pid N] press                     (press Return)\n");
   printf("  drive_ui [--pid N] chord <mods> <key>        (e.g. chord control c)\n");
   printf("Snapshot: depth\\tclass\\ttext\\ttag\\tframe\\tscreen_frame\\thidden\\tobject_id\n");
@@ -219,6 +252,8 @@ int main(int argc, const char *argv[])
       NSString *arg = [NSString stringWithUTF8String: argv[i]];
       if ([arg isEqualToString: @"--pid"] && i + 1 < argc)
         pid = atoi(argv[++i]);
+      else if ([arg hasPrefix: @"--pid="])
+        pid = atoi([arg UTF8String] + 6);
       else
         [args addObject: arg];
     }
@@ -287,23 +322,97 @@ int main(int argc, const char *argv[])
       NSString *reply = SendCommand(pid, [NSString stringWithFormat: @"get\t%@", target]);
       if (reply) printf("%s", [reply UTF8String]);
     }
-  else if ([command isEqualToString: @"click"] || [command isEqualToString: @"focus"])
+  else if ([command isEqualToString: @"app"])
+    {
+      /* Read-only: return the app name the snapshot belongs to. */
+      NSString *reply = SendCommand(pid, @"app");
+      if (reply) printf("%s", [reply UTF8String]);
+    }
+  else if ([command isEqualToString: @"props"])
+    {
+      /* Read-only: return enabled/state/hidden of an object. */
+      if (idArg == nil)
+        {
+          fprintf(stderr, "drive_ui: props needs <object_id>\n");
+          [pool release];
+          return 1;
+        }
+      NSString *reply = SendCommand(pid, [NSString stringWithFormat: @"props\t%@", idArg]);
+      if (reply) printf("%s", [reply UTF8String]);
+    }
+  else if ([command isEqualToString: @"menu"])
+    {
+      /* Read-only: dump the app's main menu tree
+       * (depth\tindex\ttitle\tenabled\thas_submenu). */
+      NSString *reply = SendCommand(pid, @"menu");
+      if (reply) printf("%s", [reply UTF8String]);
+    }
+  else if ([command isEqualToString: @"menu_invoke"])
+    {
+      /* menu_invoke <i0> <i1> ... - perform the leaf menu item's action
+       * in-process by index path; the bundle replies "ok" or "error:...". */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      if ([positionals count] == 0)
+        {
+          fprintf(stderr, "drive_ui: menu_invoke needs at least one index\n");
+          [pool release];
+          return 1;
+        }
+      NSMutableArray *tokens = [NSMutableArray arrayWithObject: @"menu_invoke"];
+      [tokens addObjectsFromArray: positionals];
+      NSString *reply = SendCommand(pid, [tokens componentsJoinedByString: @"\t"]);
+      if (reply)
+        {
+          printf("%s", [reply UTF8String]);
+          if ([reply hasPrefix: @"error:"])
+            {
+              [pool release];
+              return 1;
+            }
+        }
+    }
+  else if ([command isEqualToString: @"localize"])
+    {
+      /* Read-only: translate an English string to the app's current language. */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      NSString *key = ([positionals count] > 0) ? [positionals objectAtIndex: 0] : nil;
+      if (key == nil)
+        {
+          fprintf(stderr, "drive_ui: localize needs a string\n");
+          [pool release];
+          return 1;
+        }
+      NSString *reply = SendCommand(pid, [NSString stringWithFormat: @"localize\t%@", key]);
+      if (reply) printf("%s", [reply UTF8String]);
+    }
+  else if ([command isEqualToString: @"click"] || [command isEqualToString: @"focus"]
+           || [command isEqualToString: @"doubleclick"] || [command isEqualToString: @"rightclick"])
     {
       /* Resolve the widget's screen position and click there with the real
        * X11 pointer - the app receives genuine mouse events, so this works in
        * modal dialogs and on any widget. */
+      int button = ([command isEqualToString: @"rightclick"]) ? 3 : 1;
+      int count = ([command isEqualToString: @"doubleclick"]) ? 2 : 1;
+
       NSArray *treeRows = ParseTree(FetchTree(pid));
       NSArray *row = nil;
 
       if (idArg)
-        {
-          for (NSArray *f in treeRows)
-            if ([f count] >= 8 && [[f objectAtIndex: 7] isEqualToString: idArg]) { row = f; break; }
-        }
+        row = ResolveRowByID(treeRows, idArg);
       else if (wantText)
-        {
-          row = ResolveRow(treeRows, wantClass, wantText, YES);
-        }
+        row = ResolveRow(treeRows, wantClass, wantText, YES);
 
       if (row == nil)
         {
@@ -322,12 +431,72 @@ int main(int argc, const char *argv[])
 
       [X11Support simulateMouseMoveTo: c];
       usleep(50000);  /* let the pointer motion settle */
-      [X11Support simulateClick: 1];
+      for (int i = 0; i < count; i++)
+        {
+          [X11Support simulateClick: button];
+          if (count > 1) usleep(60000);  /* let a double-click register as such */
+        }
     }
   else if ([command isEqualToString: @"press"])
     {
       /* Press Return via a real X11 key event. */
       [X11Support simulateChordWithModifiers: [NSArray array] key: @"Return"];
+    }
+  else if ([command isEqualToString: @"sendkeys"])
+    {
+      /* sendkeys <text> - type text into the currently focused field without
+       * clicking first (used by drive_dsl `type "..."`, which types into the
+       * focused editable control). */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      NSString *value = ([positionals count] > 0) ? [positionals objectAtIndex: 0] : nil;
+      if (value == nil)
+        {
+          fprintf(stderr, "drive_ui: sendkeys needs <text>\n");
+          [pool release];
+          return 1;
+        }
+      for (NSUInteger i = 0; i < [value length]; i++)
+        {
+          NSString *ch = [value substringWithRange: NSMakeRange(i, 1)];
+          [X11Support simulateKeyStroke: ch];
+        }
+    }
+  else if ([command isEqualToString: @"clear"])
+    {
+      /* Click the field, select all, then delete - clears an editable area. */
+      NSArray *treeRows = ParseTree(FetchTree(pid));
+      NSArray *row = nil;
+      if (idArg)
+        row = ResolveRowByID(treeRows, idArg);
+      else if (wantText)
+        row = ResolveRow(treeRows, wantClass, wantText, YES);
+      if (row == nil)
+        {
+          fprintf(stderr, "drive_ui: clear: widget not found\n");
+          [pool release];
+          return 1;
+        }
+      NSPoint c = CenterOfRow(row);
+      if (c.x == 0 && c.y == 0)
+        {
+          fprintf(stderr, "drive_ui: clear: widget has no usable screen_frame\n");
+          [pool release];
+          return 1;
+        }
+      [X11Support simulateMouseMoveTo: c];
+      usleep(50000);
+      [X11Support simulateClick: 1];
+      usleep(50000);
+      /* Select all (GNUstep Command is Left Alt) then delete. */
+      [X11Support simulateChordWithModifiers: [NSArray arrayWithObject: @"alt"] key: @"a"];
+      usleep(50000);
+      [X11Support simulateChordWithModifiers: [NSArray array] key: @"BackSpace"];
     }
   else if ([command isEqualToString: @"chord"])
     {
@@ -380,10 +549,7 @@ int main(int argc, const char *argv[])
       NSArray *treeRows = ParseTree(FetchTree(pid));
       NSArray *row = nil;
       if (target)
-        {
-          for (NSArray *f in treeRows)
-            if ([f count] >= 8 && [[f objectAtIndex: 7] isEqualToString: target]) { row = f; break; }
-        }
+        row = ResolveRowByID(treeRows, target);
       else
         {
           NSString *needle = label ? label : wantText;

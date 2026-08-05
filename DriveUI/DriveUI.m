@@ -25,6 +25,11 @@
  *
  *   full                      -> whole tree, one line per item
  *   get <object_id>           -> the text/title/string of one widget
+ *   app                       -> the app's process name (for drive_dsl's
+ *                                `activate application "Name"` resolution)
+ *   props <object_id>         -> enabled=1|0 state=0|1 for one widget
+ *   menu                      -> main menu tree: depth\tindex\ttitle\tenabled\thas_submenu
+ *   menu_invoke <i> <j> ...   -> perform the menu item's action at that index path
  *
  * Snapshot fields (tab-separated): depth, class, text, tag, frame,
  * screen_frame, hidden, object_id.  `text` is the displayed (localized)
@@ -96,8 +101,10 @@
 - (void)serverLoop:(id)unused;
 - (void)serviceConnection:(DriveUIConnection *)conn;
 - (void)buildSnapshot:(id)unused;
-- (NSString *)textOfObject:(NSString *)objID;
-- (NSArray *)collectSnapshot;
+ - (NSString *)textOfObject:(NSString *)objID;
+ - (NSArray *)collectSnapshot;
+ - (void)appendMenuLinesForMenu:(NSMenu *)menu depth:(int)depth into:(NSMutableString *)out;
+ - (BOOL)invokeMenuIndexes:(NSArray *)indexes error:(NSString **)err;
 - (void)addWindow:(NSWindow *)win depth:(int)depth into:(NSMutableArray *)items;
 - (void)addView:(NSView *)view depth:(int)depth into:(NSMutableArray *)items;
 - (NSString *)objectIDForObject:(id)obj;
@@ -268,6 +275,112 @@ static void WriteAll(int fd, const char *bytes)
               NSString *reply = [text stringByAppendingString: @"\n"];
               WriteAll(fd, [reply UTF8String]);
             }
+          else if ([cmd isEqualToString: @"app"])
+            {
+              /* Read-only app identity, for drive_dsl to resolve "activate
+               * application <name>" to the matching DriveUI socket/PID. */
+              NSString *name = [[NSProcessInfo processInfo] processName];
+              if ([name length] == 0) name = @"unknown";
+              NSString *reply = [name stringByAppendingString: @"\n"];
+              WriteAll(fd, [reply UTF8String]);
+            }
+          else if ([cmd isEqualToString: @"props"])
+            {
+              /* Read-only control properties for drive_dsl assertions
+               * (enabled/checked): enabled=1|0  state=0|1 (NSOffState/NSOnState). */
+              NSString *objID = ([parts count] > 1) ? [parts objectAtIndex: 1] : nil;
+              id obj = [self objectForID: objID];
+              int enabled = 1, state = 0;
+              if (obj != nil)
+                {
+                  @try {
+                    if ([obj isKindOfClass: [NSControl class]])
+                      {
+                        enabled = [(NSControl *)obj isEnabled] ? 1 : 0;
+                        /* state is on NSButton/NSMenuButton, not NSControl;
+                         * read via KVC so we need no per-class import. */
+                        @try {
+                          NSNumber *st = [(NSControl *)obj valueForKey: @"state"];
+                          if (st) state = ([st intValue] == NSOnState) ? 1 : 0;
+                        } @catch (NSException *e) { }
+                      }
+                    else if ([obj isKindOfClass: [NSWindow class]])
+                      {
+                        enabled = [(NSWindow *)obj isVisible] ? 1 : 0;
+                      }
+                    else if ([obj isKindOfClass: [NSView class]])
+                      {
+                        enabled = [(NSView *)obj isHidden] ? 0 : 1;
+                      }
+                  } @catch (NSException *e) { }
+                }
+              NSString *reply = [NSString stringWithFormat: @"enabled=%d state=%d\n",
+                enabled, state];
+              WriteAll(fd, [reply UTF8String]);
+            }
+          else if ([cmd isEqualToString: @"menu"])
+            {
+              /* Read-only: serialize the app's main menu as one line per item:
+               * depth\tindex\ttitle\tenabled\thas_submenu, recursing into each
+               * submenu (a submenu's items follow its parent at depth+1).  The
+               * top-level bar is driven by the app's own [NSApp mainMenu], so
+               * menu titles are the real (localized) item titles. */
+              NSMutableString *out = [NSMutableString string];
+              [self appendMenuLinesForMenu: [NSApp mainMenu] depth: 0 into: out];
+              if ([out length] == 0) [out appendString: @"(no menu)\n"];
+              WriteAll(fd, [out UTF8String]);
+            }
+          else if ([cmd isEqualToString: @"menu_invoke"])
+            {
+              /* menu_invoke <i0> <i1> ... - perform the leaf menu item's
+               * action in-process (the equivalent of a real selection), by
+               * index path: each index selects an item in the current menu;
+               * intermediate items must have a submenu which becomes the next
+               * menu.  Replies "ok" on success. */
+              NSMutableArray *indexes = [NSMutableArray array];
+              for (NSUInteger i = 1; i < [parts count]; i++)
+                {
+                  NSNumber *idx = @([[parts objectAtIndex: i] intValue]);
+                  [indexes addObject: idx];
+                }
+              if ([indexes count] == 0)
+                {
+                  WriteAll(fd, "error:menu_invoke needs at least one index\n");
+                }
+              else
+                {
+                  NSString *menuErr = nil;
+                  if ([self invokeMenuIndexes: indexes error: &menuErr])
+                    WriteAll(fd, "ok\n");
+                  else
+                    {
+                      NSString *r = [NSString stringWithFormat: @"error:%@\n",
+                        menuErr ?: @"invoke failed"];
+                      WriteAll(fd, [r UTF8String]);
+                    }
+                }
+            }
+          else if ([cmd isEqualToString: @"localize"])
+            {
+              /* Read-only: translate an English UI string to the app's current
+               * language, so DSL scripts can be written in English and still
+               * match a localized (e.g. German) UI.  The GNUstep `_(...)`
+               * macro keys its .strings tables by the English string, so
+               * localizedStringForKey: with the English key + English default
+               * returns the live translated title. */
+              NSString *key = ([parts count] > 1) ? [parts objectAtIndex: 1] : nil;
+              NSString *result = key ?: @"";
+              if ([key length] > 0)
+                {
+                  NSBundle *b = [NSBundle mainBundle];
+                  NSString *localized = [b localizedStringForKey: key
+                                                           value: key
+                                                           table: nil];
+                  if ([localized length] > 0) result = localized;
+                }
+              NSString *reply = [result stringByAppendingString: @"\n"];
+              WriteAll(fd, [reply UTF8String]);
+            }
           else
             {
               NSString *err = [NSString stringWithFormat: @"error:unknown command %@\n", cmd];
@@ -313,6 +426,85 @@ static void WriteAll(int fd, const char *bytes)
   } @catch (NSException *e) { }
 
   return @"";
+}
+
+/* ---- menu introspection (main thread) ---- */
+
+/* Recursively serialize a menu: one tab-separated line per item
+ * (depth, index, title, enabled, has_submenu), submenu items following their
+ * parent.  All accessors are @try-wrapped so a foreign/wedged menu cannot
+ * crash the host. */
+- (void)appendMenuLinesForMenu:(NSMenu *)menu depth:(int)depth
+                         into:(NSMutableString *)out
+{
+  @try
+    {
+      NSInteger n = [menu numberOfItems];
+      for (NSInteger i = 0; i < n; i++)
+        {
+          NSMenuItem *item = [menu itemAtIndex: i];
+          NSString *title = item ? ([item title] ?: @"") : @"";
+          BOOL enabled = [item isEnabled] ? YES : NO;
+          BOOL hasSubmenu = [item submenu] != nil;
+          [out appendFormat: @"%d\t%ld\t%@\t%d\t%d\n",
+            depth, (long)i, title, enabled ? 1 : 0, hasSubmenu ? 1 : 0];
+          if (hasSubmenu)
+            [self appendMenuLinesForMenu: [item submenu] depth: depth + 1
+                                   into: out];
+        }
+    }
+  @catch (NSException *e)
+    {
+      /* Skip any item that misbehaves; the rest of the tree still comes out. */
+    }
+}
+
+/* Perform the action of the menu item addressed by the given index path,
+ * where each non-final index must resolve to an item with a submenu.  Runs on
+ * the main thread (the socket is serviced there) so the action fires exactly
+ * as a real menu selection would. */
+- (BOOL)invokeMenuIndexes:(NSArray *)indexes error:(NSString **)err
+{
+  NSMenu *menu = [NSApp mainMenu];
+  if (menu == nil)
+    {
+      if (err) *err = @"no main menu";
+      return NO;
+    }
+  NSUInteger count = [indexes count];
+  for (NSUInteger k = 0; k < count; k++)
+    {
+      NSInteger idx = [[indexes objectAtIndex: k] integerValue];
+      @try
+        {
+          NSMenuItem *item = [menu itemAtIndex: idx];
+          if (item == nil)
+            {
+              if (err) *err = [NSString stringWithFormat:
+                @"menu index %ld out of range", (long)idx];
+              return NO;
+            }
+          if (k == count - 1)
+            {
+              [menu performActionForItemAtIndex: idx];
+              return YES;
+            }
+          NSMenu *sub = [item submenu];
+          if (sub == nil)
+            {
+              if (err) *err = [NSString stringWithFormat:
+                @"menu item %ld has no submenu", (long)idx];
+              return NO;
+            }
+          menu = sub;
+        }
+      @catch (NSException *e)
+        {
+          if (err) *err = [NSString stringWithFormat: @"menu invoke exception: %@", e];
+          return NO;
+        }
+    }
+  return NO;
 }
 
 /* ---- snapshot builder (main thread) ---- */
