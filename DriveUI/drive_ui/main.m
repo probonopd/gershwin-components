@@ -31,8 +31,13 @@
  *   drive_ui [--pid N] app                     (read-only: app name)
  *   drive_ui [--pid N] props <object_id>        (read-only: enabled/state)
  *   drive_ui [--pid N] menu                    (read-only: main menu tree)
+ *   drive_ui [--pid N] menu_select "Top/Sub"   (perform menu item by title path)
  *   drive_ui [--pid N] menu_invoke <i0> <i1>.. (perform menu action by index)
  *   drive_ui [--pid N] localize <english>       (translate to app language)
+ *   drive_ui [--pid N] assert <exists|not-exists|enabled|checked> [--class C] [--text T] [--tag N] [--visible]
+ *   drive_ui [--pid N] assert contains --text <needle>
+ *   drive_ui [--pid N] wait_until [--class C] [--text T] [--tag N] [--visible] [--timeout N] [--not-exists]
+ *   drive_ui [--pid N] capture [<path>]         (screenshot root window to PNG)
  *   drive_ui [--pid N] press                     (press Return)
  *   drive_ui [--pid N] chord <mods> <key>        (e.g. chord control c)
  *
@@ -40,10 +45,14 @@
  *
  * Because `text` is the displayed (localized) title/stringValue, widgets can be
  * located by their on-screen label; the driving commands then act at that
- * widget's screen position, so they work on any language.  `menu` + `menu_invoke`
- * resolve and trigger menu items in-process on the app (fast, localization-safe);
- * `localize` maps an English string to the app's current language so script
- * titles can be written in English for any locale.
+ * widget's screen position, so they work on any language.  `menu`, `menu_select`
+ * and `menu_invoke` resolve and trigger menu items in-process on the app (fast,
+ * localization-safe); `menu_select` accepts a slash-separated title path in
+ * English or the localized spelling.  `assert` and `wait_until` are script
+ * building blocks: they verify/poll the widget tree (visible widgets only) and
+ * exit with a status a script can branch on.  `localize` maps an English string
+ * to the app's current language so titles can be written in English for any
+ * locale.
  */
 
 #import <Foundation/Foundation.h>
@@ -198,6 +207,327 @@ static NSArray *ResolveRowByID(NSArray *rows, NSString *objID)
   return nil;
 }
 
+/* Translate an English UI string to the app's current language via the
+ * bundle's `localize` command, so title paths and widget labels can be
+ * written in English and still match a localized (e.g. German) UI. */
+static NSString *LocalizeString(int pid, NSString *english)
+{
+  if (english == nil || [english length] == 0) return english;
+  NSString *out = SendCommand(pid, [NSString stringWithFormat: @"localize\t%@", english]);
+  NSString *localized = out ? [out stringByTrimmingCharactersInSet:
+    [NSCharacterSet newlineCharacterSet]] : english;
+  return ([localized length] > 0) ? localized : english;
+}
+
+/* Case-insensitive substring match that also accepts the localized spelling
+ * of the needle (mirrors the DSL's title:matches:). */
+static BOOL TitleMatches(int pid, NSString *title, NSString *segOrEnglish)
+{
+  if ([title rangeOfString: segOrEnglish options: NSCaseInsensitiveSearch].location != NSNotFound)
+    return YES;
+  NSString *localized = LocalizeString(pid, segOrEnglish);
+  if (![localized isEqualToString: segOrEnglish] &&
+      [title rangeOfString: localized options: NSCaseInsensitiveSearch].location != NSNotFound)
+    return YES;
+  return NO;
+}
+
+/* Node in the menu-title trie built from the `menu` tree, so a slash-separated
+ * title path ("Edit/Copy") can be resolved to the menu_invoke index path. */
+typedef struct DriveUIMenuNode { NSString *title; int index; struct DriveUIMenuNode **kids; int nkids; } DriveUIMenuNode;
+
+static void DriveUIMenuNodeFree(DriveUIMenuNode *n)
+{
+  if (!n) return;
+  for (int i = 0; i < n->nkids; i++) DriveUIMenuNodeFree(n->kids[i]);
+  free(n->kids);
+  [n->title release];
+  free(n);
+}
+
+/* Resolve a menu path like "Edit/Copy" (any segment may be English or the
+ * localized spelling) against the serialized menu tree and perform the leaf
+ * item's action in-process via menu_invoke.  Returns 0 on success, non-zero
+ * with a message on stderr otherwise. */
+static int MenuSelect(int pid, NSString *path)
+{
+  if (path == nil || [path length] == 0)
+    {
+      fprintf(stderr, "drive_ui: menu_select needs a path (use \"Top/Sub\")\n");
+      return 1;
+    }
+  NSString *tree = SendCommand(pid, @"menu");
+  if (tree == nil)
+    {
+      fprintf(stderr, "drive_ui: cannot read menu tree\n");
+      return 1;
+    }
+
+  DriveUIMenuNode *root = calloc(1, sizeof(DriveUIMenuNode));
+  root->title = @"";
+  root->index = -1;
+
+  /* parents[d] = the node whose submenu items sit at depth d; parents[0] is the
+   * virtual root holding the top-level bar items.  Because the serialized
+   * lines are ordered depth-first, setting parents[depth+1] when we see a
+   * submenu node always yields the correct ancestor for the lines that follow. */
+  DriveUIMenuNode *parents[64];
+  memset(parents, 0, sizeof(parents));
+  parents[0] = root;
+
+  BOOL anyItem = NO;
+  for (NSString *line in [tree componentsSeparatedByString: @"\n"])
+    {
+      NSArray *f = [line componentsSeparatedByString: @"\t"];
+      if ([f count] < 5) continue;
+      int depth = [[f objectAtIndex: 0] intValue];
+      int index = [[f objectAtIndex: 1] intValue];
+      NSString *title = [f objectAtIndex: 2];
+      BOOL hasSubmenu = [[f objectAtIndex: 4] isEqualToString: @"1"];
+      if (depth < 0 || depth >= 64) continue;
+      anyItem = YES;
+
+      DriveUIMenuNode *parent = parents[depth];
+      if (parent == NULL) continue;
+      parent->kids = realloc(parent->kids, sizeof(DriveUIMenuNode *) * (parent->nkids + 1));
+      DriveUIMenuNode *node = calloc(1, sizeof(DriveUIMenuNode));
+      node->title = [title copy];
+      node->index = index;
+      parent->kids[parent->nkids++] = node;
+
+      if (hasSubmenu && depth + 1 < 64) parents[depth + 1] = node;
+    }
+
+  if (!anyItem)
+    {
+      fprintf(stderr, "drive_ui: application has no menu (DriveUI menu unsupported?)\n");
+      DriveUIMenuNodeFree(root);
+      return 1;
+    }
+
+  NSArray *segs = [path componentsSeparatedByString: @"/"];
+  NSMutableArray *indices = [NSMutableArray array];
+  DriveUIMenuNode *current = root;
+  BOOL found = YES;
+  for (NSString *seg in segs)
+    {
+      if ([seg length] == 0) continue;
+      DriveUIMenuNode *match = NULL;
+      for (int i = 0; i < current->nkids; i++)
+        {
+          if (TitleMatches(pid, current->kids[i]->title, seg))
+            { match = current->kids[i]; break; }
+        }
+      if (match == NULL) { found = NO; break; }
+      [indices addObject: @(match->index)];
+      current = match;
+    }
+
+  if (!found || [indices count] == 0)
+    {
+      fprintf(stderr, "drive_ui: menu item '%s' not found\n", [path UTF8String]);
+      DriveUIMenuNodeFree(root);
+      return 1;
+    }
+  DriveUIMenuNodeFree(root);
+
+  NSMutableArray *tokens = [NSMutableArray arrayWithObject: @"menu_invoke"];
+  for (NSNumber *idx in indices) [tokens addObject: [idx stringValue]];
+  NSString *reply = SendCommand(pid, [tokens componentsJoinedByString: @"\t"]);
+  if (reply == nil) return 1;
+  if ([reply hasPrefix: @"error:"])
+    {
+      fprintf(stderr, "drive_ui: %s", [[reply stringByTrimmingCharactersInSet:
+        [NSCharacterSet newlineCharacterSet]] UTF8String]);
+      return 1;
+    }
+  return 0;
+}
+
+/* Match a snapshot row against --class/--text/--tag filters.  Text matching is
+ * the localized substring match used for title paths.  Returns YES if the row
+ * satisfies all supplied filters. */
+static BOOL RowMatches(int pid, NSArray *f, NSString *wantClass, NSString *wText,
+                       NSNumber *wantTag, BOOL wantVisible)
+{
+  if ([f count] < 8) return NO;
+  NSString *cls = [f objectAtIndex: 1];
+  NSString *text = [f objectAtIndex: 2];
+  NSString *tagStr = [f objectAtIndex: 3];
+  NSString *hiddenStr = [f objectAtIndex: 6];
+  if (wantVisible && [hiddenStr isEqualToString: @"1"]) return NO;
+  if (wantClass && [cls rangeOfString: wantClass options: NSCaseInsensitiveSearch].location == NSNotFound) return NO;
+  if (wantTag && [tagStr intValue] != [wantTag intValue]) return NO;
+  if (wText && TitleMatches(pid, text, wText) == NO) return NO;
+  return YES;
+}
+
+/* Assert a condition about the widget tree.  Returns 0 if the assertion holds,
+ * 1 otherwise (a message is printed to stderr).  Kinds:
+ *   exists      - a matching visible widget is present
+ *   not-exists  - no matching visible widget is present
+ *   enabled     - the matching widget exists and is enabled
+ *   checked     - the matching widget exists and is checked
+ *   contains    - some visible widget's text contains the --text needle */
+static int AssertWidgets(int pid, NSString *wantClass, NSString *wantText,
+                         NSNumber *wantTag, BOOL wantVisible,
+                         NSString *kind, NSString *needle)
+{
+  NSString *tree = FetchTree(pid);
+  if (tree == nil)
+    {
+      fprintf(stderr, "drive_ui: assert failed: cannot read widget tree\n");
+      return 1;
+    }
+  NSArray *rows = ParseTree(tree);
+
+  if ([kind isEqualToString: @"contains"])
+    {
+      if (needle == nil || [needle length] == 0)
+        {
+          fprintf(stderr, "drive_ui: assert contains needs --text <needle>\n");
+          return 1;
+        }
+      for (NSArray *f in rows)
+        {
+          if ([f count] < 8) continue;
+          if ([[f objectAtIndex: 6] isEqualToString: @"1"]) continue;
+          if ([[f objectAtIndex: 2] rangeOfString: needle options: NSCaseInsensitiveSearch].location != NSNotFound)
+            return 0;
+        }
+      fprintf(stderr, "drive_ui: assert failed: text '%s' not found\n", [needle UTF8String]);
+      return 1;
+    }
+
+  NSArray *match = nil;
+  for (NSArray *f in rows)
+    {
+      if (RowMatches(pid, f, wantClass, wantText, wantTag, wantVisible))
+        { match = f; break; }
+    }
+
+  if ([kind isEqualToString: @"exists"])
+    {
+      if (match) return 0;
+      fprintf(stderr, "drive_ui: assert failed: widget not found\n");
+      return 1;
+    }
+  if ([kind isEqualToString: @"not-exists"])
+    {
+      if (!match) return 0;
+      fprintf(stderr, "drive_ui: assert failed: widget unexpectedly present\n");
+      return 1;
+    }
+  if ([kind isEqualToString: @"enabled"] || [kind isEqualToString: @"checked"])
+    {
+      if (!match)
+        {
+          fprintf(stderr, "drive_ui: assert failed: widget not found\n");
+          return 1;
+        }
+      NSString *reply = SendCommand(pid, [NSString stringWithFormat: @"props\t%@",
+        [match objectAtIndex: 7]]);
+      BOOL enabled = NO, checked = NO;
+      if (reply)
+        {
+          /* props reply is "enabled=1 state=0" or similar. */
+          for (NSString *tok in [reply componentsSeparatedByString: @" "])
+            {
+              NSArray *kv = [tok componentsSeparatedByString: @"="];
+              if ([kv count] != 2) continue;
+              if ([[kv objectAtIndex: 0] isEqualToString: @"enabled"])
+                enabled = [[kv objectAtIndex: 1] isEqualToString: @"1"];
+              else if ([[kv objectAtIndex: 0] isEqualToString: @"state"])
+                checked = [[kv objectAtIndex: 1] isEqualToString: @"1"];
+            }
+        }
+      if ([kind isEqualToString: @"enabled"] && !enabled)
+        {
+          fprintf(stderr, "drive_ui: assert failed: widget is disabled\n");
+          return 1;
+        }
+      if ([kind isEqualToString: @"checked"] && !checked)
+        {
+          fprintf(stderr, "drive_ui: assert failed: widget is not checked\n");
+          return 1;
+        }
+      return 0;
+    }
+
+  fprintf(stderr, "drive_ui: unknown assert kind '%s'\n", [kind UTF8String]);
+  return 1;
+}
+
+/* Poll the widget tree until a condition holds or the timeout (seconds)
+ * elapses.  Mirrors the DSL's `wait until`.  Returns 0 on success, 2 on
+ * timeout. */
+static int WaitUntil(int pid, NSString *wantClass, NSString *wantText,
+                     NSNumber *wantTag, BOOL wantVisible, double timeout,
+                     BOOL wantNotExists)
+{
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow: timeout];
+  while ([[NSDate date] compare: deadline] == NSOrderedAscending)
+    {
+      NSString *tree = FetchTree(pid);
+      if (tree)
+        {
+          BOOL present = NO;
+          for (NSArray *f in ParseTree(tree))
+            {
+              if (RowMatches(pid, f, wantClass, wantText, wantTag, wantVisible))
+                { present = YES; break; }
+            }
+          BOOL ok = wantNotExists ? !present : present;
+          if (ok) return 0;
+        }
+      usleep(100000);
+    }
+  fprintf(stderr, "drive_ui: timed out waiting for widget%s\n",
+          wantNotExists ? " to disappear" : "");
+  return 2;
+}
+
+/* Capture a screenshot of the whole root window to <path> (default
+ * /tmp/drive_ui-<timestamp>.png) via ffmpeg x11grab - the same backend the
+ * Screenshot component uses. */
+static int CaptureScreenshot(NSString *path)
+{
+  NSString *target = path;
+  if (target == nil || [target length] == 0)
+    {
+      NSDateFormatter *fmt = [[[NSDateFormatter alloc] init] autorelease];
+      [fmt setDateFormat: @"yyyyMMdd-HHmmss"];
+      target = [NSString stringWithFormat: @"/tmp/drive_ui-%@.png",
+        [fmt stringFromDate: [NSDate date]]];
+    }
+  NSString *display = [[NSProcessInfo processInfo] environment][@"DISPLAY"];
+  if (display == nil || [display length] == 0) display = @":0";
+
+  NSTask *task = [[NSTask alloc] init];
+  [task setLaunchPath: @"/bin/ffmpeg"];
+  [task setArguments: [NSArray arrayWithObjects:
+    @"-f", @"x11grab", @"-i", display, @"-frames:v", @"1",
+    @"-update", @"1", @"-y", @"-loglevel", @"error", target, nil]];
+  /* Silence ffmpeg so the only stdout is the saved path (a script-friendly
+   * interface).  A pipe is set up even though we never read it: without one,
+   * NSTask inherits our stdout and the ffmpeg banner would leak through. */
+  NSPipe *devnull = [NSPipe pipe];
+  [task setStandardOutput: devnull];
+  [task setStandardError: devnull];
+  [task launch];
+  [task waitUntilExit];
+  int rc = [task terminationStatus];
+  [task release];
+
+  if (rc != 0)
+    {
+      fprintf(stderr, "drive_ui: screenshot failed (ffmpeg)\n");
+      return 1;
+    }
+  printf("%s\n", [target UTF8String]);
+  return 0;
+}
+
 /* Given a snapshot row, return the center of its screen_frame (used for
  * clicking/typing), or NSZeroPoint if unavailable. */
 static NSPoint CenterOfRow(NSArray *f)
@@ -230,8 +560,13 @@ static void Usage(void)
   printf("  drive_ui [--pid N] app                       (read-only: app name)\n");
   printf("  drive_ui [--pid N] props <object_id>          (read-only: props)\n");
   printf("  drive_ui [--pid N] menu                       (read-only: main menu tree)\n");
+  printf("  drive_ui [--pid N] menu_select \"Top/Sub\"     (perform menu item by title path)\n");
   printf("  drive_ui [--pid N] menu_invoke <i0> <i1> ...  (perform menu action by index)\n");
   printf("  drive_ui [--pid N] localize <english>          (translate to app language)\n");
+  printf("  drive_ui [--pid N] assert [--class C] [--text T] [--tag N] [--visible] <exists|not-exists|enabled|checked>\n");
+  printf("  drive_ui [--pid N] assert contains --text <needle>\n");
+  printf("  drive_ui [--pid N] wait_until [--class C] [--text T] [--tag N] [--visible] [--timeout N] [--not-exists]\n");
+  printf("  drive_ui [--pid N] capture [<path>]           (screenshot root window to PNG)\n");
   printf("  drive_ui [--pid N] press                     (press Return)\n");
   printf("  drive_ui [--pid N] chord <mods> <key>        (e.g. chord control c)\n");
   printf("Snapshot: depth\\tclass\\ttext\\ttag\\tframe\\tscreen_frame\\thidden\\tobject_id\n");
@@ -404,6 +739,99 @@ int main(int argc, const char *argv[])
         }
       NSString *reply = SendCommand(pid, [NSString stringWithFormat: @"localize\t%@", key]);
       if (reply) printf("%s", [reply UTF8String]);
+    }
+  else if ([command isEqualToString: @"menu_select"])
+    {
+      /* menu_select "Top/Sub" - resolve a localized title path against the
+       * menu tree and perform the leaf item's action in-process. */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      NSString *path = ([positionals count] > 0) ? [positionals objectAtIndex: 0] : nil;
+      int rc = MenuSelect(pid, path);
+      [pool release];
+      return rc;
+    }
+  else if ([command isEqualToString: @"assert"])
+    {
+      /* assert [--class C] [--text T] [--tag N] [--visible] <kind>
+       *   kinds: exists | not-exists | enabled | checked | contains
+       *   `contains` takes the needle in --text. */
+      NSString *kind = nil, *needle = nil;
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      if ([positionals count] > 0) kind = [positionals objectAtIndex: 0];
+      if ([kind isEqualToString: @"contains"]) needle = wantText;
+      if (kind == nil || !([kind isEqualToString: @"exists"]
+            || [kind isEqualToString: @"not-exists"]
+            || [kind isEqualToString: @"enabled"]
+            || [kind isEqualToString: @"checked"]
+            || [kind isEqualToString: @"contains"]))
+        {
+          fprintf(stderr, "drive_ui: assert needs exists|not-exists|enabled|checked|contains\n");
+          [pool release];
+          return 1;
+        }
+      if ([kind isEqualToString: @"contains"] && (needle == nil || [needle length] == 0))
+        {
+          fprintf(stderr, "drive_ui: assert contains needs --text <needle>\n");
+          [pool release];
+          return 1;
+        }
+      int rc = AssertWidgets(pid, wantClass, wantText, wantTag, wantVisible,
+                             kind, needle);
+      [pool release];
+      return rc;
+    }
+  else if ([command isEqualToString: @"wait_until"])
+    {
+      /* wait_until [--class C] [--text T] [--tag N] [--visible] [--timeout N] [--not-exists] */
+      double timeout = 10.0;
+      BOOL wantNotExists = NO;
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a isEqualToString: @"--timeout"] && i + 1 < [args count])
+            { timeout = [[args objectAtIndex: ++i] doubleValue]; continue; }
+          if ([a isEqualToString: @"--not-exists"]) { wantNotExists = YES; continue; }
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      if (wantText == nil && wantClass == nil && wantTag == nil && !wantVisible)
+        {
+          fprintf(stderr, "drive_ui: wait_until needs --text, --class, --tag or --visible\n");
+          [pool release];
+          return 1;
+        }
+      int rc = WaitUntil(pid, wantClass, wantText, wantTag, wantVisible,
+                         timeout, wantNotExists);
+      [pool release];
+      return rc;
+    }
+  else if ([command isEqualToString: @"capture"])
+    {
+      /* capture [<path>] - screenshot the root window to a PNG. */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      NSString *path = ([positionals count] > 0) ? [positionals objectAtIndex: 0] : nil;
+      int rc = CaptureScreenshot(path);
+      [pool release];
+      return rc;
     }
   else if ([command isEqualToString: @"click"] || [command isEqualToString: @"focus"]
            || [command isEqualToString: @"doubleclick"] || [command isEqualToString: @"rightclick"])
