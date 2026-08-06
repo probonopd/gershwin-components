@@ -841,6 +841,44 @@ static void SetErr(NSString **err, NSString *m)
   return YES;
 }
 
+- (int)countXWindowsWithTitle:(NSString *)title error:(NSString **)err
+{
+  if (title == nil || [title length] == 0)
+    { SetErr(err, @"count xwindow needs a title"); return -1; }
+  NSString *reply = [self runCollect: [NSArray arrayWithObjects:
+    [NSString stringWithFormat: @"--pid=%d", pid_],
+    @"xwindow_count", title, nil] error: err];
+  if (!reply) return -1;
+  return [reply intValue];
+}
+
+- (BOOL)assertXWindowCount:(NSString *)title op:(NSString *)op
+                  expected:(int)expected error:(NSString **)err
+{
+  if (title == nil || [title length] == 0)
+    { SetErr(err, @"assert xwindow count needs a title"); return NO; }
+  int count = [self countXWindowsWithTitle: title error: err];
+  if (count < 0) return NO;
+
+  BOOL ok = NO;
+  if ([op isEqualToString: @"="]) ok = (count == expected);
+  else if ([op isEqualToString: @">"]) ok = (count > expected);
+  else if ([op isEqualToString: @">="]) ok = (count >= expected);
+  else if ([op isEqualToString: @"<"]) ok = (count < expected);
+  else if ([op isEqualToString: @"<="]) ok = (count <= expected);
+  else if ([op isEqualToString: @"!="]) ok = (count != expected);
+  else { SetErr(err, [NSString stringWithFormat: @"bad count operator '%@'", op]); return NO; }
+
+  if (!ok)
+    {
+      SetErr(err, [NSString stringWithFormat:
+        @"assert failed: %d windows match '%@' (expected %@ %d)",
+        count, title, op, expected]);
+      return NO;
+    }
+  return YES;
+}
+
 /* Click/double-click/right-click an object by its ID with real X11 events. */
 - (BOOL)clickObjectID:(NSString *)objID button:(int)button count:(int)count
                 error:(NSString **)err

@@ -950,14 +950,18 @@ static NSString *ShortcutForItem(NSMenuItem *item)
   return nil;
 }
 
-/* Recursively append a menu's titles as indented lines (debug helper). */
+/* Recursively append a menu's titles as indented lines (debug helper), with
+ * the shortcut (if any) after the title. */
 - (void)appendMenuTree:(NSMenu *)menu depth:(int)depth into:(NSMutableString *)out
 {
   for (NSMenuItem *item in [menu itemArray])
     {
       for (int i = 0; i < depth; i++) [out appendString: @"  "];
-      [out appendFormat: @"%@%@\n", [item isSeparatorItem] ? @"-" : @"",
-        [item title] ?: @""];
+      NSString *title = [item title] ?: @"";
+      NSString *sc = ShortcutForItem(item);
+      if ([sc length] > 0)
+        title = [NSString stringWithFormat: @"%@  [%@]", title, sc];
+      [out appendFormat: @"%@%@\n", [item isSeparatorItem] ? @"-" : @"", title];
       if ([item submenu] != nil)
         [self appendMenuTree: [item submenu] depth: depth + 1 into: out];
     }

@@ -80,7 +80,8 @@ typedef enum
   DDSCmdRepeat,
   DDSCmdIf,
   DDSCmdMacro,
-  DDSCmdCall
+  DDSCmdCall,
+  DDSCmdSetCount
 } DSLCommandType;
 
 typedef enum
@@ -135,7 +136,8 @@ typedef enum
   DDSAssertMenuNotChecked,
   DDSAssertMenuEnabled,
   DDSAssertMenuDisabled,
-  DDSAssertMenuShortcut
+  DDSAssertMenuShortcut,
+  DDSAssertXWindowCount
 } DSLAssertKind;
 
 @interface DSLCommand : NSObject
@@ -236,6 +238,9 @@ typedef enum
 - (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err;
 - (BOOL)assertMenuItemPath:(NSString *)path kind:(DSLAssertKind)kind
                   shortcut:(NSString *)shortcut error:(NSString **)err;
+- (BOOL)assertXWindowCount:(NSString *)title op:(NSString *)op
+                  expected:(int)expected error:(NSString **)err;
+- (int)countXWindowsWithTitle:(NSString *)title error:(NSString **)err;
 - (BOOL)triggerGlobalMenuPath:(NSString *)path error:(NSString **)err;
 - (NSString *)localizeString:(NSString *)english;
 - (BOOL)type:(NSString *)text error:(NSString **)err;

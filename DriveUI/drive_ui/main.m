@@ -750,6 +750,27 @@ int main(int argc, const char *argv[])
       unsigned long wid = [X11Support findWindowWithTitle: title];
       printf("%d\n", wid ? 1 : 0);
     }
+  else if ([command isEqualToString: @"xwindow_count"])
+    {
+      /* xwindow_count <title> - count the top-level application windows
+       * whose name contains <title> (ICCCM/EWMH-filtered, so window-manager
+       * internals are excluded).  Prints the number. */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      NSString *title = ([positionals count] > 0) ? [positionals objectAtIndex: 0] : nil;
+      if (title == nil || [title length] == 0)
+        {
+          fprintf(stderr, "drive_ui: xwindow_count needs <title>\n");
+          [pool release];
+          return 1;
+        }
+      printf("%lu\n", (unsigned long)[X11Support countWindowsWithTitle: title]);
+    }
   else if ([command isEqualToString: @"xactivate"])
     {
       /* xactivate <title> - raise + focus the first top-level X window whose

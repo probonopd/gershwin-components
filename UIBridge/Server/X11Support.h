@@ -50,7 +50,18 @@
 + (void)setFocusToPID:(int)pid;
 
 // Find a top-level X window whose name contains `title` (case-insensitive).
-// Works for any app, GNUstep or not.  Returns the window id or 0.
+// Works for any app, GNUstep or not.  Only real application windows are
+// considered (mapped, not override-redirect, normal/dialog/utility type per
+// ICCCM/EWMH), so window-manager-internal windows are excluded.  Returns the
+// window id or 0.
 + (unsigned long)findWindowWithTitle:(NSString *)title;
+
+// Count the application windows (same filtering as findWindowWithTitle:)
+// whose name contains `title`.
++ (NSUInteger)countWindowsWithTitle:(NSString *)title;
+
+// True if a windowInfo: dictionary describes a real top-level application
+// window (ICCCM/EWMH filter used by the whole-display scans).
++ (BOOL)isAppWindow:(NSDictionary *)info;
 
 @end

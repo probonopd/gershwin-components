@@ -275,6 +275,43 @@ case DDSRoleLabel:                        return @"NSTextField";
           continue;
         }
 
+      if ([line hasPrefix: @"setcount "])
+        {
+          /* setcount VAR = count xwindow "Title" - store the current count of
+           * X windows whose name contains "Title" into the runtime variable
+           * VAR (usable in later `assert xwindow "Title" count <op> ${VAR}`
+           * and `wait until ...` comparisons). */
+          NSString *rest = [line substringFromIndex: [@"setcount " length]];
+          NSRange eq = [rest rangeOfString: @"="];
+          if (eq.location == NSNotFound || eq.location == 0)
+            {
+              if (err) *err = [NSString stringWithFormat: @"%@:%lu: malformed setcount (need VAR = count xwindow \"Title\")",
+                name, (unsigned long)lineNo];
+              return nil;
+            }
+          NSString *var = [[rest substringToIndex: eq.location]
+            stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceCharacterSet]];
+          NSString *val = [[rest substringFromIndex: eq.location + 1]
+            stringByTrimmingCharactersInSet: [NSCharacterSet whitespaceCharacterSet]];
+          if (![val hasPrefix: @"count xwindow "])
+            {
+              if (err) *err = [NSString stringWithFormat: @"%@:%lu: setcount needs `count xwindow \"Title\"`",
+                name, (unsigned long)lineNo];
+              return nil;
+            }
+          NSString *titleExpr = [val substringFromIndex: [@"count xwindow " length]];
+          titleExpr = [titleExpr stringByTrimmingCharactersInSet:
+            [NSCharacterSet whitespaceCharacterSet]];
+          if ([titleExpr hasPrefix: @"\""] && [titleExpr hasSuffix: @"\""] && [titleExpr length] >= 2)
+            titleExpr = [titleExpr substringWithRange: NSMakeRange(1, [titleExpr length] - 2)];
+          DSLCommand *cmd = [[[DSLCommand alloc] initWithType: DDSCmdSetCount
+            line: lineNo col: 1] autorelease];
+          cmd.string = var;
+          cmd.string2 = titleExpr;
+          [[prog commands] addObject: cmd];
+          continue;
+        }
+
       if ([line hasPrefix: @"set "])
         {
           /* set VAR="value" - a variable declaration. */
@@ -549,6 +586,13 @@ case DDSRoleLabel:                        return @"NSTextField";
               cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
               if ([words count] > 0) [words removeObjectAtIndex: 0];
               cmd.string = str1;
+              /* wait until xwindow "Title" count <op> <N> */
+              if ([words count] >= 3 && [[words objectAtIndex: 0] isEqualToString: @"count"])
+                {
+                  cmd.assertKind = DDSAssertXWindowCount;
+                  [cmd.words addObject: [words objectAtIndex: 1]];
+                  [cmd.words addObject: [words objectAtIndex: 2]];
+                }
               /* optional trailing timeout 30s / 100ms */
               if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"timeout"])
                 {
@@ -636,6 +680,15 @@ case DDSRoleLabel:                        return @"NSTextField";
                            [[[words objectAtIndex: 1] lowercaseString]
                              isEqualToString: @"constant"])
                     cmd.assertKind = DDSAssertFrameConstant;
+                  else if ([prop isEqualToString: @"count"] && [words count] >= 3)
+                    {
+                      /* assert xwindow "Title" count <op> <N> - compare the
+                       * number of X windows whose name contains "Title"
+                       * against N.  op is one of =, >, >=, <, <=, !=. */
+                      cmd.assertKind = DDSAssertXWindowCount;
+                      [cmd.words addObject: [words objectAtIndex: 1]];
+                      [cmd.words addObject: [words objectAtIndex: 2]];
+                    }
                 }
                 }
             }

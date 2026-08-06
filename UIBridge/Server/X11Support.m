@@ -104,6 +104,26 @@ static int NonFatalXError(Display *dpy, XErrorEvent *e) {
         title = [NSString stringWithUTF8String:name];
         XFree(name);
     }
+    // Chromium and other modern apps set only _NET_WM_NAME (UTF-8), not WM_NAME.
+    if ([title length] == 0) {
+        Atom netName = XInternAtom(d, "_NET_WM_NAME", True);
+        if (netName != None) {
+            Atom actualType;
+            int actualFormat;
+            unsigned long nItems;
+            unsigned long bytesAfter;
+            unsigned char *propName = NULL;
+            if (XGetWindowProperty(d, w, netName, 0, 256, False,
+                                   XInternAtom(d, "UTF8_STRING", False),
+                                   &actualType, &actualFormat, &nItems,
+                                   &bytesAfter, &propName) == Success) {
+                if (propName) {
+                    title = [NSString stringWithUTF8String:(const char *)propName];
+                    XFree(propName);
+                }
+            }
+        }
+    }
 
     // Get PID: _NET_WM_PID
     unsigned long pid = 0;
@@ -123,6 +143,32 @@ static int NonFatalXError(Display *dpy, XErrorEvent *e) {
         }
     }
 
+    // Get _NET_WM_WINDOW_TYPE (EWMH).  The first atom in the list names the
+    // window's role; internal window-manager windows (tooltips, menus, docks,
+    // notifications, splashes) carry a non-normal type, which lets the
+    // whole-display scan skip them.
+    NSString *netWmType = @"";
+    Atom atomType = XInternAtom(d, "_NET_WM_WINDOW_TYPE", True);
+    if (atomType != None) {
+        Atom actualType;
+        int actualFormat;
+        unsigned long nItems;
+        unsigned long bytesAfter;
+        unsigned char *propType = NULL;
+        if (XGetWindowProperty(d, w, atomType, 0, 16, False, XA_ATOM,
+                               &actualType, &actualFormat, &nItems, &bytesAfter, &propType) == Success) {
+            if (propType && nItems > 0) {
+                Atom *atoms = (Atom *)propType;
+                char *name = XGetAtomName(d, atoms[0]);
+                if (name) {
+                    netWmType = [NSString stringWithUTF8String:name];
+                    XFree(name);
+                }
+            }
+            if (propType) XFree(propType);
+        }
+    }
+
     return @{
         @"id": @(w),
         @"x": @(attrs.x),
@@ -131,8 +177,28 @@ static int NonFatalXError(Display *dpy, XErrorEvent *e) {
         @"height": @(attrs.height),
         @"map_state": @(attrs.map_state), // IsViewable=2
         @"title": title,
-        @"pid": @(pid)
+        @"pid": @(pid),
+        @"override_redirect": @(attrs.override_redirect ? YES : NO),
+        @"net_wm_type": netWmType
     };
+}
+
+/* True if the dictionary from windowInfo: describes a real top-level
+ * application window worth matching in a whole-display scan (per ICCCM/EWMH):
+ * mapped, not override-redirect, and not one of the window-manager-internal
+ * types (dock, tooltip, menu, notification, splash, desktop, ...).  Windows
+ * with no _NET_WM_WINDOW_TYPE are assumed to be normal applications. */
++ (BOOL)isAppWindow:(NSDictionary *)info {
+    if (!info) return NO;
+    if ([[info objectForKey: @"map_state"] intValue] != 2) return NO; // IsViewable
+    if ([[info objectForKey: @"override_redirect"] boolValue]) return NO;
+    NSString *type = [info objectForKey: @"net_wm_type"] ?: @"";
+    if ([type length] == 0) return YES;
+    if ([type hasPrefix: @"_NET_WM_WINDOW_TYPE_NORMAL"]
+        || [type hasPrefix: @"_NET_WM_WINDOW_TYPE_DIALOG"]
+        || [type hasPrefix: @"_NET_WM_WINDOW_TYPE_UTILITY"])
+        return YES;
+    return NO;
 }
 
 // True if the window carries _GNUSTEP_WM_ATTR. GNUstep sets this on every content
@@ -302,14 +368,29 @@ static void SendKey(Display *d, Window w, KeyCode code,
     if (title == nil || [title length] == 0) return 0;
     for (NSNumber *wid in [self windowList]) {
         NSDictionary *info = [self windowInfo: [wid unsignedLongValue]];
-        if (!info) continue;
-        if ([[info objectForKey: @"map_state"] intValue] != IsViewable) continue;
+        if (![self isAppWindow: info]) continue;
         NSString *t = [info objectForKey: @"title"] ?: @"";
         if ([t rangeOfString: title options: NSCaseInsensitiveSearch].location
               != NSNotFound)
             return [wid unsignedLongValue];
     }
     return 0;
+}
+
+/* Count the top-level application windows (see isAppWindow:) whose title
+ * contains `title` (case-insensitive). */
++ (NSUInteger)countWindowsWithTitle:(NSString *)title {
+    if (title == nil || [title length] == 0) return 0;
+    NSUInteger count = 0;
+    for (NSNumber *wid in [self windowList]) {
+        NSDictionary *info = [self windowInfo: [wid unsignedLongValue]];
+        if (![self isAppWindow: info]) continue;
+        NSString *t = [info objectForKey: @"title"] ?: @"";
+        if ([t rangeOfString: title options: NSCaseInsensitiveSearch].location
+              != NSNotFound)
+            count++;
+    }
+    return count;
 }
 
 + (int)screenHeight {

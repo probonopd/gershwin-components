@@ -60,13 +60,29 @@
 }
 
 /* Parse a duration "100ms"/"2s"/"5m" to seconds. */
-+ (double)durationForString:(NSString *)s
+ + (double)durationForString:(NSString *)s
 {
   if (!s) return 0;
   if ([s hasSuffix: @"ms"]) return [[s substringToIndex: [s length] - 2] doubleValue] / 1000.0;
   if ([s hasSuffix: @"s"])  return [[s substringToIndex: [s length] - 1] doubleValue];
   if ([s hasSuffix: @"m"])  return [[s substringToIndex: [s length] - 1] doubleValue] * 60.0;
   return [s doubleValue];
+}
+
+/* Substitute ${VAR} references with the current value of a runtime variable
+ * (set via setcount); unknown variables expand to an empty string.  Static
+ * `set VAR="value"` variables were already expanded at parse time. */
+- (NSString *)expandVariables:(NSString *)s
+{
+  if (s == nil) return nil;
+  for (NSString *key in [program_.variables allKeys])
+    {
+      NSString *placeholder = [NSString stringWithFormat: @"${%@}", key];
+      if ([s rangeOfString: placeholder].location != NSNotFound)
+        s = [s stringByReplacingOccurrencesOfString: placeholder
+          withString: [program_.variables objectForKey: key]];
+    }
+  return s;
 }
 
 static void SleepSeconds(double sec)
@@ -154,9 +170,12 @@ static NSString *CommandName(DSLCommandType t)
   NSDate *start = nil;
   int rc = 0;
 
-  /* free-form duration timeout for wait-until is carried in words[1] */
+  /* free-form duration timeout for wait-until is carried in words[1].
+   * The count form (assertKind == DDSAssertXWindowCount) puts its operator
+   * and operand in words instead, so it keeps the default timeout. */
   double cTimeout = 30.0;
-  if (cmd.type == DDSCmdWaitUntil && [[cmd words] count] > 1)
+  if (cmd.type == DDSCmdWaitUntil && [[cmd words] count] > 1
+      && cmd.assertKind != DDSAssertXWindowCount)
     {
       NSString *durTok = [[cmd words] objectAtIndex: 1];
       cTimeout = [durTok doubleValue];
@@ -273,18 +292,42 @@ static NSString *CommandName(DSLCommandType t)
         double to = cTimeout;
         BOOL ok = NO;
         NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow: to];
-        /* positive: wait until the widget exists; negative (assertKind
-         * NotExists): wait until it disappears. */
         while ([[NSDate date] compare: deadline] == NSOrderedAscending)
           {
-            BOOL present = [engine_ doesWidgetExist: cmd.role title: cmd.string
-              contains: nil error: &err];
-            ok = (cmd.assertKind == DDSAssertNotExists) ? !present : present;
+            if (cmd.assertKind == DDSAssertXWindowCount)
+              {
+                NSString *op = ([cmd.words count] > 0) ? [cmd.words objectAtIndex: 0] : @"=";
+                NSString *expectedStr = [self expandVariables: [cmd.words lastObject]];
+                int expected = [expectedStr intValue];
+                ok = [engine_ assertXWindowCount: cmd.string op: op expected: expected
+                  error: nil];
+              }
+            else
+              {
+                BOOL present = [engine_ doesWidgetExist: cmd.role title: cmd.string
+                  contains: nil error: &err];
+                ok = (cmd.assertKind == DDSAssertNotExists) ? !present : present;
+              }
             if (ok) break;
             usleep(100000);
           }
         rc = ok ? 0 : DDSTimeout;
         if (!ok) err = @"timed out waiting for condition";
+      }
+      break;
+    case DDSCmdSetCount:
+      {
+        /* setcount VAR = count xwindow "Title" - store the window count at
+         * runtime so later comparisons can be relative. */
+        NSString *var = cmd.string;
+        NSString *title = cmd.string2;
+        if (var == nil || [var length] == 0 || title == nil)
+          { err = @"setcount needs VAR and a title"; rc = 1; break; }
+        int count = [engine_ countXWindowsWithTitle: title error: &err];
+        if (count < 0) { rc = 1; break; }
+        [program_.variables setObject: [NSString stringWithFormat: @"%d", count]
+                               forKey: var];
+        rc = 0;
       }
       break;
     case DDSCmdAssert:
@@ -307,6 +350,16 @@ static NSString *CommandName(DSLCommandType t)
           NSString *e2 = nil;
           rc = [engine_ assertMenuItemPath: cmd.string kind: cmd.assertKind
             shortcut: cmd.string2 error: &e2] ? 0 : DDSAssertFailed;
+          err = e2;
+        }
+      else if (cmd.assertKind == DDSAssertXWindowCount)
+        {
+          NSString *op = ([cmd.words count] > 0) ? [cmd.words objectAtIndex: 0] : @"=";
+          NSString *expectedStr = [self expandVariables: [cmd.words lastObject]];
+          int expected = [expectedStr intValue];
+          NSString *e2 = nil;
+          rc = [engine_ assertXWindowCount: cmd.string op: op expected: expected
+            error: &e2] ? 0 : DDSAssertFailed;
           err = e2;
         }
       else
