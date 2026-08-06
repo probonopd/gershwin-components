@@ -307,6 +307,59 @@ static void WriteAll(int fd, const char *bytes)
               [wins release];
               WriteAll(fd, [reply UTF8String]);
             }
+          else if ([cmd isEqualToString: @"menubar"])
+            {
+              /* Read-only: the top-level items of a menu bar (an NSMenuView
+               * that is a descendant of a visible window), one per line:
+               *   title<TAB>screen-center-x<TAB>screen-center-y
+               * Lets scripts click the real menu bar items (e.g. Menu.app's
+               * global menu) with X11 events.  Screen coords are top-down
+               * (the bundle converts from GNUstep bottom-up). */
+              NSMutableString *reply = [[NSMutableString alloc] initWithCapacity: 512];
+              CGFloat sh = [[NSScreen mainScreen] frame].size.height;
+              NSArray *wins = [[NSApp windows] copy];
+              for (NSWindow *win in wins)
+                {
+                  if (![win isVisible]) continue;
+                  [self appendMenuBarItemsForView: [win contentView]
+                                           screenHeight: sh
+                                              into: reply];
+                }
+              [wins release];
+              WriteAll(fd, [reply UTF8String]);
+              [reply release];
+            }
+          else if ([cmd isEqualToString: @"menu_trigger"])
+            {
+              /* menu_trigger <Top/Sub/...> - simulate a click on a menu bar
+               * item by dispatching its action in-process (the same path a
+               * real selection uses).  Walks the menu of every menu-bar
+               * NSMenuView.  Reply "ok" or "error:...". */
+              NSString *path = ([parts count] > 1) ? [parts objectAtIndex: 1] : nil;
+              if (path == nil || [path length] == 0)
+                {
+                  WriteAll(fd, "error:menu_trigger needs a title path\n");
+                }
+              else
+                {
+                  NSArray *segs = [path componentsSeparatedByString: @"/"];
+                  NSMutableArray *menuViews = [NSMutableArray array];
+                  NSArray *wins = [[NSApp windows] copy];
+                  for (NSWindow *win in wins)
+                    {
+                      if (![win isVisible]) continue;
+                      [self collectMenuViews: [win contentView] into: menuViews];
+                    }
+                  [wins release];
+                  BOOL done = NO;
+                  for (NSMenuView *mv in menuViews)
+                    {
+                      if ([self triggerMenuPath: segs inMenu: [mv menu]])
+                        { done = YES; break; }
+                    }
+                  WriteAll(fd, done ? "ok\n" : "error:menu path not found\n");
+                }
+            }
           else if ([cmd isEqualToString: @"modal"])
             {
               /* Report the app's current modal window, if any.  This lets
@@ -793,6 +846,112 @@ static void WriteAll(int fd, const char *bytes)
     [out addObject: view];
   for (NSView *sub in [view subviews])
     [self collectButtons: sub into: out];
+}
+
+/* Collect all menu-bar NSMenuViews in the view's subtree (depth-first). */
+- (void)collectMenuViews:(NSView *)view into:(NSMutableArray *)out
+{
+  if (view == nil) return;
+  if ([view isKindOfClass: [NSMenuView class]])
+    {
+      [out addObject: view];
+      return;
+    }
+  for (NSView *sub in [view subviews])
+    [self collectMenuViews: sub into: out];
+}
+
+/* Does a menu title match the requested (possibly English) title?  Tries the
+ * raw title and the app's localized spelling. */
+- (BOOL)menuTitle:(NSString *)title matches:(NSString *)want
+{
+  if ([title rangeOfString: want options: NSCaseInsensitiveSearch].location != NSNotFound)
+    return YES;
+  NSString *loc = [[NSBundle mainBundle] localizedStringForKey: want
+                            value: want table: nil];
+  if (![loc isEqualToString: want] &&
+      [title rangeOfString: loc options: NSCaseInsensitiveSearch].location != NSNotFound)
+    return YES;
+  return NO;
+}
+
+/* Walk a menu by title path and invoke the leaf item's action (the same
+ * dispatch a real click performs).  Returns YES if the path was found. */
+- (BOOL)triggerMenuPath:(NSArray *)segs inMenu:(NSMenu *)menu
+{
+  if (menu == nil || [segs count] == 0) return NO;
+  NSString *want = [segs objectAtIndex: 0];
+  for (NSMenuItem *item in [menu itemArray])
+    {
+      if ([item isSeparatorItem]) continue;
+      if (![self menuTitle: [item title] ?: @"" matches: want]) continue;
+      if ([segs count] == 1)
+        {
+          @try
+            {
+              [NSApp sendAction: [item action] to: [item target] from: item];
+            }
+          @catch (NSException *e)
+            {
+            }
+          return YES;
+        }
+      if ([item submenu] != nil)
+        {
+          NSArray *rest = [segs subarrayWithRange:
+            NSMakeRange (1, [segs count] - 1)];
+          if ([self triggerMenuPath: rest inMenu: [item submenu]])
+            return YES;
+        }
+    }
+  return NO;
+}
+
+/* Recursively walk a view subtree for menu bars (NSMenuView) and append their
+ * top-level items as "title\tx\ty" lines, with x/y the item's on-screen centre
+ * in top-down X11 coordinates.  `screenHeight` is the screen height used to
+ * flip GNUstep's bottom-up origin. */
+- (void)appendMenuBarItemsForView:(NSView *)view
+                     screenHeight:(CGFloat)screenHeight
+                             into:(NSMutableString *)out
+{
+  if (view == nil) return;
+  @try
+    {
+      if ([view isKindOfClass: [NSMenuView class]])
+        {
+          NSMenuView *mv = (NSMenuView *)view;
+          NSWindow *win = [mv window];
+          NSMenu *menu = [mv menu];
+          if (win != nil && menu != nil)
+            {
+              NSArray *items = [menu itemArray];
+              NSInteger n = [menu numberOfItems];
+              NSLog(@"[MENUBAR] NSMenuView %p win=%@ items=%ld", mv, win, (long)n);
+              for (NSInteger i = 0; i < n && i < (NSInteger)[items count]; i++)
+                {
+                  NSMenuItem *item = [items objectAtIndex: i];
+                  if ([item isSeparatorItem]) continue;
+                  NSRect r = [mv rectOfItemAtIndex: i];
+                  NSRect sr = [win convertRectToScreen:
+                    [mv convertRect: r toView: nil]];
+                  CGFloat cx = NSMidX (sr);
+                  CGFloat cy = screenHeight - NSMidY (sr);
+                  [out appendFormat: @"%@\t%.0f\t%.0f\n",
+                    [item title] ?: @"", cx, cy];
+                }
+            }
+          /* A menu bar may have multiple NSMenuViews (app + system areas);
+           * do not recurse into its subviews. */
+          return;
+        }
+    }
+  @catch (NSException *e)
+    {
+      return;
+    }
+  for (NSView *sub in [view subviews])
+    [self appendMenuBarItemsForView: sub screenHeight: screenHeight into: out];
 }
 
 /* Find an NSButton in the view's subtree.  If title is nil, prefer the

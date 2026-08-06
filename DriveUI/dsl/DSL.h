@@ -56,6 +56,7 @@ typedef enum
   DDSCmdFocusWindow,
   DDSCmdCloseWindow,
   DDSCmdSelectMenu,
+  DDSCmdSelectGlobalMenu,
   DDSCmdInvokeButton,
   DDSCmdClick,
   DDSCmdDoubleClick,
@@ -217,6 +218,7 @@ typedef enum
 - (BOOL)dragRole:(DSLRole)role title:(NSString *)title
             byX:(double)dx byY:(double)dy error:(NSString **)err;
 - (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err;
+- (BOOL)triggerGlobalMenuPath:(NSString *)path error:(NSString **)err;
 - (NSString *)localizeString:(NSString *)english;
 - (BOOL)type:(NSString *)text error:(NSString **)err;
 - (BOOL)clearRole:(DSLRole)role title:(NSString *)title error:(NSString **)err;

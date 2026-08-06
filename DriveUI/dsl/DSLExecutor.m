@@ -87,6 +87,7 @@ static NSString *CommandName(DSLCommandType t)
       case DDSCmdFocusWindow: return @"focus window";
       case DDSCmdCloseWindow: return @"close window";
       case DDSCmdSelectMenu:  return @"select menu";
+      case DDSCmdSelectGlobalMenu: return @"select global menu";
       case DDSCmdInvokeButton: return @"invoke button";
       case DDSCmdClick:       return @"click";
       case DDSCmdDoubleClick: return @"doubleclick";
@@ -193,6 +194,11 @@ static NSString *CommandName(DSLCommandType t)
     case DDSCmdSelectMenu:
       if (!cmd.string) { err = @"select menu needs a path (use \"Top/Sub\")"; rc = 1; break; }
       rc = ([engine_ selectMenuPath: cmd.string error: &err])
+        ? 0 : DDSAccessibilityError;
+      break;
+    case DDSCmdSelectGlobalMenu:
+      if (!cmd.string) { err = @"select global menu needs a path (use \"Top/Sub\")"; rc = 1; break; }
+      rc = ([engine_ triggerGlobalMenuPath: cmd.string error: &err])
         ? 0 : DDSAccessibilityError;
       break;
     case DDSCmdClick:

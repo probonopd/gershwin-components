@@ -1,8 +1,10 @@
 #!/usr/bin/env drive_script
-# About-box stability across app relaunches: launch Processes, open its About
-# box, check the text, then quit and relaunch.  The whole cycle must work a
-# second time too (the relaunch must not wedge the DriveUI connection or leave
-# stale state behind).
+# About-box stability across app relaunches, exercised through Menu.app's GLOBAL
+# menu bar: launch Processes, select Processes -> About Processes from the
+# global menu, check the About-box text, then quit and relaunch and repeat.
+# The global-menu ACTION must reach the live app instance both times (a stale
+# menu bound to the previous instance's dead service would silently do
+# nothing).
 #
 # Leaves the computer as it was found: the app is left running at the end.
 #
@@ -11,7 +13,7 @@ launch application "Processes"
 
 repeat 2
   activate application "Processes"
-  select menu "Processes/About Processes"
+  select global menu "Processes/About Processes"
   wait until window "Information"
   assert text contains "Process monitor"
   assert text contains "Release:"

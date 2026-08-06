@@ -716,6 +716,78 @@ int main(int argc, const char *argv[])
       NSString *reply = SendCommand(pid, @"windows");
       if (reply) printf("%s", [reply UTF8String]);
     }
+  else if ([command isEqualToString: @"menubar"])
+    {
+      /* Read-only: top-level menu bar items as title\tx\ty (screen centres). */
+      NSString *reply = SendCommand(pid, @"menubar");
+      if (reply) printf("%s", [reply UTF8String]);
+    }
+  else if ([command isEqualToString: @"click_menubar"])
+    {
+      /* click_menubar <title> - real X11 click on a top-level menu bar item,
+       * so scripts can open the app's global menu and then click its items
+       * (which appear as a normal menu window in the tree). */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      NSString *title = ([positionals count] > 0) ? [positionals objectAtIndex: 0] : nil;
+      if (title == nil || [title length] == 0)
+        {
+          fprintf(stderr, "drive_ui: click_menubar needs <title>\n");
+          [pool release];
+          return 1;
+        }
+      NSString *list = SendCommand(pid, @"menubar");
+      BOOL clicked = NO;
+      for (NSString *line in [list componentsSeparatedByString: @"\n"])
+        {
+          NSArray *f = [line componentsSeparatedByString: @"\t"];
+          if ([f count] < 3) continue;
+          if ([[f objectAtIndex: 0] rangeOfString: title
+            options: NSCaseInsensitiveSearch].location == NSNotFound) continue;
+          double x = [[f objectAtIndex: 1] doubleValue];
+          double y = [[f objectAtIndex: 2] doubleValue];
+          [X11Support simulateMouseMoveTo: NSMakePoint (x, y)];
+          usleep (50000);
+          [X11Support simulateClick: 1];
+          clicked = YES;
+          break;
+        }
+      if (!clicked)
+        {
+          fprintf(stderr, "drive_ui: click_menubar: no item '%s' in menu bar\n",
+                  [title UTF8String]);
+          [pool release];
+          return 1;
+        }
+    }
+  else if ([command isEqualToString: @"menu_trigger"])
+    {
+      /* menu_trigger "Top/Sub" - dispatch a menu bar item's action in-process
+       * (same path a real click uses).  Simpler and more reliable than a
+       * synthetic drag through Menu.app's custom-drawn menu. */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      NSString *path = ([positionals count] > 0) ? [positionals objectAtIndex: 0] : nil;
+      if (path == nil || [path length] == 0)
+        {
+          fprintf(stderr, "drive_ui: menu_trigger needs \"Top/Sub\"\n");
+          [pool release];
+          return 1;
+        }
+      NSString *reply = SendCommand(pid, [NSString stringWithFormat:
+        @"menu_trigger\t%@", path]);
+      if (reply) printf("%s", [reply UTF8String]);
+    }
   else if ([command isEqualToString: @"modal"])
     {
       /* Read-only: report the app's current modal window ("none" if none).

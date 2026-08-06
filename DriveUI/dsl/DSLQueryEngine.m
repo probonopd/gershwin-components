@@ -446,6 +446,50 @@ static void SetErr(NSString **err, NSString *m)
   return NO;
 }
 
+/* Trigger an action on Menu.app's global menu bar (simulates clicking a menu
+ * item).  Menu.app runs the global menu for the frontmost app; the DSL target
+ * app just needs to be active.  Returns NO if Menu.app isn't running or the
+ * item path isn't found. */
+- (BOOL)triggerGlobalMenuPath:(NSString *)path error:(NSString **)err
+{
+  if (path == nil || [path length] == 0)
+    { SetErr(err, @"select global menu needs a path (use \"Top/Sub\")"); return NO; }
+  int menuPid = 0;
+  NSString *menuName = @"Menu";
+  NSString *tmp = @"/tmp";
+  NSArray *entries = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:
+    tmp error: nil];
+  for (NSString *e in entries)
+    {
+      if (![e hasPrefix: @"driveui."] || ![e hasSuffix: @".sock"]) continue;
+      NSString *pidStr = [e substringWithRange: NSMakeRange(8,
+        [e length] - 8 - [@".sock" length])];
+      int maybePid = [pidStr intValue];
+      if (maybePid <= 0) continue;
+      if (kill(maybePid, 0) != 0) continue;
+      NSString *a = [self runCollect: [NSArray arrayWithObjects:
+        [NSString stringWithFormat: @"--pid=%d", maybePid], @"app", nil] error: nil];
+      NSString *found = a ? [a stringByTrimmingCharactersInSet:
+        [NSCharacterSet newlineCharacterSet]] : @"";
+      if ([found isEqualToString: menuName])
+        { menuPid = maybePid; break; }
+    }
+  if (menuPid <= 0)
+    { SetErr(err, @"Menu.app is not running"); return NO; }
+  NSArray *argv = [NSArray arrayWithObjects:
+    [NSString stringWithFormat: @"--pid=%d", menuPid],
+    @"menu_trigger", path, nil];
+  NSString *reply = [self runCollect: argv error: err];
+  if (!reply) return NO;
+  if ([reply hasPrefix: @"error:"])
+    {
+      SetErr(err, [reply stringByTrimmingCharactersInSet:
+        [NSCharacterSet newlineCharacterSet]]);
+      return NO;
+    }
+  return YES;
+}
+
 /* Select a menu item by its title path, e.g. "About This Computer" or
  * "File/Open".  Resolution is in-process (the app's own main menu), so it is
  * fast and does not depend on the on-screen menu bar or X11 timing.

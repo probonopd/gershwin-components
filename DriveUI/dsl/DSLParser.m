@@ -436,9 +436,21 @@ case DDSRoleLabel:                        return @"NSTextField";
         }
       else if ([kw isEqualToString: @"select"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdSelectMenu
-            line: lineNo col: 1] autorelease];
-          cmd.string = str1;
+          /* select menu "Top/Sub" - in-app menu; or "select global menu" -
+           * Menu.app's global menu bar (simulates clicking its items). */
+          if ([words count] > 0 &&
+              [[words objectAtIndex: 0] isEqualToString: @"global"])
+            {
+              cmd = [[[DSLCommand alloc] initWithType: DDSCmdSelectGlobalMenu
+                line: lineNo col: 1] autorelease];
+              cmd.string = str1;
+            }
+          else
+            {
+              cmd = [[[DSLCommand alloc] initWithType: DDSCmdSelectMenu
+                line: lineNo col: 1] autorelease];
+              cmd.string = str1;
+            }
         }
       else if ([kw isEqualToString: @"click"])
         {
