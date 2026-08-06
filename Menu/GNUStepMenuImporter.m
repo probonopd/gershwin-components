@@ -446,9 +446,15 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
 
     /* Clear the materialization cache for this window so that if the window
        reopens (same or new app instance), the next updateMenuForWindow: call
-       performs a fresh proxy materialization instead of skipping it. */
+       performs a fresh proxy materialization instead of skipping it.  Keys are
+       "<windowId>:<clientName>", so remove every entry for this window. */
     @synchronized (_materializationTimeByWindow) {
-        [_materializationTimeByWindow removeObjectForKey:windowKey];
+        NSString *prefix = [NSString stringWithFormat:@"%lu:", windowId];
+        NSArray *keys = [_materializationTimeByWindow allKeys];
+        for (NSString *k in keys) {
+            if ([k hasPrefix:prefix])
+                [_materializationTimeByWindow removeObjectForKey:k];
+        }
     }
 
     if (self.appMenuWidget && self.appMenuWidget.currentWindowId == windowId) {
@@ -602,13 +608,19 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
                data.
 
                OWNERSHIP: only updateMenuForWindow: writes to _materializationTimeByWindow.
-               updateMenuEnabledStatesForWindow: must never write to it (see comments there). */
+               updateMenuEnabledStatesForWindow: must never write to it (see comments there).
+
+               Keyed by windowId AND clientName: X reuses window IDs across app relaunches, so a
+               new app instance pushing for the same windowId must materialize fresh, not be
+               skipped because an earlier instance already walked this window. */
+            NSString *materializeKey = [NSString stringWithFormat:@"%lu:%@",
+              [safeWindowId unsignedLongValue], safeClientName];
             @synchronized (_materializationTimeByWindow) {
-                if (_materializationTimeByWindow[safeWindowId]) {
+                if (_materializationTimeByWindow[materializeKey]) {
                     NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Skipping proxy materialization for window %@ (already cached)", safeWindowId);
                     return;
                 }
-                _materializationTimeByWindow[safeWindowId] = @YES;
+                _materializationTimeByWindow[materializeKey] = @YES;
             }
 
             /* Materialize proxy menuData by serialization. */
@@ -686,7 +698,14 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     (void)now; (void)startupTime; (void)lastTime;
 
     NSDictionary *lastMenuData = [self.lastMenuDataByWindow objectForKey:windowId];
-    if (lastMenuData && [lastMenuData isEqual:menuData]) {
+    /* Only deduplicate when the SAME client re-sends the SAME content for the
+       window.  X reuses window IDs across app relaunches, so a fresh app
+       instance pushing an identical menu for the same windowId must NOT be
+       dropped as a duplicate - that made the global menu work only on the
+       first launch of an app. */
+    NSString *lastClient = [self.clientNamesByWindow objectForKey:windowId];
+    if (lastClient && [lastClient isEqualToString:clientName]
+        && lastMenuData && [lastMenuData isEqual:menuData]) {
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Skipping duplicate menu update for window %@", windowId);
         return;
     }
