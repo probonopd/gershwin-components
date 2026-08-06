@@ -255,6 +255,47 @@ static dispatch_once_t _sharedDisplayOnce;
     return mapped;
 }
 
++ (BOOL)isRealApplicationWindow:(unsigned long)windowId
+{
+    if (windowId == 0) return NO;
+
+    Display *display = [self openDisplay];
+    if (!display) return NO;
+
+    XWindowAttributes attrs;
+    BOOL real = NO;
+    if (XGetWindowAttributes(display, (Window)windowId, &attrs) == Success) {
+        /* Mapped (window and ancestors) and not an override-redirect popup. */
+        if (attrs.map_state == IsViewable && !attrs.override_redirect) {
+            /* _NET_WM_WINDOW_TYPE: accept normal/dialog/utility or absent. */
+            Atom wmTypeAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE", True);
+            Atom wmTypeNormal = XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", False);
+            Atom wmTypeDialog = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+            Atom wmTypeUtility = XInternAtom(display, "_NET_WM_WINDOW_TYPE_UTILITY", False);
+            BOOL typeOK = YES;
+            if (wmTypeAtom != None) {
+                Atom actualType; int actualFormat;
+                unsigned long nItems, bytesAfter;
+                unsigned char *prop = NULL;
+                if (XGetWindowProperty(display, (Window)windowId, wmTypeAtom, 0, 16,
+                                       False, XA_ATOM, &actualType, &actualFormat,
+                                       &nItems, &bytesAfter, &prop) == Success) {
+                    if (prop && nItems > 0) {
+                        Atom first = ((Atom *)prop)[0];
+                        typeOK = (first == wmTypeNormal || first == wmTypeDialog
+                                  || first == wmTypeUtility);
+                    }
+                    if (prop) XFree(prop);
+                }
+            }
+            real = typeOK;
+        }
+    }
+
+    [self closeDisplay:display];
+    return real;
+}
+
 + (BOOL)isDesktopWindow:(unsigned long)windowId
 {
     if (windowId == 0) {

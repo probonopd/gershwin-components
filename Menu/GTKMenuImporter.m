@@ -885,7 +885,11 @@ static int x11ErrorHandler(Display *display, XErrorEvent *error) {
 
 - (void)reregisterShortcutsForMenuItems:(NSArray *)items serviceName:(NSString *)serviceName actionPath:(NSString *)actionPath
 {
-    for (NSMenuItem *item in items) {
+    /* Snapshot: [NSMenu itemArray] is the live array in GNUstep; the menu can
+     * be mutated while we walk it, which would abort the loop and drop the
+     * app's shortcuts. */
+    NSArray *snapshot = [items copy];
+    for (NSMenuItem *item in snapshot) {
         // Check if this item has GTK action data and a shortcut
         NSString *keyEquivalent = [item keyEquivalent];
         if (keyEquivalent && [keyEquivalent length] > 0) {

@@ -29,6 +29,10 @@
 - (void)setAppMenuWidget:(AppMenuWidget *)widget;
 - (void)cleanup;
 - (void)processDBusMessages;
+// Re-register the global (X11-grabbed) shortcuts for a window's menu after
+// they have been cleared (e.g. on an app switch).  Implemented by the DBus
+// and GTK importers.
+- (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId;
 // Synchronously refresh menu item enabled/state from the client just before
 // a submenu is displayed.  Implemented only by GNUStepMenuImporter.
 - (BOOL)refreshMenuStateForWindow:(unsigned long)windowId;
@@ -97,5 +101,9 @@ typedef NS_ENUM(NSInteger, MenuProtocolType) {
 // Returns YES when the window's enabled/checkmark states are known to be
 // current within the TTL, so callers can skip the synchronous pull.
 - (BOOL)menuStatesAreFreshForWindow:(unsigned long)windowId withinTTL:(NSTimeInterval)ttl;
+
+// Re-register the global shortcuts for the given window's menu by delegating
+// to the protocol handler that manages the window.
+- (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId;
 
 @end

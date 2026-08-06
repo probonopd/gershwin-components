@@ -243,6 +243,14 @@ static const void *kWindowMonitorQueueKey = &kWindowMonitorQueueKey;
         }
     }
     
+    // Same ICCCM/EWMH filter as checkActiveWindow - ignore internal windows.
+    if (newActiveWindow != 0
+        && ![MenuUtils isDesktopWindow:newActiveWindow]
+        && ![MenuUtils isRealApplicationWindow:newActiveWindow]) {
+        NSDebugLLog(@"gwcomp", @"WindowMonitor: Initial active window %lu is not a real app window - ignoring", newActiveWindow);
+        newActiveWindow = 0;
+    }
+    
     if (newActiveWindow != _currentActiveWindow) {
         _currentActiveWindow = newActiveWindow;
         
@@ -303,6 +311,19 @@ static const void *kWindowMonitorQueueKey = &kWindowMonitorQueueKey;
         if (newActiveWindow != 0) {
             XSelectInput(_display, (Window)newActiveWindow, StructureNotifyMask | PropertyChangeMask);
         }
+    }
+    
+    // ICCCM/EWMH filter: window-manager-internal windows (tooltips, menus,
+    // popups, docks) and Chromium's internal helper windows must not be
+    // treated as the active app window.  When one of them grabs the focus,
+    // keep showing the previous app's menu (and its shortcuts) instead of
+    // clearing to system-only.  The desktop is still reported as-is so the
+    // menu can go to its system-only state.
+    if (newActiveWindow != 0
+        && ![MenuUtils isDesktopWindow:newActiveWindow]
+        && ![MenuUtils isRealApplicationWindow:newActiveWindow]) {
+        NSDebugLLog(@"gwcomp", @"WindowMonitor: Active window %lu is not a real app window - keeping current %lu", newActiveWindow, _currentActiveWindow);
+        newActiveWindow = _currentActiveWindow;
     }
     
     if (newActiveWindow != _currentActiveWindow) {

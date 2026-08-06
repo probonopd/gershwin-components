@@ -617,6 +617,19 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
         [self.windowsWithoutMenus setObject:[NSDate date] forKey:windowKey];
         
+        /* A window of the SAME app as the currently displayed menu (e.g. one of
+         * Chrome's internal/helper windows that has no menu of its own) must not
+         * clear the app menu: clearing to system-only also unregisters the app's
+         * global shortcuts, so Alt+T stops working after switching away and back. */
+        pid_t windowPID = [MenuUtils getWindowPID: windowId];
+        if (self.currentWindowId != 0 && windowPID != 0
+            && windowPID == self.currentWindowPID) {
+            NSLog(@"AppMenuWidget: Keeping current menu - no-menu window 0x%lx is same app (pid %d)",
+                  windowId, (int)windowPID);
+            [self cancelMenuRetry];
+            return;
+        }
+        
         /* Stay on system-only menu. */
         if (![self isShowingSystemOnlyMenu]) {
             [self clearToSystemOnly];
@@ -704,7 +717,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     }
 
     /* Re-register shortcuts for this menu. */
-    [self reregisterShortcutsForMenu:menu];
+    [self reregisterShortcutsForMenu:menu windowId:windowId];
     MENU_PROFILE_END(loadMenuForWindow);
 }
 
@@ -1672,10 +1685,14 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
 #pragma mark - Shortcut re-registration
 
-- (void)reregisterShortcutsForMenu:(NSMenu *)menu
+- (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId
 {
-    (void)menu;
-    NSDebugLLog(@"gwcomp", @"AppMenuWidget: Shortcut re-registration delegated to protocol managers");
+    /* unregisterNonDirectShortcuts (called on an app switch above) clears the
+     * global X11 grabs of the app's menu shortcuts; hand the menu back to the
+     * protocol manager so the owning importer re-grabs them.  Without this the
+     * menu shows shortcuts that do nothing (e.g. Chrome's Alt+T). */
+    [[MenuProtocolManager sharedManager] reregisterShortcutsForMenu:menu
+                                                           windowId:windowId];
 }
 
 @end

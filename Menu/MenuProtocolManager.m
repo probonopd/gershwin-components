@@ -191,9 +191,7 @@
     MENU_PROFILE_BEGIN(protocolManagerGetMenuForWindow);
     @try {
         NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
-        NSNumber *protocolTypeNum = [self.windowToProtocolMap objectForKey:windowKey];
-
-        if (protocolTypeNum) {
+        NSNumber *protocolTypeNum = [self.windowToProtocolMap objectForKey:windowKey];        if (protocolTypeNum) {
             // We know which protocol handles this window
             MenuProtocolType protocolType = [protocolTypeNum integerValue];
             id<MenuProtocolHandler> handler = [self handlerForType:protocolType];
@@ -261,6 +259,29 @@
         NSDebugLLog(@"gwcomp", @"MenuProtocolManager: Exception getting menu for window %lu: %@", windowId, exception);
         MENU_PROFILE_END(protocolManagerGetMenuForWindow);
         return nil;
+    }
+}
+
+- (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId
+{
+    if (!menu) return;
+    NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
+    NSNumber *protocolTypeNum = [self.windowToProtocolMap objectForKey:windowKey];
+    id<MenuProtocolHandler> handler = nil;
+    if (protocolTypeNum) {
+        handler = [self handlerForType:[protocolTypeNum integerValue]];
+    } else {
+        /* No cached protocol mapping yet (e.g. the menu came from a retry path);
+         * find a handler that can provide a menu for this window. */
+        for (id h in self.protocolHandlers) {
+            if (![h isKindOfClass:[NSNull class]] && [h getMenuForWindow:windowId]) {
+                handler = h;
+                break;
+            }
+        }
+    }
+    if (handler && [handler respondsToSelector:@selector(reregisterShortcutsForMenu:windowId:)]) {
+        [handler reregisterShortcutsForMenu:menu windowId:windowId];
     }
 }
 

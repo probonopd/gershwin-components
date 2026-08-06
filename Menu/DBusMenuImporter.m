@@ -1042,6 +1042,7 @@
     NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
     NSString *serviceName = [self.registeredWindows objectForKey:windowKey];
     NSString *objectPath = [self.windowMenuPaths objectForKey:windowKey];
+    NSLog(@"REREGDBG dbus importer: window 0x%lx service=%@ path=%@", (unsigned long)windowId, serviceName, objectPath);
     
     if (!serviceName || !objectPath) {
         NSDebugLog(@"DBusMenuImporter: Cannot re-register shortcuts - missing service/object path");
@@ -1054,7 +1055,12 @@
 
 - (void)reregisterShortcutsForMenuItems:(NSArray *)items serviceName:(NSString *)serviceName objectPath:(NSString *)objectPath
 {
-    for (NSMenuItem *item in items) {
+    /* Snapshot the array: [NSMenu itemArray] returns the menu's LIVE array in
+     * GNUstep, and the menu can be mutated while we walk it (e.g. the system
+     * menu is still being populated) - fast-enumerating the live array then
+     * crashes mid-loop and silently drops the app's shortcuts. */
+    NSArray *snapshot = [items copy];
+    for (NSMenuItem *item in snapshot) {
         // Check if this item has a shortcut
         NSString *keyEquivalent = [item keyEquivalent];
         if (keyEquivalent && [keyEquivalent length] > 0) {

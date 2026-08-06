@@ -18,6 +18,12 @@
 + (BOOL)isWindowMapped:(unsigned long)windowId;
 + (BOOL)isDesktopWindow:(unsigned long)windowId;
 + (BOOL)isDialogWindow:(unsigned long)windowId;
+// True for a real top-level application window per ICCCM/EWMH: viewable, not
+// override-redirect, and with a normal/dialog/utility _NET_WM_WINDOW_TYPE (or
+// no type at all).  Window-manager-internal windows (tooltips, menus, docks,
+// notifications) and Chromium's internal helper windows that Chromium marks as
+// non-normal are excluded, so the global menu does not chase them.
++ (BOOL)isRealApplicationWindow:(unsigned long)windowId;
 + (NSArray *)getAllWindows;
 + (unsigned long)getActiveWindow;
 + (NSString *)getWindowProperty:(unsigned long)windowId atomName:(NSString *)atomName;
