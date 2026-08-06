@@ -21,8 +21,10 @@
 
 @implementation DSLQueryEngine
 
-/* Node in the menu-title trie built from the DriveUI `menu` reply. */
-typedef struct DDSMenuNode { NSString *title; int index; struct DDSMenuNode **kids; int nkids; } DDSMenuNode;
+/* Node in the menu-title trie built from the DriveUI `menu` reply.  `raw` is
+ * the whole tab-separated line of the item, kept so assertions can read the
+ * state (checkmark), enabled flag and shortcut columns. */
+typedef struct DDSMenuNode { NSString *title; int index; struct DDSMenuNode **kids; int nkids; NSString *raw; } DDSMenuNode;
 
 static void DDSMenuNodeFree(DDSMenuNode *n)
 {
@@ -30,6 +32,7 @@ static void DDSMenuNodeFree(DDSMenuNode *n)
   for (int i = 0; i < n->nkids; i++) DDSMenuNodeFree(n->kids[i]);
   free(n->kids);
   [n->title release];
+  [n->raw release];
   free(n);
 }
 
@@ -604,6 +607,7 @@ static void SetErr(NSString **err, NSString *m)
       DDSMenuNode *node = calloc(1, sizeof(DDSMenuNode));
       node->title = [title copy];
       node->index = index;
+      node->raw = [line copy];
       parent->kids[parent->nkids++] = node;
 
       if (hasSubmenu && depth + 1 < 64)
@@ -646,6 +650,7 @@ static void SetErr(NSString **err, NSString *m)
               DDSMenuNode *node = calloc(1, sizeof(DDSMenuNode));
               node->title = [title copy];
               node->index = index;
+              node->raw = [line copy];
               parent->kids[parent->nkids++] = node;
               if (hasSubmenu && depth + 1 < 64)
                 parents[depth + 1] = node;
@@ -701,6 +706,137 @@ static void SetErr(NSString **err, NSString *m)
       SetErr(err, [reply stringByTrimmingCharactersInSet:
         [NSCharacterSet newlineCharacterSet]]);
       return NO;
+    }
+  return YES;
+}
+
+/* Assert a property of a main-menu item addressed by a title path (same tree
+ * walk as selectMenuPath:, but read-only).  The item's raw line carries the
+ * columns emitted by the bundle's `menu` command:
+ *   depth\tindex\ttitle\tenabled\thas_submenu\tstate\tkey_equiv\tmods\tshortcut
+ * `kind` is one of the DDSAssertMenu* kinds; `shortcut` is the expected
+ * readable "Cmd+Shift+T" form for DDSAssertMenuShortcut. */
+- (BOOL)assertMenuItemPath:(NSString *)path kind:(DSLAssertKind)kind
+                  shortcut:(NSString *)expectedShortcut error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
+  if (path == nil || [path length] == 0)
+    { SetErr(err, @"menu item assert needs a path (use \"Top/Sub\")"); return NO; }
+
+  NSString *tree = [self runCollect: [self argvForSubcommand: @"menu"]
+                              error: err];
+  if (!tree) return NO;
+
+  DDSMenuNode *root = calloc(1, sizeof(DDSMenuNode));
+  root->title = @"";
+  root->index = -1;
+  DDSMenuNode *parents[64];
+  memset(parents, 0, sizeof(parents));
+  parents[0] = root;
+  BOOL anyItem = NO;
+
+  for (NSString *line in [tree componentsSeparatedByString: @"\n"])
+    {
+      NSArray *f = [line componentsSeparatedByString: @"\t"];
+      if ([f count] < 5) continue;
+      int depth = [[f objectAtIndex: 0] intValue];
+      int index = [[f objectAtIndex: 1] intValue];
+      NSString *title = [f objectAtIndex: 2];
+      BOOL hasSubmenu = [[f objectAtIndex: 4] isEqualToString: @"1"];
+      if (depth < 0 || depth >= 64) continue;
+      anyItem = YES;
+      DDSMenuNode *parent = parents[depth];
+      if (parent == NULL) continue;
+      parent->kids = realloc(parent->kids, sizeof(DDSMenuNode *) *
+          (parent->nkids + 1));
+      DDSMenuNode *node = calloc(1, sizeof(DDSMenuNode));
+      node->title = [title copy];
+      node->index = index;
+      node->raw = [line copy];
+      parent->kids[parent->nkids++] = node;
+      if (hasSubmenu && depth + 1 < 64)
+        parents[depth + 1] = node;
+    }
+
+  if (!anyItem)
+    {
+      SetErr(err, @"application has no menu (DriveUI menu unsupported?)");
+      DDSMenuNodeFree(root);
+      return NO;
+    }
+
+  NSArray *segs = [path componentsSeparatedByString: @"/"];
+  DDSMenuNode *current = root;
+  BOOL found = YES;
+  for (NSString *seg in segs)
+    {
+      if ([seg length] == 0) continue;
+      DDSMenuNode *match = NULL;
+      for (int i = 0; i < current->nkids; i++)
+        {
+          DDSMenuNode *k = current->kids[i];
+          if ([self title: k->title matches: seg])
+            { match = k; break; }
+        }
+      if (match == NULL) { found = NO; break; }
+      current = match;
+    }
+
+  if (!found)
+    {
+      if (kind == DDSAssertMenuNotExists)
+        {
+          DDSMenuNodeFree(root);
+          return YES;   /* expected to be absent - passed */
+        }
+      SetErr(err, [NSString stringWithFormat:
+        @"menu item '%@' not found in '%@'", path, appName_ ?: @"app"]);
+      DDSMenuNodeFree(root);
+      return NO;
+    }
+
+  /* Read the item's columns: state (checkmark), enabled, shortcut. */
+  NSArray *fields = [current->raw componentsSeparatedByString: @"\t"];
+  int state = ([fields count] > 5) ? [[fields objectAtIndex: 5] intValue] : 0;
+  BOOL enabled = ([fields count] > 3) && [[fields objectAtIndex: 3] isEqualToString: @"1"];
+  NSString *shortcut = ([fields count] > 8) ? [fields objectAtIndex: 8] : @"";
+  DDSMenuNodeFree(root);
+
+  switch (kind)
+    {
+      case DDSAssertMenuExists:
+        break;
+      case DDSAssertMenuNotExists:
+        SetErr(err, @"assert failed: menu item unexpectedly present");
+        return NO;
+      case DDSAssertMenuChecked:
+        if (state != 1) /* NSOnState */
+          { SetErr(err, @"assert failed: menu item is not checked"); return NO; }
+        break;
+      case DDSAssertMenuNotChecked:
+        if (state == 1) /* NSOnState */
+          { SetErr(err, @"assert failed: menu item is checked"); return NO; }
+        break;
+      case DDSAssertMenuEnabled:
+        if (!enabled)
+          { SetErr(err, @"assert failed: menu item is disabled"); return NO; }
+        break;
+      case DDSAssertMenuDisabled:
+        if (enabled)
+          { SetErr(err, @"assert failed: menu item is enabled"); return NO; }
+        break;
+      case DDSAssertMenuShortcut:
+        if (![shortcut isEqualToString: expectedShortcut ?: @""])
+          {
+            SetErr(err, [NSString stringWithFormat:
+              @"assert failed: menu item shortcut is '%@', expected '%@'",
+              shortcut, expectedShortcut ?: @""]);
+            return NO;
+          }
+        break;
+      default:
+        SetErr(err, @"internal: not a menu-item assertion");
+        return NO;
     }
   return YES;
 }
@@ -993,6 +1129,11 @@ static void SetErr(NSString **err, NSString *m)
           { SetErr(err, @"assert failed: widget is docked"); return NO; }
         break;
       }
+      default:
+        /* The DDSAssertMenu* kinds are handled by assertMenuItemPath:; they
+         * never reach this widget assertion. */
+        SetErr(err, @"assert failed: unknown assertion kind");
+        return NO;
     }
   return YES;
 }

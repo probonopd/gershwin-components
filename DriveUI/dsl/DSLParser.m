@@ -587,6 +587,36 @@ case DDSRoleLabel:                        return @"NSTextField";
             }
           else
             {
+              /* assert menu item "Top/Sub" [exists|not exists|checked|not
+               * checked|enabled|disabled|shortcut "Cmd+O"] - asserts a
+               * property of a main-menu item addressed by title path. */
+              if ([words count] >= 2 &&
+                  [[words objectAtIndex: 0] isEqualToString: @"menu"] &&
+                  [[words objectAtIndex: 1] isEqualToString: @"item"])
+                {
+                  [words removeObjectsInRange: NSMakeRange(0, 2)];
+                  cmd.string = str1;
+                  cmd.assertKind = (cmd.assertKind == DDSAssertNotExists)
+                    ? DDSAssertMenuNotExists : DDSAssertMenuExists;
+                  if ([words count] > 0)
+                    {
+                      NSString *prop = [[words objectAtIndex: 0] lowercaseString];
+                      if ([prop isEqualToString: @"checked"])
+                        cmd.assertKind = DDSAssertMenuChecked;
+                      else if ([prop isEqualToString: @"not"] && [words count] > 1 &&
+                               [[[words objectAtIndex: 1] lowercaseString]
+                                 isEqualToString: @"checked"])
+                        cmd.assertKind = DDSAssertMenuNotChecked;
+                      else if ([prop isEqualToString: @"enabled"])
+                        cmd.assertKind = DDSAssertMenuEnabled;
+                      else if ([prop isEqualToString: @"disabled"])
+                        cmd.assertKind = DDSAssertMenuDisabled;
+                      else if ([prop isEqualToString: @"shortcut"])
+                        { cmd.assertKind = DDSAssertMenuShortcut; cmd.string2 = str2; }
+                    }
+                }
+              else
+                {
               cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
               if ([words count] > 0) [words removeObjectAtIndex: 0];
               cmd.string = str1;
@@ -606,6 +636,7 @@ case DDSRoleLabel:                        return @"NSTextField";
                            [[[words objectAtIndex: 1] lowercaseString]
                              isEqualToString: @"constant"])
                     cmd.assertKind = DDSAssertFrameConstant;
+                }
                 }
             }
         }
@@ -702,7 +733,9 @@ case DDSRoleLabel:                        return @"NSTextField";
         }
       else if ([kw isEqualToString: @"if"])
         {
-          /* if [not] [exists] [role] "title" [docked|not docked] */
+          /* if [not] [exists] [role] "title" [docked|not docked]
+           *    menu item "Top/Sub" checked|not checked|enabled|disabled|shortcut "X" */
+          BOOL isMenuItem = NO;
           cmd = [[[DSLCommand alloc] initWithType: DDSCmdIf
             line: lineNo col: 1] autorelease];
           if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"not"])
@@ -712,16 +745,45 @@ case DDSRoleLabel:                        return @"NSTextField";
             }
           if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"exists"])
             [words removeObjectAtIndex: 0];
-          cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
-          if ([words count] > 0) [words removeObjectAtIndex: 0];
-          cmd.string = str1;
-          /* optional docked-state condition */
-          if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"docked"])
-            cmd.assertKind = DDSAssertDocked;
-          else if ([words count] > 1 &&
-                   [[words objectAtIndex: 0] isEqualToString: @"not"] &&
-                   [[words objectAtIndex: 1] isEqualToString: @"docked"])
-            cmd.assertKind = DDSAssertNotDocked;
+          if ([words count] >= 2 &&
+              [[words objectAtIndex: 0] isEqualToString: @"menu"] &&
+              [[words objectAtIndex: 1] isEqualToString: @"item"])
+            {
+              isMenuItem = YES;
+              [words removeObjectsInRange: NSMakeRange(0, 2)];
+              cmd.string = str1;
+              cmd.assertKind = (cmd.assertKind == DDSAssertNotExists)
+                ? DDSAssertMenuNotExists : DDSAssertMenuExists;
+              if ([words count] > 0)
+                {
+                  NSString *prop = [[words objectAtIndex: 0] lowercaseString];
+                  if ([prop isEqualToString: @"checked"])
+                    cmd.assertKind = DDSAssertMenuChecked;
+                  else if ([prop isEqualToString: @"not"] && [words count] > 1 &&
+                           [[[words objectAtIndex: 1] lowercaseString]
+                             isEqualToString: @"checked"])
+                    cmd.assertKind = DDSAssertMenuNotChecked;
+                  else if ([prop isEqualToString: @"enabled"])
+                    cmd.assertKind = DDSAssertMenuEnabled;
+                  else if ([prop isEqualToString: @"disabled"])
+                    cmd.assertKind = DDSAssertMenuDisabled;
+                  else if ([prop isEqualToString: @"shortcut"])
+                    { cmd.assertKind = DDSAssertMenuShortcut; cmd.string2 = str2; }
+                }
+            }
+          if (!isMenuItem)
+            {
+              cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+              if ([words count] > 0) [words removeObjectAtIndex: 0];
+              cmd.string = str1;
+              /* optional docked-state condition */
+              if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"docked"])
+                cmd.assertKind = DDSAssertDocked;
+              else if ([words count] > 1 &&
+                       [[words objectAtIndex: 0] isEqualToString: @"not"] &&
+                       [[words objectAtIndex: 1] isEqualToString: @"docked"])
+                cmd.assertKind = DDSAssertNotDocked;
+            }
           [blockStack_ addObject: [[[DDSBlockCtx alloc] initWithType: @"if"
             target: cmd.body elseTarget: cmd.elseBody] autorelease]];
         }

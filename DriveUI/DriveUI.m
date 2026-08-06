@@ -496,10 +496,12 @@ static void WriteAll(int fd, const char *bytes)
           else if ([cmd isEqualToString: @"menu"])
             {
               /* Read-only: serialize the app's main menu as one line per item:
-               * depth\tindex\ttitle\tenabled\thas_submenu, recursing into each
-               * submenu (a submenu's items follow its parent at depth+1).  The
-               * top-level bar is driven by the app's own [NSApp mainMenu], so
-               * menu titles are the real (localized) item titles. */
+               * depth\tindex\ttitle\tenabled\thas_submenu\tstate\tkey_equiv\
+               * modifier_mask\tshortcut, recursing into each submenu (a
+               * submenu's items follow their parent at depth+1).  The top-level
+               * bar is driven by the app's own [NSApp mainMenu], so menu titles
+               * are the real (localized) item titles.  `state` is the checkmark
+               * (NSOnState=1); `shortcut` is the readable "Cmd+Shift+T" form. */
               NSMutableString *out = [NSMutableString string];
               [self appendMenuLinesForMenu: [NSApp mainMenu] depth: 0 into: out];
               if ([out length] == 0) [out appendString: @"(no menu)\n"];
@@ -685,11 +687,51 @@ static void WriteAll(int fd, const char *bytes)
 
 /* ---- menu introspection (main thread) ---- */
 
+/* Render an NSMenuItem's key equivalent (shortcut) as a readable ASCII
+ * string, e.g. "Cmd+Shift+T" or "Ctrl+W".  GNUstep's Command key is the Alt
+ * key on a Linux keyboard, but the mask bit is NSCommandKeyMask - the label
+ * keeps the semantic modifier name so tests can assert on what the menu item
+ * declares.  Special keys get readable names. */
+static NSString *ShortcutForItem(NSMenuItem *item)
+{
+  if (item == nil) return @"";
+  NSString *key = [item keyEquivalent] ?: @"";
+  if ([key length] == 0) return @"";
+
+  NSString *keyName = key;
+  unichar c = [key characterAtIndex: 0];
+  if ([key length] == 1)
+    {
+      if (c == '\r') keyName = @"Return";
+      else if (c == '\n') keyName = @"Enter";
+      else if (c == '\t') keyName = @"Tab";
+      else if (c == ' ') keyName = @"Space";
+      else if (c == 0x1b) keyName = @"Esc";
+      else if (c == 0x7f) keyName = @"Delete";
+      else if (c == 0x03) keyName = @"Enter";
+      else if ([[NSCharacterSet lowercaseLetterCharacterSet] characterIsMember: c])
+        keyName = [[key uppercaseString] copy];
+    }
+
+  NSMutableArray *mods = [NSMutableArray array];
+  NSUInteger mask = [item keyEquivalentModifierMask];
+  if (mask & NSCommandKeyMask) [mods addObject: @"Cmd"];
+  if (mask & NSAlternateKeyMask) [mods addObject: @"Alt"];
+  if (mask & NSControlKeyMask) [mods addObject: @"Ctrl"];
+  if (mask & NSShiftKeyMask) [mods addObject: @"Shift"];
+
+  if ([mods count] == 0) return keyName;
+  [mods addObject: keyName];
+  return [mods componentsJoinedByString: @"+"];
+}
+
 /* Recursively serialize a menu: one tab-separated line per item
- * (depth, index, title, enabled, has_submenu, state), submenu items following
- * their parent.  `state` is the checkmark: NSOnState=1, NSOffState=0,
- * NSMixedState=2.  All accessors are @try-wrapped so a foreign/wedged menu
- * cannot crash the host. */
+ * (depth, index, title, enabled, has_submenu, state, key_equivalent,
+ * modifier_mask, shortcut), submenu items following their parent.  `state`
+ * is the checkmark: NSOnState=1, NSOffState=0, NSMixedState=2.
+ * `key_equivalent` is the raw key string (e.g. "c", "t", "\r"); `shortcut`
+ * is the readable "Cmd+Shift+T" form.  All accessors are @try-wrapped so a
+ * foreign/wedged menu cannot crash the host. */
 - (void)appendMenuLinesForMenu:(NSMenu *)menu depth:(int)depth
                          into:(NSMutableString *)out
 {
@@ -703,9 +745,12 @@ static void WriteAll(int fd, const char *bytes)
           BOOL enabled = [item isEnabled] ? YES : NO;
           BOOL hasSubmenu = [item submenu] != nil;
           NSInteger state = [item state];
-          [out appendFormat: @"%d\t%ld\t%@\t%d\t%d\t%ld\n",
+          NSString *key = (item ? ([item keyEquivalent] ?: @"") : @"");
+          NSUInteger mask = item ? [item keyEquivalentModifierMask] : 0;
+          NSString *shortcut = ShortcutForItem(item);
+          [out appendFormat: @"%d\t%ld\t%@\t%d\t%d\t%ld\t%@\t%lu\t%@\n",
             depth, (long)i, title, enabled ? 1 : 0, hasSubmenu ? 1 : 0,
-            (long)state];
+            (long)state, key, (unsigned long)mask, shortcut];
           if (hasSubmenu)
             [self appendMenuLinesForMenu: [item submenu] depth: depth + 1
                                    into: out];

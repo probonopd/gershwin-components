@@ -128,7 +128,14 @@ typedef enum
   DDSAssertNotExists,
   DDSAssertFrameConstant,
   DDSAssertDocked,
-  DDSAssertNotDocked
+  DDSAssertNotDocked,
+  DDSAssertMenuExists,
+  DDSAssertMenuNotExists,
+  DDSAssertMenuChecked,
+  DDSAssertMenuNotChecked,
+  DDSAssertMenuEnabled,
+  DDSAssertMenuDisabled,
+  DDSAssertMenuShortcut
 } DSLAssertKind;
 
 @interface DSLCommand : NSObject
@@ -227,6 +234,8 @@ typedef enum
 - (BOOL)dragRole:(DSLRole)role title:(NSString *)title
             byX:(double)dx byY:(double)dy error:(NSString **)err;
 - (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err;
+- (BOOL)assertMenuItemPath:(NSString *)path kind:(DSLAssertKind)kind
+                  shortcut:(NSString *)shortcut error:(NSString **)err;
 - (BOOL)triggerGlobalMenuPath:(NSString *)path error:(NSString **)err;
 - (NSString *)localizeString:(NSString *)english;
 - (BOOL)type:(NSString *)text error:(NSString **)err;

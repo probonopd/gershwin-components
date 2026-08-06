@@ -296,6 +296,19 @@ static NSString *CommandName(DSLCommandType t)
             ? 0 : DDSAssertFailed;
           err = e2;
         }
+      else if (cmd.assertKind == DDSAssertMenuExists
+               || cmd.assertKind == DDSAssertMenuNotExists
+               || cmd.assertKind == DDSAssertMenuChecked
+               || cmd.assertKind == DDSAssertMenuNotChecked
+               || cmd.assertKind == DDSAssertMenuEnabled
+               || cmd.assertKind == DDSAssertMenuDisabled
+               || cmd.assertKind == DDSAssertMenuShortcut)
+        {
+          NSString *e2 = nil;
+          rc = [engine_ assertMenuItemPath: cmd.string kind: cmd.assertKind
+            shortcut: cmd.string2 error: &e2] ? 0 : DDSAssertFailed;
+          err = e2;
+        }
       else
         rc = [engine_ assertRole: cmd.role title: cmd.string kind: cmd.assertKind
           needle: cmd.string error: &err] ? 0 : DDSAssertFailed;
@@ -340,6 +353,22 @@ static NSString *CommandName(DSLCommandType t)
           {
             BOOL state = [engine_ assertRole: cmd.role title: cmd.string
               kind: cmd.assertKind needle: nil error: &err];
+            BOOL takeThen = state;
+            rc = takeThen
+              ? [self runSequence: cmd.body applyPolicy: NO]
+              : [self runSequence: cmd.elseBody ?: [NSArray array] applyPolicy: NO];
+            break;
+          }
+        if (cmd.assertKind == DDSAssertMenuExists
+            || cmd.assertKind == DDSAssertMenuNotExists
+            || cmd.assertKind == DDSAssertMenuChecked
+            || cmd.assertKind == DDSAssertMenuNotChecked
+            || cmd.assertKind == DDSAssertMenuEnabled
+            || cmd.assertKind == DDSAssertMenuDisabled
+            || cmd.assertKind == DDSAssertMenuShortcut)
+          {
+            BOOL state = [engine_ assertMenuItemPath: cmd.string
+              kind: cmd.assertKind shortcut: cmd.string2 error: &err];
             BOOL takeThen = state;
             rc = takeThen
               ? [self runSequence: cmd.body applyPolicy: NO]

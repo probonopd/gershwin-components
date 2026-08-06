@@ -967,7 +967,8 @@ int main(int argc, const char *argv[])
   else if ([command isEqualToString: @"menu"])
     {
       /* Read-only: dump the app's main menu tree
-       * (depth\tindex\ttitle\tenabled\thas_submenu). */
+       * (depth\tindex\ttitle\tenabled\has_submenu\tstate\tkey_equiv\
+       *  modifier_mask\tshortcut). */
       NSString *reply = SendCommand(pid, @"menu");
       if (reply) printf("%s", [reply UTF8String]);
     }
