@@ -25,4 +25,10 @@
 // synchronous pull.  Windows we do not track report YES.
 - (BOOL)menuStatesAreFreshForWindow:(unsigned long)windowId withinTTL:(NSTimeInterval)ttl;
 
+// The authoritative current menu client name for a window (from the last
+// accepted menu push).  Menu item actions use this instead of the possibly
+// stale client name embedded in a menu item left over from a previous app
+// instance that reused the X window ID.
++ (NSString *)currentClientNameForWindow:(unsigned long)windowId;
+
 @end

@@ -113,10 +113,24 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
 
 @implementation GNUStepMenuImporter
 
+static GNUStepMenuImporter *sSharedImporter = nil;
+
+/* Menu item actions (GNUStepMenuActionHandler) resolve the client by name.
+ * The items shown may still carry a client name from a previous app instance
+ * (X reuses window IDs), so the handler asks us for the CURRENT client for the
+ * window - the authoritative mapping from the last accepted menu push. */
++ (NSString *)currentClientNameForWindow:(unsigned long)windowId
+{
+    if (sSharedImporter == nil) return nil;
+    return [sSharedImporter.clientNamesByWindow objectForKey:
+      [NSNumber numberWithUnsignedLong:windowId]];
+}
+
 - (instancetype)init
 {
     self = [super init];
     if (self) {
+        sSharedImporter = self;
         _menusByWindow = [[NSMutableDictionary alloc] init];
         _clientNamesByWindow = [[NSMutableDictionary alloc] init];
         _lastMenuDataByWindow = [[NSMutableDictionary alloc] init];
@@ -727,10 +741,23 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     }
 
     // NSLog(@"GNUStepMenuImporter: Successfully built menu with %ld top-level items", (long)[menu numberOfItems]);
+    NSString *oldClient = [self.clientNamesByWindow objectForKey:windowId];
     self.menusByWindow[windowId] = menu;
     self.clientNamesByWindow[windowId] = clientName;
     self.lastMenuDataByWindow[windowId] = [menuData copy];
     self.lastMenuUpdateTimeByWindow[windowId] = @(now);
+
+    /* If the client (app instance) changed for a window that is currently
+       displayed, the visible menu still carries menu items bound to the OLD
+       client - a relaunched app reuses the X window ID, so those actions would
+       target a dead process.  Force a reload of the displayed menu so the new
+       instance's items (with the new clientName) are shown.  loadMenu:'s
+       same-PID skip does not apply because the PID changed. */
+    if (oldClient && ![oldClient isEqualToString:clientName]
+        && self.appMenuWidget
+        && self.appMenuWidget.currentWindowId == windowValue) {
+        [self.appMenuWidget loadMenu:menu forWindow:windowValue];
+    }
 
     // If this window is currently displayed, apply the fresh enabled/state values
     // directly to the visible menu right now.  loadMenu:forWindow: skips rebuilds

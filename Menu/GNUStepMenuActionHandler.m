@@ -6,6 +6,7 @@
 
 #import "GNUStepMenuActionHandler.h"
 #import "GNUStepMenuIPC.h"
+#import "GNUStepMenuImporter.h"
 #import <Foundation/NSConnection.h>
 #import <AppKit/NSMenuItem.h>
 
@@ -53,7 +54,6 @@ static NSLock *connectionCacheLock = nil;
 
 + (void)performMenuAction:(id)sender
 {
-    NSDebugLLog(@"gwcomp", @"GNUStepMenuActionHandler: performMenuAction called with sender: %@", sender);
     
     if (![sender isKindOfClass:[NSMenuItem class]]) {
         NSDebugLLog(@"gwcomp", @"GNUStepMenuActionHandler: Sender is not an NSMenuItem");
@@ -94,6 +94,16 @@ static NSLock *connectionCacheLock = nil;
     NSArray *indexPath = info[@"indexPath"];
     NSString *menuItemTitle = info[@"menuItemTitle"];
 
+    /* The displayed menu item may carry the client name of a PREVIOUS app
+       instance (X reuses window IDs across relaunches).  Resolve the CURRENT
+       client for the window from the importer - the authoritative mapping from
+       the last accepted menu push - so actions reach the live process instead
+       of silently targeting a dead one.  Fall back to the item's own name. */
+    NSString *currentClient = [GNUStepMenuImporter currentClientNameForWindow:
+      [windowId unsignedLongValue]];
+    if ([currentClient length] > 0)
+        clientName = currentClient;
+
     NSDebugLLog(@"gwcomp", @"GNUStepMenuActionHandler: Main thread - getting connection to client %@", clientName);
 
     /* Menu item selection runs on the main thread.  Only use a connection that
@@ -102,6 +112,22 @@ static NSLock *connectionCacheLock = nil;
        background probes cache connections eagerly, so a healthy client is
        normally found here. */
     NSConnection *connection = [self existingConnectionForClient:clientName];
+    if (!connection) {
+        /* The background probe may not have cached this client's connection
+           yet (a freshly relaunched app registers its MenuClient after Menu
+           scanned).  Fall back to a name lookup here - the client pushed its
+           menu, so it is alive and registered, and the lookup resolves fast.
+           This is what makes menu actions work after an app relaunch instead
+           of silently doing nothing. */
+        @try {
+            connection = [NSConnection connectionWithRegisteredName:clientName
+                                                               host:nil];
+            if (connection)
+                [self cacheConnection:connection forClient:clientName];
+        } @catch (NSException *e) {
+            connection = nil;
+        }
+    }
     if (!connection) {
         NSDebugLLog(@"gwcomp", @"GNUStepMenuActionHandler: No cached connection to GNUstep menu client %@", clientName);
         return;
