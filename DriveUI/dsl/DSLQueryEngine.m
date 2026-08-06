@@ -198,6 +198,59 @@ static void SetErr(NSString **err, NSString *m)
   return NO;
 }
 
+/* Locate the .app bundle for a GNUstep application by searching the standard
+ * install locations.  The binary lives inside the .app named after the app. */
+- (NSString *)appPathForName:(NSString *)name
+{
+  NSArray *roots = [NSArray arrayWithObjects:
+    @"/System/Applications/Utilities",
+    @"/System/Applications",
+    @"/System/Library/CoreServices/Applications",
+    @"/System/Library/CoreServices/Applications/Utilities",
+    @"/Local/Applications",
+    [@"~/Applications" stringByExpandingTildeInPath],
+    @"/Developer/Applications", nil];
+  NSFileManager *fm = [NSFileManager defaultManager];
+  for (NSString *root in roots)
+    {
+      NSString *app = [root stringByAppendingPathComponent:
+        [name stringByAppendingString: @".app"]];
+      BOOL isDir = NO;
+      if ([fm fileExistsAtPath: app isDirectory: &isDir] && isDir)
+        return app;
+    }
+  return nil;
+}
+
+/* Launch a GNUstep application by name and wait until its DriveUI socket
+ * appears (resolveApplication: succeeds). */
+- (BOOL)launchApplication:(NSString *)name error:(NSString **)err
+{
+  if (name == nil || [name length] == 0)
+    { SetErr(err, @"launch application needs a name"); return NO; }
+  if ([self resolveApplication: name error: nil])
+    return YES;               /* already running - idempotent */
+  NSString *path = [self appPathForName: name];
+  if (path == nil)
+    { SetErr(err, [NSString stringWithFormat: @"no %@.app found", name]); return NO; }
+  NSString *binary = [path stringByAppendingPathComponent: name];
+  if (![[NSFileManager defaultManager] isExecutableFileAtPath: binary])
+    { SetErr(err, [NSString stringWithFormat: @"%@ is not executable", binary]); return NO; }
+  NSTask *task = [[NSTask alloc] init];
+  [task setLaunchPath: binary];
+  [task setArguments: [NSArray array]];
+  [task launch];
+  [task release];
+  /* Wait for the DriveUI socket (up to ~15s). */
+  for (int i = 0; i < 75; i++)
+    {
+      if ([self resolveApplication: name error: nil]) return YES;
+      usleep (200000);
+    }
+  SetErr(err, [NSString stringWithFormat: @"'%@' did not start (DriveUI socket missing)", name]);
+  return NO;
+}
+
 /* Does a snapshot row's class satisfy the DSL role's class filter?  A subclass
  * name (AboutWindow, GWDesktopWindow) does not contain "NSWindow", so window
  * roles match any class ending in "Window" as well. */

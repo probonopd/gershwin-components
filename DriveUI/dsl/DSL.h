@@ -52,6 +52,7 @@ typedef enum
 typedef enum
 {
   DDSCmdActivate,
+  DDSCmdLaunchApp,
   DDSCmdFocusWindow,
   DDSCmdCloseWindow,
   DDSCmdSelectMenu,
@@ -198,6 +199,7 @@ typedef enum
 - (id)initWithDriveTool:(NSString *)toolPath;
 - (BOOL)resolveApplication:(NSString *)name error:(NSString **)err;
 - (BOOL)activate:(NSString **)err;                      /* raise + focus main window */
+- (BOOL)launchApplication:(NSString *)name error:(NSString **)err;
 - (BOOL)focusMainWindow:(NSString **)err;
 - (int)pid;
 - (NSString *)appName;

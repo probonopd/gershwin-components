@@ -83,6 +83,7 @@ static NSString *CommandName(DSLCommandType t)
   switch (t)
     {
       case DDSCmdActivate:    return @"activate application";
+      case DDSCmdLaunchApp:   return @"launch application";
       case DDSCmdFocusWindow: return @"focus window";
       case DDSCmdCloseWindow: return @"close window";
       case DDSCmdSelectMenu:  return @"select menu";
@@ -166,6 +167,10 @@ static NSString *CommandName(DSLCommandType t)
       if ([engine_ resolveApplication: cmd.string error: &err] &&
           [engine_ activate: &err]) rc = 0;
       else rc = DDSAccessibilityError;
+      break;
+    case DDSCmdLaunchApp:
+      rc = ([engine_ launchApplication: cmd.string error: &err])
+        ? 0 : DDSAccessibilityError;
       break;
     case DDSCmdFocusWindow:
       if ([engine_ pid] == 0)

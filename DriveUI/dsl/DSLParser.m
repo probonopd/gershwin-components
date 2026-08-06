@@ -405,6 +405,12 @@ case DDSRoleLabel:                        return @"NSTextField";
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }
+      else if ([kw isEqualToString: @"launch"])
+        {
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdLaunchApp
+            line: lineNo col: 1] autorelease];
+          cmd.string = str1;
+        }
       else if ([kw isEqualToString: @"focus"])
         {
           cmd = [[[DSLCommand alloc] initWithType: DDSCmdFocusWindow
