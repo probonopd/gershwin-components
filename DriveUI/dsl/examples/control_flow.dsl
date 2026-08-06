@@ -1,6 +1,7 @@
-# Demonstrate the control-flow additions that need no running application:
-# repeat, if/else, macro/call, and record.  Run with:
-#   drive_script examples/control_flow.dsl
+# Demonstrates the declarative control-flow commands (repeat, if/else,
+# macro/call) and that they need no running application.
+#
+# Run with: drive_script examples/control_flow.dsl
 set ATTEMPTS="3"
 
 macro report
