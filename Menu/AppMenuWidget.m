@@ -35,6 +35,10 @@
 #define MENU_RETRY_INTERVAL     0.25
 #define MENU_RETRY_MAX          12       /* 12 × 0.25 = 3 seconds budget */
 
+/* After a state pull/push, treat enabled/checkmark states as current for this
+   long, so repeat menu opens skip the synchronous DO pull and stay lag-free. */
+#define STATE_REFRESH_TTL       2.0
+
 /* Minimum interval between system menu (⌘) app-list rebuilds. */
 #define SYSTEM_MENU_CACHE_TTL   30.0
 
@@ -510,6 +514,18 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     /* ── We have a real menu — load it. ────────────────────────── */
     [self loadMenu:menu forWindow:windowId];
+
+    /* Pre-warm enabled/checkmark states on window switch so the user's first
+       click on a title is already fresh and the tracking handler does not have
+       to block on the synchronous DO pull.  Runs on the main queue after the
+       current event so the switch itself is not delayed; the freshness gate in
+       mainMenuDidBeginTracking: makes the click path lag-free. */
+    if (![self.protocolManager menuStatesAreFreshForWindow:windowId
+                                                withinTTL:STATE_REFRESH_TTL]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self.protocolManager refreshMenuStateForWindow:windowId];
+        });
+    }
 
     /* Update application name from context. */
     if ([ctx.appName length] > 0) {
@@ -1038,15 +1054,24 @@ static int handleX11Error(Display *display, XErrorEvent *event)
    _trackWithEvent: internally).  So we observe the notification on the main
    menu itself and refresh when the user begins interacting with the menu bar.
 
-   IMPORTANT: refreshMenuStateForWindow: makes a synchronous DO call to the
-   client app (Eau) which blocks the calling thread until the remote returns.
-   Calling it synchronously from the main thread would block NSMenuView's
-   tracking loop (submenu tracking runs in the same run loop iteration),
-   making the submenu dropdown feel sluggish or appear hung.
-   To keep the menu responsive, dispatch to a background queue so the main
-   thread can continue tracking immediately.  The DO call + materialization
-   run off the main thread; applyEnabledStatesFromData: (called internally by
-   refreshMenuStateForWindow:) dispatches back to the main thread. */
+   The notification is posted at the top of NSMenuView -trackWithEvent:,
+   before the first tracking iteration attaches the dropdown submenu.  We must
+   make enabled/checkmark states current synchronously here: an asynchronous
+   refresh lands after the dropdown has been drawn, so the first open always
+   shows the stale states and the user has to open the menu twice to see them
+   update.
+
+   refreshMenuStateForWindow: makes a synchronous DO call to the client (Eau),
+   which blocks the main thread until the remote returns.  That is intentional
+   and bounded (the connection request timeout is 0.3 s; a responsive client
+   answers in a few ms).  Blocking here is safe because the dropdown has not
+   been drawn yet - the states we apply now are exactly the ones the user sees
+   on the first open.
+
+   To avoid this small block on every single click we skip the pull while the
+   window's states are still fresh (STATE_REFRESH_TTL) - handleFocusChange:
+   pre-warms them on window switch, and the client pushes state changes
+   directly via updateMenuEnabledStatesForWindow:. */
 - (void)mainMenuDidBeginTracking:(NSNotification *)note
 {
     (void)note;
@@ -1055,9 +1080,12 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     if (windowId == 0) return;
     if (![self.protocolManager hasMenuForWindow:windowId]) return;
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        [self.protocolManager refreshMenuStateForWindow:windowId];
-    });
+    if ([self.protocolManager menuStatesAreFreshForWindow:windowId
+                                               withinTTL:STATE_REFRESH_TTL]) {
+        return;
+    }
+
+    [self.protocolManager refreshMenuStateForWindow:windowId];
 }
 
 - (void)menuNeedsUpdate:(NSMenu *)menu

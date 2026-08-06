@@ -20,4 +20,9 @@
 // Returns YES when the NSMenu was successfully refreshed.
 - (BOOL)refreshMenuStateForWindow:(unsigned long)windowId;
 
+// Returns YES when the window's enabled/checkmark states are known to be
+// current (pulled or pushed within the TTL), so the click path can skip the
+// synchronous pull.  Windows we do not track report YES.
+- (BOOL)menuStatesAreFreshForWindow:(unsigned long)windowId withinTTL:(NSTimeInterval)ttl;
+
 @end

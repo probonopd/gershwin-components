@@ -98,6 +98,10 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
 @property (nonatomic, strong) NSMutableDictionary *clientNamesByWindow;
 @property (nonatomic, strong) NSMutableDictionary *lastMenuDataByWindow;
 @property (nonatomic, strong) NSMutableDictionary *lastMenuUpdateTimeByWindow;
+// Window -> NSTimeInterval of the last successful enabled/state refresh or
+// push.  Lets the click path skip the synchronous DO pull when states are
+// known to be current, so repeated menu opens are lag-free.
+@property (nonatomic, strong) NSMutableDictionary *lastStateRefreshByWindow;
 @property (nonatomic, strong) NSConnection *menuServerConnection;
 // Workaround: retry attempts when registering DO server fails
 @property (nonatomic) NSInteger registerRetryAttempts;
@@ -117,6 +121,7 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
         _clientNamesByWindow = [[NSMutableDictionary alloc] init];
         _lastMenuDataByWindow = [[NSMutableDictionary alloc] init];
         _lastMenuUpdateTimeByWindow = [[NSMutableDictionary alloc] init];
+        _lastStateRefreshByWindow = [[NSMutableDictionary alloc] init];
 
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
@@ -915,6 +920,34 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     } else {
         [safeMenu update];
     }
+
+    /* Mark states as freshly refreshed so repeated menu opens skip the
+       synchronous DO pull for STATE_REFRESH_TTL seconds. */
+    @synchronized (self) {
+        self.lastStateRefreshByWindow[@(windowId)] = @([NSDate timeIntervalSinceReferenceDate]);
+    }
+    return YES;
+}
+
+/* Returns YES when the enabled/checkmark states for the window are known to be
+   current, i.e. they were pulled or pushed within the given TTL.  Windows we do
+   not track (GTK/DBus menus, which have no state-pull path) are reported as
+   fresh so the caller skips the useless pull. */
+- (BOOL)menuStatesAreFreshForWindow:(unsigned long)windowId
+                          withinTTL:(NSTimeInterval)ttl
+{
+    NSNumber *key = @(windowId);
+    NSMenu *menu = nil;
+    @synchronized (self) {
+        menu = [self.menusByWindow objectForKey:key];
+        if (menu) {
+            NSNumber *ts = [self.lastStateRefreshByWindow objectForKey:key];
+            if (!ts) return NO;
+            NSTimeInterval age = [NSDate timeIntervalSinceReferenceDate] - [ts doubleValue];
+            return (age < ttl);
+        }
+    }
+    /* No tracked menu for this window — nothing for us to refresh. */
     return YES;
 }
 
@@ -1015,6 +1048,9 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
             widget.currentMenu != nil &&
             widget.currentMenu != menu) {
             [self applyEnabledStatesFromData:safeData toMenu:widget.currentMenu depth:0];
+        }
+        @synchronized (self) {
+            self.lastStateRefreshByWindow[safeId] = @([NSDate timeIntervalSinceReferenceDate]);
         }
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: updateMenuEnabledStatesForWindow: applied states for window %@", safeId);
     });

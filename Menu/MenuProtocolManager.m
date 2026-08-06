@@ -504,6 +504,34 @@
     return NO;
 }
 
+- (BOOL)menuStatesAreFreshForWindow:(unsigned long)windowId
+                          withinTTL:(NSTimeInterval)ttl
+{
+    NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
+    NSNumber *protocolTypeNum = [self.windowToProtocolMap objectForKey:windowKey];
+    id<MenuProtocolHandler> handler = nil;
+
+    if (protocolTypeNum) {
+        handler = [self handlerForType:(MenuProtocolType)[protocolTypeNum integerValue]];
+    }
+
+    if (!handler) {
+        for (id h in self.protocolHandlers) {
+            if (![h isKindOfClass:[NSNull class]] &&
+                [h respondsToSelector:@selector(hasMenuForWindow:)] &&
+                [h hasMenuForWindow:windowId]) {
+                handler = h;
+                break;
+            }
+        }
+    }
+
+    if (handler && [handler respondsToSelector:@selector(menuStatesAreFreshForWindow:withinTTL:)]) {
+        return [handler menuStatesAreFreshForWindow:windowId withinTTL:ttl];
+    }
+    return YES;
+}
+
 #pragma mark - Cleanup
 
 - (void)cleanup
