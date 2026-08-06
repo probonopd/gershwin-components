@@ -218,6 +218,27 @@
     }
     
     if (legacyCachedMenu) {
+        /* Validate the cache against the window's CURRENT X11 menu-service
+           property before returning it.  X reuses window IDs across app
+           relaunches; a relaunched app re-registers (MenuUtils writes the new
+           service to the window), so a cached menu bound to the old - now dead
+           - service must be discarded and rebuilt, otherwise the menu shows
+           but every action targets a dead process.  Apps that never write the
+           property simply keep the cache. */
+        NSString *currentService = [MenuUtils getWindowMenuService:windowId];
+        if (serviceName && currentService
+            && ![currentService isEqualToString:serviceName]) {
+            NSDebugLog(@"DBusMenuImporter: Cached menu stale (service %@ -> %@) for window %lu, reloading",
+                  serviceName, currentService, windowId);
+            @synchronized(_windowRegistryLock) {
+                [self.menuCache removeObjectForKey:windowKey];
+                [self.registeredWindows removeObjectForKey:windowKey];
+                [self.windowMenuPaths removeObjectForKey:windowKey];
+            }
+            legacyCachedMenu = nil;
+        }
+    }
+    if (legacyCachedMenu) {
         NSDebugLog(@"DBusMenuImporter: Returning cached menu for window %lu", windowId);
         
         // Re-register shortcuts

@@ -112,6 +112,19 @@ static int x11ErrorHandler(Display *display, XErrorEvent *error) {
     // Check if we have this window registered
     NSString *serviceName = [_registeredWindows objectForKey:windowKey];
     if (serviceName) {
+        /* Validate against the window's current GTK bus name: a relaunched app
+           reuses the X window ID but gets a new bus name, so the old mapping is
+           stale and must be re-scanned (not blindly trusted). */
+        NSString *currentBus = [self gtkBusNameForWindow:windowId];
+        if (currentBus && ![currentBus isEqualToString:serviceName]) {
+            [_registeredWindows removeObjectForKey:windowKey];
+            [_windowMenuPaths removeObjectForKey:windowKey];
+            [_windowActionPaths removeObjectForKey:windowKey];
+            [_menuCache removeObjectForKey:windowKey];
+            serviceName = nil;
+        }
+    }
+    if (serviceName) {
         return YES;
     }
     
@@ -133,6 +146,42 @@ static int x11ErrorHandler(Display *display, XErrorEvent *error) {
     return NO;
 }
 
+/* Read the window's current _GTK_UNIQUE_BUS_NAME property, or nil if absent.
+ * GTK apps set this on the window when they register their menu; on app
+ * relaunch the window ID is reused but the bus name changes, which is how we
+ * detect that a cached menu belongs to a dead process. */
+- (NSString *)gtkBusNameForWindow:(unsigned long)windowId
+{
+    Display *display = [MenuUtils sharedDisplay];
+    if (!display) return nil;
+
+    XErrorHandler oldHandler = XSetErrorHandler(x11ErrorHandler);
+    x11_error_occurred = NO;
+
+    Window window = (Window)windowId;
+    XWindowAttributes attrs;
+    if (XGetWindowAttributes(display, window, &attrs) == 0 || x11_error_occurred) {
+        XSetErrorHandler(oldHandler);
+        return nil;
+    }
+
+    Atom busNameAtom = XInternAtom(display, "_GTK_UNIQUE_BUS_NAME", False);
+    Atom propType;
+    int propFormat;
+    unsigned long propItems, propBytesAfter;
+    unsigned char *prop = NULL;
+    int result = XGetWindowProperty(display, window, busNameAtom, 0, 1024, False,
+                                    AnyPropertyType, &propType, &propFormat,
+                                    &propItems, &propBytesAfter, &prop);
+    NSString *name = nil;
+    if (result == Success && prop != NULL) {
+        name = [NSString stringWithUTF8String:(const char *)prop];
+        XFree(prop);
+    }
+    XSetErrorHandler(oldHandler);
+    return name;
+}
+
 - (NSMenu *)getMenuForWindow:(unsigned long)windowId
 {
     NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
@@ -147,6 +196,28 @@ static int x11ErrorHandler(Display *display, XErrorEvent *error) {
     
     // Check for cached menu
     NSMenu *legacyCachedMenu = [_menuCache objectForKey:windowKey];
+    if (legacyCachedMenu) {
+        /* Validate the cache against the window's CURRENT GTK bus name before
+           returning it.  X reuses window IDs across app relaunches: a
+           relaunched GTK app's window carries a new _GTK_UNIQUE_BUS_NAME, so a
+           cached menu bound to the old (now dead) service must be discarded and
+           rebuilt, otherwise the menu shows but every action targets a dead
+           process. */
+        NSString *currentBus = [self gtkBusNameForWindow:windowId];
+        if (serviceName && currentBus && ![currentBus isEqualToString:serviceName]) {
+            NSDebugLog(@"GTKMenuImporter: Cached menu stale (service %@ -> %@), re-scanning window %lu",
+                  serviceName, currentBus, windowId);
+            [_menuCache removeObjectForKey:windowKey];
+            [_registeredWindows removeObjectForKey:windowKey];
+            [_windowMenuPaths removeObjectForKey:windowKey];
+            [_windowActionPaths removeObjectForKey:windowKey];
+            legacyCachedMenu = nil;
+            [self scanSpecificWindow:windowId];
+            serviceName = [_registeredWindows objectForKey:windowKey];
+            menuPath = [_windowMenuPaths objectForKey:windowKey];
+            actionPath = [_windowActionPaths objectForKey:windowKey];
+        }
+    }
     if (legacyCachedMenu) {
         NSDebugLog(@"GTKMenuImporter: Returning cached GTK menu for window %lu", windowId);
         
