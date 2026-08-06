@@ -198,8 +198,26 @@ static void SetErr(NSString **err, NSString *m)
   return NO;
 }
 
+- (BOOL)activateXWindow:(NSString *)title error:(NSString **)err
+{
+  if (title == nil || [title length] == 0)
+    { SetErr(err, @"activate xwindow needs a title"); return NO; }
+  if (pid_ == 0)
+    {
+      /* No DriveUI target app; still need a pid for the argv.  Use any pid
+       * (the xactivate command ignores it and scans the X display). */
+      pid_ = [[NSProcessInfo processInfo] processIdentifier];
+    }
+  NSString *reply = [self runCollect: [NSArray arrayWithObjects:
+    [NSString stringWithFormat: @"--pid=%d", pid_],
+    @"xactivate", title, nil] error: err];
+  return reply != nil;
+}
+
 /* Locate the .app bundle for a GNUstep application by searching the standard
- * install locations.  The binary lives inside the .app named after the app. */
+ * install locations.  The binary lives inside the .app named after the app.
+ * Falls back to a bare executable on PATH or in /usr/local/bin (for non-GNUstep
+ * apps like GTK tools that have no .app bundle). */
 - (NSString *)appPathForName:(NSString *)name
 {
   NSArray *roots = [NSArray arrayWithObjects:
@@ -219,6 +237,15 @@ static void SetErr(NSString **err, NSString *m)
       if ([fm fileExistsAtPath: app isDirectory: &isDir] && isDir)
         return app;
     }
+  /* Bare executable on the conventional paths or PATH. */
+  NSArray *binRoots = [NSArray arrayWithObjects:
+    @"/usr/local/bin", @"/usr/bin", @"/bin", nil];
+  for (NSString *root in binRoots)
+    {
+      NSString *bin = [root stringByAppendingPathComponent: name];
+      if ([fm isExecutableFileAtPath: bin])
+        return bin;
+    }
   return nil;
 }
 
@@ -233,22 +260,51 @@ static void SetErr(NSString **err, NSString *m)
   NSString *path = [self appPathForName: name];
   if (path == nil)
     { SetErr(err, [NSString stringWithFormat: @"no %@.app found", name]); return NO; }
-  NSString *binary = [path stringByAppendingPathComponent: name];
+  NSString *binary = path;
+  if ([[path pathExtension] isEqualToString: @"app"])
+    binary = [path stringByAppendingPathComponent: name];
   if (![[NSFileManager defaultManager] isExecutableFileAtPath: binary])
     { SetErr(err, [NSString stringWithFormat: @"%@ is not executable", binary]); return NO; }
   NSTask *task = [[NSTask alloc] init];
   [task setLaunchPath: binary];
   [task setArguments: [NSArray array]];
-  [task launch];
+  @try
+    {
+      [task launch];
+    }
+  @catch (NSException *e)
+    {
+      [task release];
+      SetErr(err, [NSString stringWithFormat: @"failed to launch %@: %@", binary, [e reason]]);
+      return NO;
+    }
+  pid_t launchedPid = [task processIdentifier];
   [task release];
-  /* Wait for the DriveUI socket (up to ~15s). */
+  /* Wait for the app to be reachable.  GNUstep apps expose a DriveUI socket
+   * (resolveApplication:); non-GNUstep apps (GTK etc.) never do, so a running
+   * process is enough for them. */
   for (int i = 0; i < 75; i++)
     {
       if ([self resolveApplication: name error: nil]) return YES;
+      if (kill(launchedPid, 0) != 0)
+        { SetErr(err, [NSString stringWithFormat: @"'%@' exited during startup", name]); return NO; }
+      if ([[NSFileManager defaultManager] fileExistsAtPath: binary]
+          && [self appIsGNUstepApp: name] == NO)
+        return YES;           /* non-GNUstep app: running process is enough */
       usleep (200000);
     }
   SetErr(err, [NSString stringWithFormat: @"'%@' did not start (DriveUI socket missing)", name]);
   return NO;
+}
+
+/* Does the named app load the DriveUI bundle (i.e. is it a GNUstep app that
+ * will expose a DriveUI socket)?  Apps with a .app bundle in the standard
+ * locations are treated as GNUstep; bare executables (/usr/local/bin/viking)
+ * are not. */
+- (BOOL)appIsGNUstepApp:(NSString *)name
+{
+  NSString *path = [self appPathForName: name];
+  return (path != nil && [[path pathExtension] isEqualToString: @"app"]);
 }
 
 /* Does a snapshot row's class satisfy the DSL role's class filter?  A subclass
@@ -802,6 +858,22 @@ static void SetErr(NSString **err, NSString *m)
       if (mt == nil) return NO;
       if (needle && ![self title: mt matches: needle]) return NO;
       return YES;
+    }
+  if (role == DDSRoleXWindow)
+    {
+      /* `xwindow` scans the whole X display for a window title, so it works
+       * for non-GNUstep apps (e.g. a GTK app) that have no widget tree. */
+      for (int attempt = 0; attempt < 8; attempt++)
+        {
+          NSString *reply = [self runCollect: [NSArray arrayWithObjects:
+            [NSString stringWithFormat: @"--pid=%d", pid_],
+            @"xwindow", title ?: @"", nil]
+            error: (attempt == 7) ? err : nil];
+          if (reply != nil)
+            return [reply hasPrefix: @"1"];
+          usleep (100000);
+        }
+      return NO;
     }
   if (role == DDSRoleWindow && needle == nil && title != nil)
     {

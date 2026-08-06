@@ -52,6 +52,7 @@ typedef enum
 typedef enum
 {
   DDSCmdActivate,
+  DDSCmdActivateXWindow,
   DDSCmdLaunchApp,
   DDSCmdFocusWindow,
   DDSCmdCloseWindow,
@@ -86,6 +87,7 @@ typedef enum
   DDSRoleAny,
   DDSRoleApplication,
   DDSRoleWindow,
+  DDSRoleXWindow,
   DDSRoleDialog,
   DDSRoleModal,
   DDSRoleSidebar,
@@ -200,6 +202,7 @@ typedef enum
 - (id)initWithDriveTool:(NSString *)toolPath;
 - (BOOL)resolveApplication:(NSString *)name error:(NSString **)err;
 - (BOOL)activate:(NSString **)err;                      /* raise + focus main window */
+- (BOOL)activateXWindow:(NSString *)title error:(NSString **)err;
 - (BOOL)launchApplication:(NSString *)name error:(NSString **)err;
 - (BOOL)focusMainWindow:(NSString **)err;
 - (int)pid;

@@ -90,6 +90,7 @@ DSLRole DSLRoleFromName(NSString *name)
     map = [[NSDictionary alloc] initWithObjectsAndKeys:
       @(DDSRoleApplication), @"application",
       @(DDSRoleWindow), @"window",
+      @(DDSRoleXWindow), @"xwindow",
       @(DDSRoleDialog), @"dialog",
       @(DDSRoleModal), @"modal",
       @(DDSRoleSidebar), @"sidebar",
@@ -132,6 +133,10 @@ NSString *DSLRoleClassName(DSLRole role)
          * engine's modal query, so the class filter is never matched against
          * a tree row. */
         return @"!Modal!";
+      case DDSRoleXWindow:
+        /* `xwindow` is answered by a whole-X-display scan (any app, GNUstep
+         * or not), not the target app's widget tree. */
+        return @"!XWindow!";
       case DDSRoleSidebar:
         return @"GWViewerSidebar";
       case DDSRoleButton:                       return @"NSButton";
@@ -401,9 +406,21 @@ case DDSRoleLabel:                        return @"NSTextField";
       DSLCommand *cmd = nil;
       if ([kw isEqualToString: @"activate"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdActivate
-            line: lineNo col: 1] autorelease];
-          cmd.string = str1;
+          /* activate application "X" (DriveUI app) or activate xwindow "Title"
+           * (any X window, e.g. a non-GNUstep app). */
+          if ([words count] > 0 &&
+              [[words objectAtIndex: 0] isEqualToString: @"xwindow"])
+            {
+              cmd = [[[DSLCommand alloc] initWithType: DDSCmdActivateXWindow
+                line: lineNo col: 1] autorelease];
+              cmd.string = str1;
+            }
+          else
+            {
+              cmd = [[[DSLCommand alloc] initWithType: DDSCmdActivate
+                line: lineNo col: 1] autorelease];
+              cmd.string = str1;
+            }
         }
       else if ([kw isEqualToString: @"launch"])
         {

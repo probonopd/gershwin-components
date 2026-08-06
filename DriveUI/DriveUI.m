@@ -329,6 +329,26 @@ static void WriteAll(int fd, const char *bytes)
               WriteAll(fd, [reply UTF8String]);
               [reply release];
             }
+          else if ([cmd isEqualToString: @"menu_tree"])
+            {
+              /* Debug: dump the titles of every menu bar NSMenuView's menu. */
+              NSMutableString *reply = [[NSMutableString alloc] initWithCapacity: 512];
+              NSArray *wins = [[NSApp windows] copy];
+              for (NSWindow *win in wins)
+                {
+                  if (![win isVisible]) continue;
+                  NSMutableArray *mvs = [NSMutableArray array];
+                  [self collectMenuViews: [win contentView] into: mvs];
+                  for (NSMenuView *mv in mvs)
+                    {
+                      [reply appendString: @"=== menu ===\n"];
+                      [self appendMenuTree: [mv menu] depth: 0 into: reply];
+                    }
+                }
+              [wins release];
+              WriteAll(fd, [reply UTF8String]);
+              [reply release];
+            }
           else if ([cmd isEqualToString: @"menu_trigger"])
             {
               /* menu_trigger <Top/Sub/...> - simulate a click on a menu bar
@@ -836,6 +856,19 @@ static void WriteAll(int fd, const char *bytes)
   if ([scanner scanHexLongLong: &ptrVal])
     return (__bridge id)(void *)ptrVal;
   return nil;
+}
+
+/* Recursively append a menu's titles as indented lines (debug helper). */
+- (void)appendMenuTree:(NSMenu *)menu depth:(int)depth into:(NSMutableString *)out
+{
+  for (NSMenuItem *item in [menu itemArray])
+    {
+      for (int i = 0; i < depth; i++) [out appendString: @"  "];
+      [out appendFormat: @"%@%@\n", [item isSeparatorItem] ? @"-" : @"",
+        [item title] ?: @""];
+      if ([item submenu] != nil)
+        [self appendMenuTree: [item submenu] depth: depth + 1 into: out];
+    }
 }
 
 /* Collect every button in the view's subtree (depth-first). */

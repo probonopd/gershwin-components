@@ -49,4 +49,8 @@
 // GNUstep to route the events to its key window.
 + (void)setFocusToPID:(int)pid;
 
+// Find a top-level X window whose name contains `title` (case-insensitive).
+// Works for any app, GNUstep or not.  Returns the window id or 0.
++ (unsigned long)findWindowWithTitle:(NSString *)title;
+
 @end

@@ -722,6 +722,64 @@ int main(int argc, const char *argv[])
       NSString *reply = SendCommand(pid, @"menubar");
       if (reply) printf("%s", [reply UTF8String]);
     }
+  else if ([command isEqualToString: @"menu_tree"])
+    {
+      /* Debug: dump the menu bar menus' titles. */
+      NSString *reply = SendCommand(pid, @"menu_tree");
+      if (reply) printf("%s", [reply UTF8String]);
+    }
+  else if ([command isEqualToString: @"xwindow"])
+    {
+      /* xwindow <title> - scan the X display for any top-level window whose
+       * name contains <title> (works for non-GNUstep apps too).  Prints 1 if
+       * found, 0 if not. */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      NSString *title = ([positionals count] > 0) ? [positionals objectAtIndex: 0] : nil;
+      if (title == nil || [title length] == 0)
+        {
+          fprintf(stderr, "drive_ui: xwindow needs <title>\n");
+          [pool release];
+          return 1;
+        }
+      unsigned long wid = [X11Support findWindowWithTitle: title];
+      printf("%d\n", wid ? 1 : 0);
+    }
+  else if ([command isEqualToString: @"xactivate"])
+    {
+      /* xactivate <title> - raise + focus the first top-level X window whose
+       * name contains <title> (for apps without a DriveUI socket, e.g. GTK). */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      NSString *title = ([positionals count] > 0) ? [positionals objectAtIndex: 0] : nil;
+      if (title == nil || [title length] == 0)
+        {
+          fprintf(stderr, "drive_ui: xactivate needs <title>\n");
+          [pool release];
+          return 1;
+        }
+      unsigned long wid = [X11Support findWindowWithTitle: title];
+      if (wid == 0)
+        {
+          fprintf(stderr, "drive_ui: xactivate: no window titled '%s'\n",
+                  [title UTF8String]);
+          [pool release];
+          return 1;
+        }
+      [X11Support activateWindow: wid];
+      [pool release];
+      return 0;
+    }
   else if ([command isEqualToString: @"click_menubar"])
     {
       /* click_menubar <title> - real X11 click on a top-level menu bar item,

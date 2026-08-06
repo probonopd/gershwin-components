@@ -298,6 +298,20 @@ static void SendKey(Display *d, Window w, KeyCode code,
     XSync(d, False);
 }
 
++ (unsigned long)findWindowWithTitle:(NSString *)title {
+    if (title == nil || [title length] == 0) return 0;
+    for (NSNumber *wid in [self windowList]) {
+        NSDictionary *info = [self windowInfo: [wid unsignedLongValue]];
+        if (!info) continue;
+        if ([[info objectForKey: @"map_state"] intValue] != IsViewable) continue;
+        NSString *t = [info objectForKey: @"title"] ?: @"";
+        if ([t rangeOfString: title options: NSCaseInsensitiveSearch].location
+              != NSNotFound)
+            return [wid unsignedLongValue];
+    }
+    return 0;
+}
+
 + (int)screenHeight {
     Display *d = [self display];
     if (!d) return 0;
