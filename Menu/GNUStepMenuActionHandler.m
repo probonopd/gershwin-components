@@ -23,36 +23,32 @@ static NSLock *connectionCacheLock = nil;
     }
 }
 
-+ (NSConnection *)cachedConnectionForClient:(NSString *)clientName
-{
-    return [self _getCachedConnectionForClient:clientName];
-}
-
-+ (NSConnection *)_getCachedConnectionForClient:(NSString *)clientName
+/* Return the cached connection WITHOUT doing a name lookup, or nil if the
+ * client is not yet cached.  The main-thread refresh path uses this so a
+ * blocking connectionWithRegisteredName: can never run on the main thread. */
++ (NSConnection *)existingConnectionForClient:(NSString *)clientName
 {
     [connectionCacheLock lock];
     NSConnection *connection = [connectionCache objectForKey:clientName];
-    
-    // Test if connection is still valid
     if (connection && ![connection isValid]) {
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuActionHandler: Cached connection for %@ is invalid, removing", clientName);
         [connectionCache removeObjectForKey:clientName];
         connection = nil;
     }
-    
-    if (!connection) {
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuActionHandler: Creating new connection to client %@", clientName);
-        connection = [NSConnection connectionWithRegisteredName:clientName host:nil];
-        if (connection) {
-            [connectionCache setObject:connection forKey:clientName];
-            NSDebugLLog(@"gwcomp", @"GNUStepMenuActionHandler: Cached connection for %@", clientName);
-        }
-    } else {
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuActionHandler: Reusing cached connection for %@", clientName);
-    }
-    
     [connectionCacheLock unlock];
     return connection;
+}
+
+/* Record a connection discovered by a background probe, so the main thread
+ * finds it cached and skips the blocking DO name lookup entirely. */
++ (void)cacheConnection:(NSConnection *)connection forClient:(NSString *)clientName
+{
+    if (!connection || !clientName) return;
+    [connectionCacheLock lock];
+    NSConnection *existing = [connectionCache objectForKey:clientName];
+    if (existing == nil || ![existing isValid]) {
+        [connectionCache setObject:connection forKey:clientName];
+    }
+    [connectionCacheLock unlock];
 }
 
 + (void)performMenuAction:(id)sender
@@ -100,9 +96,14 @@ static NSLock *connectionCacheLock = nil;
 
     NSDebugLLog(@"gwcomp", @"GNUStepMenuActionHandler: Main thread - getting connection to client %@", clientName);
 
-    NSConnection *connection = [self _getCachedConnectionForClient:clientName];
+    /* Menu item selection runs on the main thread.  Only use a connection that
+       is already cached: a blocking connectionWithRegisteredName: here would
+       freeze the menu bar if this client (e.g. Workspace) is stalled.  The
+       background probes cache connections eagerly, so a healthy client is
+       normally found here. */
+    NSConnection *connection = [self existingConnectionForClient:clientName];
     if (!connection) {
-        NSDebugLLog(@"gwcomp", @"GNUStepMenuActionHandler: Unable to connect to GNUstep menu client %@", clientName);
+        NSDebugLLog(@"gwcomp", @"GNUStepMenuActionHandler: No cached connection to GNUstep menu client %@", clientName);
         return;
     }
     

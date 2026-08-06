@@ -368,6 +368,10 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
             @try {
                 NSConnection *connection = [NSConnection connectionWithRegisteredName:clientName host:nil];
                 if (connection && [connection isValid]) {
+                    /* Cache the connection so the main-thread state refresh can
+                       use it without a blocking name lookup (which would wedge
+                       the menu bar if this client is stalled). */
+                    [GNUStepMenuActionHandler cacheConnection:connection forClient:clientName];
                     id proxy = [connection rootProxy];
                     if (proxy) {
                         // Log success if we connect
@@ -496,6 +500,9 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
             @try {
                 NSConnection *connection = [NSConnection connectionWithRegisteredName:clientName host:nil];
                 if (connection && [connection isValid]) {
+                    /* Cache for the main-thread refresh path (avoids a blocking
+                       DO name lookup if this client stalls later). */
+                    [GNUStepMenuActionHandler cacheConnection:connection forClient:clientName];
                     id proxy = [connection rootProxy];
                     if (proxy) {
                         // Tell the proxy which protocol it implements so selectors are known
@@ -885,7 +892,13 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
        system item at index 0. */
     id rawResult = nil;
 
-    NSConnection *connection = [GNUStepMenuActionHandler cachedConnectionForClient:clientName];
+    /* Only use a connection that is ALREADY cached.  Doing the DO name lookup
+       here (connectionWithRegisteredName:) on the main thread would block the
+       whole menu bar while a stalled client (e.g. Workspace) resolves.  The
+       background probes cache connections when they succeed, so a healthy
+       client is found here; an uncached client means we have nothing fresh to
+       offer, so fall through to the stale-state path instead of blocking. */
+    NSConnection *connection = [GNUStepMenuActionHandler existingConnectionForClient:clientName];
     if (connection && [connection isValid]) {
         [connection setRequestTimeout:0.3];
         id proxy = [connection rootProxy];
