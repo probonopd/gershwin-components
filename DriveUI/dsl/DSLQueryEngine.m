@@ -256,6 +256,54 @@ static void SetErr(NSString **err, NSString *m)
   return nil;
 }
 
+/* Return the on-screen frame string of the first visible window whose title
+ * matches, e.g. "{x = 146; y = 630; width = 342; height = 179}", or nil.  The
+ * tree's screen_frame column (index 5) carries the window's position on the
+ * root window, which is what `assert window ... frame constant` compares. */
+- (NSString *)frameOfWindowTitle:(NSString *)title error:(NSString **)err
+{
+  NSMutableArray *argv = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"get_full_tree"]];
+  NSString *out = [self runCollect: argv error: err];
+  if (!out) return nil;
+  for (NSString *line in [out componentsSeparatedByString: @"\n"])
+    {
+      NSArray *f = [line componentsSeparatedByString: @"\t"];
+      if ([f count] < 8) continue;
+      if ([[f objectAtIndex: 6] isEqualToString: @"1"]) continue;   /* hidden */
+      if (![self class: [f objectAtIndex: 1] matchesRoleClass: @"NSWindow"]) continue;
+      if (title && ![self title: [f objectAtIndex: 2] matches: title]) continue;
+      NSString *sf = [f objectAtIndex: 5];
+      if ([sf length] == 0) continue;                              /* no frame */
+      return sf;
+    }
+  SetErr(err, [NSString stringWithFormat: @"no visible window matching '%@'",
+    title ?: @"(any)"]);
+  return nil;
+}
+
+/* Close a visible window by its (localized) title.  The bundle performs the
+ * close in-process via performClose:, so it works even when the window was
+ * never made key (the Close menu item would be disabled). */
+- (BOOL)closeWindowTitle:(NSString *)title error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
+  if (title == nil || [title length] == 0)
+    { SetErr(err, @"close window needs a title"); return NO; }
+  NSMutableArray *argv = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"close_window"]];
+  [argv addObject: title];
+  NSString *reply = [self runCollect: argv error: err];
+  if (!reply) return NO;
+  if ([reply hasPrefix: @"error:"])
+    {
+      SetErr(err, [reply stringByTrimmingCharactersInSet:
+        [NSCharacterSet newlineCharacterSet]]);
+      return NO;
+    }
+  return YES;
+}
+
 - (BOOL)clickRole:(DSLRole)role title:(NSString *)title
           button:(int)button count:(int)count error:(NSString **)err
 {
@@ -569,6 +617,11 @@ static void SetErr(NSString **err, NSString *m)
       case DDSAssertContains:
         if (!exists) { SetErr(err, @"assert failed: text not found"); return NO; }
         break;
+      case DDSAssertFrameConstant:
+        /* Handled by the executor's frame-constant check, which keeps the
+         * per-run reference frame; this switch case exists only so the enum
+         * stays exhaustive. */
+        return YES;
       case DDSAssertEnabled:
       case DDSAssertChecked:
       {

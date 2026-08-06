@@ -12,6 +12,7 @@
  */
 
 #import <Foundation/Foundation.h>
+#import <sys/time.h>
 #import "DSL.h"
 
 int main(int argc, const char *argv[])
@@ -56,11 +57,19 @@ int main(int argc, const char *argv[])
     autorelease];
   DSLExecutor *exec = [[[DSLExecutor alloc] initWithProgram: prog engine: engine]
     autorelease];
+  struct timeval t0, t1;
+  gettimeofday(&t0, NULL);
   int rc = [exec run];
+  gettimeofday(&t1, NULL);
+  double totalMs = (t1.tv_sec - t0.tv_sec) * 1000.0
+    + (t1.tv_usec - t0.tv_usec) / 1000.0;
 
-  if (rc != 0 && [[exec log] length] > 0)
+  /* Always print the timed command log so slow commands (e.g. a dialog-driven
+   * select menu) are visible when tuning script speed. */
+  if ([[exec log] length] > 0)
     fprintf(stderr, "%s\n", [[exec log] UTF8String]);
-  /* the executor logs failures to stderr; echo nothing on success */
+  fprintf(stderr, "[dsl] total %.0f ms (%s)\n", totalMs,
+    rc == 0 ? "ok" : "failed");
   [pool release];
   return rc;
 }

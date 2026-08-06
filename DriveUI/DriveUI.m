@@ -104,7 +104,8 @@
  - (NSString *)textOfObject:(NSString *)objID;
  - (NSArray *)collectSnapshot;
  - (void)appendMenuLinesForMenu:(NSMenu *)menu depth:(int)depth into:(NSMutableString *)out;
- - (BOOL)invokeMenuIndexes:(NSArray *)indexes error:(NSString **)err;
+ - (BOOL)resolveMenuIndexes:(NSArray *)indexes menu:(NSMenu **)outMenu
+                      index:(NSInteger *)outIndex error:(NSString **)err;
 - (void)addWindow:(NSWindow *)win depth:(int)depth into:(NSMutableArray *)items;
 - (void)addView:(NSView *)view depth:(int)depth into:(NSMutableArray *)items;
 - (NSString *)objectIDForObject:(id)obj;
@@ -349,9 +350,40 @@ static void WriteAll(int fd, const char *bytes)
                 }
               else
                 {
+                  /* Resolve the item first; only reply "ok" once the path is
+                   * known valid.  The action itself is then fired after the
+                   * reply is flushed: a leaf action that opens a modal dialog
+                   * (e.g. Go To Folder) would otherwise block the main thread
+                   * until the dialog closes, making the client time out after
+                   * its 10s read.  With the reply already out, the client can
+                   * keep driving the dialog while it is up. */
+                  NSMenu *menu = nil;
+                  NSInteger idx = 0;
                   NSString *menuErr = nil;
-                  if ([self invokeMenuIndexes: indexes error: &menuErr])
-                    WriteAll(fd, "ok\n");
+                  if ([self resolveMenuIndexes: indexes menu: &menu
+                                         index: &idx error: &menuErr])
+                    {
+                      /* Write the reply and close the connection before firing
+                       * the action: a leaf action that opens a modal dialog
+                       * (e.g. Go To Folder) blocks the main thread until the
+                       * dialog closes, so holding the fd open would make the
+                       * client wait for EOF past its read timeout.  The action
+                       * then runs on the main thread as usual; other commands
+                       * are still serviced because serviceConnection: is posted
+                       * in the modal run loop mode too.  The @finally below
+                       * re-closes the (already closed) fd, which is harmless. */
+                      WriteAll(fd, "ok\n");
+                      close(fd);
+                      @try
+                        {
+                          [menu performActionForItemAtIndex: idx];
+                        }
+                      @catch (NSException *e)
+                        {
+                          /* The selection fired; a failure inside the action
+                           * (e.g. in its modal loop) is the app's business. */
+                        }
+                    }
                   else
                     {
                       NSString *r = [NSString stringWithFormat: @"error:%@\n",
@@ -359,6 +391,55 @@ static void WriteAll(int fd, const char *bytes)
                       WriteAll(fd, [r UTF8String]);
                     }
                 }
+            }
+          else if ([cmd isEqualToString: @"close_window"])
+            {
+              /* Close a window by its (localized) title.  Performed in-process
+               * via performClose:, so it works regardless of which window is
+               * key - the Close menu item is disabled when the viewer window
+               * was not made key, which a synthetic dialog flow cannot
+               * guarantee.  Matching is a case-insensitive substring match
+               * against the title, or against its English/localized twin. */
+              NSString *needle = ([parts count] > 1) ? [parts objectAtIndex: 1] : nil;
+              BOOL closed = NO;
+              if ([needle length] > 0)
+                {
+                  NSArray *wins = [[NSApp windows] copy];
+                  for (NSWindow *win in wins)
+                    {
+                      @try
+                        {
+                          NSString *t = [win title] ?: @"";
+                          if (![win isVisible]) continue;
+                          if ([t rangeOfString: needle
+                            options: NSCaseInsensitiveSearch].location != NSNotFound)
+                            {
+                              [win performClose: self];
+                              closed = YES;
+                              break;
+                            }
+                          /* Accept the localized spelling of the needle. */
+                          NSBundle *b = [NSBundle mainBundle];
+                          NSString *loc = [b localizedStringForKey: needle
+                            value: needle table: nil];
+                          if (![loc isEqualToString: needle] &&
+                              [t rangeOfString: loc
+                                options: NSCaseInsensitiveSearch].location != NSNotFound)
+                            {
+                              [win performClose: self];
+                              closed = YES;
+                              break;
+                            }
+                        }
+                      @catch (NSException *e) { }
+                    }
+                  [wins release];
+                }
+              NSString *reply = closed
+                ? @"ok\n"
+                : [NSString stringWithFormat:
+                    @"error:no visible window matching '%@'\n", needle ?: @"(none)"];
+              WriteAll(fd, [reply UTF8String]);
             }
           else if ([cmd isEqualToString: @"localize"])
             {
@@ -463,7 +544,8 @@ static void WriteAll(int fd, const char *bytes)
  * where each non-final index must resolve to an item with a submenu.  Runs on
  * the main thread (the socket is serviced there) so the action fires exactly
  * as a real menu selection would. */
-- (BOOL)invokeMenuIndexes:(NSArray *)indexes error:(NSString **)err
+- (BOOL)resolveMenuIndexes:(NSArray *)indexes menu:(NSMenu **)outMenu
+                     index:(NSInteger *)outIndex error:(NSString **)err
 {
   NSMenu *menu = [NSApp mainMenu];
   if (menu == nil)
@@ -472,6 +554,11 @@ static void WriteAll(int fd, const char *bytes)
       return NO;
     }
   NSUInteger count = [indexes count];
+  if (count == 0)
+    {
+      if (err) *err = @"empty index path";
+      return NO;
+    }
   for (NSUInteger k = 0; k < count; k++)
     {
       NSInteger idx = [[indexes objectAtIndex: k] integerValue];
@@ -486,7 +573,8 @@ static void WriteAll(int fd, const char *bytes)
             }
           if (k == count - 1)
             {
-              [menu performActionForItemAtIndex: idx];
+              if (outMenu) *outMenu = menu;
+              if (outIndex) *outIndex = idx;
               return YES;
             }
           NSMenu *sub = [item submenu];

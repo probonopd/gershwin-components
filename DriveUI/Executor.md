@@ -242,6 +242,25 @@ assert not exists dialog "Loading"
 Checks that a condition holds and stops the script with an assertion error if
 it does not.  `text contains` searches the visible text of every widget.
 
+`frame constant` asserts that a window's on-screen frame (position and size)
+is identical to the frame first observed for that title in this run: the first
+observation is the reference and passes, every later one must match it exactly.
+Use it to pin window placement across repeated opens.
+
+```text
+assert window "Workspace" frame constant
+```
+
+### close window
+
+```text
+close window "About This Computer"
+```
+
+Closes a visible window by its title, regardless of which window currently
+holds key focus (the Close menu item is disabled when the target was never
+made key).  The close is performed in-process via `performClose:`.
+
 ### capture screenshot
 
 ```text

@@ -402,6 +402,14 @@ case DDSRoleLabel:                        return @"NSTextField";
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }
+      else if ([kw isEqualToString: @"close"])
+        {
+          /* close window "Title" - close a visible window by title, regardless
+           * of which window currently holds key focus. */
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdCloseWindow
+            line: lineNo col: 1] autorelease];
+          cmd.string = str1;
+        }
       else if ([kw isEqualToString: @"select"])
         {
           cmd = [[[DSLCommand alloc] initWithType: DDSCmdSelectMenu
@@ -515,6 +523,11 @@ case DDSRoleLabel:                        return @"NSTextField";
                   NSString *prop = [[words objectAtIndex: 0] lowercaseString];
                   if ([prop isEqualToString: @"enabled"]) cmd.assertKind = DDSAssertEnabled;
                   else if ([prop isEqualToString: @"checked"]) cmd.assertKind = DDSAssertChecked;
+                  else if ([prop isEqualToString: @"frame"] &&
+                           [words count] > 1 &&
+                           [[[words objectAtIndex: 1] lowercaseString]
+                             isEqualToString: @"constant"])
+                    cmd.assertKind = DDSAssertFrameConstant;
                 }
             }
         }

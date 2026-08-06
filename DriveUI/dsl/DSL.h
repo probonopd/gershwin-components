@@ -53,6 +53,7 @@ typedef enum
 {
   DDSCmdActivate,
   DDSCmdFocusWindow,
+  DDSCmdCloseWindow,
   DDSCmdSelectMenu,
   DDSCmdClick,
   DDSCmdDoubleClick,
@@ -115,7 +116,8 @@ typedef enum
   DDSAssertEnabled,
   DDSAssertChecked,
   DDSAssertContains,
-  DDSAssertNotExists
+  DDSAssertNotExists,
+  DDSAssertFrameConstant
 } DSLAssertKind;
 
 @interface DSLCommand : NSObject
@@ -199,6 +201,8 @@ typedef enum
 
 - (BOOL)doesWidgetExist:(DSLRole)role title:(NSString *)title
            contains:(NSString *)needle error:(NSString **)err;
+- (NSString *)frameOfWindowTitle:(NSString *)title error:(NSString **)err;
+- (BOOL)closeWindowTitle:(NSString *)title error:(NSString **)err;
 - (BOOL)clickRole:(DSLRole)role title:(NSString *)title
           button:(int)button count:(int)count error:(NSString **)err;
 - (BOOL)hoverRole:(DSLRole)role title:(NSString *)title error:(NSString **)err;
@@ -239,6 +243,7 @@ typedef enum
   int retryCount_;
   NSMutableString *log_;
   NSMutableDictionary *macros_; /* macro name -> body (built before running) */
+  NSMutableDictionary *frameRefs_; /* window title -> first observed frame */
 }
 - (id)initWithProgram:(DSLProgram *)program engine:(DSLQueryEngine *)engine;
 - (int)run;

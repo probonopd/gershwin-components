@@ -510,16 +510,24 @@ static void TypeUnicodeScalar(Display *d, Window target, uint32_t scalar, Time *
         // directly. When the character sits on the keycode's shifted level, set
         // ShiftMask in the event's state so GNUstep's character lookup picks the
         // shifted symbol (so 'A', '!', '?', ':' come out right, not their twin).
+        // XKeysymToKeycode finds a keycode that yields the character at any
+        // level, so only trust the result when that keycode actually produces
+        // the character unshifted or shifted. A character that needs a higher
+        // level (e.g. '~' is level 4 on the German layout, whose bare key types
+        // '+') must fall through to the Unicode remap path instead of pressing
+        // the bare key and getting its level-0 twin.
         KeySym sym = (scalar <= 0xffff) ? KeysymForChar((unichar)scalar) : NoSymbol;
         KeyCode code = (sym != NoSymbol) ? XKeysymToKeycode(d, sym) : 0;
         if (code != 0) {
-            Bool needShift = (XkbKeycodeToKeysym(d, code, 0, 0) != sym &&
-                              XkbKeycodeToKeysym(d, code, 0, 1) == sym);
-            unsigned int st = needShift ? ShiftMask : 0;
-            SendKey(d, target, code, True, st, t); t++;
-            SendKey(d, target, code, False, st, t); t++;
-            XFlush(d);
-            continue;
+            KeySym lvl0 = XkbKeycodeToKeysym(d, code, 0, 0);
+            KeySym lvl1 = XkbKeycodeToKeysym(d, code, 0, 1);
+            if (lvl0 == sym || lvl1 == sym) {
+                unsigned int st = (lvl0 == sym) ? 0 : ShiftMask;
+                SendKey(d, target, code, True, st, t); t++;
+                SendKey(d, target, code, False, st, t); t++;
+                XFlush(d);
+                continue;
+            }
         }
 
         // Slow path: any other scalar (accented Latin not on this layout, CJK,

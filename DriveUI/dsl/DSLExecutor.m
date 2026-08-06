@@ -27,6 +27,7 @@
       retryCount_ = 0;
       log_ = [[NSMutableString alloc] init];
       macros_ = [[NSMutableDictionary alloc] init];
+      frameRefs_ = [[NSMutableDictionary alloc] init];
       /* Register every macro definition before running, so `call` works even
        * when the definition textually follows the call site (or lives inside
        * a block).  Nested blocks are walked recursively. */
@@ -41,6 +42,7 @@
   [policy_ release];
   [log_ release];
   [macros_ release];
+  [frameRefs_ release];
   [super dealloc];
 }
 - (NSString *)log { return log_; }
@@ -82,6 +84,7 @@ static NSString *CommandName(DSLCommandType t)
     {
       case DDSCmdActivate:    return @"activate application";
       case DDSCmdFocusWindow: return @"focus window";
+      case DDSCmdCloseWindow: return @"close window";
       case DDSCmdSelectMenu:  return @"select menu";
       case DDSCmdClick:       return @"click";
       case DDSCmdDoubleClick: return @"doubleclick";
@@ -169,6 +172,12 @@ static NSString *CommandName(DSLCommandType t)
           ? 0 : DDSAccessibilityError;
       else rc = ([engine_ focusMainWindow: &err]) ? 0 : DDSAccessibilityError;
       break;
+    case DDSCmdCloseWindow:
+      if ([engine_ pid] == 0)
+        { err = @"close window needs a target application"; rc = 2; break; }
+      rc = ([engine_ closeWindowTitle: cmd.string error: &err])
+        ? 0 : DDSAccessibilityError;
+      break;
     case DDSCmdSelectMenu:
       if (!cmd.string) { err = @"select menu needs a path (use \"Top/Sub\")"; rc = 1; break; }
       rc = ([engine_ selectMenuPath: cmd.string error: &err])
@@ -250,8 +259,16 @@ static NSString *CommandName(DSLCommandType t)
       break;
     case DDSCmdAssert:
       if ([engine_ pid] == 0) { err = @"assert needs a target application"; rc = 2; break; }
-      rc = [engine_ assertRole: cmd.role title: cmd.string kind: cmd.assertKind
-        needle: cmd.string error: &err] ? 0 : DDSAssertFailed;
+      if (cmd.assertKind == DDSAssertFrameConstant)
+        {
+          NSString *e2 = nil;
+          rc = [self assertFrameConstantForWindow: cmd.string error: &e2]
+            ? 0 : DDSAssertFailed;
+          err = e2;
+        }
+      else
+        rc = [engine_ assertRole: cmd.role title: cmd.string kind: cmd.assertKind
+          needle: cmd.string error: &err] ? 0 : DDSAssertFailed;
       break;
     case DDSCmdCapture:
       {
@@ -341,6 +358,35 @@ static NSString *CommandName(DSLCommandType t)
       [self formatCommand: cmd], err ?: @"runtime error", ms];
   if (reason) *reason = err;
   return rc;
+}
+
+/* Assert that a window's on-screen frame is identical to the one first
+ * observed for that title in this run: the first observation is the reference
+ * and passes, every later one must match it exactly.  Used to pin window
+ * placement across repeated opens (e.g. a viewer window must open at the same
+ * position every time). */
+- (BOOL)assertFrameConstantForWindow:(NSString *)title error:(NSString **)err
+{
+  NSString *frame = [engine_ frameOfWindowTitle: title error: err];
+  if (!frame) return NO;
+  NSString *ref = [frameRefs_ objectForKey: title];
+  if (!ref)
+    {
+      [frameRefs_ setObject: frame forKey: title];
+      fprintf(stderr, "[dsl] frame of window '%s' recorded: %s\n",
+        [title UTF8String], [frame UTF8String]);
+      return YES;
+    }
+  if ([ref isEqualToString: frame])
+    {
+      fprintf(stderr, "[dsl] frame of window '%s' stable: %s\n",
+        [title UTF8String], [frame UTF8String]);
+      return YES;
+    }
+  if (err) *err = [NSString stringWithFormat:
+    @"frame of window '%@' changed (was %@, now %s)",
+    title, ref, [frame UTF8String]];
+  return NO;
 }
 
 /* Walk a command sequence, applying the error policy only at the top level

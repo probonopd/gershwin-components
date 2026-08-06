@@ -59,6 +59,7 @@
 #import <sys/socket.h>
 #import <sys/un.h>
 #import <sys/poll.h>
+#import <sys/time.h>
 #import <unistd.h>
 #import "X11Support.h"
 
@@ -95,8 +96,12 @@ static void WriteAll(int fd, const char *bytes)
     }
 }
 
-static NSString *ReadAll(int fd)
+/* Read the reply until EOF or the read timeout.  Sets *timedOut when the
+ * socket produced nothing within the timeout window, so callers can surface a
+ * stall instead of mistaking it for an empty answer. */
+static NSString *ReadAll(int fd, BOOL *timedOut)
 {
+  if (timedOut) *timedOut = NO;
   NSMutableData *data = [NSMutableData data];
   char buf[4096];
   for (;;)
@@ -105,12 +110,33 @@ static NSString *ReadAll(int fd)
       pfd.fd = fd;
       pfd.events = POLLIN;
       int pr = poll(&pfd, 1, DRIVE_UI_TOOL_TIMEOUT_MS);
-      if (pr <= 0) break;
+      if (pr < 0) break;
+      if (pr == 0)
+        {
+          if (timedOut) *timedOut = YES;
+          break;
+        }
       ssize_t n = read(fd, buf, sizeof(buf));
       if (n <= 0) break;
       [data appendBytes: buf length: (NSUInteger)n];
     }
   return [[[NSString alloc] initWithData: data encoding: NSUTF8StringEncoding] autorelease];
+}
+
+/* Log a round-trip that was slow or stalled, so command latencies and blocked
+ * replies are visible when tuning drive_ui's performance. */
+static void LogCommandTiming(NSString *cmdline, double ms, BOOL timedOut)
+{
+  if (timedOut)
+    {
+      fprintf(stderr, "drive_ui: TIMEOUT waiting %.0f ms for reply to '%s'\n",
+        ms, [cmdline UTF8String]);
+    }
+  else if (ms > 250.0)
+    {
+      fprintf(stderr, "drive_ui: slow round-trip %.0f ms for '%s'\n",
+        ms, [cmdline UTF8String]);
+    }
 }
 
 /* Send a command line to the app and return the raw reply. */
@@ -122,10 +148,17 @@ static NSString *SendCommand(int pid, NSString *cmdline)
       fprintf(stderr, "drive_ui: no DriveUI socket for pid=%d (is DriveUI.bundle loaded?)\n", pid);
       return nil;
     }
+  struct timeval t0, t1;
+  gettimeofday(&t0, NULL);
   NSString *line = [cmdline stringByAppendingString: @"\n"];
   WriteAll(fd, [line UTF8String]);
-  NSString *reply = ReadAll(fd);
+  BOOL timedOut = NO;
+  NSString *reply = ReadAll(fd, &timedOut);
   close(fd);
+  gettimeofday(&t1, NULL);
+  double ms = (t1.tv_sec - t0.tv_sec) * 1000.0
+    + (t1.tv_usec - t0.tv_usec) / 1000.0;
+  LogCommandTiming(cmdline, ms, timedOut);
   return reply;
 }
 
@@ -683,6 +716,28 @@ int main(int argc, const char *argv[])
       NSString *reply = SendCommand(pid, [NSString stringWithFormat: @"props\t%@", idArg]);
       if (reply) printf("%s", [reply UTF8String]);
     }
+  else if ([command isEqualToString: @"close_window"])
+    {
+      /* close_window <title> - close a visible window by (localized) title,
+       * in-process via performClose:.  Replies "ok" or "error:...". */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      if ([positionals count] == 0)
+        {
+          fprintf(stderr, "drive_ui: close_window needs <title>\n");
+          [pool release];
+          return 1;
+        }
+      NSString *title = [positionals componentsJoinedByString: @" "];
+      NSString *reply = SendCommand(pid, [NSString stringWithFormat: @"close_window\t%@",
+        title]);
+      if (reply) printf("%s", [reply UTF8String]);
+    }
   else if ([command isEqualToString: @"menu"])
     {
       /* Read-only: dump the app's main menu tree
@@ -871,6 +926,37 @@ int main(int argc, const char *argv[])
         {
           [X11Support simulateClick: button];
           if (count > 1) usleep(60000);  /* let a double-click register as such */
+        }
+    }
+  else if ([command isEqualToString: @"click_at"])
+    {
+      /* click_at <x> <y> [button] [count] - click a raw screen position with
+       * the real X11 pointer.  Used for window chrome (close/miniaturize
+       * boxes) that is drawn by the window server and has no widget row. */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      if ([positionals count] < 2)
+        {
+          fprintf(stderr, "drive_ui: click_at needs <x> <y>\n");
+          [pool release];
+          return 1;
+        }
+      double x = [[positionals objectAtIndex: 0] doubleValue];
+      double y = [[positionals objectAtIndex: 1] doubleValue];
+      int button = ([positionals count] > 2) ? [[positionals objectAtIndex: 2] intValue] : 1;
+      int count = ([positionals count] > 3) ? [[positionals objectAtIndex: 3] intValue] : 1;
+      NSPoint c = NSMakePoint(x, y);
+      [X11Support simulateMouseMoveTo: c];
+      usleep(50000);  /* let the pointer motion settle */
+      for (int i = 0; i < count; i++)
+        {
+          [X11Support simulateClick: button];
+          if (count > 1) usleep(60000);
         }
     }
   else if ([command isEqualToString: @"hover"])
