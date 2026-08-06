@@ -16,6 +16,8 @@
  */
 
 #import "DSL.h"
+#import <signal.h>
+#import <unistd.h>
 
 @implementation DSLQueryEngine
 
@@ -98,7 +100,9 @@ static void DDSMenuNodeFree(DDSMenuNode *n)
 }
 
 /* Resolve an app name to a pid by scanning the /tmp/driveui.<pid>.sock
- * sockets (each answers the read-only `app` command). */
+ * sockets (each answers the read-only `app` command).  Sockets whose pid is no
+ * longer alive are skipped without connecting, so a pile of stale sockets from
+ * long-dead apps cannot make activation take seconds per socket. */
 - (BOOL)resolveApplication:(NSString *)name error:(NSString **)err
 {
   NSString *tmp = @"/tmp";
@@ -111,6 +115,8 @@ static void DDSMenuNodeFree(DDSMenuNode *n)
       NSString *pidStr = [e substringWithRange: NSMakeRange(8,
         [e length] - 8 - [@".sock" length])];
       int maybePid = [pidStr intValue];
+      if (maybePid <= 0) continue;
+      if (kill(maybePid, 0) != 0) continue;  /* stale socket, owner gone */
       NSString *out = [self runCollect: [NSArray arrayWithObjects:
         [NSString stringWithFormat: @"--pid=%d", maybePid], @"app", nil]
         error: nil];
