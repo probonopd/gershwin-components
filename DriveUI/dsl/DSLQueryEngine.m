@@ -706,6 +706,28 @@ static void SetErr(NSString **err, NSString *m)
       if (needle && ![self title: mt matches: needle]) return NO;
       return YES;
     }
+  if (role == DDSRoleWindow && needle == nil && title != nil)
+    {
+      /* Window existence is answered by the app's visible-window list, which
+       * is far cheaper than building the full widget tree (a folder viewer
+       * has hundreds of widgets).  The app can be transiently busy, so retry
+       * a few times. */
+      for (int attempt = 0; attempt < 8; attempt++)
+        {
+          NSString *list = [self runCollect: [self argvForSubcommand: @"windows"]
+            error: (attempt == 7) ? err : nil];
+          if (list != nil)
+            {
+              for (NSString *line in [list componentsSeparatedByString: @"\n"])
+                {
+                  if ([self title: line matches: title]) return YES;
+                }
+              return NO;
+            }
+          usleep (250000);
+        }
+      return NO;
+    }
   NSString *cls = DSLRoleClassName(role);
   /* The app can be transiently busy (a wedge from window churn, or a heavy
    * layout), which makes the 1s read timeout fire even though the widget is

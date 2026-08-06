@@ -285,6 +285,28 @@ static void WriteAll(int fd, const char *bytes)
               NSString *reply = [name stringByAppendingString: @"\n"];
               WriteAll(fd, [reply UTF8String]);
             }
+          else if ([cmd isEqualToString: @"windows"])
+            {
+              /* Read-only: the titles of all VISIBLE windows, one per line.
+               * Much cheaper than the full tree: window existence checks
+               * (wait until/assert window) do not need to walk every widget. */
+              NSMutableString *reply = [NSMutableString string];
+              NSArray *wins = [[NSApp windows] copy];
+              for (NSWindow *win in wins)
+                {
+                  @try
+                    {
+                      if ([win isVisible])
+                        {
+                          NSString *t = [win title] ?: @"";
+                          [reply appendFormat: @"%@\n", t];
+                        }
+                    }
+                  @catch (NSException *e) { }
+                }
+              [wins release];
+              WriteAll(fd, [reply UTF8String]);
+            }
           else if ([cmd isEqualToString: @"modal"])
             {
               /* Report the app's current modal window, if any.  This lets

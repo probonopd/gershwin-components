@@ -710,6 +710,12 @@ int main(int argc, const char *argv[])
       NSString *reply = SendCommand(pid, @"app");
       if (reply) printf("%s", [reply UTF8String]);
     }
+  else if ([command isEqualToString: @"windows"])
+    {
+      /* Read-only: titles of visible windows (cheap alternative to the tree). */
+      NSString *reply = SendCommand(pid, @"windows");
+      if (reply) printf("%s", [reply UTF8String]);
+    }
   else if ([command isEqualToString: @"modal"])
     {
       /* Read-only: report the app's current modal window ("none" if none).
