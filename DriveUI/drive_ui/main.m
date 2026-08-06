@@ -789,7 +789,7 @@ int main(int argc, const char *argv[])
           [pool release];
           return 1;
         }
-      unsigned long wid = [X11Support findWindowWithTitle: title];
+      unsigned long wid = [X11Support findViewableWindowWithTitle: title];
       if (wid == 0)
         {
           fprintf(stderr, "drive_ui: xactivate: no window titled '%s'\n",

@@ -267,28 +267,47 @@ static dispatch_once_t _sharedDisplayOnce;
     if (XGetWindowAttributes(display, (Window)windowId, &attrs) == Success) {
         /* Mapped (window and ancestors) and not an override-redirect popup. */
         if (attrs.map_state == IsViewable && !attrs.override_redirect) {
-            /* _NET_WM_WINDOW_TYPE: accept normal/dialog/utility or absent. */
-            Atom wmTypeAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE", True);
-            Atom wmTypeNormal = XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", False);
-            Atom wmTypeDialog = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
-            Atom wmTypeUtility = XInternAtom(display, "_NET_WM_WINDOW_TYPE_UTILITY", False);
-            BOOL typeOK = YES;
-            if (wmTypeAtom != None) {
+            /* WM-managed: the window manager sets WM_STATE on the windows it
+             * manages.  Chromium keeps internal/helper windows that look like
+             * normal toplevels (viewable, NORMAL type) but are NOT managed -
+             * they must not be treated as app windows. */
+            BOOL wmManaged = NO;
+            Atom wmStateAtom = XInternAtom(display, "WM_STATE", True);
+            if (wmStateAtom != None) {
                 Atom actualType; int actualFormat;
                 unsigned long nItems, bytesAfter;
                 unsigned char *prop = NULL;
-                if (XGetWindowProperty(display, (Window)windowId, wmTypeAtom, 0, 16,
-                                       False, XA_ATOM, &actualType, &actualFormat,
+                if (XGetWindowProperty(display, (Window)windowId, wmStateAtom, 0, 1,
+                                       False, AnyPropertyType, &actualType, &actualFormat,
                                        &nItems, &bytesAfter, &prop) == Success) {
-                    if (prop && nItems > 0) {
-                        Atom first = ((Atom *)prop)[0];
-                        typeOK = (first == wmTypeNormal || first == wmTypeDialog
-                                  || first == wmTypeUtility);
-                    }
+                    wmManaged = (prop != NULL);
                     if (prop) XFree(prop);
                 }
             }
-            real = typeOK;
+            if (wmManaged) {
+                /* _NET_WM_WINDOW_TYPE: accept normal/dialog/utility or absent. */
+                Atom wmTypeAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE", True);
+                Atom wmTypeNormal = XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", False);
+                Atom wmTypeDialog = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+                Atom wmTypeUtility = XInternAtom(display, "_NET_WM_WINDOW_TYPE_UTILITY", False);
+                BOOL typeOK = YES;
+                if (wmTypeAtom != None) {
+                    Atom actualType2; int actualFormat2;
+                    unsigned long nItems2, bytesAfter2;
+                    unsigned char *prop2 = NULL;
+                    if (XGetWindowProperty(display, (Window)windowId, wmTypeAtom, 0, 16,
+                                           False, XA_ATOM, &actualType2, &actualFormat2,
+                                           &nItems2, &bytesAfter2, &prop2) == Success) {
+                        if (prop2 && nItems2 > 0) {
+                            Atom first = ((Atom *)prop2)[0];
+                            typeOK = (first == wmTypeNormal || first == wmTypeDialog
+                                      || first == wmTypeUtility);
+                        }
+                        if (prop2) XFree(prop2);
+                    }
+                }
+                real = typeOK;
+            }
         }
     }
 

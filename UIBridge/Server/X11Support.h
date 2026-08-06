@@ -60,6 +60,10 @@
 // whose name contains `title`.
 + (NSUInteger)countWindowsWithTitle:(NSString *)title;
 
+// Like findWindowWithTitle: but also matches viewable non-application windows
+// (e.g. the desktop); used when activating a window to switch focus.
++ (unsigned long)findViewableWindowWithTitle:(NSString *)title;
+
 // True if a windowInfo: dictionary describes a real top-level application
 // window (ICCCM/EWMH filter used by the whole-display scans).
 + (BOOL)isAppWindow:(NSDictionary *)info;

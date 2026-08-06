@@ -169,6 +169,25 @@ static int NonFatalXError(Display *dpy, XErrorEvent *e) {
         }
     }
 
+    // WM_STATE is set by the window manager on the windows it manages.
+    // Chromium keeps unmanaged internal helper windows (which look like normal
+    // toplevels but are not WM-managed); excluding them keeps whole-display
+    // scans and the menu's active-window tracking off them.
+    BOOL wmManaged = NO;
+    Atom atomWMState = XInternAtom(d, "WM_STATE", True);
+    if (atomWMState != None) {
+        Atom actualType;
+        int actualFormat;
+        unsigned long nItems;
+        unsigned long bytesAfter;
+        unsigned char *prop = NULL;
+        if (XGetWindowProperty(d, w, atomWMState, 0, 1, False, AnyPropertyType,
+                               &actualType, &actualFormat, &nItems, &bytesAfter, &prop) == Success) {
+            wmManaged = (prop != NULL);
+            if (prop) XFree(prop);
+        }
+    }
+
     return @{
         @"id": @(w),
         @"x": @(attrs.x),
@@ -179,19 +198,25 @@ static int NonFatalXError(Display *dpy, XErrorEvent *e) {
         @"title": title,
         @"pid": @(pid),
         @"override_redirect": @(attrs.override_redirect ? YES : NO),
-        @"net_wm_type": netWmType
+        @"net_wm_type": netWmType,
+        @"wm_managed": @(wmManaged)
     };
 }
 
 /* True if the dictionary from windowInfo: describes a real top-level
  * application window worth matching in a whole-display scan (per ICCCM/EWMH):
- * mapped, not override-redirect, and not one of the window-manager-internal
- * types (dock, tooltip, menu, notification, splash, desktop, ...).  Windows
- * with no _NET_WM_WINDOW_TYPE are assumed to be normal applications. */
+ * mapped, not override-redirect, WM-managed (WM_STATE present), and not one
+ * of the window-manager-internal types (dock, tooltip, menu, notification,
+ * splash, desktop, ...).  Windows with no _NET_WM_WINDOW_TYPE are assumed to
+ * be normal applications. */
 + (BOOL)isAppWindow:(NSDictionary *)info {
     if (!info) return NO;
     if ([[info objectForKey: @"map_state"] intValue] != 2) return NO; // IsViewable
     if ([[info objectForKey: @"override_redirect"] boolValue]) return NO;
+    /* WM-managed: the WM sets WM_STATE on the windows it manages.  Chromium's
+     * internal helper windows are not managed even though they look like
+     * normal toplevels. */
+    if (![[info objectForKey: @"wm_managed"] boolValue]) return NO;
     NSString *type = [info objectForKey: @"net_wm_type"] ?: @"";
     if ([type length] == 0) return YES;
     if ([type hasPrefix: @"_NET_WM_WINDOW_TYPE_NORMAL"]
@@ -391,6 +416,25 @@ static void SendKey(Display *d, Window w, KeyCode code,
             count++;
     }
     return count;
+}
+
+/* Like findWindowWithTitle: but also matches non-application windows (e.g.
+ * the desktop, which is _NET_WM_WINDOW_TYPE_DESKTOP) as long as they are
+ * viewable and not override-redirect.  Used when ACTIVATING a window to switch
+ * focus; counting/existence checks keep the stricter isAppWindow filter. */
++ (unsigned long)findViewableWindowWithTitle:(NSString *)title {
+    if (title == nil || [title length] == 0) return 0;
+    for (NSNumber *wid in [self windowList]) {
+        NSDictionary *info = [self windowInfo: [wid unsignedLongValue]];
+        if (!info) continue;
+        if ([[info objectForKey: @"map_state"] intValue] != 2) continue; /* IsViewable */
+        if ([[info objectForKey: @"override_redirect"] boolValue]) continue;
+        NSString *t = [info objectForKey: @"title"] ?: @"";
+        if ([t rangeOfString: title options: NSCaseInsensitiveSearch].location
+              != NSNotFound)
+            return [wid unsignedLongValue];
+    }
+    return 0;
 }
 
 + (int)screenHeight {
