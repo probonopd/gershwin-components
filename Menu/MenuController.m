@@ -1786,6 +1786,17 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
         // CRITICAL FIX: Only validate the shown window if it's still the active window
         // If we've switched to a different window, don't clear the menu for the OLD window
+        if (activeWindow == 0) {
+            // No active window reported.  The WM is transiently reporting 0
+            // (e.g. Chromium recycling its window IDs), so the shown window
+            // may be stale even though the app is still frontmost.  Clearing
+            // here made every app's menu vanish a few seconds after it loaded
+            // - and unregistered its shortcuts.  Keep the menu until we know
+            // what is actually active.
+            NSDebugLLog(@"gwcomp", @"MenuController: No active window - keeping current menu");
+            MENU_PROFILE_END(windowValidationTick);
+            return;
+        }
         if (activeWindow != 0 && shownWindow != activeWindow) {
             // We've switched to a different window - the shown window ID is stale
             // Don't validate it, let the normal window change handling take care of it
@@ -1808,6 +1819,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         // 2. Active window is 0 (no window focused)
         if (![MenuUtils isWindowValid:shownWindow] || ![MenuUtils isWindowMapped:shownWindow]) {
             NSDebugLog(@"MenuController: Watchdog detected invalid/closed window 0x%lx - clearing menu", shownWindow);
+            NSDebugLog(@"MenuController: Watchdog detected invalid/closed window 0x%lx - clearing menu", shownWindow);
             [self.appMenuWidget clearMenuAndHideView];
             self.lastClearedWindowId = shownWindow;
             self.lastClearedTime = now;
@@ -1816,16 +1828,12 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             return;
         }
 
-        // If the system reports no active window, but we have a menu for one, hide it
-        if (activeWindow == 0 && shownWindow != 0) {
-            NSDebugLLog(@"gwcomp", @"MenuController: Active window is 0 but menu shown for 0x%lx - clearing menu", shownWindow);
-            [self.appMenuWidget clearMenuAndHideView];
-            self.lastClearedWindowId = shownWindow;
-            self.lastClearedTime = now;
-            self.lastClearSuppressUntil = 0;
-            MENU_PROFILE_END(windowValidationTick);
-            return;
-        }
+        // NOTE: no longer clear when the WM reports no active window while a
+        // menu is shown.  _NET_ACTIVE_WINDOW is transiently 0 whenever the
+        // focused app juggles internal/helper windows (e.g. Chromium), so this
+        // cleared every app's menu - and unregistered its shortcuts - a few
+        // seconds after it loaded.  The shown window is still valid and mapped
+        // (checked above), so the menu must stay until a real focus change.
     }
     @catch (NSException *ex) {
         NSDebugLLog(@"gwcomp", @"MenuController: Exception in windowValidationTick: %@", ex);

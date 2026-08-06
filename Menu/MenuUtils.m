@@ -208,27 +208,29 @@ static dispatch_once_t _sharedDisplayOnce;
 {
     if (windowId == 0) return NO;
 
-    Display *display = [self openDisplay];
+    /* Use a FRESH display connection: the shared display is touched from
+     * several threads (WindowMonitor, watchdog, importers), and a
+     * cross-thread interleave can make XGetWindowAttributes spuriously fail
+     * on it for perfectly valid windows - which the menu watchdog then took
+     * as "app closed" and cleared the menu (and the app's shortcuts). */
+    Display *display = XOpenDisplay(NULL);
     if (!display) {
         return NO;
     }
     
     XWindowAttributes attrs;
-    if (XGetWindowAttributes(display, (Window)windowId, &attrs) == Success) {
-        return YES;
-    }
-    
-    // Low-level check if the window exists using XQueryTree might be more robust
-    // but XGetWindowAttributes is usually sufficient.
-    NSDebugLLog(@"gwcomp", @"MenuUtils: XGetWindowAttributes failed for 0x%lx", windowId);
-    return NO;
+    BOOL ok = (XGetWindowAttributes(display, (Window)windowId, &attrs) == Success);
+    XCloseDisplay(display);
+    return ok;
 }
 
 + (BOOL)isWindowMapped:(unsigned long)windowId
 {
     if (windowId == 0) return NO;
 
-    Display *display = [self openDisplay];
+    /* Fresh connection per call - see isWindowValid: for why the shared
+     * display cannot be trusted for these checks. */
+    Display *display = XOpenDisplay(NULL);
     if (!display) {
         return NO;
     }
@@ -239,19 +241,15 @@ static dispatch_once_t _sharedDisplayOnce;
         // Require IsViewable: window AND all ancestors must be mapped.
         // IsUnviewable (window mapped but an ancestor is not) is treated as not visible.
         mapped = (attrs.map_state == IsViewable);
-        if (!mapped) {
-            NSDebugLLog(@"gwcomp", @"MenuUtils: Window 0x%lx is not viewable (map_state %d)", windowId, attrs.map_state);
-        }
     } else {
         // XGetWindowAttributes failure does NOT mean the window is unmapped.
         // It can fail due to X11 thread-safety issues with shared Display connections,
         // or transient server states. Assume mapped (safe default) and let the caller
         // use isWindowValid for definitive existence checks.
-        NSDebugLog(@"MenuUtils: XGetWindowAttributes failed for window 0x%lx (assuming mapped)", windowId);
         mapped = YES;
     }
     
-    [self closeDisplay:display];
+    XCloseDisplay(display);
     return mapped;
 }
 

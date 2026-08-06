@@ -325,11 +325,14 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     unsigned long windowId = self.pendingCoalesceWindowId;
 
     if (windowId == 0) {
-        /* No active window.  Preserve the current menu briefly to ride out
-           transient WM states (modal close, workspace switch). */
-        NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-        if (self.currentMenu && self.currentWindowId != 0 && (now - self.lastSwitchTime) < 2.0) {
-            NSDebugLLog(@"gwcomp", @"AppMenuWidget: No-window grace - preserving current menu");
+        /* No active window reported.  If we are showing an app's menu, keep
+         * it: the window manager can momentarily report 0 while the app still
+         * has focus (e.g. Chromium juggling its internal windows), and
+         * clearing to system-only here is what made every app's menu vanish a
+         * few seconds after it loaded - wiping its shortcuts with it.  Only go
+         * system-only when there really is nothing to show. */
+        if (self.currentMenu && self.currentWindowId != 0) {
+            NSDebugLLog(@"gwcomp", @"AppMenuWidget: No active window - keeping current menu (0x%lx)", self.currentWindowId);
             return;
         }
         [self clearToSystemOnly];
@@ -617,10 +620,21 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
         [self.windowsWithoutMenus setObject:[NSDate date] forKey:windowKey];
         
+        /* This retry is for a window that is no longer the one whose menu we
+         * are showing (e.g. the user switched to another app/window while the
+         * retry was running).  A stale retry must NEVER clear the current
+         * app's menu - doing so also unregisters its global shortcuts, so
+         * Alt+T stops working after switching away and back. */
+        if (self.currentWindowId != 0 && self.currentWindowId != windowId) {
+            NSLog(@"AppMenuWidget: Retry for stale window 0x%lx - keeping current menu (0x%lx)",
+                  windowId, self.currentWindowId);
+            [self cancelMenuRetry];
+            return;
+        }
+        
         /* A window of the SAME app as the currently displayed menu (e.g. one of
          * Chrome's internal/helper windows that has no menu of its own) must not
-         * clear the app menu: clearing to system-only also unregisters the app's
-         * global shortcuts, so Alt+T stops working after switching away and back. */
+         * clear the app menu either. */
         pid_t windowPID = [MenuUtils getWindowPID: windowId];
         if (self.currentWindowId != 0 && windowPID != 0
             && windowPID == self.currentWindowPID) {
