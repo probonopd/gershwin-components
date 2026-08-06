@@ -1866,11 +1866,8 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         NSDebugLLog(@"gwcomp", @"MenuController: Set _NET_SUPPORTING_WM property");
     }
     
-    // Set _NET_SUPPORTED property to list supported features
-    Atom netSupportedAtom = XInternAtom(display, "_NET_SUPPORTED", False);
-    Atom atomAtom = XInternAtom(display, "ATOM", False);
-    
-    // List of atoms we support for global menu functionality
+    // Advertise our global-menu atoms by merging them into the WM-owned
+    // _NET_SUPPORTED property, never replacing it.
     Atom supportedAtoms[] = {
         XInternAtom(display, "_NET_WM_WINDOW_TYPE", False),
         XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", False),
@@ -1882,15 +1879,15 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         XInternAtom(display, "_GTK_WINDOW_OBJECT_PATH", False),
         XInternAtom(display, "_GTK_APP_MENU_OBJECT_PATH", False)
     };
+    [MenuUtils mergeNetSupportedAtoms:supportedAtoms
+                                count:sizeof(supportedAtoms) / sizeof(Atom)
+                                onRoot:root
+                              display:display];
     
-    XChangeProperty(display, root, netSupportedAtom, atomAtom, 32,
-                   PropModeReplace, (unsigned char*)supportedAtoms, 
-                   sizeof(supportedAtoms) / sizeof(Atom));
-    
-    NSDebugLLog(@"gwcomp", @"MenuController: Set _NET_SUPPORTED property with %lu atoms", 
-          sizeof(supportedAtoms) / sizeof(Atom));
+    NSDebugLLog(@"gwcomp", @"MenuController: Merged global menu atoms into _NET_SUPPORTED");
     
     // Set Unity-specific properties that Chrome looks for
+    Atom atomAtom = XInternAtom(display, "ATOM", False);
     Atom unityGlobalMenuAtom = XInternAtom(display, "_UNITY_SUPPORTED", False);
     XChangeProperty(display, root, unityGlobalMenuAtom, atomAtom, 32,
                    PropModeReplace, (unsigned char*)supportedAtoms, 1);

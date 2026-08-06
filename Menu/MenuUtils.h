@@ -30,6 +30,15 @@
 + (BOOL)advertiseGlobalMenuSupport;
 + (void)removeGlobalMenuSupport;
 
+/* Merge the given atoms into the root window's _NET_SUPPORTED property.
+ * _NET_SUPPORTED is owned by the window manager; this appends the global-menu
+ * atoms without dropping the entries the WM advertised (e.g. the window
+ * animation protocol atoms), which a plain PropModeReplace would clobber. */
++ (void)mergeNetSupportedAtoms:(const Atom *)atoms
+                         count:(unsigned long)count
+                         onRoot:(Window)root
+                       display:(Display *)display;
+
 /**
  * Returns YES if the window has any X11 property that indicates it intends to
  * export an application menu (GTK _GTK_UNIQUE_BUS_NAME, Canonical/KDE

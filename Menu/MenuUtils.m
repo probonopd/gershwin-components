@@ -699,6 +699,59 @@ static dispatch_once_t _sharedDisplayOnce;
     return NO;
 }
 
++ (void)mergeNetSupportedAtoms:(const Atom *)atoms
+                         count:(unsigned long)count
+                         onRoot:(Window)root
+                       display:(Display *)display
+{
+    Atom supportedAtom = XInternAtom(display, "_NET_SUPPORTED", False);
+    if (supportedAtom == None || atoms == NULL || count == 0) {
+        return;
+    }
+
+    // Read what the window manager already advertised: _NET_SUPPORTED belongs to
+    // the WM, and a plain PropModeReplace here would drop the entries it relies
+    // on (e.g. the _WINDOW_BIRTH_ANIMATION / _WINDOW_CLOSE_ANIMATION protocol),
+    // silently disabling features for other clients.
+    Atom actualType = None;
+    int actualFormat = 0;
+    unsigned long numItems = 0, bytesAfter = 0;
+    unsigned char *propData = NULL;
+    if (XGetWindowProperty(display, root, supportedAtom, 0, ~0L, False,
+                           XA_ATOM, &actualType, &actualFormat, &numItems,
+                           &bytesAfter, &propData) != Success) {
+        return;
+    }
+    if (actualFormat != 32 || numItems == 0 || propData == NULL) {
+        if (propData) XFree(propData);
+        // No list to preserve: just publish our atoms.
+        XChangeProperty(display, root, supportedAtom, XA_ATOM, 32,
+                        PropModeReplace, (unsigned char *)atoms, count);
+        return;
+    }
+
+    Atom *existing = (Atom *)propData;
+    NSUInteger maxTotal = numItems + count;
+    Atom merged[maxTotal];
+    NSUInteger total = 0;
+    for (unsigned long i = 0; i < numItems; i++) {
+        merged[total++] = existing[i];
+    }
+    for (unsigned long i = 0; i < count; i++) {
+        BOOL alreadyThere = NO;
+        for (unsigned long j = 0; j < numItems; j++) {
+            if (existing[j] == atoms[i]) { alreadyThere = YES; break; }
+        }
+        if (!alreadyThere) {
+            merged[total++] = atoms[i];
+        }
+    }
+    XFree(propData);
+
+    XChangeProperty(display, root, supportedAtom, XA_ATOM, 32,
+                    PropModeReplace, (unsigned char *)merged, total);
+}
+
 + (BOOL)advertiseGlobalMenuSupport
 {
     Display *display = [self openDisplay];
@@ -728,22 +781,20 @@ static dispatch_once_t _sharedDisplayOnce;
         NSDebugLLog(@"gwcomp", @"MenuUtils: Set _NET_SUPPORTING_WM_CHECK for global menu support");
     }
     
-    // Set _NET_SUPPORTED to advertise supported features
-    Atom supportedAtom = XInternAtom(display, "_NET_SUPPORTED", False);
-    if (supportedAtom != None) {
-        Atom supportedFeatures[] = {
-            XInternAtom(display, "_NET_WM_NAME", False),
-            XInternAtom(display, "_NET_ACTIVE_WINDOW", False),
-            XInternAtom(display, "_KDE_NET_WM_APPMENU_SERVICE_NAME", False),
-            XInternAtom(display, "_KDE_NET_WM_APPMENU_OBJECT_PATH", False)
-        };
-        
-        XChangeProperty(display, root, supportedAtom, XA_ATOM, 32,
-                       PropModeReplace, (unsigned char*)supportedFeatures, 
-                       sizeof(supportedFeatures) / sizeof(Atom));
-        
-        NSDebugLLog(@"gwcomp", @"MenuUtils: Set _NET_SUPPORTED with global menu atoms");
-    }
+    // Advertise our global-menu atoms by merging them into the WM-owned
+    // _NET_SUPPORTED property, never replacing it.
+    Atom supportedFeatures[] = {
+        XInternAtom(display, "_NET_WM_NAME", False),
+        XInternAtom(display, "_NET_ACTIVE_WINDOW", False),
+        XInternAtom(display, "_KDE_NET_WM_APPMENU_SERVICE_NAME", False),
+        XInternAtom(display, "_KDE_NET_WM_APPMENU_OBJECT_PATH", False)
+    };
+    [self mergeNetSupportedAtoms:supportedFeatures
+                           count:sizeof(supportedFeatures) / sizeof(Atom)
+                           onRoot:root
+                         display:display];
+    
+    NSDebugLLog(@"gwcomp", @"MenuUtils: Merged global menu atoms into _NET_SUPPORTED");
     
     // Set KDE-specific property to indicate global menu support
     Atom kdeMenuAtom = XInternAtom(display, "_KDE_GLOBAL_MENU_AVAILABLE", False);
