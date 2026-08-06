@@ -586,8 +586,15 @@ case DDSRoleLabel:                        return @"NSTextField";
               cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
               if ([words count] > 0) [words removeObjectAtIndex: 0];
               cmd.string = str1;
+              /* wait until menu bar "Title" [not] */
+              if ([words count] >= 1 && [[words objectAtIndex: 0] isEqualToString: @"bar"])
+                {
+                  cmd.assertKind = (cmd.assertKind == DDSAssertNotExists)
+                    ? DDSAssertMenuBarNot : DDSAssertMenuBar;
+                  [words removeObjectAtIndex: 0];
+                }
               /* wait until xwindow "Title" count <op> <N> */
-              if ([words count] >= 3 && [[words objectAtIndex: 0] isEqualToString: @"count"])
+              else if ([words count] >= 3 && [[words objectAtIndex: 0] isEqualToString: @"count"])
                 {
                   cmd.assertKind = DDSAssertXWindowCount;
                   [cmd.words addObject: [words objectAtIndex: 1]];
@@ -631,10 +638,21 @@ case DDSRoleLabel:                        return @"NSTextField";
             }
           else
             {
+              /* assert menu bar "Title" - asserts a top-level item of Menu.app's
+               * global menu bar (what the frontmost app's menu looks like). */
+              if ([words count] >= 2 &&
+                  [[words objectAtIndex: 0] isEqualToString: @"menu"] &&
+                  [[words objectAtIndex: 1] isEqualToString: @"bar"])
+                {
+                  [words removeObjectsInRange: NSMakeRange(0, 2)];
+                  cmd.string = str1;
+                  cmd.assertKind = (cmd.assertKind == DDSAssertNotExists)
+                    ? DDSAssertMenuBarNot : DDSAssertMenuBar;
+                }
               /* assert menu item "Top/Sub" [exists|not exists|checked|not
                * checked|enabled|disabled|shortcut "Cmd+O"] - asserts a
                * property of a main-menu item addressed by title path. */
-              if ([words count] >= 2 &&
+              else if ([words count] >= 2 &&
                   [[words objectAtIndex: 0] isEqualToString: @"menu"] &&
                   [[words objectAtIndex: 1] isEqualToString: @"item"])
                 {

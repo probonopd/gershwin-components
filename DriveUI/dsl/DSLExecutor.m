@@ -170,14 +170,15 @@ static NSString *CommandName(DSLCommandType t)
   NSDate *start = nil;
   int rc = 0;
 
-  /* free-form duration timeout for wait-until is carried in words[1].
-   * The count form (assertKind == DDSAssertXWindowCount) puts its operator
-   * and operand in words instead, so it keeps the default timeout. */
+  /* free-form duration timeout for wait-until is carried in words[0] (the
+   * parser stores only the duration token after the "timeout" keyword).  The
+   * count form (assertKind == DDSAssertXWindowCount) puts its operator and
+   * operand in words instead, so it keeps the default timeout. */
   double cTimeout = 30.0;
-  if (cmd.type == DDSCmdWaitUntil && [[cmd words] count] > 1
+  if (cmd.type == DDSCmdWaitUntil && [[cmd words] count] > 0
       && cmd.assertKind != DDSAssertXWindowCount)
     {
-      NSString *durTok = [[cmd words] objectAtIndex: 1];
+      NSString *durTok = [[cmd words] objectAtIndex: 0];
       cTimeout = [durTok doubleValue];
     }
   (void)cTimeout;
@@ -302,6 +303,11 @@ static NSString *CommandName(DSLCommandType t)
                 ok = [engine_ assertXWindowCount: cmd.string op: op expected: expected
                   error: nil];
               }
+            else if (cmd.assertKind == DDSAssertMenuBar || cmd.assertKind == DDSAssertMenuBarNot)
+              {
+                ok = [engine_ menuBarHasItem: cmd.string
+                  exists: (cmd.assertKind == DDSAssertMenuBar) error: nil];
+              }
             else
               {
                 BOOL present = [engine_ doesWidgetExist: cmd.role title: cmd.string
@@ -360,6 +366,14 @@ static NSString *CommandName(DSLCommandType t)
           NSString *e2 = nil;
           rc = [engine_ assertXWindowCount: cmd.string op: op expected: expected
             error: &e2] ? 0 : DDSAssertFailed;
+          err = e2;
+        }
+      else if (cmd.assertKind == DDSAssertMenuBar || cmd.assertKind == DDSAssertMenuBarNot)
+        {
+          NSString *e2 = nil;
+          rc = [engine_ menuBarHasItem: cmd.string
+            exists: (cmd.assertKind == DDSAssertMenuBar) error: &e2]
+            ? 0 : DDSAssertFailed;
           err = e2;
         }
       else

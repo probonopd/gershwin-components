@@ -879,6 +879,63 @@ static void SetErr(NSString **err, NSString *m)
   return YES;
 }
 
+/* Resolve Menu.app's pid by scanning the DriveUI sockets. */
+- (int)menuAppPID
+{
+  NSString *tmp = @"/tmp";
+  NSArray *entries = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:
+    tmp error: nil];
+  for (NSString *e in entries)
+    {
+      if (![e hasPrefix: @"driveui."] || ![e hasSuffix: @".sock"]) continue;
+      NSString *pidStr = [e substringWithRange: NSMakeRange(8,
+        [e length] - 8 - [@".sock" length])];
+      int maybePid = [pidStr intValue];
+      if (maybePid <= 0) continue;
+      if (kill(maybePid, 0) != 0) continue;
+      NSString *a = [self runCollect: [NSArray arrayWithObjects:
+        [NSString stringWithFormat: @"--pid=%d", maybePid], @"app", nil] error: nil];
+      NSString *found = a ? [a stringByTrimmingCharactersInSet:
+        [NSCharacterSet newlineCharacterSet]] : @"";
+      if ([found isEqualToString: @"Menu"])
+        return maybePid;
+    }
+  return 0;
+}
+
+/* Check whether Menu.app's global menu bar currently has a top-level item
+ * whose (localized) title matches `title`.  Menu.app shows the menu of the
+ * frontmost app, so this tells the test which app's menu is on screen. */
+- (BOOL)menuBarHasItem:(NSString *)title exists:(BOOL)exists error:(NSString **)err
+{
+  if (title == nil || [title length] == 0)
+    { SetErr(err, @"menu bar assertion needs a title"); return NO; }
+  int menuPid = [self menuAppPID];
+  if (menuPid <= 0)
+    { SetErr(err, @"Menu.app is not running"); return NO; }
+  NSString *reply = [self runCollect: [NSArray arrayWithObjects:
+    [NSString stringWithFormat: @"--pid=%d", menuPid], @"menubar", nil]
+    error: err];
+  if (!reply) return NO;
+
+  BOOL found = NO;
+  for (NSString *line in [reply componentsSeparatedByString: @"\n"])
+    {
+      NSArray *f = [line componentsSeparatedByString: @"\t"];
+      if ([f count] == 0) continue;
+      NSString *itemTitle = [f objectAtIndex: 0];
+      if ([self title: itemTitle matches: title])
+        { found = YES; break; }
+    }
+  if (found != exists)
+    {
+      SetErr(err, [NSString stringWithFormat:
+        @"assert failed: menu bar %@ '%@'", exists ? @"has no" : @"unexpectedly has", title]);
+      return NO;
+    }
+  return YES;
+}
+
 /* Click/double-click/right-click an object by its ID with real X11 events. */
 - (BOOL)clickObjectID:(NSString *)objID button:(int)button count:(int)count
                 error:(NSString **)err

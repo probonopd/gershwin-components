@@ -137,7 +137,9 @@ typedef enum
   DDSAssertMenuEnabled,
   DDSAssertMenuDisabled,
   DDSAssertMenuShortcut,
-  DDSAssertXWindowCount
+  DDSAssertXWindowCount,
+  DDSAssertMenuBar,
+  DDSAssertMenuBarNot
 } DSLAssertKind;
 
 @interface DSLCommand : NSObject
@@ -240,6 +242,7 @@ typedef enum
                   shortcut:(NSString *)shortcut error:(NSString **)err;
 - (BOOL)assertXWindowCount:(NSString *)title op:(NSString *)op
                   expected:(int)expected error:(NSString **)err;
+- (BOOL)menuBarHasItem:(NSString *)title exists:(BOOL)exists error:(NSString **)err;
 - (int)countXWindowsWithTitle:(NSString *)title error:(NSString **)err;
 - (BOOL)triggerGlobalMenuPath:(NSString *)path error:(NSString **)err;
 - (NSString *)localizeString:(NSString *)english;

@@ -1690,8 +1690,9 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     // via a dispatch source on its own X connection; that source has been
     // observed to stop firing after a while (GCD read-source on an Xlib fd),
     // which leaves the menu stuck on the previously active app.  Polling every
-    // second on a fresh connection keeps the menu tracking reliable.
-    self.activeWindowPollTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+    // 100ms on a fresh connection keeps the menu tracking responsive (the menu
+    // must follow an app switch within ~100ms).
+    self.activeWindowPollTimer = [NSTimer scheduledTimerWithTimeInterval:0.1
                                                                   target:self
                                                                 selector:@selector(activeWindowPollTick:)
                                                                 userInfo:nil
@@ -1704,6 +1705,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 {
     @try {
         unsigned long activeWindow = [MenuUtils getActiveWindowFresh];
+
         if (activeWindow == 0 || activeWindow == self.lastProcessedWindowId) {
             return;
         }

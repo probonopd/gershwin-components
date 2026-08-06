@@ -571,6 +571,13 @@ static void SendKey(Display *d, Window w, KeyCode code,
     e.xclient.data.l[1] = CurrentTime;
     XSendEvent(d, root, False, SubstructureRedirectMask | SubstructureNotifyMask, &e);
 
+    // Also update _NET_ACTIVE_WINDOW directly.  Some window managers (or the
+    // bare-server case) never apply the ClientMessage, so Menu.app's
+    // active-window tracking (which reads the property) would keep reporting
+    // the previously active window.
+    XChangeProperty(d, root, netActive, XA_WINDOW, 32, PropModeReplace,
+                    (unsigned char *)&w, 1);
+
     // Fallback for WMs that ignore EWMH (or a bare server with no WM): raise the
     // top-level frame (walk up to the child of root) and set input focus on the
     // client window directly.
