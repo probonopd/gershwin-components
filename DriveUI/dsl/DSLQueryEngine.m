@@ -339,8 +339,14 @@ static void SetErr(NSString **err, NSString *m)
 - (NSString *)modalWindowTitle:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no application target"); return nil; }
-  NSString *reply = [self runCollect: [self argvForSubcommand: @"modal"]
-    error: err];
+  NSString *reply = nil;
+  for (int attempt = 0; attempt < 8; attempt++)
+    {
+      reply = [self runCollect: [self argvForSubcommand: @"modal"]
+        error: (attempt == 7) ? err : nil];
+      if (reply != nil) break;
+      usleep (250000);
+    }
   if (!reply) return nil;
   reply = [reply stringByTrimmingCharactersInSet:
     [NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -701,8 +707,18 @@ static void SetErr(NSString **err, NSString *m)
       return YES;
     }
   NSString *cls = DSLRoleClassName(role);
-  NSString *tree = [self runCollect: [self argvForSubcommand: @"get_full_tree"]
-    error: err];
+  /* The app can be transiently busy (a wedge from window churn, or a heavy
+   * layout), which makes the 1s read timeout fire even though the widget is
+   * there.  Retry the tree fetch a few times so a busy spell does not turn an
+   * `assert` into a spurious "widget not found". */
+  NSString *tree = nil;
+  for (int attempt = 0; attempt < 8; attempt++)
+    {
+      tree = [self runCollect: [self argvForSubcommand: @"get_full_tree"]
+        error: (attempt == 7) ? err : nil];
+      if (tree != nil) break;
+      usleep (250000);
+    }
   if (!tree) return NO;
   for (NSString *line in [tree componentsSeparatedByString: @"\n"])
     {

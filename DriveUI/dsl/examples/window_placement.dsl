@@ -10,6 +10,7 @@ activate application "Workspace"
 
 repeat 4
     select menu "Go/Go to Folder..."
+    wait until modal
     type "~"
     press Return
     wait until window "admin"
@@ -20,6 +21,7 @@ end
 
 repeat 4
     select menu "Go/Go to Folder..."
+    wait until modal
     type "/"
     press Return
     wait until window "System Disk"

@@ -828,6 +828,13 @@ static void WriteAll(int fd, const char *bytes)
   @try
     {
       [btn performClick: nil];
+      /* The Eau alert defers stopModal to a timer (performSelector:afterDelay:)
+       * that the modal run loop may not process promptly, leaving the session
+       * parked in DPSPeekEvent.  Set the stop state now so the caller's wake
+       * click - a real X event arriving on the app's socket - makes
+       * runModalForWindow: re-check and exit immediately.  A second
+       * stopModalWithCode: from the deferred selector is a no-op. */
+      [NSApp stopModal];
     }
   @catch (NSException *e)
     {
