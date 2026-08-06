@@ -93,6 +93,7 @@ static NSString *CommandName(DSLCommandType t)
       case DDSCmdClick:       return @"click";
       case DDSCmdDoubleClick: return @"doubleclick";
       case DDSCmdRightClick:  return @"rightclick";
+      case DDSCmdContextMenu: return @"context menu";
       case DDSCmdHover:       return @"hover";
       case DDSCmdScroll:      return @"scroll";
       case DDSCmdDrag:        return @"drag";
@@ -220,6 +221,12 @@ static NSString *CommandName(DSLCommandType t)
       rc = [engine_ hoverRole: cmd.role title: cmd.string error: &err]
         ? 0 : DDSAccessibilityError;
       break;
+    case DDSCmdContextMenu:
+      if (!cmd.string || !cmd.string2)
+        { err = @"context menu needs \"Widget\" \"Item Title\""; rc = 1; break; }
+      rc = ([engine_ contextMenuRole: cmd.role title: cmd.string
+          itemTitle: cmd.string2 error: &err]) ? 0 : DDSAccessibilityError;
+      break;
     case DDSCmdScroll:
       {
         NSString *dir = ([[cmd words] count] > 0) ? [[cmd words] objectAtIndex: 0] : @"down";
@@ -328,6 +335,17 @@ static NSString *CommandName(DSLCommandType t)
       break;
     case DDSCmdIf:
       {
+        if (cmd.assertKind == DDSAssertDocked
+            || cmd.assertKind == DDSAssertNotDocked)
+          {
+            BOOL state = [engine_ assertRole: cmd.role title: cmd.string
+              kind: cmd.assertKind needle: nil error: &err];
+            BOOL takeThen = state;
+            rc = takeThen
+              ? [self runSequence: cmd.body applyPolicy: NO]
+              : [self runSequence: cmd.elseBody ?: [NSArray array] applyPolicy: NO];
+            break;
+          }
         BOOL present = [engine_ doesWidgetExist: cmd.role title: cmd.string
           contains: nil error: &err];
         BOOL takeThen = (cmd.assertKind == DDSAssertNotExists) ? !present : present;

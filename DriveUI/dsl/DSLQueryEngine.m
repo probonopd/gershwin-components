@@ -731,6 +731,25 @@ static void SetErr(NSString **err, NSString *m)
   return [self runCollect: args error: err] != nil;
 }
 
+- (BOOL)contextMenuRole:(DSLRole)role title:(NSString *)title
+              itemTitle:(NSString *)itemTitle error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
+  NSString *objID = [self objectIDForRole: role title: title error: err];
+  if (!objID) return NO;
+  NSMutableArray *args = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"context_menu"]];
+  [args addObject: objID];
+  [args addObject: itemTitle];
+  NSString *reply = [self runCollect: args error: err];
+  if (reply == nil) return NO;
+  if ([reply hasPrefix: @"ok"])
+    return YES;
+  SetErr(err, reply ? [reply stringByTrimmingCharactersInSet:
+    [NSCharacterSet newlineCharacterSet]] : @"context menu failed");
+  return NO;
+}
+
 - (BOOL)scrollRole:(DSLRole)role title:(NSString *)title
         direction:(NSString *)direction amount:(int)amount error:(NSString **)err
 {
@@ -956,6 +975,8 @@ static void SetErr(NSString **err, NSString *m)
         return YES;
       case DDSAssertEnabled:
       case DDSAssertChecked:
+      case DDSAssertDocked:
+      case DDSAssertNotDocked:
       {
         if (!exists) { SetErr(err, @"assert failed: widget not found"); return NO; }
         BOOL enabled = NO, checked = NO;
@@ -966,6 +987,10 @@ static void SetErr(NSString **err, NSString *m)
           { SetErr(err, @"assert failed: widget is disabled"); return NO; }
         if (kind == DDSAssertChecked && !checked)
           { SetErr(err, @"assert failed: widget is not checked"); return NO; }
+        if (kind == DDSAssertDocked && !checked)
+          { SetErr(err, @"assert failed: widget is not docked"); return NO; }
+        if (kind == DDSAssertNotDocked && checked)
+          { SetErr(err, @"assert failed: widget is docked"); return NO; }
         break;
       }
     }

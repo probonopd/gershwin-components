@@ -115,6 +115,7 @@ DSLRole DSLRoleFromName(NSString *name)
       @(DDSRoleSlider), @"slider",
       @(DDSRoleProgress), @"progress",
       @(DDSRoleLabel), @"label",
+      @(DDSRoleIcon), @"icon",
       nil];
   NSNumber *n = [map objectForKey: [name lowercaseString]];
   return n ? (DSLRole)[n intValue] : DDSRoleAny;
@@ -158,6 +159,7 @@ NSString *DSLRoleClassName(DSLRole role)
       case DDSRoleSlider:                       return @"NSSlider";
       case DDSRoleProgress:                     return @"NSProgressIndicator";
 case DDSRoleLabel:                        return @"NSTextField";
+      case DDSRoleIcon:                          return @"DockIcon";
       default:                                  return nil;
     }
 }
@@ -310,6 +312,7 @@ case DDSRoleLabel:                        return @"NSTextField";
       NSScanner *scanner = [NSScanner scannerWithString: line];
       NSMutableArray *words = [NSMutableArray array];
       NSString *str1 = nil;
+      NSString *str2 = nil;
       [scanner setCharactersToBeSkipped: [NSCharacterSet whitespaceCharacterSet]];
       while ([scanner isAtEnd] == NO)
         {
@@ -332,6 +335,7 @@ case DDSRoleLabel:                        return @"NSTextField";
                 stringByReplacingOccurrencesOfString: @"\\\"" withString: @"\""];
               s = [s stringByReplacingOccurrencesOfString: @"\\\\" withString: @"\\"];
               if (!str1) str1 = s;
+              else if (!str2) str2 = s;
             }
           else if ([scanner scanUpToString: @"\"" intoString: &tok])
             {
@@ -485,6 +489,21 @@ case DDSRoleLabel:                        return @"NSTextField";
           if ([words count] > 0) [words removeObjectAtIndex: 0];
           cmd.string = str1;
         }
+      else if ([kw isEqualToString: @"context"])
+        {
+          /* context menu "AppName" "Item Title" - dispatch the named item of
+           * the widget's context menu in-process. */
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdContextMenu
+            line: lineNo col: 1] autorelease];
+          if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"menu"])
+            {
+              if ([words count] > 1) cmd.role = DSLRoleFromName([words objectAtIndex: 1]);
+            }
+          else if ([words count] > 0)
+            cmd.role = DSLRoleFromName([words objectAtIndex: 0]);
+          cmd.string = str1;
+          cmd.string2 = str2;
+        }
       else if ([kw isEqualToString: @"rightclick"])
         {
           cmd = [[[DSLCommand alloc] initWithType: DDSCmdRightClick
@@ -576,6 +595,12 @@ case DDSRoleLabel:                        return @"NSTextField";
                   NSString *prop = [[words objectAtIndex: 0] lowercaseString];
                   if ([prop isEqualToString: @"enabled"]) cmd.assertKind = DDSAssertEnabled;
                   else if ([prop isEqualToString: @"checked"]) cmd.assertKind = DDSAssertChecked;
+                  else if ([prop isEqualToString: @"docked"])
+                    cmd.assertKind = DDSAssertDocked;
+                  else if ([prop isEqualToString: @"not"] && [words count] > 1 &&
+                           [[[words objectAtIndex: 1] lowercaseString]
+                             isEqualToString: @"docked"])
+                    cmd.assertKind = DDSAssertNotDocked;
                   else if ([prop isEqualToString: @"frame"] &&
                            [words count] > 1 &&
                            [[[words objectAtIndex: 1] lowercaseString]
@@ -677,7 +702,7 @@ case DDSRoleLabel:                        return @"NSTextField";
         }
       else if ([kw isEqualToString: @"if"])
         {
-          /* if [not] [exists] [role] "title" */
+          /* if [not] [exists] [role] "title" [docked|not docked] */
           cmd = [[[DSLCommand alloc] initWithType: DDSCmdIf
             line: lineNo col: 1] autorelease];
           if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"not"])
@@ -690,6 +715,13 @@ case DDSRoleLabel:                        return @"NSTextField";
           cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
           if ([words count] > 0) [words removeObjectAtIndex: 0];
           cmd.string = str1;
+          /* optional docked-state condition */
+          if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"docked"])
+            cmd.assertKind = DDSAssertDocked;
+          else if ([words count] > 1 &&
+                   [[words objectAtIndex: 0] isEqualToString: @"not"] &&
+                   [[words objectAtIndex: 1] isEqualToString: @"docked"])
+            cmd.assertKind = DDSAssertNotDocked;
           [blockStack_ addObject: [[[DDSBlockCtx alloc] initWithType: @"if"
             target: cmd.body elseTarget: cmd.elseBody] autorelease]];
         }

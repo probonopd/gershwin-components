@@ -380,6 +380,39 @@ static void WriteAll(int fd, const char *bytes)
                   WriteAll(fd, done ? "ok\n" : "error:menu path not found\n");
                 }
             }
+          else if ([cmd isEqualToString: @"context_menu"])
+            {
+              /* context_menu <object_id> <Item Title> - build the context menu
+               * of the given widget (menuForEvent:) and dispatch the action of
+               * the item whose title matches, in-process (the same path a real
+               * right-click then selection uses).  Needed because popup-menu
+               * items are drawn by an NSMenuView and do not appear as views in
+               * the widget tree, so they cannot be clicked by position.  Reply
+               * "ok" or "error:...". */
+              NSString *objID = ([parts count] > 1) ? [parts objectAtIndex: 1] : nil;
+              NSString *want = ([parts count] > 2) ? [parts objectAtIndex: 2] : nil;
+              if (objID == nil || want == nil || [want length] == 0)
+                {
+                  WriteAll(fd, "error:context_menu needs <object_id> <title>\n");
+                }
+              else
+                {
+                  id obj = [self objectForID: objID];
+                  BOOL done = NO;
+                  if (obj != nil && [obj respondsToSelector: @selector(menuForEvent:)])
+                    {
+                      @try
+                        {
+                          NSMenu *menu = [obj menuForEvent: nil];
+                          if (menu != nil)
+                            done = [self triggerMenuPath:
+                              [NSArray arrayWithObject: want] inMenu: menu];
+                        }
+                      @catch (NSException *e) { }
+                    }
+                  WriteAll(fd, done ? "ok\n" : "error:context menu item not found\n");
+                }
+            }
           else if ([cmd isEqualToString: @"modal"])
             {
               /* Report the app's current modal window, if any.  This lets
@@ -444,6 +477,15 @@ static void WriteAll(int fd, const char *bytes)
                     else if ([obj isKindOfClass: [NSView class]])
                       {
                         enabled = [(NSView *)obj isHidden] ? 0 : 1;
+                      }
+                    /* Icon views (DockIcon in the Workspace Dock) expose their
+                     * docked state via -isDocked; surface it for assertions. */
+                    if ([obj respondsToSelector: @selector(isDocked)])
+                      {
+                        @try {
+                          id d = [obj valueForKey: @"docked"];
+                          state = [d boolValue] ? 1 : 0;
+                        } @catch (NSException *e) { }
                       }
                   } @catch (NSException *e) { }
                 }
@@ -814,6 +856,11 @@ static void WriteAll(int fd, const char *bytes)
       } else if ([view respondsToSelector: @selector(stringValue)]) {
         id s = [view performSelector: @selector(stringValue)];
         if (s && [s isKindOfClass: [NSString class]]) text = s;
+      } else if ([view respondsToSelector: @selector(appName)]) {
+        /* Icon views (e.g. DockIcon in the Workspace Dock) identify
+         * themselves by their app name; expose it as the searchable text. */
+        id n = [view performSelector: @selector(appName)];
+        if (n && [n isKindOfClass: [NSString class]] && [n length] > 0) text = n;
       }
 
       NSString *screenFrame = @"";

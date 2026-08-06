@@ -62,6 +62,7 @@ typedef enum
   DDSCmdClick,
   DDSCmdDoubleClick,
   DDSCmdRightClick,
+  DDSCmdContextMenu,
   DDSCmdHover,
   DDSCmdScroll,
   DDSCmdDrag,
@@ -111,7 +112,8 @@ typedef enum
   DDSRoleTabItem,
   DDSRoleSlider,
   DDSRoleProgress,
-  DDSRoleLabel
+  DDSRoleLabel,
+  DDSRoleIcon
 } DSLRole;
 
 NSString *DSLRoleClassName(DSLRole role);   /* maps a role to an ObjC class filter */
@@ -124,7 +126,9 @@ typedef enum
   DDSAssertChecked,
   DDSAssertContains,
   DDSAssertNotExists,
-  DDSAssertFrameConstant
+  DDSAssertFrameConstant,
+  DDSAssertDocked,
+  DDSAssertNotDocked
 } DSLAssertKind;
 
 @interface DSLCommand : NSObject
@@ -216,6 +220,8 @@ typedef enum
 - (BOOL)clickRole:(DSLRole)role title:(NSString *)title
           button:(int)button count:(int)count error:(NSString **)err;
 - (BOOL)hoverRole:(DSLRole)role title:(NSString *)title error:(NSString **)err;
+- (BOOL)contextMenuRole:(DSLRole)role title:(NSString *)title
+              itemTitle:(NSString *)itemTitle error:(NSString **)err;
 - (BOOL)scrollRole:(DSLRole)role title:(NSString *)title
         direction:(NSString *)direction amount:(int)amount error:(NSString **)err;
 - (BOOL)dragRole:(DSLRole)role title:(NSString *)title

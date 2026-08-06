@@ -846,6 +846,28 @@ int main(int argc, const char *argv[])
         @"menu_trigger\t%@", path]);
       if (reply) printf("%s", [reply UTF8String]);
     }
+  else if ([command isEqualToString: @"context_menu"])
+    {
+      /* context_menu <object_id> <Item Title> - build the widget's context
+       * menu and dispatch the matching item's action in-process. */
+      NSMutableArray *positionals = [NSMutableArray array];
+      for (NSUInteger i = 1; i < [args count]; i++)
+        {
+          NSString *a = [args objectAtIndex: i];
+          if ([a hasPrefix: @"--"]) { i++; continue; }
+          [positionals addObject: a];
+        }
+      if ([positionals count] < 2)
+        {
+          fprintf(stderr, "drive_ui: context_menu needs <object_id> <title>\n");
+          [pool release];
+          return 1;
+        }
+      NSString *reply = SendCommand(pid, [NSString stringWithFormat:
+        @"context_menu\t%@\t%@", [positionals objectAtIndex: 0],
+        [positionals objectAtIndex: 1]]);
+      if (reply) printf("%s", [reply UTF8String]);
+    }
   else if ([command isEqualToString: @"modal"])
     {
       /* Read-only: report the app's current modal window ("none" if none).
