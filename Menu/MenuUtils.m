@@ -50,6 +50,31 @@ static dispatch_once_t _sharedDisplayOnce;
     // If we're using sharedDisplay, we don't close it until cleanup
 }
 
++ (unsigned long)getActiveWindowFresh
+{
+    /* Fresh connection so the poll can run from any thread - see isWindowValid:. */
+    Display *display = XOpenDisplay(NULL);
+    if (!display) return 0;
+
+    unsigned long activeWindow = 0;
+    Atom atom = XInternAtom(display, "_NET_ACTIVE_WINDOW", False);
+    Atom actualType;
+    int actualFormat;
+    unsigned long nitems, bytesAfter;
+    unsigned char *prop = NULL;
+    if (XGetWindowProperty(display, DefaultRootWindow(display), atom,
+                          0, 1, False, XA_WINDOW,
+                          &actualType, &actualFormat, &nitems, &bytesAfter,
+                          &prop) == 0 && prop) {
+        if (nitems > 0) {
+            activeWindow = *(Window*)prop;
+        }
+        XFree(prop);
+    }
+    XCloseDisplay(display);
+    return activeWindow;
+}
+
 + (unsigned long)getActiveWindow
 {
     Display *display = [self sharedDisplay];
@@ -265,47 +290,33 @@ static dispatch_once_t _sharedDisplayOnce;
     if (XGetWindowAttributes(display, (Window)windowId, &attrs) == Success) {
         /* Mapped (window and ancestors) and not an override-redirect popup. */
         if (attrs.map_state == IsViewable && !attrs.override_redirect) {
-            /* WM-managed: the window manager sets WM_STATE on the windows it
-             * manages.  Chromium keeps internal/helper windows that look like
-             * normal toplevels (viewable, NORMAL type) but are NOT managed -
-             * they must not be treated as app windows. */
-            BOOL wmManaged = NO;
-            Atom wmStateAtom = XInternAtom(display, "WM_STATE", True);
-            if (wmStateAtom != None) {
+            /* _NET_WM_WINDOW_TYPE: accept normal/dialog/utility or absent.
+             * NOTE: no WM_STATE requirement here - GNUstep windows under the
+             * Gershwin window manager do not carry WM_STATE, and requiring it
+             * made the active-window tracking reject them (menu stayed stuck
+             * on the previous app).  Chromium's unmanaged helper windows are
+             * kept out by the watchdog's no-active-window handling instead. */
+            Atom wmTypeAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE", True);
+            Atom wmTypeNormal = XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", False);
+            Atom wmTypeDialog = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+            Atom wmTypeUtility = XInternAtom(display, "_NET_WM_WINDOW_TYPE_UTILITY", False);
+            BOOL typeOK = YES;
+            if (wmTypeAtom != None) {
                 Atom actualType; int actualFormat;
                 unsigned long nItems, bytesAfter;
                 unsigned char *prop = NULL;
-                if (XGetWindowProperty(display, (Window)windowId, wmStateAtom, 0, 1,
-                                       False, AnyPropertyType, &actualType, &actualFormat,
+                if (XGetWindowProperty(display, (Window)windowId, wmTypeAtom, 0, 16,
+                                       False, XA_ATOM, &actualType, &actualFormat,
                                        &nItems, &bytesAfter, &prop) == Success) {
-                    wmManaged = (prop != NULL);
+                    if (prop && nItems > 0) {
+                        Atom first = ((Atom *)prop)[0];
+                        typeOK = (first == wmTypeNormal || first == wmTypeDialog
+                                  || first == wmTypeUtility);
+                    }
                     if (prop) XFree(prop);
                 }
             }
-            if (wmManaged) {
-                /* _NET_WM_WINDOW_TYPE: accept normal/dialog/utility or absent. */
-                Atom wmTypeAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE", True);
-                Atom wmTypeNormal = XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", False);
-                Atom wmTypeDialog = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
-                Atom wmTypeUtility = XInternAtom(display, "_NET_WM_WINDOW_TYPE_UTILITY", False);
-                BOOL typeOK = YES;
-                if (wmTypeAtom != None) {
-                    Atom actualType2; int actualFormat2;
-                    unsigned long nItems2, bytesAfter2;
-                    unsigned char *prop2 = NULL;
-                    if (XGetWindowProperty(display, (Window)windowId, wmTypeAtom, 0, 16,
-                                           False, XA_ATOM, &actualType2, &actualFormat2,
-                                           &nItems2, &bytesAfter2, &prop2) == Success) {
-                        if (prop2 && nItems2 > 0) {
-                            Atom first = ((Atom *)prop2)[0];
-                            typeOK = (first == wmTypeNormal || first == wmTypeDialog
-                                      || first == wmTypeUtility);
-                        }
-                        if (prop2) XFree(prop2);
-                    }
-                }
-                real = typeOK;
-            }
+            real = typeOK;
         }
     }
 
@@ -319,7 +330,8 @@ static dispatch_once_t _sharedDisplayOnce;
         return NO;
     }
     
-    Display *display = [self openDisplay];
+    /* Fresh connection - see isWindowValid:. */
+    Display *display = XOpenDisplay(NULL);
     if (!display) {
         return NO;
     }
@@ -348,7 +360,7 @@ static dispatch_once_t _sharedDisplayOnce;
         XFree(prop);
     }
     
-    [self closeDisplay:display];
+    XCloseDisplay(display);
     return isDesktop;
 }
 

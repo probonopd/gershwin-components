@@ -265,6 +265,7 @@ static const void *kWindowMonitorQueueKey = &kWindowMonitorQueueKey;
 
 - (void)checkActiveWindow
 {
+
     MENU_PROFILE_BEGIN(checkActiveWindow);
 
     if (!_display) {
@@ -328,6 +329,7 @@ static const void *kWindowMonitorQueueKey = &kWindowMonitorQueueKey;
     
     if (newActiveWindow != _currentActiveWindow) {
         NSDebugLLog(@"gwcomp", @"WindowMonitor: Active window changed from %lu to %lu", _currentActiveWindow, newActiveWindow);
+
         _currentActiveWindow = newActiveWindow;
         
         NSDictionary *userInfo = @{@"windowId": @(newActiveWindow)};

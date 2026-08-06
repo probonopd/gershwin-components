@@ -24,6 +24,8 @@
 // notifications) and Chromium's internal helper windows that Chromium marks as
 // non-normal are excluded, so the global menu does not chase them.
 + (BOOL)isRealApplicationWindow:(unsigned long)windowId;
+// Read _NET_ACTIVE_WINDOW on a fresh connection (safe from any thread).
++ (unsigned long)getActiveWindowFresh;
 + (NSArray *)getAllWindows;
 + (unsigned long)getActiveWindow;
 + (NSString *)getWindowProperty:(unsigned long)windowId atomName:(NSString *)atomName;

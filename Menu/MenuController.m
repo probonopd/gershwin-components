@@ -1685,8 +1685,37 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
                                                                 selector:@selector(windowValidationTick:)
                                                                 userInfo:nil
                                                                  repeats:YES];
+
+    // Fallback poll for the active window.  The WindowMonitor is event-driven
+    // via a dispatch source on its own X connection; that source has been
+    // observed to stop firing after a while (GCD read-source on an Xlib fd),
+    // which leaves the menu stuck on the previously active app.  Polling every
+    // second on a fresh connection keeps the menu tracking reliable.
+    self.activeWindowPollTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+                                                                  target:self
+                                                                selector:@selector(activeWindowPollTick:)
+                                                                userInfo:nil
+                                                                 repeats:YES];
     
     NSDebugLLog(@"gwcomp", @"MenuController: Window monitoring setup complete");
+}
+
+- (void)activeWindowPollTick:(NSTimer *)timer
+{
+    @try {
+        unsigned long activeWindow = [MenuUtils getActiveWindowFresh];
+        if (activeWindow == 0 || activeWindow == self.lastProcessedWindowId) {
+            return;
+        }
+        if (self.appMenuWidget) {
+            [self.appMenuWidget updateForActiveWindowId:activeWindow];
+        }
+        self.lastProcessedWindowId = activeWindow;
+        self.lastProcessedTime = [[NSDate date] timeIntervalSince1970];
+    }
+    @catch (NSException *ex) {
+        NSDebugLLog(@"gwcomp", @"MenuController: Exception in activeWindowPollTick: %@", ex);
+    }
 }
 
 - (void)activeWindowChangedNotification:(NSNotification *)notification

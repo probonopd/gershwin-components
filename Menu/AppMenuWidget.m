@@ -299,6 +299,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
 - (void)updateForActiveWindowId:(unsigned long)windowId
 {
+
     if (!self.protocolManager) return;
 
     /* Cancel any existing coalesce timer; the new event supersedes it. */

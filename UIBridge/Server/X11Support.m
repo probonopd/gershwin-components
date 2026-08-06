@@ -205,18 +205,15 @@ static int NonFatalXError(Display *dpy, XErrorEvent *e) {
 
 /* True if the dictionary from windowInfo: describes a real top-level
  * application window worth matching in a whole-display scan (per ICCCM/EWMH):
- * mapped, not override-redirect, WM-managed (WM_STATE present), and not one
- * of the window-manager-internal types (dock, tooltip, menu, notification,
- * splash, desktop, ...).  Windows with no _NET_WM_WINDOW_TYPE are assumed to
- * be normal applications. */
+ * mapped, not override-redirect, and not one of the window-manager-internal
+ * types (dock, tooltip, menu, notification, splash, desktop, ...).  Windows
+ * with no _NET_WM_WINDOW_TYPE are assumed to be normal applications.  No
+ * WM_STATE requirement: GNUstep windows do not carry it under the Gershwin
+ * window manager. */
 + (BOOL)isAppWindow:(NSDictionary *)info {
     if (!info) return NO;
     if ([[info objectForKey: @"map_state"] intValue] != 2) return NO; // IsViewable
     if ([[info objectForKey: @"override_redirect"] boolValue]) return NO;
-    /* WM-managed: the WM sets WM_STATE on the windows it manages.  Chromium's
-     * internal helper windows are not managed even though they look like
-     * normal toplevels. */
-    if (![[info objectForKey: @"wm_managed"] boolValue]) return NO;
     NSString *type = [info objectForKey: @"net_wm_type"] ?: @"";
     if ([type length] == 0) return YES;
     if ([type hasPrefix: @"_NET_WM_WINDOW_TYPE_NORMAL"]
