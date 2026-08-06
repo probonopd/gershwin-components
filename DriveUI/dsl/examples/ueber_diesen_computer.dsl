@@ -1,3 +1,4 @@
+#!/usr/bin/env drive_script
 # Öffnet das "Über diesen Computer"-Fenster und prüft, dass die Felder
 # Prozessor und Arbeitsspeicher angezeigt werden.
 #

@@ -1,3 +1,4 @@
+#!/usr/bin/env drive_script
 # Opens the "About This Computer" panel and checks that the Processor and
 # Memory fields are shown.
 #

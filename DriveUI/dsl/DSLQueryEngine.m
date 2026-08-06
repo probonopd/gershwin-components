@@ -155,12 +155,25 @@ static void SetErr(NSString **err, NSString *m)
   if (english == nil || [english length] == 0 || pid_ == 0) return english;
   NSString *cached = [localizeCache_ objectForKey: english];
   if (cached) return cached;
-  NSString *out = [self runCollect: [NSArray arrayWithObjects:
-    [NSString stringWithFormat: @"--pid=%d", pid_], @"localize", english, nil]
-    error: nil];
-  NSString *localized = out ? [out stringByTrimmingCharactersInSet:
-    [NSCharacterSet newlineCharacterSet]] : english;
-  if ([localized length] == 0) localized = english;
+  /* The app can be briefly busy (e.g. a browsing viewer laying out icons
+   * after a view-mode switch), which makes the 1s read timeout fire even
+   * though the translation exists.  Retry so a transient busy spell does not
+   * leave the English string cached as "the translation". */
+  NSString *localized = nil;
+  for (int attempt = 0; attempt < 8; attempt++)
+    {
+      NSString *out = [self runCollect: [NSArray arrayWithObjects:
+        [NSString stringWithFormat: @"--pid=%d", pid_], @"localize", english, nil]
+        error: nil];
+      if (out != nil)
+        {
+          localized = [out stringByTrimmingCharactersInSet:
+            [NSCharacterSet newlineCharacterSet]];
+          break;
+        }
+      usleep (250000);
+    }
+  if (localized == nil || [localized length] == 0) localized = english;
   [localizeCache_ setObject: localized forKey: english];
   return localized;
 }
@@ -313,6 +326,61 @@ static void SetErr(NSString **err, NSString *m)
   return [self clickObjectID: objID button: button count: count error: err];
 }
 
+/* Return the title of the app's current modal window, or nil if none.  Lets
+ * `wait until modal`, `assert modal` and `if modal` answer the "is a dialog
+ * blocking right now" question without depending on the tree or on button
+ * positions. */
+- (NSString *)modalWindowTitle:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no application target"); return nil; }
+  NSString *reply = [self runCollect: [self argvForSubcommand: @"modal"]
+    error: err];
+  if (!reply) return nil;
+  reply = [reply stringByTrimmingCharactersInSet:
+    [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  if ([reply isEqualToString: @"none"]) return nil;
+  NSRange bar = [reply rangeOfString: @"|"];
+  if (bar.location != NSNotFound)
+    return [reply substringFromIndex: bar.location + 1];
+  return reply;
+}
+
+/* Invoke a button of the current modal window by title ("OK", ...) or
+ * "default" for the Return-equivalent button (drive_ui invoke_modal_button).
+ * The 1s read timeout can fire while the modal alert's pulsing animation keeps
+ * the app busy even though the action ran, so a timed-out or "no modal window"
+ * reply is retried/treated as success. */
+- (BOOL)invokeModalButton:(NSString *)which error:(NSString **)err
+{
+  if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
+  if (which == nil || [which length] == 0) which = @"default";
+  NSMutableArray *argv = [NSMutableArray arrayWithArray:
+    [self argvForSubcommand: @"invoke_modal_button"]];
+  [argv addObject: which];
+  for (int attempt = 0; attempt < 3; attempt++)
+    {
+      NSString *reply = [self runCollect: argv error: err];
+      if (reply == nil)
+        {
+          /* Timed out while the app was busy; the action may still have run. */
+          usleep (500000);
+          continue;
+        }
+      if ([reply hasPrefix: @"error:"])
+        {
+          if ([reply rangeOfString: @"no modal window"].location != NSNotFound)
+            return YES;         /* already dismissed - success */
+          SetErr(err, [reply stringByTrimmingCharactersInSet:
+            [NSCharacterSet newlineCharacterSet]]);
+          return NO;
+        }
+      return YES;
+    }
+  if (err && *err == nil)
+    SetErr(err, @"invoke button timed out (app busy)");
+  return NO;
+}
+
 /* Select a menu item by its title path, e.g. "About This Computer" or
  * "File/Open".  Resolution is in-process (the app's own main menu), so it is
  * fast and does not depend on the on-screen menu bar or X11 timing.
@@ -375,6 +443,49 @@ static void SetErr(NSString **err, NSString *m)
 
       if (hasSubmenu && depth + 1 < 64)
         parents[depth + 1] = node;
+    }
+
+  if (!anyItem)
+    {
+      /* A busy app can answer the menu query slowly (the 1s read timeout),
+       * which surfaces as an empty dump - e.g. right after a view-mode switch
+       * the browsing viewer is busy laying out icons.  Poll until the menu
+       * comes back (up to ~10s); the menu is read-only and the poll is cheap. */
+      for (int attempt = 0; attempt < 40 && !anyItem; attempt++)
+        {
+          usleep (250000);
+          NSString *retryTree = [self runCollect:
+            [self argvForSubcommand: @"menu"] error: nil];
+          if (!retryTree) continue;
+          DDSMenuNodeFree(root);
+          root = calloc(1, sizeof(DDSMenuNode));
+          root->title = @"";
+          root->index = -1;
+          memset(parents, 0, sizeof(parents));
+          parents[0] = root;
+          anyItem = NO;
+          for (NSString *line in [retryTree componentsSeparatedByString: @"\n"])
+            {
+              NSArray *f = [line componentsSeparatedByString: @"\t"];
+              if ([f count] < 5) continue;
+              int depth = [[f objectAtIndex: 0] intValue];
+              int index = [[f objectAtIndex: 1] intValue];
+              NSString *title = [f objectAtIndex: 2];
+              BOOL hasSubmenu = [[f objectAtIndex: 4] isEqualToString: @"1"];
+              if (depth < 0 || depth >= 64) continue;
+              anyItem = YES;
+              DDSMenuNode *parent = parents[depth];
+              if (parent == NULL) continue;
+              parent->kids = realloc(parent->kids, sizeof(DDSMenuNode *) *
+                  (parent->nkids + 1));
+              DDSMenuNode *node = calloc(1, sizeof(DDSMenuNode));
+              node->title = [title copy];
+              node->index = index;
+              parent->kids[parent->nkids++] = node;
+              if (hasSubmenu && depth + 1 < 64)
+                parents[depth + 1] = node;
+            }
+        }
     }
 
   if (!anyItem)
@@ -575,6 +686,14 @@ static void SetErr(NSString **err, NSString *m)
            contains:(NSString *)needle error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
+  if (role == DDSRoleModal)
+    {
+      /* `modal` is answered by the app's modal state, not the widget tree. */
+      NSString *mt = [self modalWindowTitle: err];
+      if (mt == nil) return NO;
+      if (needle && ![self title: mt matches: needle]) return NO;
+      return YES;
+    }
   NSString *cls = DSLRoleClassName(role);
   NSString *tree = [self runCollect: [self argvForSubcommand: @"get_full_tree"]
     error: err];

@@ -38,4 +38,15 @@
 // as "Return", "Left" or "F5".
 + (void)simulateChordWithModifiers:(NSArray *)modifiers key:(NSString *)key;
 
+// Pixel height of screen 0, for converting GNUstep's bottom-origin screen
+// coordinates to X11's top-origin root coordinates before injecting input.
++ (int)screenHeight;
+
+// Give the X input focus to a mapped window belonging to the given process, so
+// subsequently injected key events reach that application.  In a window-managed
+// desktop the target app is usually NOT the input-focus owner (focus often
+// stays on the terminal), and key injection needs the focus on the app for
+// GNUstep to route the events to its key window.
++ (void)setFocusToPID:(int)pid;
+
 @end

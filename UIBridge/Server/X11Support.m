@@ -8,15 +8,7 @@
 #import <X11/Xlib.h>
 #import <X11/Xatom.h>
 #import <X11/keysym.h>
-// Synthetic input is injected with XSendEvent. GNUstep's X backend does not
-// filter synthetic events; the reason naive XSendEvent appears to do nothing is
-// that the event must name the GNUstep content window (the one carrying
-// _GNUSTEP_WM_ATTR), not the window-manager frame that reparents it — the backend
-// looks the target up in its own window table (XGServerEvent.m). We therefore
-// resolve the GNUstep window under the pointer (for clicks) or holding input
-// focus (for keys) and address the event to it. XKB is used to find the shift
-// level for a character's keysym. This input path is X11-only; a Wayland session
-// would need a different backend.
+#import <X11/extensions/XTest.h>
 #import <X11/XKBlib.h>
 #include <unistd.h>
 
@@ -200,12 +192,14 @@ static Window FindGNUstepWindowBelow(Display *d, Window w) {
     return found;
 }
 
-// The GNUstep window that should receive keyboard input. X delivers a key event
-// to the client owning the addressed window, and GNUstep then routes it to its
-// own key window (XGServerEvent.m:2231) — so the event must be addressed to a
-// GNUstep-owned window, or the app's process never sees it. Prefer the input-focus
-// window (set by activateWindow), descending into it for the GNUstep child when
-// the frame itself holds focus; fall back to the window under the pointer.
+// The GNUstep window that should receive keyboard input.  Keys are injected as
+// XSendEvent events addressed to this window (not XTEST): the target app is
+// usually not the X input-focus owner in a window-managed desktop, and XTEST
+// keys would go to whatever holds focus.  X delivers the event to the client
+// owning the addressed window, and GNUstep then routes it to its own key window
+// (XGServerEvent.m:2231).  Prefer the input-focus window, descending into it
+// for the GNUstep child when the frame itself holds focus; fall back to the
+// window under the pointer.
 static Window ResolveKeyTarget(Display *d) {
     Window focus = None;
     int revert = 0;
@@ -248,25 +242,30 @@ static Time ServerTime(Display *d) {
     return e.xproperty.time;
 }
 
-static void SendButton(Display *d, Window w, int wx, int wy, int rx, int ry,
-                       Bool press, unsigned int button, unsigned int state, Time t) {
-    XEvent e;
-    memset(&e, 0, sizeof(e));
-    e.type = press ? ButtonPress : ButtonRelease;
-    e.xbutton.send_event = True;
-    e.xbutton.display = d;
-    e.xbutton.window = w;
-    e.xbutton.root = DefaultRootWindow(d);
-    e.xbutton.subwindow = None;
-    e.xbutton.time = t;
-    e.xbutton.x = wx; e.xbutton.y = wy;
-    e.xbutton.x_root = rx; e.xbutton.y_root = ry;
-    e.xbutton.state = state;
-    e.xbutton.button = button;
-    e.xbutton.same_screen = True;
-    XSendEvent(d, w, True, press ? ButtonPressMask : ButtonReleaseMask, &e);
+// Input is injected with the XTEST extension, which makes the X server generate
+// genuine core pointer/key events indistinguishable from real input.  Synthetic
+// XSendEvent clicks were the previous path, but GNUstep (and the Eau theme) drop
+// send_event=1 events on some widgets (modal alert panels), so real XTEST events
+// are the only reliable way to drive a dialog.  XTEST delivers to the window
+// under the pointer (clicks) or holding input focus (keys), which is exactly how
+// a real user's input behaves.
+static Bool XTestIsAvailable(Display *d) {
+    int major, minor, evbase, erbase;
+    return XTestQueryExtension(d, &major, &minor, &evbase, &erbase) != False;
 }
 
+// Press or release a mouse button as a real XTEST event.  Returns NO if XTEST is
+// unavailable (then callers can fall back or report failure).
+static Bool XTestButton(Display *d, unsigned int button, Bool press) {
+    if (!XTestIsAvailable(d)) return False;
+    XTestFakeButtonEvent(d, button, press, 0);
+    XFlush(d);
+    return True;
+}
+
+// Send a synthetic key event addressed to a specific GNUstep window.  This is
+// how typing is injected (see ResolveKeyTarget): it works without the app
+// holding the X input focus, which a window-managed desktop rarely guarantees.
 static void SendKey(Display *d, Window w, KeyCode code,
                     Bool press, unsigned int state, Time t) {
     XEvent e;
@@ -290,30 +289,42 @@ static void SendKey(Display *d, Window w, KeyCode code,
     Display *d = [self display];
     if (!d) return;
     // Move the real pointer so callers can position the cursor (hover) and so a
-    // subsequent click resolves the window under this location. Assumes screen 0.
+    // subsequent click lands at the window under this location. Assumes screen 0.
     Window root = DefaultRootWindow(d);
     XWarpPointer(d, None, root, 0, 0, 0, 0, (int)point.x, (int)point.y);
     XSync(d, False);
 }
 
++ (int)screenHeight {
+    Display *d = [self display];
+    if (!d) return 0;
+    return DisplayHeight(d, DefaultScreen(d));
+}
+
++ (void)setFocusToPID:(int)pid {
+    Display *d = [self display];
+    if (!d || pid <= 0) return;
+    for (NSNumber *wid in [self windowList]) {
+        NSDictionary *info = [self windowInfo: [wid unsignedLongValue]];
+        if (!info || [[info objectForKey: @"pid"] intValue] != pid) continue;
+        Window top = (Window)[wid unsignedLongValue];
+        /* The top-level window may be the WM frame; the GNUstep backend
+         * recognises its own content window (which carries _GNUSTEP_WM_ATTR)
+         * and routes key events delivered to it to its key window. */
+        Window gs = FindGNUstepWindowBelow(d, top);
+        if (gs == None) continue;
+        XSetInputFocus(d, gs, RevertToPointerRoot, CurrentTime);
+        XSync(d, False);
+        return;
+    }
+}
+
 + (void)simulateClick:(int)button {
     Display *d = [self display];
     if (!d) return;
-    Window root = DefaultRootWindow(d), r, child;
-    int rx = 0, ry = 0, wx = 0, wy = 0;
-    unsigned int mask = 0;
-    if (!XQueryPointer(d, root, &r, &child, &rx, &ry, &wx, &wy, &mask)) return;
-
-    int tx, ty;
-    Window target = ResolveWindowAt(d, rx, ry, &tx, &ty);
-    Time t = ServerTime(d);
-    unsigned int bmask = (button == 1) ? Button1Mask :
-                         (button == 2) ? Button2Mask :
-                         (button == 3) ? Button3Mask : 0;
-    SendButton(d, target, tx, ty, rx, ry, True, (unsigned int)button, 0, t);
-    XFlush(d);
+    if (!XTestButton(d, (unsigned int)button, True)) return;
     usleep(kPressHoldMicroseconds);  // hold so press/release aren't coalesced
-    SendButton(d, target, tx, ty, rx, ry, False, (unsigned int)button, bmask, t + 1);
+    XTestButton(d, (unsigned int)button, False);
     XSync(d, False);
 }
 
@@ -330,11 +341,7 @@ static void SendKey(Display *d, Window w, KeyCode code,
     unsigned int mask = 0;
     if (!XQueryPointer(d, root, &r, &child, &rx, &ry, &wx, &wy, &mask)) return;
 
-    int tx = 0, ty = 0;
-    Window target = ResolveWindowAt(d, rx, ry, &tx, &ty);
-    Time t = ServerTime(d);
-    SendButton(d, target, tx, ty, rx, ry, True, 1, 0, t);
-    XFlush(d);
+    if (!XTestButton(d, 1, True)) return;
     usleep(kPressHoldMicroseconds);
 
     const int steps = 12;
@@ -347,12 +354,8 @@ static void SendKey(Display *d, Window w, KeyCode code,
         usleep(12000);
     }
 
-    // Release over the final position, resolving the window there so a drag
-    // that crosses windows ends at the target (drag-and-drop semantics).
-    int frx = 0, fry = 0, ftx = 0, fty = 0;
-    XQueryPointer(d, root, &r, &child, &frx, &fry, &wx, &wy, &mask);
-    Window ftarget = ResolveWindowAt(d, frx, fry, &ftx, &fty);
-    SendButton(d, ftarget, ftx, fty, frx, fry, False, 1, Button1Mask, t + 1);
+    // Release over the final position (drag-and-drop semantics).
+    XTestButton(d, 1, False);
     XSync(d, False);
 }
 
@@ -370,19 +373,10 @@ static void SendKey(Display *d, Window w, KeyCode code,
     else if ([dir isEqualToString: @"right"]) button = 7;
     if (count <= 0) count = 1;
 
-    Window root = DefaultRootWindow(d), r, child;
-    int rx = 0, ry = 0, wx = 0, wy = 0;
-    unsigned int mask = 0;
-    if (!XQueryPointer(d, root, &r, &child, &rx, &ry, &wx, &wy, &mask)) return;
-
-    int tx = 0, ty = 0;
-    Window target = ResolveWindowAt(d, rx, ry, &tx, &ty);
-    Time t = ServerTime(d);
     for (int i = 0; i < count; i++) {
-        SendButton(d, target, tx, ty, rx, ry, True, button, 0, t); t++;
-        XFlush(d);
+        if (!XTestButton(d, button, True)) return;
         usleep(kPressHoldMicroseconds);
-        SendButton(d, target, tx, ty, rx, ry, False, button, 0, t); t++;
+        XTestButton(d, button, False);
         XSync(d, False);
         usleep(kPressHoldMicroseconds);
     }

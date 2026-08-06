@@ -63,7 +63,7 @@
 #import <unistd.h>
 #import "X11Support.h"
 
-#define DRIVE_UI_TOOL_TIMEOUT_MS 10000
+#define DRIVE_UI_TOOL_TIMEOUT_MS 1000
 
 static int ConnectToPid(int pid)
 {
@@ -562,7 +562,10 @@ static int CaptureScreenshot(NSString *path)
 }
 
 /* Given a snapshot row, return the center of its screen_frame (used for
- * clicking/typing), or NSZeroPoint if unavailable. */
+ * clicking/typing), or NSZeroPoint if unavailable.  The snapshot's screen_frame
+ * is in GNUstep screen coordinates (origin at the BOTTOM-left of screen 0), but
+ * the X11 pointer we inject into is top-left origin, so the Y coordinate is
+ * flipped here. */
 static NSPoint CenterOfRow(NSArray *f)
 {
   if ([f count] < 6) return NSZeroPoint;
@@ -570,7 +573,9 @@ static NSPoint CenterOfRow(NSArray *f)
   if ([sf length] == 0) return NSZeroPoint;
   NSRect r = NSRectFromString(sf);
   if (r.size.width <= 0 || r.size.height <= 0) return NSZeroPoint;
-  return NSMakePoint(NSMidX(r), NSMidY(r));
+  int sh = [X11Support screenHeight];
+  if (sh <= 0) return NSZeroPoint;
+  return NSMakePoint(NSMidX(r), sh - NSMidY(r));
 }
 
 static void Usage(void)
@@ -602,6 +607,7 @@ static void Usage(void)
   printf("  drive_ui [--pid N] capture [<path>]           (screenshot root window to PNG)\n");
   printf("  drive_ui [--pid N] press                     (press Return)\n");
   printf("  drive_ui [--pid N] chord <mods> <key>        (e.g. chord control c)\n");
+  printf("  drive_ui [--pid N] modal                     (report current modal window: none or Class|title)\n");
   printf("Snapshot: depth\\tclass\\ttext\\ttag\\tframe\\tscreen_frame\\thidden\\tobject_id\n");
   printf("Actions simulate real X11 pointer/key events at the widget position,\n");
   printf("so they work on localized UIs and in modal dialogs.\n");
@@ -703,6 +709,68 @@ int main(int argc, const char *argv[])
       /* Read-only: return the app name the snapshot belongs to. */
       NSString *reply = SendCommand(pid, @"app");
       if (reply) printf("%s", [reply UTF8String]);
+    }
+  else if ([command isEqualToString: @"modal"])
+    {
+      /* Read-only: report the app's current modal window ("none" if none).
+       * Lets scripts detect dialogs/alerts that block interaction. */
+      NSString *reply = SendCommand(pid, @"modal");
+      if (reply) printf("%s", [reply UTF8String]);
+    }
+  else if ([command isEqualToString: @"dismiss_modal"])
+    {
+      /* End the current modal session in-process (invoke its default button).
+       * Prints "ok" or an error. */
+      NSString *reply = SendCommand(pid, @"dismiss_modal");
+      if (reply) printf("%s", [reply UTF8String]);
+    }
+  else if ([command isEqualToString: @"invoke_modal_button"])
+    {
+      /* invoke_modal_button <title|default> - invoke a button of the current
+       * modal window by title, or "default" for the Return-equivalent one.
+       * The bundle performs the click in-process and replies
+       * "ok|<cx>|<cy>"; we then XTEST-click the modal window's center.  The
+       * click is a real X event that wakes the modal run loop (parked in
+       * DPSPeekEvent), which otherwise would not notice the stop code the
+       * button action set and would stay up. */
+      NSString *which = ([args count] > 1) ? [args objectAtIndex: 1] : @"default";
+      NSString *reply = SendCommand(pid, [NSString stringWithFormat:
+        @"invoke_modal_button\t%@", which]);
+      if (reply && [reply hasPrefix: @"ok"])
+        {
+          NSArray *f = [[reply stringByTrimmingCharactersInSet:
+            [NSCharacterSet newlineCharacterSet]]
+            componentsSeparatedByString: @"|"];
+          if ([f count] == 3)
+            {
+              double cx = [[f objectAtIndex: 1] doubleValue];
+              double cy = [[f objectAtIndex: 2] doubleValue];
+              int sh = [X11Support screenHeight];
+              if (sh > 0)
+                {
+                  /* Wake the modal loop with a real click on the panel.  The
+                   * panel centre is clear of the buttons and the message field
+                   * is non-editable, so it is harmless. */
+                  [X11Support simulateMouseMoveTo:
+                    NSMakePoint (cx, sh - cy)];
+                  usleep (50000);
+                  [X11Support simulateClick: 1];
+                  /* Let the deferred stop + runModal teardown run. */
+                  usleep (300000);
+                }
+            }
+          printf("ok\n");
+        }
+      else if (reply)
+        {
+          printf("%s", [reply UTF8String]);
+        }
+      else
+        {
+          fprintf(stderr, "drive_ui: invoke_modal_button: no reply\n");
+          [pool release];
+          return 1;
+        }
     }
   else if ([command isEqualToString: @"props"])
     {
@@ -1080,6 +1148,7 @@ int main(int argc, const char *argv[])
   else if ([command isEqualToString: @"press"])
     {
       /* Press Return via a real X11 key event. */
+      [X11Support setFocusToPID: pid];
       [X11Support simulateChordWithModifiers: [NSArray array] key: @"Return"];
     }
   else if ([command isEqualToString: @"sendkeys"])
@@ -1101,6 +1170,7 @@ int main(int argc, const char *argv[])
           [pool release];
           return 1;
         }
+      [X11Support setFocusToPID: pid];
       for (NSUInteger i = 0; i < [value length]; i++)
         {
           NSString *ch = [value substringWithRange: NSMakeRange(i, 1)];
@@ -1156,6 +1226,7 @@ int main(int argc, const char *argv[])
           [pool release];
           return 1;
         }
+      [X11Support setFocusToPID: pid];
       [X11Support simulateChordWithModifiers: mods key: key];
     }
   else if ([command isEqualToString: @"type"])
@@ -1218,6 +1289,7 @@ int main(int argc, const char *argv[])
         }
 
       /* Focus the field with a real click, then type. */
+      [X11Support setFocusToPID: pid];
       [X11Support simulateMouseMoveTo: c];
       usleep(50000);
       [X11Support simulateClick: 1];

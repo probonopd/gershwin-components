@@ -1,3 +1,4 @@
+#!/usr/bin/env drive_script
 # Demonstrates the declarative control-flow commands (repeat, if/else,
 # macro/call) and that they need no running application.
 #

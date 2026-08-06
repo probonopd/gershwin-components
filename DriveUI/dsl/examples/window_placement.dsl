@@ -1,3 +1,4 @@
+#!/usr/bin/env drive_script
 # Window placement stability: a folder viewer window must open at the same
 # on-screen position every time.  Opens the home folder ("~") four times,
 # asserting the window frame is identical on each open, then does the same for

@@ -86,6 +86,7 @@ static NSString *CommandName(DSLCommandType t)
       case DDSCmdFocusWindow: return @"focus window";
       case DDSCmdCloseWindow: return @"close window";
       case DDSCmdSelectMenu:  return @"select menu";
+      case DDSCmdInvokeButton: return @"invoke button";
       case DDSCmdClick:       return @"click";
       case DDSCmdDoubleClick: return @"doubleclick";
       case DDSCmdRightClick:  return @"rightclick";
@@ -176,6 +177,12 @@ static NSString *CommandName(DSLCommandType t)
       if ([engine_ pid] == 0)
         { err = @"close window needs a target application"; rc = 2; break; }
       rc = ([engine_ closeWindowTitle: cmd.string error: &err])
+        ? 0 : DDSAccessibilityError;
+      break;
+    case DDSCmdInvokeButton:
+      if ([engine_ pid] == 0)
+        { err = @"invoke button needs a target application"; rc = 2; break; }
+      rc = ([engine_ invokeModalButton: cmd.string error: &err])
         ? 0 : DDSAccessibilityError;
       break;
     case DDSCmdSelectMenu:
@@ -377,7 +384,17 @@ static NSString *CommandName(DSLCommandType t)
         [title UTF8String], [frame UTF8String]);
       return YES;
     }
-  if ([ref isEqualToString: frame])
+  /* Compare with a small tolerance: the window manager can round a restored
+   * frame by a pixel or two, so an exact string match would flake on
+   * placement that is in fact stable.  A mismatch beyond 2px is a real
+   * placement regression. */
+  NSRect a = NSRectFromString (ref);
+  NSRect b = NSRectFromString (frame);
+  BOOL same = (fabs (NSMinX (a) - NSMinX (b)) <= 2.0
+               && fabs (NSMinY (a) - NSMinY (b)) <= 2.0
+               && fabs (NSWidth (a) - NSWidth (b)) <= 2.0
+               && fabs (NSHeight (a) - NSHeight (b)) <= 2.0);
+  if (same)
     {
       fprintf(stderr, "[dsl] frame of window '%s' stable: %s\n",
         [title UTF8String], [frame UTF8String]);

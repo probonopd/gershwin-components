@@ -55,6 +55,7 @@ typedef enum
   DDSCmdFocusWindow,
   DDSCmdCloseWindow,
   DDSCmdSelectMenu,
+  DDSCmdInvokeButton,
   DDSCmdClick,
   DDSCmdDoubleClick,
   DDSCmdRightClick,
@@ -84,6 +85,8 @@ typedef enum
   DDSRoleApplication,
   DDSRoleWindow,
   DDSRoleDialog,
+  DDSRoleModal,
+  DDSRoleSidebar,
   DDSRoleSheet,
   DDSRoleButton,
   DDSRoleMenu,
@@ -203,6 +206,7 @@ typedef enum
            contains:(NSString *)needle error:(NSString **)err;
 - (NSString *)frameOfWindowTitle:(NSString *)title error:(NSString **)err;
 - (BOOL)closeWindowTitle:(NSString *)title error:(NSString **)err;
+- (BOOL)invokeModalButton:(NSString *)which error:(NSString **)err;
 - (BOOL)clickRole:(DSLRole)role title:(NSString *)title
           button:(int)button count:(int)count error:(NSString **)err;
 - (BOOL)hoverRole:(DSLRole)role title:(NSString *)title error:(NSString **)err;

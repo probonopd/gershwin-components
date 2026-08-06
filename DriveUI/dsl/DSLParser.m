@@ -91,6 +91,8 @@ DSLRole DSLRoleFromName(NSString *name)
       @(DDSRoleApplication), @"application",
       @(DDSRoleWindow), @"window",
       @(DDSRoleDialog), @"dialog",
+      @(DDSRoleModal), @"modal",
+      @(DDSRoleSidebar), @"sidebar",
       @(DDSRoleSheet), @"sheet",
       @(DDSRoleButton), @"button",
       @(DDSRoleMenu), @"menu",
@@ -125,6 +127,13 @@ NSString *DSLRoleClassName(DSLRole role)
     {
       case DDSRoleWindow:  case DDSRoleDialog:  case DDSRoleSheet:
         return @"NSWindow";
+      case DDSRoleModal:
+        /* `modal` is not a widget class in the tree; it is answered by the
+         * engine's modal query, so the class filter is never matched against
+         * a tree row. */
+        return @"!Modal!";
+      case DDSRoleSidebar:
+        return @"GWViewerSidebar";
       case DDSRoleButton:                       return @"NSButton";
       case DDSRoleMenu:                         return @"NSMenu";
       case DDSRoleMenuItem:                     return @"NSMenuItem";
@@ -407,6 +416,15 @@ case DDSRoleLabel:                        return @"NSTextField";
           /* close window "Title" - close a visible window by title, regardless
            * of which window currently holds key focus. */
           cmd = [[[DSLCommand alloc] initWithType: DDSCmdCloseWindow
+            line: lineNo col: 1] autorelease];
+          cmd.string = str1;
+        }
+      else if ([kw isEqualToString: @"invoke"])
+        {
+          /* invoke button "OK" / invoke default button - invoke a button of
+           * the current modal dialog by title, or its default (Return)
+           * button.  Explicit alternative to dismiss dialog. */
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdInvokeButton
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }

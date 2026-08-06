@@ -285,6 +285,43 @@ static void WriteAll(int fd, const char *bytes)
               NSString *reply = [name stringByAppendingString: @"\n"];
               WriteAll(fd, [reply UTF8String]);
             }
+          else if ([cmd isEqualToString: @"modal"])
+            {
+              /* Report the app's current modal window, if any.  This lets
+               * scripts detect dialogs/alerts that block interaction and
+               * dismiss them before continuing.  Reply is
+               * "none" or "<Class>|<title>". */
+              NSString *reply = @"none\n";
+              NSWindow *mw = [NSApp modalWindow];
+              if (mw != nil)
+                {
+                  NSString *title = [mw title] ?: @"";
+                  reply = [NSString stringWithFormat: @"%@|%@\n",
+                    NSStringFromClass ([mw class]), title];
+                }
+              WriteAll(fd, [reply UTF8String]);
+            }
+          else if ([cmd isEqualToString: @"dismiss_modal"])
+            {
+              /* Convenience: dismiss the current modal alert by invoking its
+               * default button (the user-facing command is
+               * `invoke_modal_button default`). */
+              NSString *reply = [self invokeModalButton: @"default"];
+              WriteAll(fd, [reply UTF8String]);
+            }
+          else if ([cmd isEqualToString: @"invoke_modal_button"])
+            {
+              /* Invoke a button of the current modal window in-process, by its
+               * displayed title or "default" for the Return-equivalent button.
+               * Modal alerts (NSRunAlertPanel / NSAlert) block until a button
+               * is clicked; performClick drives the button's real action
+               * (which for an alert calls [NSApp stopModalWithCode:] and ends
+               * the session), and is immune to the coordinate drift that makes
+               * outside clicks unreliable.  Reply "ok" or "error:<reason>". */
+              NSString *which = ([parts count] > 1) ? [parts objectAtIndex: 1] : @"default";
+              NSString *reply = [self invokeModalButton: which];
+              WriteAll(fd, [reply UTF8String]);
+            }
           else if ([cmd isEqualToString: @"props"])
             {
               /* Read-only control properties for drive_dsl assertions
@@ -512,9 +549,10 @@ static void WriteAll(int fd, const char *bytes)
 /* ---- menu introspection (main thread) ---- */
 
 /* Recursively serialize a menu: one tab-separated line per item
- * (depth, index, title, enabled, has_submenu), submenu items following their
- * parent.  All accessors are @try-wrapped so a foreign/wedged menu cannot
- * crash the host. */
+ * (depth, index, title, enabled, has_submenu, state), submenu items following
+ * their parent.  `state` is the checkmark: NSOnState=1, NSOffState=0,
+ * NSMixedState=2.  All accessors are @try-wrapped so a foreign/wedged menu
+ * cannot crash the host. */
 - (void)appendMenuLinesForMenu:(NSMenu *)menu depth:(int)depth
                          into:(NSMutableString *)out
 {
@@ -527,8 +565,10 @@ static void WriteAll(int fd, const char *bytes)
           NSString *title = item ? ([item title] ?: @"") : @"";
           BOOL enabled = [item isEnabled] ? YES : NO;
           BOOL hasSubmenu = [item submenu] != nil;
-          [out appendFormat: @"%d\t%ld\t%@\t%d\t%d\n",
-            depth, (long)i, title, enabled ? 1 : 0, hasSubmenu ? 1 : 0];
+          NSInteger state = [item state];
+          [out appendFormat: @"%d\t%ld\t%@\t%d\t%d\t%ld\n",
+            depth, (long)i, title, enabled ? 1 : 0, hasSubmenu ? 1 : 0,
+            (long)state];
           if (hasSubmenu)
             [self appendMenuLinesForMenu: [item submenu] depth: depth + 1
                                    into: out];
@@ -721,6 +761,81 @@ static void WriteAll(int fd, const char *bytes)
   if ([scanner scanHexLongLong: &ptrVal])
     return (__bridge id)(void *)ptrVal;
   return nil;
+}
+
+/* Collect every button in the view's subtree (depth-first). */
+- (void)collectButtons:(NSView *)view into:(NSMutableArray *)out
+{
+  if (view == nil) return;
+  if ([view isKindOfClass: [NSButton class]])
+    [out addObject: view];
+  for (NSView *sub in [view subviews])
+    [self collectButtons: sub into: out];
+}
+
+/* Find an NSButton in the view's subtree.  If title is nil, prefer the
+ * button whose key equivalent is Return (the modal default button), falling
+ * back to the first button.  If title is non-nil, match the button's
+ * displayed title against it (English or localized). */
+- (NSButton *)findButtonInView:(NSView *)view title:(NSString *)title
+{
+  NSMutableArray *buttons = [NSMutableArray array];
+  [self collectButtons: view into: buttons];
+  for (NSButton *b in buttons)
+    {
+      if (title != nil)
+        {
+          NSString *bt = [b title] ?: @"";
+          NSString *loc = [[NSBundle mainBundle] localizedStringForKey: title
+                            value: title table: nil];
+          if ([bt rangeOfString: title options: NSCaseInsensitiveSearch].location
+                != NSNotFound
+              || ([loc isEqualToString: title] == NO
+                  && [bt rangeOfString: loc options: NSCaseInsensitiveSearch].location
+                       != NSNotFound))
+            return b;
+        }
+      else if ([[b keyEquivalent] isEqualToString: @"\r"])
+        {
+          return b;              /* the default button wins */
+        }
+    }
+  if (title == nil && [buttons count] > 0)
+    return [buttons objectAtIndex: 0];
+  return nil;
+}
+
+/* Invoke a button of the current modal window in-process.  `which` is a
+ * displayed button title (English or localized) or "default".  On success the
+ * reply is "ok|<cx>|<cy>", where (cx,cy) is the modal window's frame center in
+ * GNUstep screen coordinates (origin bottom-left) - the caller clicks there
+ * with a real XTEST event to wake the modal run loop, which is parked in
+ * DPSPeekEvent and only notices stopModalWithCode: once a real X event arrives
+ * (NSApplication.m).  Returns "error:<reason>\n" on failure. */
+- (NSString *)invokeModalButton:(NSString *)which
+{
+  NSWindow *mw = [NSApp modalWindow];
+  if (mw == nil)
+    return @"error:no modal window\n";
+  NSString *wantTitle = nil;
+  if (which != nil
+      && [[which lowercaseString] isEqualToString: @"default"] == NO)
+    wantTitle = which;
+  NSButton *btn = [self findButtonInView: [mw contentView] title: wantTitle];
+  if (btn == nil)
+    return [NSString stringWithFormat: @"error:no button '%@' in modal window\n",
+                     which ?: @"default"];
+  @try
+    {
+      [btn performClick: nil];
+    }
+  @catch (NSException *e)
+    {
+      return [NSString stringWithFormat: @"error:performClick threw %@\n", e];
+    }
+  NSRect f = [mw frame];
+  return [NSString stringWithFormat: @"ok|%.0f|%.0f\n",
+    NSMidX (f), NSMidY (f)];
 }
 
 - (NSString *)snapshotLines
