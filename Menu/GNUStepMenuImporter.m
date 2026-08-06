@@ -101,6 +101,10 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
 @property (nonatomic, strong) NSConnection *menuServerConnection;
 // Workaround: retry attempts when registering DO server fails
 @property (nonatomic) NSInteger registerRetryAttempts;
+// Serial queue for per-window client probes.  A blocking DO name lookup
+// (connectionWithRegisteredName:) must never run on the main thread, or the
+// whole menu bar freezes while a window switch is being processed.
+@property (nonatomic) dispatch_queue_t menuScanQueue;
 @end
 
 @implementation GNUStepMenuImporter
@@ -118,6 +122,8 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
         dispatch_once(&onceToken, ^{
             _materializationTimeByWindow = [[NSMutableDictionary alloc] init];
         });
+
+        _menuScanQueue = dispatch_queue_create("io.github.gershwin-desktop.menu.gnustep-scan", DISPATCH_QUEUE_SERIAL);
         
         // Register the GNUstep menu server immediately so apps can connect
         // This must happen early, before any GNUstep apps try to connect
@@ -450,14 +456,18 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
 
     // Get all visible windows; attempt to contact any GNUstep clients that may be
     // associated with those windows by PID. If we can reach a client, ask it to
-    // push its current menu for that window via requestMenuUpdateForWindow:
+    // push its current menu for that window via requestMenuUpdateForWindow:.
+    // The per-window probe (PID lookup + blocking DO name lookup + DO call) is
+    // dispatched to a background queue so the main thread is never stalled by
+    // connectionWithRegisteredName:, which can block for a long time if the DO
+    // name server is slow or a stale registration is being resolved.
     NSArray *allWindows = [MenuUtils getAllWindows];
     if (!allWindows || [allWindows count] == 0) {
         NSDebugLog(@"GNUStepMenuImporter: No windows to scan");
         return;
     }
 
-    int found = 0;
+    NSUInteger probesDispatched = 0;
     for (NSNumber *windowNum in allWindows) {
         unsigned long windowId = [windowNum unsignedLongValue];
 
@@ -466,50 +476,52 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
             continue;
         }
 
-        // Try to determine PID for the window
-        pid_t pid = [MenuUtils getWindowPID:windowId];
-        if (pid == 0) {
-            // Not all windows provide PID - skip
-            continue;
-        }
+        probesDispatched++;
+        dispatch_async(self.menuScanQueue, ^{
+            // Try to determine PID for the window
+            pid_t pid = [MenuUtils getWindowPID:windowId];
+            if (pid == 0) {
+                // Not all windows provide PID - skip
+                return;
+            }
 
-        NSString *clientName = [NSString stringWithFormat:@"org.gnustep.Gershwin.MenuClient.%d", pid];
-        NSDebugLog(@"GNUStepMenuImporter: Found window %@ (pid: %d) - probing client %@", windowNum, pid, clientName);
+            NSString *clientName = [NSString stringWithFormat:@"org.gnustep.Gershwin.MenuClient.%d", pid];
+            NSDebugLog(@"GNUStepMenuImporter: Found window %@ (pid: %d) - probing client %@", windowNum, pid, clientName);
 
-        @try {
-            NSConnection *connection = [NSConnection connectionWithRegisteredName:clientName host:nil];
-            if (connection && [connection isValid]) {
-                id proxy = [connection rootProxy];
-                if (proxy) {
-                    // Tell the proxy which protocol it implements so selectors are known
-                    @try {
-                        [proxy setProtocolForProxy:@protocol(GSGNUstepMenuClient)];
-                    } @catch (NSException *e) {
-                        NSDebugLog(@"GNUStepMenuImporter: Failed to set protocol for proxy of %@: %@", clientName, e);
-                    }
+            @try {
+                NSConnection *connection = [NSConnection connectionWithRegisteredName:clientName host:nil];
+                if (connection && [connection isValid]) {
+                    id proxy = [connection rootProxy];
+                    if (proxy) {
+                        // Tell the proxy which protocol it implements so selectors are known
+                        @try {
+                            [proxy setProtocolForProxy:@protocol(GSGNUstepMenuClient)];
+                        } @catch (NSException *e) {
+                            NSDebugLog(@"GNUStepMenuImporter: Failed to set protocol for proxy of %@: %@", clientName, e);
+                        }
 
-                    // Ask client to send its menu for this window
-                    @try {
-                        NSDebugLog(@"GNUStepMenuImporter: Requesting menu update from client %@ for window %lu", clientName, windowId);
-                        [(id)proxy requestMenuUpdateForWindow:@(windowId)];
-                        found++;
-                    } @catch (NSException *e) {
-                        NSDebugLog(@"GNUStepMenuImporter: Exception requesting menu update from %@: %@", clientName, e);
+                        // Ask client to send its menu for this window
+                        @try {
+                            NSDebugLog(@"GNUStepMenuImporter: Requesting menu update from client %@ for window %lu", clientName, windowId);
+                            [(id)proxy requestMenuUpdateForWindow:@(windowId)];
+                        } @catch (NSException *e) {
+                            NSDebugLog(@"GNUStepMenuImporter: Exception requesting menu update from %@: %@", clientName, e);
+                        }
                     }
                 }
             }
-        }
-        @catch (NSException *ex) {
-            NSDebugLog(@"GNUStepMenuImporter: Exception probing client %@: %@", clientName, ex);
-        }
+            @catch (NSException *ex) {
+                NSDebugLog(@"GNUStepMenuImporter: Exception probing client %@: %@", clientName, ex);
+            }
+        });
     }
 
-    if (found == 0) {
+    if (probesDispatched == 0) {
         NSDebugLog(@"GNUStepMenuImporter: No GNUstep menu clients discovered during scan.");
         // Do NOT reschedule automatically. Scans are triggered by window-change events
         // and registration retries, so there is no need for an unbounded polling loop.
     } else {
-        NSDebugLog(@"GNUStepMenuImporter: Requested menu updates from %d clients", found);
+        NSDebugLog(@"GNUStepMenuImporter: Requested menu updates from %lu client probes", (unsigned long)probesDispatched);
     }
 
     NSDebugLog(@"GNUStepMenuImporter: scanForExistingMenuServices COMPLETED");
