@@ -4,9 +4,18 @@
 # show any app's menu (system-only).  The desktop (a Workspace window, no
 # viewer open) shows the Workspace menu; Processes shows the Processes menu.
 #
+# Setup: only Menu.app and the Workspace should be running (the harness kills
+# other test apps but leaves Terminal alone); xterm and Processes are launched
+# here through the Workspace's Run dialog.
+#
 # Run with: drive_script examples/menu_follows_app.dsl
-# (Menu.app and the target apps must be running.)
-activate application "Menu"
+activate application "Workspace"
+
+# Launch xterm and Processes through the Run dialog.
+run "xterm"
+wait until xwindow "xterm"
+run "Processes"
+wait until xwindow "Processes"
 
 # xterm - has no own menu: must not show any app menu.
 activate xwindow "xterm"

@@ -569,6 +569,14 @@ case DDSRoleLabel:                        return @"NSTextField";
             line: lineNo col: 1] autorelease];
           cmd.string = ([words count] > 0) ? [words objectAtIndex: 0] : str1;
         }
+      else if ([kw isEqualToString: @"run"])
+        {
+          /* run "command" - launch a command/app through the target app's
+           * Run... dialog (opens it, types the command, presses Return). */
+          cmd = [[[DSLCommand alloc] initWithType: DDSCmdRun
+            line: lineNo col: 1] autorelease];
+          cmd.string = str1;
+        }
       else if ([kw isEqualToString: @"wait"])
         {
           if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"until"])

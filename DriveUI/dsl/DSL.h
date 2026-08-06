@@ -69,6 +69,7 @@ typedef enum
   DDSCmdType,
   DDSCmdClear,
   DDSCmdPress,
+  DDSCmdRun,
   DDSCmdWait,
   DDSCmdWaitUntil,
   DDSCmdAssert,
@@ -245,6 +246,7 @@ typedef enum
 - (BOOL)menuBarHasItem:(NSString *)title exists:(BOOL)exists error:(NSString **)err;
 - (int)countXWindowsWithTitle:(NSString *)title error:(NSString **)err;
 - (BOOL)triggerGlobalMenuPath:(NSString *)path error:(NSString **)err;
+- (BOOL)runCommandInRunDialog:(NSString *)command error:(NSString **)err;
 - (NSString *)localizeString:(NSString *)english;
 - (BOOL)type:(NSString *)text error:(NSString **)err;
 - (BOOL)clearRole:(DSLRole)role title:(NSString *)title error:(NSString **)err;

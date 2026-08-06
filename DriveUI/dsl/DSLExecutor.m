@@ -116,6 +116,7 @@ static NSString *CommandName(DSLCommandType t)
       case DDSCmdType:        return @"type";
       case DDSCmdClear:       return @"clear";
       case DDSCmdPress:       return @"press";
+      case DDSCmdRun:         return @"run";
       case DDSCmdWait:        return @"wait";
       case DDSCmdWaitUntil:   return @"wait until";
       case DDSCmdAssert:      return @"assert";
@@ -282,7 +283,13 @@ static NSString *CommandName(DSLCommandType t)
         ? 0 : DDSAccessibilityError;
       break;
     case DDSCmdPress:
-      rc = [engine_ pressKeyCombo: cmd.string error: &err] ? 0 : DDSAccessibilityError;
+      /* `press` with no argument means Return (the common submit action). */
+      rc = [engine_ pressKeyCombo: cmd.string ?: @"Return" error: &err]
+        ? 0 : DDSAccessibilityError;
+      break;
+    case DDSCmdRun:
+      rc = [engine_ runCommandInRunDialog: cmd.string error: &err]
+        ? 0 : DDSAccessibilityError;
       break;
     case DDSCmdWait:
       SleepSeconds([DSLExecutor durationForString: cmd.string]);

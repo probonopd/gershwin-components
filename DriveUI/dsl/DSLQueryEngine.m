@@ -936,6 +936,57 @@ static void SetErr(NSString **err, NSString *m)
   return YES;
 }
 
+/* Launch a command/app through the target app's Run... dialog: open the
+ * dialog (its "Run..." menu item), click the CompletionField so it really has
+ * the X focus, type the command, and press Return.  Used to start helper apps
+ * for tests the same way a user would. */
+- (BOOL)runCommandInRunDialog:(NSString *)command error:(NSString **)err
+{
+  if (command == nil || [command length] == 0)
+    { SetErr(err, @"run needs a command"); return NO; }
+  if (pid_ == 0)
+    { SetErr(err, @"run needs a target application (the one with the Run menu)"); return NO; }
+
+  if (![self selectMenuPath: @"Tools/Run..." error: err])
+    return NO;
+  usleep (250000);   /* let the dialog open and take focus */
+
+  /* Find the CompletionField in the FRONTMOST visible window (the Run dialog
+   * itself; the Workspace also has a preferences CompletionField, so pick the
+   * one whose window is a visible dialog near the top of the screen). */
+  NSString *tree = [self runCollect: [self argvForSubcommand: @"get_full_tree"]
+                              error: err];
+  if (!tree) return NO;
+  NSString *fieldID = nil;
+  CGFloat bestY = -1;
+  for (NSString *line in [tree componentsSeparatedByString: @"\n"])
+    {
+      NSArray *f = [line componentsSeparatedByString: @"\t"];
+      if ([f count] < 8) continue;
+      if (![[f objectAtIndex: 1] isEqualToString: @"CompletionField"]) continue;
+      NSRect r = NSRectFromString([f objectAtIndex: 5]);
+      if (r.size.width <= 0) continue;
+      if ([f count] > 6 && [[f objectAtIndex: 6] isEqualToString: @"1"]) continue;
+      /* Prefer the top-most CompletionField (the Run dialog sits at the top). */
+      if (r.origin.y > bestY)
+        { bestY = (CGFloat)r.origin.y; fieldID = [f objectAtIndex: 7]; }
+    }
+  if (fieldID == nil)
+    { SetErr(err, @"run: no CompletionField found (Run dialog not open?)"); return NO; }
+
+  NSArray *clickArg = [NSArray arrayWithObjects:
+    [NSString stringWithFormat: @"--pid=%d", pid_], @"click", fieldID, nil];
+  [self runCollect: clickArg error: nil];
+
+  NSArray *typeArg = [NSArray arrayWithObjects:
+    [NSString stringWithFormat: @"--pid=%d", pid_], @"sendkeys", command, nil];
+  [self runCollect: typeArg error: nil];
+
+  NSArray *pressArg = [NSArray arrayWithObjects:
+    [NSString stringWithFormat: @"--pid=%d", pid_], @"press", nil];
+  return [self runCollect: pressArg error: err] != nil;
+}
+
 /* Click/double-click/right-click an object by its ID with real X11 events. */
 - (BOOL)clickObjectID:(NSString *)objID button:(int)button count:(int)count
                 error:(NSString **)err
