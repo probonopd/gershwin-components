@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * Lexer for the GNUstep UI Automation DSL (see DSL.h / Executor.md).
+ * Lexer for the GNUstep UI Automation UITest (see UITest.h / Executor.md).
  *
  * The language is line-oriented: each line is one command.  Comments run from
  * '#' to end of line.  Strings are double-quoted and support the escapes
@@ -11,7 +11,7 @@
  * durations, identifiers) - duration parsing happens in the parser/executor.
  */
 
-#import "DSL.h"
+#import "UITest.h"
 
 @implementation DSSToken
 - (id)initWithType:(DSSTokenType)t text:(NSString *)text line:(NSUInteger)line col:(NSUInteger)col

@@ -3,17 +3,17 @@
  *
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * drive_script - command-line runner for the GNUstep UI Automation DSL.
+ * run_uitest - command-line runner for the GNUstep UI Automation UITest.
  *
- * Usage: drive_script [--drive-ui /path/to/drive_ui] script.dsl
+ * Usage: run_uitest [--drive-ui /path/to/drive_ui] script.uitest
  *
- * Parses the script into a DSLProgram, hands it to the DSLExecutor, and exits
- * with the DSL exit-code convention (see Executor.md section 20).
+ * Parses the script into a UITestProgram, hands it to the UITestExecutor, and exits
+ * with the UITest exit-code convention (see Executor.md section 20).
  */
 
 #import <Foundation/Foundation.h>
 #import <sys/time.h>
-#import "DSL.h"
+#import "UITest.h"
 
 int main(int argc, const char *argv[])
 {
@@ -32,30 +32,31 @@ int main(int argc, const char *argv[])
       NSString *a = [NSString stringWithUTF8String: argv[i]];
       if ([a isEqualToString: @"--drive-tool"] && i + 1 < argc)
         driveTool = [NSString stringWithUTF8String: argv[++i]];
-      else if ([a hasSuffix: @".dsl"] || script == nil)
+      else if ([a hasSuffix: @".uitest"] || script == nil)
         script = a;
     }
 
   if (!script)
     {
-      fprintf(stderr, "Usage: drive_script [--drive-tool /path/to/drive_ui] script.dsl\n");
+      fprintf(stderr,
+        "Usage: run_uitest [--drive-tool /path/to/drive_ui] script.uitest\n");
       [pool release];
       return DDSParseError;
     }
 
-  DSLParser *parser = [[[DSLParser alloc] init] autorelease];
+  UITestParser *parser = [[[UITestParser alloc] init] autorelease];
   NSString *err = nil;
-  DSLProgram *prog = [parser parseFile: script error: &err];
+  UITestProgram *prog = [parser parseFile: script error: &err];
   if (!prog)
     {
-      fprintf(stderr, "drive_script: %s\n", [err UTF8String]);
+      fprintf(stderr, "run_uitest: %s\n", [err UTF8String]);
       [pool release];
       return DDSParseError;
     }
 
-  DSLQueryEngine *engine = [[[DSLQueryEngine alloc] initWithDriveTool: driveTool]
+  UITestQueryEngine *engine = [[[UITestQueryEngine alloc] initWithDriveTool: driveTool]
     autorelease];
-  DSLExecutor *exec = [[[DSLExecutor alloc] initWithProgram: prog engine: engine]
+  UITestExecutor *exec = [[[UITestExecutor alloc] initWithProgram: prog engine: engine]
     autorelease];
   struct timeval t0, t1;
   gettimeofday(&t0, NULL);
@@ -68,7 +69,7 @@ int main(int argc, const char *argv[])
    * select menu) are visible when tuning script speed. */
   if ([[exec log] length] > 0)
     fprintf(stderr, "%s\n", [[exec log] UTF8String]);
-  fprintf(stderr, "[dsl] total %.0f ms (%s)\n", totalMs,
+  fprintf(stderr, "[uitest] total %.0f ms (%s)\n", totalMs,
     rc == 0 ? "ok" : "failed");
   [pool release];
   return rc;

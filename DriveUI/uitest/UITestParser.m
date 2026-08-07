@@ -3,17 +3,17 @@
  *
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * AST + parser for the GNUstep UI Automation DSL (see DSL.h / Executor.md).
+ * AST + parser for the GNUstep UI Automation UITest (see UITest.h / Executor.md).
  *
  * The parser consumes the lexer token stream one line (command) at a time and
- * emits DSLCommand nodes.  It owns the included-file handling and the
- * `set VAR=...` variable declarations, which live in DSLProgram.
+ * emits UITestCommand nodes.  It owns the included-file handling and the
+ * `set VAR=...` variable declarations, which live in UITestProgram.
  */
 
-#import "DSL.h"
+#import "UITest.h"
 
-@implementation DSLCommand
-- (id)initWithType:(DSLCommandType)t line:(NSUInteger)line col:(NSUInteger)col
+@implementation UITestCommand
+- (id)initWithType:(UITestCommandType)t line:(NSUInteger)line col:(NSUInteger)col
 {
   if ((self = [super init]))
     {
@@ -39,12 +39,12 @@
   [elseBody_ release];
   [super dealloc];
 }
-- (DSLCommandType)type { return type_; }
-- (void)setType:(DSLCommandType)t { type_ = t; }
-- (DSLRole)role { return role_; }
-- (void)setRole:(DSLRole)r { role_ = r; }
-- (DSLAssertKind)assertKind { return assertKind_; }
-- (void)setAssertKind:(DSLAssertKind)k { assertKind_ = k; }
+- (UITestCommandType)type { return type_; }
+- (void)setType:(UITestCommandType)t { type_ = t; }
+- (UITestRole)role { return role_; }
+- (void)setRole:(UITestRole)r { role_ = r; }
+- (UITestAssertKind)assertKind { return assertKind_; }
+- (void)setAssertKind:(UITestAssertKind)k { assertKind_ = k; }
 - (NSString *)string { return string_; }
 - (void)setString:(NSString *)s { [s retain]; [string_ release]; string_ = s; }
 - (NSString *)string2 { return string2_; }
@@ -58,7 +58,7 @@
 - (void)setCol:(NSUInteger)c { col_ = c; }
 @end
 
-@implementation DSLProgram
+@implementation UITestProgram
 - (id)init
 {
   if ((self = [super init]))
@@ -82,8 +82,8 @@
 - (void)setCurrentDef:(NSString *)d { [d retain]; [currentDef_ release]; currentDef_ = d; }
 @end
 
-/* Maps a DSL object-type keyword to a DSLRole. */
-DSLRole DSLRoleFromName(NSString *name)
+/* Maps a UITest object-type keyword to a UITestRole. */
+UITestRole UITestRoleFromName(NSString *name)
 {
   static NSDictionary *map = nil;
   if (!map)
@@ -118,12 +118,12 @@ DSLRole DSLRoleFromName(NSString *name)
       @(DDSRoleIcon), @"icon",
       nil];
   NSNumber *n = [map objectForKey: [name lowercaseString]];
-  return n ? (DSLRole)[n intValue] : DDSRoleAny;
+  return n ? (UITestRole)[n intValue] : DDSRoleAny;
 }
 
 /* Maps a role to the ObjC class substring used to filter drive_ui snapshots.
  * Snapshots carry the real ObjC class name in field 2, so we match a prefix. */
-NSString *DSLRoleClassName(DSLRole role)
+NSString *UITestRoleClassName(UITestRole role)
 {
   switch (role)
     {
@@ -213,9 +213,9 @@ case DDSRoleLabel:                        return @"NSTextField";
 - (void)setElseSeen:(BOOL)b { elseSeen_ = b; }
 @end
 
-@implementation DSLParser
+@implementation UITestParser
 
-- (DSLProgram *)parseFile:(NSString *)path error:(NSString **)err
+- (UITestProgram *)parseFile:(NSString *)path error:(NSString **)err
 {
   NSString *text = [NSString stringWithContentsOfFile: path
     encoding: NSUTF8StringEncoding error: nil];
@@ -229,14 +229,14 @@ case DDSRoleLabel:                        return @"NSTextField";
       if (err) *err = [NSString stringWithFormat: @"cannot read script file %@", path];
       return nil;
     }
-  DSLProgram *prog = [[[DSLProgram alloc] init] autorelease];
+  UITestProgram *prog = [[[UITestProgram alloc] init] autorelease];
   if (![self parseString: text sourceName: path program: prog error: err])
     return nil;
   return prog;
 }
 
-- (DSLProgram *)parseString:(NSString *)text sourceName:(NSString *)name
-                     program:(DSLProgram *)prog error:(NSString **)err
+- (UITestProgram *)parseString:(NSString *)text sourceName:(NSString *)name
+                     program:(UITestProgram *)prog error:(NSString **)err
 {
   if (!blockStack_) blockStack_ = [[NSMutableArray alloc] init];
   NSArray *lines = [text componentsSeparatedByString: @"\n"];
@@ -304,7 +304,7 @@ case DDSRoleLabel:                        return @"NSTextField";
             [NSCharacterSet whitespaceCharacterSet]];
           if ([titleExpr hasPrefix: @"\""] && [titleExpr hasSuffix: @"\""] && [titleExpr length] >= 2)
             titleExpr = [titleExpr substringWithRange: NSMakeRange(1, [titleExpr length] - 2)];
-          DSLCommand *cmd = [[[DSLCommand alloc] initWithType: DDSCmdSetCount
+          UITestCommand *cmd = [[[UITestCommand alloc] initWithType: DDSCmdSetCount
             line: lineNo col: 1] autorelease];
           cmd.string = var;
           cmd.string2 = titleExpr;
@@ -444,7 +444,7 @@ case DDSRoleLabel:                        return @"NSTextField";
           continue;
         }
 
-      DSLCommand *cmd = nil;
+      UITestCommand *cmd = nil;
       if ([kw isEqualToString: @"activate"])
         {
           /* activate application "X" (DriveUI app) or activate xwindow "Title"
@@ -452,26 +452,26 @@ case DDSRoleLabel:                        return @"NSTextField";
           if ([words count] > 0 &&
               [[words objectAtIndex: 0] isEqualToString: @"xwindow"])
             {
-              cmd = [[[DSLCommand alloc] initWithType: DDSCmdActivateXWindow
+              cmd = [[[UITestCommand alloc] initWithType: DDSCmdActivateXWindow
                 line: lineNo col: 1] autorelease];
               cmd.string = str1;
             }
           else
             {
-              cmd = [[[DSLCommand alloc] initWithType: DDSCmdActivate
+              cmd = [[[UITestCommand alloc] initWithType: DDSCmdActivate
                 line: lineNo col: 1] autorelease];
               cmd.string = str1;
             }
         }
       else if ([kw isEqualToString: @"launch"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdLaunchApp
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdLaunchApp
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }
       else if ([kw isEqualToString: @"focus"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdFocusWindow
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdFocusWindow
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }
@@ -479,7 +479,7 @@ case DDSRoleLabel:                        return @"NSTextField";
         {
           /* close window "Title" - close a visible window by title, regardless
            * of which window currently holds key focus. */
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdCloseWindow
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdCloseWindow
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }
@@ -488,7 +488,7 @@ case DDSRoleLabel:                        return @"NSTextField";
           /* invoke button "OK" / invoke default button - invoke a button of
            * the current modal dialog by title, or its default (Return)
            * button.  Explicit alternative to dismiss dialog. */
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdInvokeButton
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdInvokeButton
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }
@@ -499,30 +499,30 @@ case DDSRoleLabel:                        return @"NSTextField";
           if ([words count] > 0 &&
               [[words objectAtIndex: 0] isEqualToString: @"global"])
             {
-              cmd = [[[DSLCommand alloc] initWithType: DDSCmdSelectGlobalMenu
+              cmd = [[[UITestCommand alloc] initWithType: DDSCmdSelectGlobalMenu
                 line: lineNo col: 1] autorelease];
               cmd.string = str1;
             }
           else
             {
-              cmd = [[[DSLCommand alloc] initWithType: DDSCmdSelectMenu
+              cmd = [[[UITestCommand alloc] initWithType: DDSCmdSelectMenu
                 line: lineNo col: 1] autorelease];
               cmd.string = str1;
             }
         }
       else if ([kw isEqualToString: @"click"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdClick
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdClick
             line: lineNo col: 1] autorelease];
-          cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+          cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
           if ([words count] > 0) [words removeObjectAtIndex: 0];
           cmd.string = str1;
         }
       else if ([kw isEqualToString: @"doubleclick"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdDoubleClick
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdDoubleClick
             line: lineNo col: 1] autorelease];
-          cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+          cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
           if ([words count] > 0) [words removeObjectAtIndex: 0];
           cmd.string = str1;
         }
@@ -530,42 +530,42 @@ case DDSRoleLabel:                        return @"NSTextField";
         {
           /* context menu "AppName" "Item Title" - dispatch the named item of
            * the widget's context menu in-process. */
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdContextMenu
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdContextMenu
             line: lineNo col: 1] autorelease];
           if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"menu"])
             {
-              if ([words count] > 1) cmd.role = DSLRoleFromName([words objectAtIndex: 1]);
+              if ([words count] > 1) cmd.role = UITestRoleFromName([words objectAtIndex: 1]);
             }
           else if ([words count] > 0)
-            cmd.role = DSLRoleFromName([words objectAtIndex: 0]);
+            cmd.role = UITestRoleFromName([words objectAtIndex: 0]);
           cmd.string = str1;
           cmd.string2 = str2;
         }
       else if ([kw isEqualToString: @"rightclick"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdRightClick
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdRightClick
             line: lineNo col: 1] autorelease];
-          cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+          cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
           if ([words count] > 0) [words removeObjectAtIndex: 0];
           cmd.string = str1;
         }
       else if ([kw isEqualToString: @"type"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdType
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdType
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }
       else if ([kw isEqualToString: @"clear"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdClear
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdClear
             line: lineNo col: 1] autorelease];
-          cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+          cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
           if ([words count] > 0) [words removeObjectAtIndex: 0];
           cmd.string = str1;
         }
       else if ([kw isEqualToString: @"press"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdPress
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdPress
             line: lineNo col: 1] autorelease];
           cmd.string = ([words count] > 0) ? [words objectAtIndex: 0] : str1;
         }
@@ -573,7 +573,7 @@ case DDSRoleLabel:                        return @"NSTextField";
         {
           /* run "command" - launch a command/app through the target app's
            * Run... dialog (opens it, types the command, presses Return). */
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdRun
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdRun
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }
@@ -581,7 +581,7 @@ case DDSRoleLabel:                        return @"NSTextField";
         {
           if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"until"])
             {
-              cmd = [[[DSLCommand alloc] initWithType: DDSCmdWaitUntil
+              cmd = [[[UITestCommand alloc] initWithType: DDSCmdWaitUntil
                 line: lineNo col: 1] autorelease];
               [words removeObjectAtIndex: 0];
               if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"not"])
@@ -591,7 +591,7 @@ case DDSRoleLabel:                        return @"NSTextField";
                 }
               if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"exists"])
                 [words removeObjectAtIndex: 0];
-              cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+              cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
               if ([words count] > 0) [words removeObjectAtIndex: 0];
               cmd.string = str1;
               /* wait until menu bar "Title" [not] */
@@ -617,14 +617,14 @@ case DDSRoleLabel:                        return @"NSTextField";
             }
           else
             {
-              cmd = [[[DSLCommand alloc] initWithType: DDSCmdWait
+              cmd = [[[UITestCommand alloc] initWithType: DDSCmdWait
                 line: lineNo col: 1] autorelease];
               cmd.string = ([words count] > 0) ? [words objectAtIndex: 0] : nil;
             }
         }
       else if ([kw isEqualToString: @"assert"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdAssert
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdAssert
             line: lineNo col: 1] autorelease];
           if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"not"])
             {
@@ -687,7 +687,7 @@ case DDSRoleLabel:                        return @"NSTextField";
                 }
               else
                 {
-              cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+              cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
               if ([words count] > 0) [words removeObjectAtIndex: 0];
               cmd.string = str1;
               if ([words count] > 0)
@@ -721,28 +721,28 @@ case DDSRoleLabel:                        return @"NSTextField";
         }
       else if ([kw isEqualToString: @"capture"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdCapture
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdCapture
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }
       else if ([kw isEqualToString: @"log"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdLog
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdLog
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }
       else if ([kw isEqualToString: @"on_error"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdOptions
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdOptions
             line: lineNo col: 1] autorelease];
           [cmd.words addObjectsFromArray: words];
         }
       else if ([kw isEqualToString: @"hover"])
         {
           /* hover [role] "title" - move the pointer over the widget. */
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdHover
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdHover
             line: lineNo col: 1] autorelease];
-          cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+          cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
           if ([words count] > 0) [words removeObjectAtIndex: 0];
           cmd.string = str1;
         }
@@ -750,7 +750,7 @@ case DDSRoleLabel:                        return @"NSTextField";
         {
           /* scroll [role] "title" <up|down|left|right> [amount]
            * or: scroll <up|down|left|right> [amount]  (scroll at the pointer) */
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdScroll
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdScroll
             line: lineNo col: 1] autorelease];
           if ([words count] > 0)
             {
@@ -766,7 +766,7 @@ case DDSRoleLabel:                        return @"NSTextField";
                 }
               else
                 {
-                  cmd.role = DSLRoleFromName(first);
+                  cmd.role = UITestRoleFromName(first);
                   if (cmd.role != DDSRoleAny) [words removeObjectAtIndex: 0];
                   cmd.string = str1;
                   if ([words count] > 0) [cmd.words addObject: [[words objectAtIndex: 0] lowercaseString]];
@@ -778,9 +778,9 @@ case DDSRoleLabel:                        return @"NSTextField";
         {
           /* drag [role] "title" [by] <dx> <dy> - press at the widget and drag
            * it by the given pixel offset. */
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdDrag
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdDrag
             line: lineNo col: 1] autorelease];
-          cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+          cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
           if ([words count] > 0 && cmd.role != DDSRoleAny)
             [words removeObjectAtIndex: 0];
           cmd.string = str1;
@@ -804,7 +804,7 @@ case DDSRoleLabel:                        return @"NSTextField";
                 name, (unsigned long)lineNo];
               return nil;
             }
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdRepeat
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdRepeat
             line: lineNo col: 1] autorelease];
           [cmd.words addObject: [words objectAtIndex: 0]];
           [blockStack_ addObject: [[[DDSBlockCtx alloc] initWithType: @"repeat"
@@ -815,7 +815,7 @@ case DDSRoleLabel:                        return @"NSTextField";
           /* if [not] [exists] [role] "title" [docked|not docked]
            *    menu item "Top/Sub" checked|not checked|enabled|disabled|shortcut "X" */
           BOOL isMenuItem = NO;
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdIf
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdIf
             line: lineNo col: 1] autorelease];
           if ([words count] > 0 && [[words objectAtIndex: 0] isEqualToString: @"not"])
             {
@@ -852,7 +852,7 @@ case DDSRoleLabel:                        return @"NSTextField";
             }
           if (!isMenuItem)
             {
-              cmd.role = ([words count] > 0) ? DSLRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
+              cmd.role = ([words count] > 0) ? UITestRoleFromName([words objectAtIndex: 0]) : DDSRoleAny;
               if ([words count] > 0) [words removeObjectAtIndex: 0];
               cmd.string = str1;
               /* optional docked-state condition */
@@ -876,7 +876,7 @@ case DDSRoleLabel:                        return @"NSTextField";
                 name, (unsigned long)lineNo];
               return nil;
             }
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdMacro
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdMacro
             line: lineNo col: 1] autorelease];
           cmd.string = macroName;
           [blockStack_ addObject: [[[DDSBlockCtx alloc] initWithType: @"macro"
@@ -891,13 +891,13 @@ case DDSRoleLabel:                        return @"NSTextField";
                 name, (unsigned long)lineNo];
               return nil;
             }
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdCall
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdCall
             line: lineNo col: 1] autorelease];
           cmd.string = macroName;
         }
       else if ([kw isEqualToString: @"record"])
         {
-          cmd = [[[DSLCommand alloc] initWithType: DDSCmdRecord
+          cmd = [[[UITestCommand alloc] initWithType: DDSCmdRecord
             line: lineNo col: 1] autorelease];
           cmd.string = str1;
         }

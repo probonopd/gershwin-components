@@ -3,11 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * Executor + QueryEngine for the GNUstep UI Automation DSL (see DSL.h).
+ * Executor + QueryEngine for the GNUstep UI Automation UITest (see UITest.h).
  *
  * The QueryEngine is the only component that talks to drive_ui / X11; every
  * interaction is a spawned `drive_ui` subprocess.  The executor walks the AST
- * and translates each DSLCommand into a semantic query answered by the engine
+ * and translates each UITestCommand into a semantic query answered by the engine
  * - no GNUstep-specific logic lives here.
  *
  * drive_ui takes a PID; the engine resolves an app name to that PID by
@@ -15,11 +15,11 @@
  * name via the read-only `app` command added to the DriveUI bundle.
  */
 
-#import "DSL.h"
+#import "UITest.h"
 #import <signal.h>
 #import <unistd.h>
 
-@implementation DSLQueryEngine
+@implementation UITestQueryEngine
 
 /* Node in the menu-title trie built from the DriveUI `menu` reply.  `raw` is
  * the whole tab-separated line of the item, kept so assertions can read the
@@ -65,9 +65,23 @@ static void DDSMenuNodeFree(DDSMenuNode *n)
 }
 
 /* Run an arbitrary executable, wait for it, and return its stdout (nil if the
- * exit status was non-zero). */
+ * exit status was non-zero).
+ *
+ * The wait is bounded: a live app whose DriveUI socket server has a full
+ * accept backlog can block drive_ui's connect() indefinitely, which would
+ * otherwise hang a script (and the harness) forever.  A stalled subprocess is
+ * terminated after the timeout and reported as an error.
+ *
+ * Each call runs in its own autorelease pool: drive_ui is spawned per query,
+ * and a polling command (e.g. wait until) can make hundreds of queries, so
+ * the pipes must be released immediately or the script exhausts the file
+ * descriptor limit (EMFILE). */
 - (NSString *)runTool:(NSString *)path argv:(NSArray *)argv error:(NSString **)err
 {
+  NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+  NSString *result = nil;
+
+  const double kRunToolTimeout = 30.0;
   NSTask *task = [[NSTask alloc] init];
   [task setLaunchPath: path];
   [task setArguments: argv];
@@ -76,23 +90,60 @@ static void DDSMenuNodeFree(DDSMenuNode *n)
   [task setStandardOutput: outPipe];
   [task setStandardError: errPipe];
   [task launch];
-  [task waitUntilExit];
-  NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
+
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow: kRunToolTimeout];
+  while ([task isRunning] && [[NSDate date] compare: deadline] == NSOrderedAscending)
+    {
+      usleep(100000);
+    }
+  BOOL timedOut = [task isRunning];
+  if (timedOut)
+    {
+      [task terminate];
+      [task waitUntilExit];
+    }
+
+  NSData *outData = nil;
+  NSFileHandle *outHandle = [outPipe fileHandleForReading];
+  NSFileHandle *errHandle = [errPipe fileHandleForReading];
+  outData = [outHandle readDataToEndOfFile];
   NSString *out = [[[NSString alloc] initWithData: outData
     encoding: NSUTF8StringEncoding] autorelease];
-  if ([task terminationStatus] != 0)
+  if (timedOut)
     {
-      NSData *errData = [[errPipe fileHandleForReading] readDataToEndOfFile];
+      if (err)
+        *err = [NSString stringWithFormat: @"%s timed out (stalled DriveUI socket?)",
+          [[path lastPathComponent] UTF8String]];
+      [task release];
+      result = nil;
+    }
+  else if ([task terminationStatus] != 0)
+    {
+      NSData *errData = [errHandle readDataToEndOfFile];
       NSString *stderrStr = [[[NSString alloc] initWithData: errData
         encoding: NSUTF8StringEncoding] autorelease];
       if (err && [stderrStr length] > 0)
         *err = [stderrStr stringByTrimmingCharactersInSet:
           [NSCharacterSet newlineCharacterSet]];
       [task release];
-      return nil;
+      result = nil;
     }
-  [task release];
-  return out;
+  else
+    {
+      result = out;
+      [task release];
+    }
+
+  /* Close the pipe descriptors now.  The pool drain below releases the pipes,
+   * but the descriptors must not linger until then: a polling command can
+   * spawn hundreds of drive_ui subprocesses and exhaust the fd limit
+   * (EMFILE) if each one's pipes stay open. */
+  [outHandle closeFile];
+  [errHandle closeFile];
+
+  [result retain];
+  [pool drain];
+  return [result autorelease];
 }
 
 /* Build the --pid argv for the current target app. */
@@ -156,7 +207,7 @@ static void SetErr(NSString **err, NSString *m)
   if (err) *err = m;
 }
 
-/* Translate an English string to the app's current language, so DSL scripts
+/* Translate an English string to the app's current language, so UITest scripts
  * work regardless of locale.  Reads the app's own .strings via the bundle's
  * `localize` command (cached; falls back to the original string). */
 - (NSString *)localizeString:(NSString *)english
@@ -188,7 +239,7 @@ static void SetErr(NSString **err, NSString *m)
 }
 
 /* Case-insensitive substring match that also accepts the localized spelling of
- * the needle, so a DSL script can name a title/button in English or German and
+ * the needle, so a UITest script can name a title/button in English or German and
  * still match a German-running UI. */
 - (BOOL)title:(NSString *)title matches:(NSString *)segOrEnglish
 {
@@ -310,13 +361,17 @@ static void SetErr(NSString **err, NSString *m)
   return (path != nil && [[path pathExtension] isEqualToString: @"app"]);
 }
 
-/* Does a snapshot row's class satisfy the DSL role's class filter?  A subclass
+/* Does a snapshot row's class satisfy the UITest role's class filter?  A subclass
  * name (AboutWindow, GWDesktopWindow) does not contain "NSWindow", so window
  * roles match any class ending in "Window" as well. */
 - (BOOL)class:(NSString *)lineClass matchesRoleClass:(NSString *)wantClass
 {
   if (wantClass == nil || [wantClass length] == 0) return YES;
   if ([lineClass rangeOfString: wantClass].location != NSNotFound) return YES;
+  /* A search field is an NSTextField subclass under a different name; let
+   * scripts target it as a plain textfield. */
+  if ([lineClass isEqualToString: @"NSSearchField"] &&
+      [wantClass isEqualToString: @"NSTextField"]) return YES;
   if ([wantClass isEqualToString: @"NSWindow"] &&
       [lineClass hasSuffix: @"Window"]) return YES;
   return NO;
@@ -354,10 +409,10 @@ static void SetErr(NSString **err, NSString *m)
 }
 
 /* Build arglist for find/click against a role+title. */
-- (NSArray *)resolveArgsRole:(DSLRole)role title:(NSString *)title
+- (NSArray *)resolveArgsRole:(UITestRole)role title:(NSString *)title
 {
   NSMutableArray *args = [NSMutableArray array];
-  NSString *cls = DSLRoleClassName(role);
+  NSString *cls = UITestRoleClassName(role);
   if (cls) [args addObjectsFromArray: [NSArray arrayWithObjects: @"--class", cls, nil]];
   if (title)
     [args addObjectsFromArray: [NSArray arrayWithObjects: @"--text", title, nil]];
@@ -366,14 +421,14 @@ static void SetErr(NSString **err, NSString *m)
 
 /* Locate a matching widget's object_id via drive_ui find_widgets / get tree.
  * Returns the object_id line (field 8) or nil. */
-- (NSString *)objectIDForRole:(DSLRole)role title:(NSString *)title
+- (NSString *)objectIDForRole:(UITestRole)role title:(NSString *)title
                   error:(NSString **)err
 {
   NSMutableArray *argv = [NSMutableArray arrayWithArray:
     [self argvForSubcommand: @"get_full_tree"]];
   NSString *out = [self runCollect: argv error: err];
   if (!out) return nil;
-  NSString *cls = DSLRoleClassName(role);
+  NSString *cls = UITestRoleClassName(role);
   for (NSString *line in [out componentsSeparatedByString: @"\n"])
     {
       NSArray *f = [line componentsSeparatedByString: @"\t"];
@@ -435,7 +490,7 @@ static void SetErr(NSString **err, NSString *m)
   return YES;
 }
 
-- (BOOL)clickRole:(DSLRole)role title:(NSString *)title
+- (BOOL)clickRole:(UITestRole)role title:(NSString *)title
           button:(int)button count:(int)count error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
@@ -506,7 +561,7 @@ static void SetErr(NSString **err, NSString *m)
 }
 
 /* Trigger an action on Menu.app's global menu bar (simulates clicking a menu
- * item).  Menu.app runs the global menu for the frontmost app; the DSL target
+ * item).  Menu.app runs the global menu for the frontmost app; the UITest target
  * app just needs to be active.  Returns NO if Menu.app isn't running or the
  * item path isn't found. */
 - (BOOL)triggerGlobalMenuPath:(NSString *)path error:(NSString **)err
@@ -556,7 +611,7 @@ static void SetErr(NSString **err, NSString *m)
  * The bundle's `menu` command returns one line per item:
  *   depth\tindex\ttitle\tenabled\thas_submenu
  * with submenu items listed directly after their parent at depth+1.  We build
- * a tree of (title -> index) and walk the DSL path through it; the resulting
+ * a tree of (title -> index) and walk the UITest path through it; the resulting
  * index path is passed to `menu_invoke`, which performs the leaf item's
  * action (exactly what a real menu selection does). */
 - (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err
@@ -665,7 +720,7 @@ static void SetErr(NSString **err, NSString *m)
       return NO;
     }
 
-  /* Walk the DSL path (split on "/") through the tree. */
+  /* Walk the UITest path (split on "/") through the tree. */
   NSArray *segs = [path componentsSeparatedByString: @"/"];
   NSMutableArray *indices = [NSMutableArray array];
   DDSMenuNode *current = root;
@@ -716,7 +771,7 @@ static void SetErr(NSString **err, NSString *m)
  *   depth\tindex\ttitle\tenabled\thas_submenu\tstate\tkey_equiv\tmods\tshortcut
  * `kind` is one of the DDSAssertMenu* kinds; `shortcut` is the expected
  * readable "Cmd+Shift+T" form for DDSAssertMenuShortcut. */
-- (BOOL)assertMenuItemPath:(NSString *)path kind:(DSLAssertKind)kind
+- (BOOL)assertMenuItemPath:(NSString *)path kind:(UITestAssertKind)kind
                   shortcut:(NSString *)expectedShortcut error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
@@ -999,7 +1054,7 @@ static void SetErr(NSString **err, NSString *m)
   return NO;
 }
 
-- (BOOL)hoverRole:(DSLRole)role title:(NSString *)title error:(NSString **)err
+- (BOOL)hoverRole:(UITestRole)role title:(NSString *)title error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
   /* `hover` needs no widget resolution convenience here because drive_ui
@@ -1013,7 +1068,7 @@ static void SetErr(NSString **err, NSString *m)
   return [self runCollect: args error: err] != nil;
 }
 
-- (BOOL)contextMenuRole:(DSLRole)role title:(NSString *)title
+- (BOOL)contextMenuRole:(UITestRole)role title:(NSString *)title
               itemTitle:(NSString *)itemTitle error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
@@ -1032,7 +1087,7 @@ static void SetErr(NSString **err, NSString *m)
   return NO;
 }
 
-- (BOOL)scrollRole:(DSLRole)role title:(NSString *)title
+- (BOOL)scrollRole:(UITestRole)role title:(NSString *)title
         direction:(NSString *)direction amount:(int)amount error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
@@ -1050,7 +1105,7 @@ static void SetErr(NSString **err, NSString *m)
   return [self runCollect: args error: err] != nil;
 }
 
-- (BOOL)dragRole:(DSLRole)role title:(NSString *)title
+- (BOOL)dragRole:(UITestRole)role title:(NSString *)title
             byX:(double)dx byY:(double)dy error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no target application"); return NO; }
@@ -1080,7 +1135,7 @@ static void SetErr(NSString **err, NSString *m)
   return out != nil;
 }
 
-- (BOOL)clearRole:(DSLRole)role title:(NSString *)title error:(NSString **)err
+- (BOOL)clearRole:(UITestRole)role title:(NSString *)title error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
   NSString *objID = [self objectIDForRole: role title: title error: err];
@@ -1093,9 +1148,23 @@ static void SetErr(NSString **err, NSString *m)
 
 - (BOOL)pressKeyCombo:(NSString *)combo error:(NSString **)err
 {
+  /* A modifier chord (Cmd+Q, Ctrl+C, ...) is a menu shortcut in GNUstep, but
+   * synthesized X11 key events cannot set GNUstep's tracked modifier state
+   * (XSendEvent does not update the server keymap), so the app's key-equivalent
+   * handling never fires.  When a target app is set, resolve the chord to its
+   * menu item by shortcut and perform the action in-process instead - this is
+   * what makes `press "Cmd+Q"` quit an app.  Fall back to synthesizing a plain
+   * key press otherwise. */
+  NSArray *parts = [combo componentsSeparatedByString: @"+"];
+  if (parts.count > 1 && pid_ != 0)
+    {
+      NSString *expected = [self canonicalShortcutForParts: parts];
+      if (expected != nil
+          && [self performMenuItemWithShortcut: expected error: err])
+        return YES;
+    }
   /* Global X11 key action - no target app required. */
   /* combo like "Enter", "Escape", "Ctrl+C", "Cmd+Q". */
-  NSArray *parts = [combo componentsSeparatedByString: @"+"];
   NSMutableArray *args = [NSMutableArray arrayWithArray:
     [self argvForSubcommand: (parts.count > 1) ? @"chord" : @"press"]];
   if (parts.count > 1)
@@ -1110,7 +1179,90 @@ static void SetErr(NSString **err, NSString *m)
   return out != nil;
 }
 
-/* Translate a DSL key to the key name drive_ui's X11Support expects. */
+/* Canonical form of a shortcut for matching: sorted canonical modifiers and a
+ * lowercased key, e.g. "Cmd+Q" and "Alt+Q" both become "cmd:q". */
+- (NSString *)canonicalShortcutForParts:(NSArray *)parts
+{
+  if ([parts count] < 2) return nil;
+  NSMutableArray *mods = [NSMutableArray array];
+  for (NSUInteger i = 0; i < [parts count] - 1; i++)
+    {
+      NSString *m = [[parts objectAtIndex: i] lowercaseString];
+      if ([m isEqualToString: @"cmd"] || [m isEqualToString: @"command"]
+        || [m isEqualToString: @"meta"] || [m isEqualToString: @"alt"])
+        [mods addObject: @"cmd"];
+      else if ([m isEqualToString: @"ctrl"] || [m isEqualToString: @"control"])
+        [mods addObject: @"ctrl"];
+      else if ([m isEqualToString: @"shift"])
+        [mods addObject: @"shift"];
+      else
+        [mods addObject: m];
+    }
+  [mods sortUsingSelector: @selector(compare:)];
+  NSString *key = [[parts lastObject] lowercaseString];
+  return [NSString stringWithFormat: @"%@:%@",
+    [mods componentsJoinedByString: @"+"], key];
+}
+
+/* Walk the target app's menu tree, find the item whose key-equivalent
+ * shortcut matches, and perform it via menu_invoke.  Returns NO (with *err)
+ * if no item matches. */
+- (BOOL)performMenuItemWithShortcut:(NSString *)expected error:(NSString **)err
+{
+  NSString *tree = [self runCollect: [self argvForSubcommand: @"menu"]
+                              error: err];
+  if (!tree) return NO;
+
+  NSMutableArray *path = [NSMutableArray array];
+  NSArray *lines = [tree componentsSeparatedByString: @"\n"];
+  for (NSString *line in lines)
+    {
+      NSArray *f = [line componentsSeparatedByString: @"\t"];
+      if ([f count] < 9) continue;
+      int depth = [[f objectAtIndex: 0] intValue];
+      int index = [[f objectAtIndex: 1] intValue];
+      BOOL hasSubmenu = [[f objectAtIndex: 4] isEqualToString: @"1"];
+      NSString *shortcut = [f objectAtIndex: 8];
+      if (depth < 0 || depth > 64) continue;
+
+      /* path holds the indexes of the ancestors at depths 0..depth-1. */
+      while ([path count] > (NSUInteger)depth)
+        [path removeLastObject];
+
+      NSArray *scParts = [shortcut componentsSeparatedByString: @"+"];
+      if ([scParts count] > 1)
+        {
+          NSString *scCanon = [self canonicalShortcutForParts: scParts];
+          if (scCanon != nil && [scCanon isEqualToString: expected])
+            {
+              NSMutableArray *argv = [NSMutableArray arrayWithArray:
+                [self argvForSubcommand: @"menu_invoke"]];
+              for (NSNumber *p in path)
+                [argv addObject: [p stringValue]];
+              [argv addObject: [NSString stringWithFormat: @"%d", index]];
+              NSString *reply = [self runCollect: argv error: err];
+              if (!reply) return NO;
+              if ([reply hasPrefix: @"error:"])
+                {
+                  if (err)
+                    *err = [reply stringByTrimmingCharactersInSet:
+                      [NSCharacterSet newlineCharacterSet]];
+                  return NO;
+                }
+              return YES;
+            }
+        }
+
+      if (hasSubmenu)
+        [path addObject: @(index)];
+    }
+  if (err)
+    *err = [NSString stringWithFormat: @"no menu item with shortcut '%@'",
+      expected];
+  return NO;
+}
+
+/* Translate a UITest key to the key name drive_ui's X11Support expects. */
 - (NSString *)normalizeKey:(NSString *)key
 {
   NSString *k = [key lowercaseString];
@@ -1148,7 +1300,7 @@ static void SetErr(NSString **err, NSString *m)
   return m;
 }
 
-- (BOOL)doesWidgetExist:(DSLRole)role title:(NSString *)title
+- (BOOL)doesWidgetExist:(UITestRole)role title:(NSString *)title
            contains:(NSString *)needle error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
@@ -1198,7 +1350,7 @@ static void SetErr(NSString **err, NSString *m)
         }
       return NO;
     }
-  NSString *cls = DSLRoleClassName(role);
+  NSString *cls = UITestRoleClassName(role);
   /* The app can be transiently busy (a wedge from window churn, or a heavy
    * layout), which makes the 1s read timeout fire even though the widget is
    * there.  Retry the tree fetch a few times so a busy spell does not turn an
@@ -1231,7 +1383,7 @@ static void SetErr(NSString **err, NSString *m)
   return NO;
 }
 
-- (BOOL)assertRole:(DSLRole)role title:(NSString *)title kind:(DSLAssertKind)kind
+- (BOOL)assertRole:(UITestRole)role title:(NSString *)title kind:(UITestAssertKind)kind
         needle:(NSString *)needle error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
@@ -1285,7 +1437,7 @@ static void SetErr(NSString **err, NSString *m)
 }
 
 /* Internal helper: does a widget matching role+title exist right now? */
-- (BOOL)doesWidget:(DSLRole)role title:(NSString *)title error:(NSString **)err
+- (BOOL)doesWidget:(UITestRole)role title:(NSString *)title error:(NSString **)err
 {
   return [self doesWidgetExist: role title: title contains: nil error: err];
 }
@@ -1321,7 +1473,7 @@ static void SetErr(NSString **err, NSString *m)
   return foundEnabled || foundChecked;
 }
 
-- (BOOL)propsForRole:(DSLRole)role title:(NSString *)title
+- (BOOL)propsForRole:(UITestRole)role title:(NSString *)title
              enabled:(BOOL *)enabled checked:(BOOL *)checked error:(NSString **)err
 {
   if (pid_ == 0) { SetErr(err, @"no application target"); return NO; }
@@ -1345,10 +1497,10 @@ static void SetErr(NSString **err, NSString *m)
   NSString *target = path;
   if (target == nil || [target length] == 0)
     {
-      /* default name: /tmp/drive_script-<timestamp>.png */
+      /* default name: /tmp/run_uitest-<timestamp>.png */
       NSDateFormatter *fmt = [[[NSDateFormatter alloc] init] autorelease];
       [fmt setDateFormat: @"yyyyMMdd-HHmmss"];
-      target = [NSString stringWithFormat: @"/tmp/drive_script-%@.png",
+      target = [NSString stringWithFormat: @"/tmp/run_uitest-%@.png",
         [fmt stringFromDate: [NSDate date]]];
     }
   if (outPath) *outPath = target;

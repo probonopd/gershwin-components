@@ -3,21 +3,21 @@
  *
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * Executor for the GNUstep UI Automation DSL (see DSL.h / Executor.md).
+ * Executor for the GNUstep UI Automation UITest (see UITest.h / Executor.md).
  *
- * Walks DSLProgram.commands sequentially, translating each DSLCommand into a
- * semantic query on the DSLQueryEngine.  Contains no GNUstep-specific logic;
+ * Walks UITestProgram.commands sequentially, translating each UITestCommand into a
+ * semantic query on the UITestQueryEngine.  Contains no GNUstep-specific logic;
  * all accessibility lives in the engine.  Implements the on_error policy and
  * produces a per-command timed log (Executor.md sections 15/19).
  *
  * Durations ("100ms", "2s", "5m") are parsed here to seconds.
  */
 
-#import "DSL.h"
+#import "UITest.h"
 
-@implementation DSLExecutor
+@implementation UITestExecutor
 
-- (id)initWithProgram:(DSLProgram *)program engine:(DSLQueryEngine *)engine
+- (id)initWithProgram:(UITestProgram *)program engine:(UITestQueryEngine *)engine
 {
   if ((self = [super init]))
     {
@@ -50,7 +50,7 @@
 - (void)collectMacrosInto:(NSMutableDictionary *)macros
                     from:(NSArray *)commands
 {
-  for (DSLCommand *cmd in commands)
+  for (UITestCommand *cmd in commands)
     {
       if (cmd.type == DDSCmdMacro && cmd.string)
         [macros setObject: cmd.body ?: [NSArray array] forKey: cmd.string];
@@ -94,7 +94,7 @@ static void SleepSeconds(double sec)
   nanosleep(&ts, NULL);
 }
 
-static NSString *CommandName(DSLCommandType t)
+static NSString *CommandName(UITestCommandType t)
 {
   switch (t)
     {
@@ -132,7 +132,7 @@ static NSString *CommandName(DSLCommandType t)
     }
 }
 
-- (NSString *)formatCommand:(DSLCommand *)cmd
+- (NSString *)formatCommand:(UITestCommand *)cmd
 {
   NSMutableString *s = [NSMutableString stringWithString: CommandName(cmd.type)];
   if ((cmd.type == DDSCmdClick || cmd.type == DDSCmdDoubleClick ||
@@ -140,11 +140,11 @@ static NSString *CommandName(DSLCommandType t)
        cmd.type == DDSCmdHover || cmd.type == DDSCmdDrag) &&
       cmd.role != DDSRoleAny)
     {
-      [s appendFormat: @" %@", [[DSLRoleClassName(cmd.role) lowercaseString]
+      [s appendFormat: @" %@", [[UITestRoleClassName(cmd.role) lowercaseString]
         stringByReplacingOccurrencesOfString: @"ns" withString: @"ns"]];
     }
   if (cmd.type == DDSCmdScroll && cmd.role != DDSRoleAny)
-    [s appendFormat: @" %@", [[DSLRoleClassName(cmd.role) lowercaseString]
+    [s appendFormat: @" %@", [[UITestRoleClassName(cmd.role) lowercaseString]
       stringByReplacingOccurrencesOfString: @"ns" withString: @"ns"]];
   if (cmd.string) [s appendFormat: @" \"%@\"", cmd.string];
   if (cmd.type == DDSCmdRepeat && [[cmd words] count] > 0)
@@ -165,7 +165,7 @@ static NSString *CommandName(DSLCommandType t)
 
 /* Execute one command.  On success returns 0; otherwise an exit code and
  * reason.  This is the Executor.md "execute(node)" step. */
-- (int)execute:(DSLCommand *)cmd reason:(NSString **)reason
+- (int)execute:(UITestCommand *)cmd reason:(NSString **)reason
 {
   NSString *err = nil;
   NSDate *start = nil;
@@ -292,7 +292,7 @@ static NSString *CommandName(DSLCommandType t)
         ? 0 : DDSAccessibilityError;
       break;
     case DDSCmdWait:
-      SleepSeconds([DSLExecutor durationForString: cmd.string]);
+      SleepSeconds([UITestExecutor durationForString: cmd.string]);
       rc = 0;
       break;
     case DDSCmdWaitUntil:
@@ -393,7 +393,7 @@ static NSString *CommandName(DSLCommandType t)
         rc = [engine_ captureScreenshotToPath: cmd.string outPath: &outPath
           error: &err] ? 0 : DDSAccessibilityError;
         if (rc == 0 && outPath)
-          fprintf(stderr, "[dsl] screenshot saved to %s\n", [outPath UTF8String]);
+          fprintf(stderr, "[uitest] screenshot saved to %s\n", [outPath UTF8String]);
       }
       break;
     case DDSCmdRecord:
@@ -404,7 +404,7 @@ static NSString *CommandName(DSLCommandType t)
         NSString *tree = [engine_ widgetTreeText];
         if (!tree) { rc = DDSAccessibilityError; break; }
         NSString *label = cmd.string ?: @"";
-        fprintf(stderr, "[dsl] record %s\n%s\n", [label UTF8String], [tree UTF8String]);
+        fprintf(stderr, "[uitest] record %s\n%s\n", [label UTF8String], [tree UTF8String]);
       }
       rc = 0;
       break;
@@ -476,7 +476,7 @@ static NSString *CommandName(DSLCommandType t)
       }
       break;
     case DDSCmdLog:
-      fprintf(stderr, "[dsl] %s\n", [cmd.string ?: @"" UTF8String]);
+      fprintf(stderr, "[uitest] %s\n", [cmd.string ?: @"" UTF8String]);
       rc = 0;
       break;
     case DDSCmdOptions:
@@ -517,7 +517,7 @@ static NSString *CommandName(DSLCommandType t)
   if (!ref)
     {
       [frameRefs_ setObject: frame forKey: title];
-      fprintf(stderr, "[dsl] frame of window '%s' recorded: %s\n",
+      fprintf(stderr, "[uitest] frame of window '%s' recorded: %s\n",
         [title UTF8String], [frame UTF8String]);
       return YES;
     }
@@ -533,7 +533,7 @@ static NSString *CommandName(DSLCommandType t)
                && fabs (NSHeight (a) - NSHeight (b)) <= 2.0);
   if (same)
     {
-      fprintf(stderr, "[dsl] frame of window '%s' stable: %s\n",
+      fprintf(stderr, "[uitest] frame of window '%s' stable: %s\n",
         [title UTF8String], [frame UTF8String]);
       return YES;
     }
@@ -550,27 +550,34 @@ static NSString *CommandName(DSLCommandType t)
 {
   int rc = 0;
   int retries = 0;
-  for (DSLCommand *cmd in commands)
+  for (UITestCommand *cmd in commands)
     {
-      NSString *reason = nil;
-      rc = [self execute: cmd reason: &reason];
-      if (rc != 0)
+      /* Each command runs in its own autorelease pool: every drive_ui
+       * subprocess spawns pipes and file handles, and without a drain those
+       * fds accumulate for the whole script and a long one (e.g.
+       * menu_follows_app) exhausts the file-descriptor limit (EMFILE). */
+      @autoreleasepool
         {
-          if (!applyPolicy) return rc;
-          if ([policy_ caseInsensitiveCompare: @"continue"] == NSOrderedSame)
-            continue;
-          else if ([policy_ caseInsensitiveCompare: @"retry"] == NSOrderedSame &&
-                   retries < retryCount_)
+          NSString *reason = nil;
+          rc = [self execute: cmd reason: &reason];
+          if (rc != 0)
             {
-              retries++;
-              /* re-run the failed command */
-              rc = [self execute: cmd reason: &reason];
-              if (rc == 0) { retries = 0; continue; }
-              return rc;
+              if (!applyPolicy) return rc;
+              if ([policy_ caseInsensitiveCompare: @"continue"] == NSOrderedSame)
+                continue;
+              else if ([policy_ caseInsensitiveCompare: @"retry"] == NSOrderedSame &&
+                       retries < retryCount_)
+                {
+                  retries++;
+                  /* re-run the failed command */
+                  rc = [self execute: cmd reason: &reason];
+                  if (rc == 0) { retries = 0; continue; }
+                  return rc;
+                }
+              return rc;  /* stop (default) */
             }
-          return rc;  /* stop (default) */
+          retries = 0;
         }
-      retries = 0;
     }
   return 0;
 }

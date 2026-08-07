@@ -253,7 +253,7 @@ static NSString *LocalizeString(int pid, NSString *english)
 }
 
 /* Case-insensitive substring match that also accepts the localized spelling
- * of the needle (mirrors the DSL's title:matches:). */
+ * of the needle (mirrors the UITest's title:matches:). */
 static BOOL TitleMatches(int pid, NSString *title, NSString *segOrEnglish)
 {
   if ([title rangeOfString: segOrEnglish options: NSCaseInsensitiveSearch].location != NSNotFound)
@@ -492,7 +492,7 @@ static int AssertWidgets(int pid, NSString *wantClass, NSString *wantText,
 }
 
 /* Poll the widget tree until a condition holds or the timeout (seconds)
- * elapses.  Mirrors the DSL's `wait until`.  Returns 0 on success, 2 on
+ * elapses.  Mirrors the UITest's `wait until`.  Returns 0 on success, 2 on
  * timeout. */
 static int WaitUntil(int pid, NSString *wantClass, NSString *wantText,
                      NSNumber *wantTag, BOOL wantVisible, double timeout,
@@ -660,7 +660,7 @@ int main(int argc, const char *argv[])
       else if ([a isEqualToString: @"--text"] && i + 1 < [args count]) wantText = [args objectAtIndex: ++i];
       else if ([a isEqualToString: @"--tag"] && i + 1 < [args count]) wantTag = @(atoi([(NSString *)[args objectAtIndex: ++i] UTF8String]));
       else if ([a isEqualToString: @"--visible"]) wantVisible = YES;
-      else if ([a hasPrefix: @"objc:"]) idArg = a;
+      else if ([a hasPrefix: @"objc:"] || [a hasPrefix: @"row:"]) idArg = a;
     }
 
   if ([command isEqualToString: @"get_full_tree"])
@@ -1334,7 +1334,7 @@ int main(int argc, const char *argv[])
   else if ([command isEqualToString: @"sendkeys"])
     {
       /* sendkeys <text> - type text into the currently focused field without
-       * clicking first (used by drive_dsl `type "..."`, which types into the
+       * clicking first (used by run_uitest `type "..."`, which types into the
        * focused editable control). */
       NSMutableArray *positionals = [NSMutableArray array];
       for (NSUInteger i = 1; i < [args count]; i++)

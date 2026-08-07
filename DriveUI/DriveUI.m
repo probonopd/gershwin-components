@@ -25,7 +25,7 @@
  *
  *   full                      -> whole tree, one line per item
  *   get <object_id>           -> the text/title/string of one widget
- *   app                       -> the app's process name (for drive_dsl's
+ *   app                       -> the app's process name (for run_uitest's
  *                                `activate application "Name"` resolution)
  *   props <object_id>         -> enabled=1|0 state=0|1 for one widget
  *   menu                      -> main menu tree: depth\tindex\ttitle\tenabled\thas_submenu
@@ -224,18 +224,18 @@ static void WriteAll(int fd, const char *bytes)
                * performSelectorOnMainThread: only covers NSDefaultRunLoopMode
                * + NSConnectionReplyMode, so the connection would never be
                * serviced while a modal is up. */
-              DriveUIConnection *conn =
-                [[[DriveUIConnection alloc] initWithFD: cfd args: args] autorelease];
-              [self performSelectorOnMainThread: @selector(serviceConnection:)
-                                     withObject: conn
-                                  waitUntilDone: NO
-                                          modes: [NSArray arrayWithObjects:
-                                                   NSDefaultRunLoopMode,
-                                                   NSModalPanelRunLoopMode,
-                                                   NSEventTrackingRunLoopMode,
-                                                   nil]];
-              [cpool release];
-              continue;  /* main thread owns cfd from here on */
+               DriveUIConnection *conn =
+                 [[[DriveUIConnection alloc] initWithFD: cfd args: args] autorelease];
+               [self performSelectorOnMainThread: @selector(serviceConnection:)
+                                      withObject: conn
+                                   waitUntilDone: NO
+                                           modes: [NSArray arrayWithObjects:
+                                                    NSDefaultRunLoopMode,
+                                                    NSModalPanelRunLoopMode,
+                                                    NSEventTrackingRunLoopMode,
+                                                    nil]];
+               [cpool release];
+               continue;  /* main thread owns cfd from here on */
             }
         }
 
@@ -278,7 +278,7 @@ static void WriteAll(int fd, const char *bytes)
             }
           else if ([cmd isEqualToString: @"app"])
             {
-              /* Read-only app identity, for drive_dsl to resolve "activate
+              /* Read-only app identity, for run_uitest to resolve "activate
                * application <name>" to the matching DriveUI socket/PID. */
               NSString *name = [[NSProcessInfo processInfo] processName];
               if ([name length] == 0) name = @"unknown";
@@ -452,7 +452,7 @@ static void WriteAll(int fd, const char *bytes)
             }
           else if ([cmd isEqualToString: @"props"])
             {
-              /* Read-only control properties for drive_dsl assertions
+              /* Read-only control properties for run_uitest assertions
                * (enabled/checked): enabled=1|0  state=0|1 (NSOffState/NSOnState). */
               NSString *objID = ([parts count] > 1) ? [parts objectAtIndex: 1] : nil;
               id obj = [self objectForID: objID];
@@ -620,7 +620,7 @@ static void WriteAll(int fd, const char *bytes)
           else if ([cmd isEqualToString: @"localize"])
             {
               /* Read-only: translate an English UI string to the app's current
-               * language, so DSL scripts can be written in English and still
+               * language, so UITest scripts can be written in English and still
                * match a localized (e.g. German) UI.  The GNUstep `_(...)`
                * macro keys its .strings tables by the English string, so
                * localizedStringForKey: with the English key + English default
@@ -894,7 +894,14 @@ static NSString *ShortcutForItem(NSMenuItem *item)
     {
       NSString *text = @"";
       if ([view isKindOfClass: [NSTextField class]]) {
+        /* Empty text fields (e.g. a search field with nothing typed yet) fall
+         * back to their placeholder so scripts can still name them. */
         text = [(NSTextField *)view stringValue] ?: @"";
+        if ([text length] == 0) {
+          id ph = [[(NSTextField *)view cell] placeholderString];
+          if (ph && [ph isKindOfClass: [NSString class]] && [ph length] > 0)
+            text = ph;
+        }
       } else if ([view respondsToSelector: @selector(title)]) {
         id t = [view performSelector: @selector(title)];
         if (t && [t isKindOfClass: [NSString class]] && [t length] > 0) text = t;
@@ -915,6 +922,16 @@ static NSString *ShortcutForItem(NSMenuItem *item)
         screenFrame = NSStringFromRect(sf);
       }
 
+      /* A subview of a hidden (or orderOut'd) window is not on screen even
+       * though [view isHidden] is NO; inherit the window's visibility so
+       * `wait until not exists button ...` resolves a dismissed dialog. */
+      BOOL viewHidden = [view isHidden];
+      NSWindow *ownWin = [view window];
+      if (ownWin && ![ownWin isVisible])
+        {
+          viewHidden = YES;
+        }
+
       [items addObject: [NSArray arrayWithObjects:
                           [NSNumber numberWithInt: depth],
                           NSStringFromClass([view class]),
@@ -923,13 +940,80 @@ static NSString *ShortcutForItem(NSMenuItem *item)
                                                ? (int)[(NSControl *)view tag] : 0],
                           NSStringFromRect([view frame]),
                           screenFrame,
-                          [NSNumber numberWithInt: [view isHidden] ? 1 : 0],
+                          [NSNumber numberWithInt: viewHidden ? 1 : 0],
                           [self objectIDForObject: view],
                           nil]];
+
+      if ([view isKindOfClass: [NSTableView class]])
+        {
+          /* Table rows are not subviews, so they never appear in a plain
+           * subview walk; enumerate them so scripts can click them by the
+           * text shown in the first column. */
+          [self addTableRows: (NSTableView *)view depth: depth + 1 into: items];
+        }
 
       for (NSView *sub in [view subviews])
         {
           [self addView: sub depth: depth + 1 into: items];
+        }
+    }
+  @catch (NSException *e) { }
+}
+
+/* Emit one tree entry per table row (first-column text + on-screen rect) so
+ * driving commands can resolve and click rows by their visible label. */
+- (void)addTableRows:(NSTableView *)tv depth:(int)depth into:(NSMutableArray *)items
+{
+  @try
+    {
+      NSInteger numRows = [tv numberOfRows];
+      if (numRows == 0) return;
+      NSRange visible = [tv rowsInRect: [tv bounds]];
+      NSWindow *w = [tv window];
+      for (NSInteger r = 0; r < numRows; r++)
+        {
+          BOOL isVisible = (r >= (NSInteger)visible.location
+                            && r < (NSInteger)(visible.location + visible.length));
+          NSString *rowText = @"";
+          /* Cell-based tables give per-row text through the data source;
+           * preparedCellAtColumn:row: can return a stale shared cell. */
+          id ds = [tv dataSource];
+          if (ds && [ds respondsToSelector: @selector(tableView:objectValueForTableColumn:row:)])
+            {
+              NSArray *cols = [tv tableColumns];
+              NSTableColumn *col = ([cols count] > 0) ? [cols objectAtIndex: 0] : nil;
+              if (col)
+                {
+                  id value = [ds tableView: tv
+                     objectValueForTableColumn: col
+                                           row: r];
+                  if ([value isKindOfClass: [NSString class]]) rowText = value;
+                }
+            }
+          if ([rowText length] == 0)
+            {
+              NSCell *cell = [tv preparedCellAtColumn: 0 row: r];
+              if (cell) rowText = [cell stringValue] ?: @"";
+            }
+
+          NSString *screenFrame = @"";
+          if (w && isVisible)
+            {
+              NSRect rowRect = [tv rectOfRow: r];
+              NSRect screenRect = [w convertRectToScreen: [tv convertRect: rowRect toView: nil]];
+              screenFrame = NSStringFromRect(screenRect);
+            }
+
+          [items addObject: [NSArray arrayWithObjects:
+                              [NSNumber numberWithInt: depth],
+                              @"NSTableViewRow",
+                              rowText,
+                              [NSNumber numberWithInt: 0],
+                              NSStringFromRect([tv rectOfRow: r]),
+                              screenFrame,
+                              [NSNumber numberWithInt: isVisible ? 0 : 1],
+                              [NSString stringWithFormat: @"row:%p:%ld", tv, (long)r],
+                              nil]];
         }
     }
   @catch (NSException *e) { }

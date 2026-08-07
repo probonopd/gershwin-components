@@ -1,8 +1,8 @@
-#!/usr/bin/env drive_script
+#!/usr/bin/env run_uitest
 # Demonstrates the declarative control-flow commands (repeat, if/else,
 # macro/call) and that they need no running application.
 #
-# Run with: drive_script examples/control_flow.dsl
+# Run with: run_uitest Tests/control/control_flow.uitest
 set ATTEMPTS="3"
 
 macro report

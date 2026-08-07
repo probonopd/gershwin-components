@@ -1,6 +1,6 @@
-# GNUstep UI Automation DSL
+# GNUstep UI Automation UITest
 
-`drive_script` runs plain-language scripts that automate GNUstep
+`run_uitest` runs plain-language scripts that automate GNUstep
 applications.  You describe what should happen (open a window, choose a menu
 item, type text, check the result) and the tool drives the app's real UI on
 your X display.
@@ -21,7 +21,7 @@ log "About panel shown"
 Run it:
 
 ```text
-drive_script --drive-tool /System/Library/Tools/drive_ui script.dsl
+run_uitest --drive-tool /System/Library/Tools/drive_ui script.uitest
 ```
 
 The script exits `0` when every command succeeds and a non-zero code (see
@@ -31,7 +31,7 @@ Exit Codes) when something fails.
 
 The target application must be running with the DriveUI bundle loaded (Eau
 theme, `GSAppKitUserBundles`), `$DISPLAY` must point at your X session, and
-`drive_script` must find the `drive_ui` CLI (pass `--drive-tool` if it is not
+`run_uitest` must find the `drive_ui` CLI (pass `--drive-tool` if it is not
 `/System/Library/Tools/drive_ui`).
 
 ## Language basics
@@ -269,7 +269,7 @@ capture screenshot "workspace.png"
 ```
 
 Captures the whole screen to a PNG.  Without a filename the screenshot is
-written to `/tmp/drive_script-<timestamp>.png`.
+written to `/tmp/run_uitest-<timestamp>.png`.
 
 ### log
 
@@ -364,7 +364,7 @@ type "${PROJECT}"
 ## Includes
 
 ```text
-include "common.dsl"
+include "common.uitest"
 ```
 
 Loads another script (resolved relative to the including file) at that point.
@@ -435,12 +435,13 @@ capture screenshot "/tmp/about_this_computer_de.png"
 press Escape
 ```
 
-Find `examples/about_this_computer.dsl` and
-`examples/ueber_diesen_computer.dsl` in the `drive_script` source tree for
-these ready to run.
+Find `../workspace/Tests/about_this_computer.uitest` and
+`../workspace/Tests/ueber_diesen_computer.uitest` in the Workspace repository
+for these ready to run.
 
-Control flow needs no running application, so `examples/control_flow.dsl`
-demonstrates `repeat`, `if/else` and `macro`/`call` straight away:
+Control flow needs no running application, so
+`Tests/control/control_flow.uitest` demonstrates `repeat`, `if/else` and
+`macro`/`call` straight away:
 
 ```text
 macro report
@@ -458,7 +459,7 @@ end
 
 ## Design principles
 
-The DSL expresses intent: `click button "OK"` means "find the button the user
+The UITest expresses intent: `click button "OK"` means "find the button the user
 sees as OK and press it".  Scripts never name coordinates, object IDs, or
 widget hierarchies.  The executor and query engine isolate all GNUstep and X11
 details, so scripts stay short, readable, and stable across applications.

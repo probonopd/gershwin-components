@@ -3,11 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * GNUstep UI Automation DSL (Executor.md) - lexer, AST, parser and executor.
+ * GNUstep UI Automation UITest (Executor.md) - lexer, AST, parser and executor.
  *
  * The interpreter is deliberately split along the doc's architecture:
  *   Lexer  -> tokens
- *   Parser -> AST (DSLCommand nodes)
+ *   Parser -> AST (UITestCommand nodes)
  *   Executor -> walks the AST and translates each node into a semantic query
  *               answered by the QueryEngine (the drive_ui engine).
  * No GNUstep-specific logic lives in the executor; it only issues queries.
@@ -83,7 +83,7 @@ typedef enum
   DDSCmdMacro,
   DDSCmdCall,
   DDSCmdSetCount
-} DSLCommandType;
+} UITestCommandType;
 
 typedef enum
 {
@@ -116,10 +116,10 @@ typedef enum
   DDSRoleProgress,
   DDSRoleLabel,
   DDSRoleIcon
-} DSLRole;
+} UITestRole;
 
-NSString *DSLRoleClassName(DSLRole role);   /* maps a role to an ObjC class filter */
-DSLRole DSLRoleFromName(NSString *name);    /* maps the DSL role keyword to DSLRole */
+NSString *UITestRoleClassName(UITestRole role);   /* maps a role to an ObjC class filter */
+UITestRole UITestRoleFromName(NSString *name);    /* maps the UITest role keyword to UITestRole */
 
 typedef enum
 {
@@ -141,13 +141,13 @@ typedef enum
   DDSAssertXWindowCount,
   DDSAssertMenuBar,
   DDSAssertMenuBarNot
-} DSLAssertKind;
+} UITestAssertKind;
 
-@interface DSLCommand : NSObject
+@interface UITestCommand : NSObject
 {
-  DSLCommandType type_;
-  DSLRole role_;
-  DSLAssertKind assertKind_;
+  UITestCommandType type_;
+  UITestRole role_;
+  UITestAssertKind assertKind_;
   NSString *string_;       /* the quoted main string (title/text/path)   */
   NSString *string2_;      /* optional second string (e.g. assert target) */
   NSMutableArray *words_;  /* free-form word tokens for this command */
@@ -156,10 +156,10 @@ typedef enum
   NSUInteger line_;
   NSUInteger col_;
 }
-- (id)initWithType:(DSLCommandType)t line:(NSUInteger)line col:(NSUInteger)col;
-@property DSLCommandType type;
-@property DSLRole role;
-@property DSLAssertKind assertKind;
+- (id)initWithType:(UITestCommandType)t line:(NSUInteger)line col:(NSUInteger)col;
+@property UITestCommandType type;
+@property UITestRole role;
+@property UITestAssertKind assertKind;
 @property (retain) NSString *string;
 @property (retain) NSString *string2;
 @property (readonly) NSMutableArray *words;
@@ -170,7 +170,7 @@ typedef enum
 @end
 
 /* A parsed program: an ordered list of commands plus declared variables. */
-@interface DSLProgram : NSObject
+@interface UITestProgram : NSObject
 {
   NSMutableArray *commands_;
   NSMutableDictionary *variables_;
@@ -181,13 +181,13 @@ typedef enum
 @property (retain) NSString *currentDef;
 @end
 
-@interface DSLParser : NSObject
+@interface UITestParser : NSObject
 {
   NSMutableArray *blockStack_; /* nested repeat/if/macro block contexts */
 }
-- (DSLProgram *)parseFile:(NSString *)path error:(NSString **)err;
-- (DSLProgram *)parseString:(NSString *)text sourceName:(NSString *)name
-                     program:(DSLProgram *)prog error:(NSString **)err;
+- (UITestProgram *)parseFile:(NSString *)path error:(NSString **)err;
+- (UITestProgram *)parseString:(NSString *)text sourceName:(NSString *)name
+                     program:(UITestProgram *)prog error:(NSString **)err;
 @end
 
 /* ---------------------------------------------------------------------------
@@ -204,11 +204,11 @@ typedef enum
   DDSAssertFailed = 5
 } DDSExitCode;
 
-@class DSLExecutor;
+@class UITestExecutor;
 
 /* The QueryEngine hides all drive_ui/X11 interaction from the executor.
- * The DSL executor only translates AST nodes into these semantic calls. */
-@interface DSLQueryEngine : NSObject
+ * The UITest executor only translates AST nodes into these semantic calls. */
+@interface UITestQueryEngine : NSObject
 {
   int pid_;          /* target app pid (0 until resolveApplication:) */
   NSString *appName_;
@@ -224,22 +224,22 @@ typedef enum
 - (int)pid;
 - (NSString *)appName;
 
-- (BOOL)doesWidgetExist:(DSLRole)role title:(NSString *)title
+- (BOOL)doesWidgetExist:(UITestRole)role title:(NSString *)title
            contains:(NSString *)needle error:(NSString **)err;
 - (NSString *)frameOfWindowTitle:(NSString *)title error:(NSString **)err;
 - (BOOL)closeWindowTitle:(NSString *)title error:(NSString **)err;
 - (BOOL)invokeModalButton:(NSString *)which error:(NSString **)err;
-- (BOOL)clickRole:(DSLRole)role title:(NSString *)title
+- (BOOL)clickRole:(UITestRole)role title:(NSString *)title
           button:(int)button count:(int)count error:(NSString **)err;
-- (BOOL)hoverRole:(DSLRole)role title:(NSString *)title error:(NSString **)err;
-- (BOOL)contextMenuRole:(DSLRole)role title:(NSString *)title
+- (BOOL)hoverRole:(UITestRole)role title:(NSString *)title error:(NSString **)err;
+- (BOOL)contextMenuRole:(UITestRole)role title:(NSString *)title
               itemTitle:(NSString *)itemTitle error:(NSString **)err;
-- (BOOL)scrollRole:(DSLRole)role title:(NSString *)title
+- (BOOL)scrollRole:(UITestRole)role title:(NSString *)title
         direction:(NSString *)direction amount:(int)amount error:(NSString **)err;
-- (BOOL)dragRole:(DSLRole)role title:(NSString *)title
+- (BOOL)dragRole:(UITestRole)role title:(NSString *)title
             byX:(double)dx byY:(double)dy error:(NSString **)err;
 - (BOOL)selectMenuPath:(NSString *)path error:(NSString **)err;
-- (BOOL)assertMenuItemPath:(NSString *)path kind:(DSLAssertKind)kind
+- (BOOL)assertMenuItemPath:(NSString *)path kind:(UITestAssertKind)kind
                   shortcut:(NSString *)shortcut error:(NSString **)err;
 - (BOOL)assertXWindowCount:(NSString *)title op:(NSString *)op
                   expected:(int)expected error:(NSString **)err;
@@ -249,7 +249,7 @@ typedef enum
 - (BOOL)runCommandInRunDialog:(NSString *)command error:(NSString **)err;
 - (NSString *)localizeString:(NSString *)english;
 - (BOOL)type:(NSString *)text error:(NSString **)err;
-- (BOOL)clearRole:(DSLRole)role title:(NSString *)title error:(NSString **)err;
+- (BOOL)clearRole:(UITestRole)role title:(NSString *)title error:(NSString **)err;
 - (BOOL)pressKeyCombo:(NSString *)combo error:(NSString **)err;
 
 /* Dump the current visible widget tree as text (used by `record`).  Returns
@@ -258,7 +258,7 @@ typedef enum
 
 /* Read the live properties (enabled/checked) of the widget matching role+title.
  * Both out params may be NULL.  Uses drive_ui's read-only `props` command. */
-- (BOOL)propsForRole:(DSLRole)role title:(NSString *)title
+- (BOOL)propsForRole:(UITestRole)role title:(NSString *)title
              enabled:(BOOL *)enabled checked:(BOOL *)checked error:(NSString **)err;
 
 /* Capture the current screen to an X11 window shot.  path may be nil for a
@@ -266,22 +266,22 @@ typedef enum
 - (BOOL)captureScreenshotToPath:(NSString *)path outPath:(NSString **)outPath
                           error:(NSString **)err;
 
-- (BOOL)assertRole:(DSLRole)role title:(NSString *)title kind:(DSLAssertKind)kind
+- (BOOL)assertRole:(UITestRole)role title:(NSString *)title kind:(UITestAssertKind)kind
         needle:(NSString *)needle error:(NSString **)err;
 @end
 
-/* Walks DSLProgram.commands sequentially, applying the error policy. */
-@interface DSLExecutor : NSObject
+/* Walks UITestProgram.commands sequentially, applying the error policy. */
+@interface UITestExecutor : NSObject
 {
-  DSLProgram *program_;
-  DSLQueryEngine *engine_;
+  UITestProgram *program_;
+  UITestQueryEngine *engine_;
   NSString *policy_;      /* stop/continue/retry */
   int retryCount_;
   NSMutableString *log_;
   NSMutableDictionary *macros_; /* macro name -> body (built before running) */
   NSMutableDictionary *frameRefs_; /* window title -> first observed frame */
 }
-- (id)initWithProgram:(DSLProgram *)program engine:(DSLQueryEngine *)engine;
+- (id)initWithProgram:(UITestProgram *)program engine:(UITestQueryEngine *)engine;
 - (int)run;
 @property (readonly) NSString *log;
 @end
