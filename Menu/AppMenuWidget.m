@@ -224,9 +224,8 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [AppMenuWidget setCurrentWidget:self];
 
         /* Defer initial system-only menu until the run loop is live. */
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self setupInitialMenu];
-        });
+        [self performSelectorOnMainThread: @selector(setupInitialMenu)
+                               withObject: nil waitUntilDone: NO];
     }
     return self;
 }
@@ -526,9 +525,8 @@ static int handleX11Error(Display *display, XErrorEvent *event)
        mainMenuDidBeginTracking: makes the click path lag-free. */
     if (![self.protocolManager menuStatesAreFreshForWindow:windowId
                                                 withinTTL:STATE_REFRESH_TTL]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self.protocolManager refreshMenuStateForWindow:windowId];
-        });
+        [self performSelectorOnMainThread: @selector(refreshMenuStateOnMain:)
+                               withObject: @(windowId) waitUntilDone: NO];
     }
 
     /* Update application name from context. */
@@ -541,6 +539,16 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     } @finally {
         self.isInsideHandleFocusChange = NO;
     }
+}
+
+/* Deferred to the main run loop (performSelectorOnMainThread:).  Runs the
+   synchronous DO state refresh after the current event so the window switch
+   itself is not delayed; the freshness gate in mainMenuDidBeginTracking:
+   makes the click path lag-free. */
+- (void)refreshMenuStateOnMain:(NSNumber *)windowIdNum
+{
+    unsigned long windowId = [windowIdNum unsignedLongValue];
+    [self.protocolManager refreshMenuStateForWindow:windowId];
 }
 
 #pragma mark - Menu retry
@@ -1476,25 +1484,31 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [parentMenu performSelector:@selector(cancelTracking)];
     }
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    [NSThread detachNewThreadWithBlock: ^{
         NSArray *names = @[@"System Preferences", @"SystemPreferences", @"System-Preferences"];
+        BOOL launched = NO;
         for (NSString *name in names) {
-            if ([[NSWorkspace sharedWorkspace] launchApplication:name]) return;
+            if ([[NSWorkspace sharedWorkspace] launchApplication:name]) { launched = YES; break; }
         }
 
-        NSArray *paths = @[@"/System/Applications/System Preferences.app",
-                           @"/System/Applications/SystemPreferences.app",
-                           @"/Applications/System Preferences.app",
-                           @"/Applications/SystemPreferences.app"];
-        NSFileManager *fm = [NSFileManager defaultManager];
-        for (NSString *p in paths) {
-            if ([fm fileExistsAtPath:p]) {
-                [[NSWorkspace sharedWorkspace] openURL:[NSURL fileURLWithPath:p]];
-                return;
+        if (!launched) {
+            NSArray *paths = @[@"/System/Applications/System Preferences.app",
+                               @"/System/Applications/SystemPreferences.app",
+                               @"/Applications/System Preferences.app",
+                               @"/Applications/SystemPreferences.app"];
+            NSFileManager *fm = [NSFileManager defaultManager];
+            for (NSString *p in paths) {
+                if ([fm fileExistsAtPath:p]) {
+                    [[NSWorkspace sharedWorkspace] openURL:[NSURL fileURLWithPath:p]];
+                    launched = YES;
+                    break;
+                }
             }
         }
-        NSLog(@"AppMenuWidget: Could not find System Preferences to launch");
-    });
+        if (!launched) {
+            NSLog(@"AppMenuWidget: Could not find System Preferences to launch");
+        }
+    }];
 }
 
 #pragma mark - Power actions (Command menu)
@@ -1582,36 +1596,41 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [parentMenu performSelector:@selector(cancelTracking)];
     }
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    [NSThread detachNewThreadWithBlock: ^{
         NSWorkspace *ws = [NSWorkspace sharedWorkspace];
         NSString *bundleName = [[path lastPathComponent] stringByDeletingPathExtension];
 
         /* Try name-based lookup (works for apps in standard directories). */
-        if (bundleName && [ws launchApplication:bundleName]) return;
+        BOOL launched = NO;
+        if (bundleName && [ws launchApplication:bundleName]) launched = YES;
 
         /* Try full path (handles apps in subdirectories like Utilities/). */
-        if ([ws launchApplication:path]) return;
+        if (!launched && [ws launchApplication:path]) launched = YES;
 
         NSString *infoPath = [path stringByAppendingPathComponent:@"Contents/Info.plist"];
         NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:infoPath];
         NSString *bundleID = info[@"CFBundleIdentifier"];
-        if (bundleID && [ws launchApplication:bundleID]) return;
+        if (!launched && bundleID && [ws launchApplication:bundleID]) launched = YES;
 
         /* Launch directly via the executable inside the bundle. */
-        NSString *execName = info[@"CFBundleExecutable"];
-        if (execName)
-          {
-            NSString *execPath = [path stringByAppendingPathComponent:
-              [@"Contents/MacOS/" stringByAppendingString: execName]];
-            if ([[NSFileManager defaultManager] isExecutableFileAtPath: execPath])
+        if (!launched) {
+            NSString *execName = info[@"CFBundleExecutable"];
+            if (execName)
               {
-                [NSTask launchedTaskWithLaunchPath: execPath arguments: @[]];
-                return;
+                NSString *execPath = [path stringByAppendingPathComponent:
+                  [@"Contents/MacOS/" stringByAppendingString: execName]];
+                if ([[NSFileManager defaultManager] isExecutableFileAtPath: execPath])
+                  {
+                    [NSTask launchedTaskWithLaunchPath: execPath arguments: @[]];
+                    launched = YES;
+                  }
               }
-          }
+        }
 
-        NSLog(@"AppMenuWidget: Failed to launch application at %@", path);
-    });
+        if (!launched) {
+            NSLog(@"AppMenuWidget: Failed to launch application at %@", path);
+        }
+    }];
 }
 
 - (void)openFolderInWorkspace:(NSMenuItem *)sender
@@ -1626,7 +1645,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [parentMenu performSelector:@selector(cancelTracking)];
     }
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    [NSThread detachNewThreadWithBlock: ^{
         NSURL *fileURL = [NSURL fileURLWithPath:path];
         NSString *uri = [fileURL absoluteString];
 
@@ -1641,7 +1660,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
           {
             NSLog(@"AppMenuWidget: D-Bus ShowFolders call returned nil (FileManager1 not running?)");
           }
-    });
+    }];
 }
 
 - (void)closeActiveWindow:(NSMenuItem *)sender

@@ -1095,6 +1095,17 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             if (ret == 0) continue;
 
             for (int i = 0; i < nfds; i++) {
+                if (fds[i].fd < 0) continue;
+                /* A deleted/replaced input device leaves its fd permanently
+                 * readable with POLLHUP/POLLERR, so poll() returns immediately
+                 * and the loop busy-spins at 100% CPU.  Close the dead fd and
+                 * stop polling the slot (poll() ignores entries with fd < 0). */
+                if (fds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+                    close(fds[i].fd);
+                    _micMuteFDs[i] = -1;
+                    fds[i].fd = -1;
+                    continue;
+                }
                 if (fds[i].revents & POLLIN) {
                     struct input_event ev;
                     while (read(fds[i].fd, &ev, sizeof(ev)) == sizeof(ev)) {
@@ -1217,6 +1228,17 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             if (ret == 0) continue;
 
             for (int i = 0; i < nfds; i++) {
+                if (fds[i].fd < 0) continue;
+                /* A deleted/replaced input device leaves its fd permanently
+                 * readable with POLLHUP/POLLERR, so poll() returns immediately
+                 * and the loop busy-spins at 100% CPU.  Close the dead fd and
+                 * stop polling the slot (poll() ignores entries with fd < 0). */
+                if (fds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+                    close(fds[i].fd);
+                    _powerKeyFDs[i] = -1;
+                    fds[i].fd = -1;
+                    continue;
+                }
                 if (fds[i].revents & POLLIN) {
                     struct input_event ev;
                     while (read(fds[i].fd, &ev, sizeof(ev)) == sizeof(ev)) {

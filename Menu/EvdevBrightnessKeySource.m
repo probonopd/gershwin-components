@@ -317,6 +317,7 @@
 {
     @autoreleasepool {
         struct pollfd fds[MAX_DEVICES];
+        int srcIdx[MAX_DEVICES];   /* fds[] entry -> _deviceFDs[] slot */
         int nfds = 0;
 
         for (int i = 0; i < _deviceCount; i++) {
@@ -324,6 +325,7 @@
                 fds[nfds].fd = _deviceFDs[i];
                 fds[nfds].events = POLLIN;
                 fds[nfds].revents = 0;
+                srcIdx[nfds] = i;
                 nfds++;
             }
         }
@@ -343,6 +345,17 @@
             }
 
             for (int i = 0; i < nfds; i++) {
+                if (fds[i].fd < 0) continue;
+                /* A deleted/replaced input device leaves its fd permanently
+                 * readable with POLLHUP/POLLERR, so poll() returns immediately
+                 * and the loop busy-spins at 100% CPU.  Close the dead fd and
+                 * stop polling the slot (poll() ignores entries with fd < 0). */
+                if (fds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+                    close(fds[i].fd);
+                    _deviceFDs[srcIdx[i]] = -1;
+                    fds[i].fd = -1;
+                    continue;
+                }
                 if (!(fds[i].revents & POLLIN)) {
                     continue;
                 }

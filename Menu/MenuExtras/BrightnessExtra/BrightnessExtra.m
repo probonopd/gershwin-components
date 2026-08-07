@@ -242,7 +242,11 @@ static const BOOL kShowTextInMenuBar = NO;
             // Fall through to fallback
         }
     }
-    [[NSWorkspace sharedWorkspace] launchApplication:@"SystemPreferences"];
+    /* launchApplication: connects to the app via DO (blocking).  Keep it off
+       the main thread so the menu never freezes during the launch. */
+    [NSThread detachNewThreadWithBlock: ^{
+        [[NSWorkspace sharedWorkspace] launchApplication:@"SystemPreferences"];
+    }];
 }
 
 @end

@@ -290,33 +290,57 @@ static dispatch_once_t _sharedDisplayOnce;
     if (XGetWindowAttributes(display, (Window)windowId, &attrs) == Success) {
         /* Mapped (window and ancestors) and not an override-redirect popup. */
         if (attrs.map_state == IsViewable && !attrs.override_redirect) {
-            /* _NET_WM_WINDOW_TYPE: accept normal/dialog/utility or absent.
-             * NOTE: no WM_STATE requirement here - GNUstep windows under the
-             * Gershwin window manager do not carry WM_STATE, and requiring it
-             * made the active-window tracking reject them (menu stayed stuck
-             * on the previous app).  Chromium's unmanaged helper windows are
-             * kept out by the watchdog's no-active-window handling instead. */
-            Atom wmTypeAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE", True);
-            Atom wmTypeNormal = XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", False);
-            Atom wmTypeDialog = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
-            Atom wmTypeUtility = XInternAtom(display, "_NET_WM_WINDOW_TYPE_UTILITY", False);
-            BOOL typeOK = YES;
-            if (wmTypeAtom != None) {
-                Atom actualType; int actualFormat;
-                unsigned long nItems, bytesAfter;
-                unsigned char *prop = NULL;
-                if (XGetWindowProperty(display, (Window)windowId, wmTypeAtom, 0, 16,
-                                       False, XA_ATOM, &actualType, &actualFormat,
-                                       &nItems, &bytesAfter, &prop) == Success) {
-                    if (prop && nItems > 0) {
-                        Atom first = ((Atom *)prop)[0];
-                        typeOK = (first == wmTypeNormal || first == wmTypeDialog
-                                  || first == wmTypeUtility);
-                    }
-                    if (prop) XFree(prop);
+            /* WM-managed, or a GNUstep window.  Chromium keeps internal helper
+             * windows that look like normal toplevels (viewable, NORMAL type)
+             * but are neither WM-managed nor GNUstep - they must not be treated
+             * as app windows, otherwise the menu chases them and clears. */
+            BOOL managed = NO;
+            Atom wmStateAtom = XInternAtom(display, "WM_STATE", True);
+            if (wmStateAtom != None) {
+                Atom t2; int f2; unsigned long n2, b2; unsigned char *p2 = NULL;
+                if (XGetWindowProperty(display, (Window)windowId, wmStateAtom, 0, 1,
+                                       False, AnyPropertyType, &t2, &f2, &n2, &b2,
+                                       &p2) == Success && p2) {
+                    managed = YES;
+                    XFree(p2);
                 }
             }
-            real = typeOK;
+            if (!managed) {
+                Atom gsAtom = XInternAtom(display, "_GNUSTEP_WM_ATTR", True);
+                if (gsAtom != None) {
+                    Atom t3; int f3; unsigned long n3, b3; unsigned char *p3 = NULL;
+                    if (XGetWindowProperty(display, (Window)windowId, gsAtom, 0, 1,
+                                           False, AnyPropertyType, &t3, &f3, &n3, &b3,
+                                           &p3) == Success && p3) {
+                        managed = YES;
+                        XFree(p3);
+                    }
+                }
+            }
+            if (managed) {
+                /* _NET_WM_WINDOW_TYPE: accept normal/dialog/utility or absent. */
+                Atom wmTypeAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE", True);
+                Atom wmTypeNormal = XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", False);
+                Atom wmTypeDialog = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+                Atom wmTypeUtility = XInternAtom(display, "_NET_WM_WINDOW_TYPE_UTILITY", False);
+                BOOL typeOK = YES;
+                if (wmTypeAtom != None) {
+                    Atom actualType; int actualFormat;
+                    unsigned long nItems, bytesAfter;
+                    unsigned char *prop = NULL;
+                    if (XGetWindowProperty(display, (Window)windowId, wmTypeAtom, 0, 16,
+                                           False, XA_ATOM, &actualType, &actualFormat,
+                                           &nItems, &bytesAfter, &prop) == Success) {
+                        if (prop && nItems > 0) {
+                            Atom first = ((Atom *)prop)[0];
+                            typeOK = (first == wmTypeNormal || first == wmTypeDialog
+                                      || first == wmTypeUtility);
+                        }
+                        if (prop) XFree(prop);
+                    }
+                }
+                real = typeOK;
+            }
         }
     }
 
