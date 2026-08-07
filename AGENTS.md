@@ -31,8 +31,8 @@ to the SYSTEM domain unless noted.
 - `make_appimage/` is a GNUstep tool (`make_appimage`, `make_standalone`) that
   packs built `.app`/`.bundle` dirs into self-contained AppImages; uses
   `appimagetool` + `patchelf`.
-- `DriveUI/` and `UIBridge/` are separate UI-driving/test systems (drive_ui CLI
-  + DO-free bundle, and a DO-based server). Do not conflate them.
+- `UIBridge/` is a DO-based UI-driving server (separate from the DriveUI
+  uitest tooling, which moved to gershwin-developer). Do not conflate them.
 
 ## Target file pitfalls
 

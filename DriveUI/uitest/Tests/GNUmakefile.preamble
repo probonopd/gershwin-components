@@ -1,7 +1,0 @@
-ADDITIONAL_CPPFLAGS += -I$(GNUSTEP_MAKEFILES)/TestFramework
-
-# gnustep-tests regenerates GNUmakefile from its template when a preamble is
-# present; the generated makefile -include's this preamble before
-# test-tool.make, so NEEDS_GUI here makes the framework's build link the GUI
-# libraries that Testing.h uses (NSDateFormatter).
-NEEDS_GUI = yes
