@@ -203,7 +203,11 @@ static NSString *ConfigKey(NSString *key)
 
                 [_pendingRepos removeObjectForKey: repoStr];
                 if ([_pendingRepos count] == 0) {
-                    [self finishPoll];
+                    /* NSURLConnection may deliver its delegate callbacks on a
+                       background thread; the alert (runModal) must run on the
+                       main thread or its buttons never become clickable. */
+                    [self performSelectorOnMainThread: @selector(finishPoll)
+                                           withObject: nil waitUntilDone: NO];
                 }
                 return;
             }
@@ -221,7 +225,10 @@ static NSString *ConfigKey(NSString *key)
     _fetchError = YES;
     [_pendingRepos removeObjectForKey: repoStr];
     if ([_pendingRepos count] == 0) {
-        [self finishPoll];
+        /* Hop to the main thread: the alert's runModal needs the main event
+           loop (see connection:didReceiveData:). */
+        [self performSelectorOnMainThread: @selector(finishPoll)
+                               withObject: nil waitUntilDone: NO];
     }
 }
 
@@ -233,7 +240,8 @@ static NSString *ConfigKey(NSString *key)
 
     [_pendingRepos removeObjectForKey: repoStr];
     if ([_pendingRepos count] == 0) {
-        [self finishPoll];
+        [self performSelectorOnMainThread: @selector(finishPoll)
+                               withObject: nil waitUntilDone: NO];
     }
 }
 
@@ -631,7 +639,77 @@ static NSString *ConfigKey(NSString *key)
     if ([parts count] == 2) {
         NSString *urlStr = [NSString stringWithFormat: @"https://github.com/%@/%@/actions",
                              parts[0], parts[1]];
-        [[NSWorkspace sharedWorkspace] openURL: [NSURL URLWithString: urlStr]];
+        [self openURLInBrowser: [NSURL URLWithString: urlStr]];
+    }
+}
+
+/* Open a URL in the default browser without blocking the menu and without
+   popping an alert.  NSWorkspace openURL: makes a blocking DO connection to
+   the handler app and, when none is found, calls NSRunAlertPanel — which must
+   run on the main thread or the alert buttons never become clickable (and the
+   Eau theme can crash).  Instead resolve the browser ourselves and launch it
+   with NSTask: the task launch returns immediately, so the menu never freezes
+   while the browser runs, and no alert is ever shown.  This mirrors the
+   NetworkBrowser pattern and works on Linux and the BSDs. */
+- (void)openURLInBrowser:(NSURL *)url
+{
+    if (!url) return;
+
+    NSWorkspace *ws = [NSWorkspace sharedWorkspace];
+    NSString *appName = [ws getBestAppInRole: nil forScheme: [url scheme]];
+
+    NSString *launchPath = nil;
+    if (appName != nil) {
+        if ([appName isAbsolutePath]) {
+            if ([[NSFileManager defaultManager] isExecutableFileAtPath: appName]) {
+                launchPath = appName;
+            }
+        } else {
+            launchPath = [ws locateApplicationBinary: appName];
+        }
+    }
+
+    /* Fall back to a known browser when GNUstep has no registered handler
+       (make_services does not index plain /usr/bin browsers).  Search the
+       PATH directories directly - locateApplicationBinary: only consults the
+       make_services app cache and misses /usr/bin browsers. */
+    if (launchPath == nil) {
+        NSArray *candidates = @[@"firefox", @"firefox-esr", @"google-chrome",
+                                @"google-chrome-stable", @"chromium",
+                                @"chromium-browser", @"epiphany", @"midori"];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSString *pathEnv = [[[NSProcessInfo processInfo] environment]
+            objectForKey: @"PATH"];
+        NSArray *pathDirs = [pathEnv componentsSeparatedByString: @":"];
+        for (NSString *name in candidates) {
+            for (NSString *dir in pathDirs) {
+                if ([dir length] == 0) continue;
+                NSString *candidate = [dir stringByAppendingPathComponent: name];
+                if ([fm isExecutableFileAtPath: candidate]) {
+                    launchPath = candidate;
+                    break;
+                }
+            }
+            if (launchPath != nil) break;
+        }
+    }
+
+    if (launchPath == nil) {
+        NSLog(@"BuildMonitorExtra: no browser found to open %@", [url absoluteString]);
+        NSBeep();
+        return;
+    }
+
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath: launchPath];
+    [task setArguments: [NSArray arrayWithObject: [url absoluteString]]];
+    [task setStandardInput: [NSFileHandle fileHandleWithNullDevice]];
+    [task setStandardOutput: [NSFileHandle fileHandleWithNullDevice]];
+    [task setStandardError: [NSFileHandle fileHandleWithNullDevice]];
+    @try {
+        [task launch];
+    } @catch (NSException *e) {
+        NSLog(@"BuildMonitorExtra: failed to launch browser %@: %@", launchPath, e);
     }
 }
 
