@@ -109,6 +109,69 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
 
 @implementation GSAssistantWindow
 
+#pragma mark - Shared main menu
+
++ (void)setupMainMenu
+{
+  /* Assistant apps are single-window wizards that otherwise run without a
+   * menu bar, which leaves no way to quit with the standard Cmd+Q (the
+   * DriveUI test harness quits apps with `press "Cmd+Q"`).  Install a shared
+   * minimal menu (About, Quit, Edit) only when the app does not already have
+   * one, so an assistant that builds its own menu keeps it.  Auto-validation
+   * is disabled so the items are never greyed out. */
+  if ([NSApp mainMenu] != nil)
+    return;
+
+  NSString *appName = [[NSProcessInfo processInfo] processName];
+  NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@""];
+  [mainMenu setAutoenablesItems:NO];
+
+  /* Application menu: About only.  Quit belongs in the File menu (Gershwin
+   * convention for the assistants), so the app menu is just About. */
+  NSMenuItem *appItem = [[NSMenuItem alloc] initWithTitle: appName
+                                                   action: nil
+                                            keyEquivalent: @""];
+  NSMenu *appMenu = [[NSMenu alloc] initWithTitle: appName];
+  [appMenu addItemWithTitle: NSLocalizedString(@"About", @"About menu item")
+                     action: @selector(orderFrontStandardAboutPanel:)
+              keyEquivalent: @""];
+  [appItem setSubmenu: appMenu];
+  [mainMenu addItem: appItem];
+
+  /* File menu: Quit (Cmd+Q). */
+  NSMenuItem *fileItem = [[NSMenuItem alloc] initWithTitle:
+    NSLocalizedString(@"File", @"File menu title") action: nil keyEquivalent: @""];
+  NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:
+    NSLocalizedString(@"File", @"File menu title")];
+  [fileMenu addItemWithTitle: NSLocalizedString(@"Quit", @"Quit menu item")
+                      action: @selector(terminate:)
+               keyEquivalent: @"q"];
+  [fileItem setSubmenu: fileMenu];
+  [mainMenu addItem: fileItem];
+
+  NSMenuItem *editItem = [[NSMenuItem alloc] initWithTitle:
+    NSLocalizedString(@"Edit", @"Edit menu title") action: nil keyEquivalent: @""];
+  NSMenu *editMenu = [[NSMenu alloc] initWithTitle:
+    NSLocalizedString(@"Edit", @"Edit menu title")];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Undo", @"Undo menu item")
+                      action: @selector(undo:) keyEquivalent: @"z"];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Redo", @"Redo menu item")
+                      action: @selector(redo:) keyEquivalent: @"Z"];
+  [editMenu addItem: [NSMenuItem separatorItem]];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Cut", @"Cut menu item")
+                      action: @selector(cut:) keyEquivalent: @"x"];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Copy", @"Copy menu item")
+                      action: @selector(copy:) keyEquivalent: @"c"];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Paste", @"Paste menu item")
+                      action: @selector(paste:) keyEquivalent: @"v"];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Select All", @"Select All menu item")
+                      action: @selector(selectAll:) keyEquivalent: @"a"];
+  [editItem setSubmenu: editMenu];
+  [mainMenu addItem: editItem];
+
+  [NSApp setMainMenu: mainMenu];
+}
+
 #pragma mark - Properties
 
 - (NSMutableArray<id<GSAssistantStepProtocol>> *)steps {
@@ -179,6 +242,10 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         _windowHeight = windowHeight;
         _assistantTitle = [title copy];
         _assistantIcon = icon;
+
+        /* Assistant apps have no menu bar; install the shared minimal menu
+         * (About, Quit, Edit) so Cmd+Q works. */
+        [GSAssistantWindow setupMainMenu];
 
         _stepsArray = [[NSMutableArray alloc] initWithArray:steps];
         _currentIndex = 0;

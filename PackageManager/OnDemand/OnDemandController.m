@@ -547,8 +547,26 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
 {
   if (_launchPath)
     {
-      [[NSWorkspace sharedWorkspace] launchApplication:_launchPath];
+      /* launchApplication: connects to the target app via DO and can block
+         while it is starting.  Launch off the main thread so the UI does not
+         freeze; terminate afterwards, on the main thread, keeping order. */
+      NSString *path = _launchPath;
+      [NSThread detachNewThreadWithBlock: ^{
+        [[NSWorkspace sharedWorkspace] launchApplication:path];
+        [self performSelectorOnMainThread: @selector(terminateAfterLaunch:)
+                               withObject: nil waitUntilDone: NO];
+      }];
     }
+  else
+    {
+      [NSApp terminate:nil];
+    }
+}
+
+/* Runs on the main thread once the launched app has started. */
+- (void)terminateAfterLaunch:(id)unused
+{
+  (void)unused;
   [NSApp terminate:nil];
 }
 

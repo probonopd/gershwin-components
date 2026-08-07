@@ -2678,7 +2678,12 @@ static const CGFloat kStatusAreaHeight = 60;
     if (result == NSAlertFirstButtonReturn) {
         NSURL *url = [NSURL URLWithString:redirectURL];
         if (url) {
-            [[NSWorkspace sharedWorkspace] openURL:url];
+            /* NSWorkspace openURL: connects to the target app (the browser)
+               via DO and calls it synchronously; on the main thread that
+               would freeze the UI while the browser is busy.  Defer. */
+            [NSThread detachNewThreadWithBlock: ^{
+                [[NSWorkspace sharedWorkspace] openURL:url];
+            }];
         }
     }
 }

@@ -132,6 +132,11 @@ extern const CGFloat GSAssistantInstallerButtonAreaHeight;
                                 icon:(nullable NSImage *)icon
                                steps:(NSArray<id<GSAssistantStepProtocol>> *)steps;
 
+// Sets up the shared minimal main menu (About, Quit, Edit) for assistant apps
+// that otherwise run without a menu bar.  Called automatically when an
+// assistant window is created.
++ (void)setupMainMenu;
+
 // Step Management
 - (void)addStep:(id<GSAssistantStepProtocol>)step;
 - (void)insertStep:(id<GSAssistantStepProtocol>)step atIndex:(NSInteger)index;

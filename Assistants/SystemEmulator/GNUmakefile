@@ -11,6 +11,9 @@ endif
 
 include $(GNUSTEP_MAKEFILES)/common.make
 
+GNUSTEP_SYSTEM_APPS := $(GNUSTEP_SYSTEM_APPS)/Utilities
+GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
+
 APP_NAME = SystemEmulator
 VERSION = 0.1
 PACKAGE_NAME = SystemEmulator

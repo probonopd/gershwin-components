@@ -28,6 +28,7 @@ main(void)
     NSString *themeName = nil;
     NSMutableArray *frameworks = [NSMutableArray array];
     NSMutableArray *extraBundles = [NSMutableArray array];
+    BOOL deployTheme = YES;
     BOOL verbose = NO;
     BOOL showHelp = NO;
 
@@ -56,8 +57,7 @@ main(void)
         }
         else if ([arg isEqualToString:@"--no-theme"])
         {
-            // Handled below — we don't skip themes in standalone mode,
-            // but we accept the flag for script compatibility.
+            deployTheme = NO;
         }
         else if ([arg isEqualToString:@"--framework"])
         {
@@ -85,13 +85,13 @@ main(void)
         printf("Usage: make_standalone [options] <app-name>\n\n");
         printf("Packs an already-built .app bundle into a self-contained .app bundle.\n\n");
         printf("Options:\n");
-        printf("  -d <dir>      Working directory (default: /tmp/standalone-<app>)\n");
-        printf("  --theme <name>  Deploy only the specified theme\n");
-        printf("  --no-theme      Skip theme deployment\n");
+        printf("  -d <dir>           Working directory (default: /tmp/standalone-<app>)\n");
+        printf("  --theme <name>     Deploy only the specified theme\n");
+        printf("  --no-theme         Skip theme deployment\n");
         printf("  --framework <name>  Deploy specified framework (repeatable)\n");
         printf("  --extra-bundle <name>  Deploy additional bundle (repeatable)\n");
-        printf("  -v, --verbose  Verbose output\n");
-        printf("  -h             Show help\n");
+        printf("  -v, --verbose      Verbose output\n");
+        printf("  -h                 Show help\n");
         return (appName == nil && !showHelp) ? 1 : 0;
     }
 
@@ -101,7 +101,7 @@ main(void)
         buildDir = [NSString stringWithFormat:@"/tmp/standalone-%@", appName];
     [builder setBuildDirectory:buildDir];
     [builder setStandalone:YES];
-    [builder setDeployTheme:YES];
+    [builder setDeployTheme:deployTheme];
     if (themeName != nil)
         [builder setThemeName:themeName];
     if ([frameworks count] > 0)

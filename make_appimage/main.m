@@ -122,20 +122,20 @@ main(void)
         printf("Usage: make_appimage [options] <app-name>\n\n");
         printf("Packs an already-built .app bundle into a self-contained AppImage.\n\n");
         printf("Options:\n");
-        printf("  -o <file>     Output AppImage filename\n");
-        printf("  -d <dir>      Working directory for AppDir build (default: /tmp/appimage-<app>)\n");
-        printf("  -c <comment>  Comment for .desktop file\n");
-        printf("  -C <cat>      Categories for .desktop file (e.g. \"Utility;\")\n");
-        printf("  -e <path>     Main executable relative to AppDir (auto-detected)\n");
-        printf("  -t <tool>     Path to appimagetool (default: appimagetool in PATH)\n");
-        printf("  -s            Standalone mode: bundle all libraries (default)\n");
-        printf("  --no-standalone  Use exclusion list for system libs (smaller output)\n");
-        printf("  --theme <name>  Deploy only the specified theme\n");
-        printf("  --no-theme      Skip theme deployment entirely\n");
-        printf("  --framework <name>  Deploy specified framework (repeatable); if unset, auto-detect\n");
+        printf("  -o <file>            Output AppImage filename\n");
+        printf("  -d <dir>             Working directory for AppDir build (default: /tmp/appimage-<app>)\n");
+        printf("  -c <comment>         Comment for .desktop file\n");
+        printf("  -C <cat>             Categories for .desktop file (e.g. \"Utility;\")\n");
+        printf("  -e <path>            Main executable relative to AppDir (auto-detected)\n");
+        printf("  -t <tool>            Path to appimagetool (default: appimagetool in PATH)\n");
+        printf("  -s, --standalone     Bundle all libraries (default)\n");
+        printf("  --no-standalone      Use exclusion list for system libs (smaller output)\n");
+        printf("  --theme <name>       Deploy only the specified theme\n");
+        printf("  --no-theme           Skip theme deployment entirely\n");
+        printf("  --framework <name>   Deploy specified framework (repeatable); if unset, auto-detect\n");
         printf("  --extra-bundle <name>  Deploy additional bundle (repeatable); e.g. ImageThumbnailer.thumb\n");
-        printf("  -v, --verbose Verbose output\n");
-        printf("  -h            Show help\n");
+        printf("  -v, --verbose        Verbose output\n");
+        printf("  -h                   Show help\n");
         return (appName == nil && !showHelp) ? 1 : 0;
     }
 

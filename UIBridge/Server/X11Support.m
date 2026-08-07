@@ -172,7 +172,9 @@ static int NonFatalXError(Display *dpy, XErrorEvent *e) {
     // WM_STATE is set by the window manager on the windows it manages.
     // Chromium keeps unmanaged internal helper windows (which look like normal
     // toplevels but are not WM-managed); excluding them keeps whole-display
-    // scans and the menu's active-window tracking off them.
+    // scans and the menu's active-window tracking off them.  GNUstep windows
+    // under the Gershwin WM may lack WM_STATE but always carry
+    // _GNUSTEP_WM_ATTR, so accept either.
     BOOL wmManaged = NO;
     Atom atomWMState = XInternAtom(d, "WM_STATE", True);
     if (atomWMState != None) {
@@ -185,6 +187,21 @@ static int NonFatalXError(Display *dpy, XErrorEvent *e) {
                                &actualType, &actualFormat, &nItems, &bytesAfter, &prop) == Success) {
             wmManaged = (prop != NULL);
             if (prop) XFree(prop);
+        }
+    }
+    if (!wmManaged) {
+        Atom gsAtom = XInternAtom(d, "_GNUSTEP_WM_ATTR", True);
+        if (gsAtom != None) {
+            Atom actualType;
+            int actualFormat;
+            unsigned long nItems;
+            unsigned long bytesAfter;
+            unsigned char *prop = NULL;
+            if (XGetWindowProperty(d, w, gsAtom, 0, 1, False, AnyPropertyType,
+                                   &actualType, &actualFormat, &nItems, &bytesAfter, &prop) == Success) {
+                wmManaged = (prop != NULL);
+                if (prop) XFree(prop);
+            }
         }
     }
 
@@ -214,6 +231,7 @@ static int NonFatalXError(Display *dpy, XErrorEvent *e) {
     if (!info) return NO;
     if ([[info objectForKey: @"map_state"] intValue] != 2) return NO; // IsViewable
     if ([[info objectForKey: @"override_redirect"] boolValue]) return NO;
+    if (![[info objectForKey: @"wm_managed"] boolValue]) return NO; // WM-managed or GNUstep
     NSString *type = [info objectForKey: @"net_wm_type"] ?: @"";
     if ([type length] == 0) return YES;
     if ([type hasPrefix: @"_NET_WM_WINDOW_TYPE_NORMAL"]

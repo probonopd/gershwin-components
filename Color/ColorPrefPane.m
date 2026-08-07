@@ -408,7 +408,12 @@
 - (void)openCalibrator:(id)sender
 {
     NSString *path = @"/System/Applications/Utilities/ColorAssistant.app";
-    [[NSWorkspace sharedWorkspace] launchApplication:path];
+    /* launchApplication: connects to the target app via DO and can block
+       while it is starting.  Keep it off the main thread so the pref pane
+       UI never freezes during the launch. */
+    [NSThread detachNewThreadWithBlock: ^{
+        [[NSWorkspace sharedWorkspace] launchApplication:path];
+    }];
 }
 
 @end
