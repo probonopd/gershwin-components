@@ -1,0 +1,17 @@
+#!/usr/bin/env run_uitest
+# CreateLiveMediaAssistant: the live-medium creation wizard must start, show
+# its window and its main menu, then quit with the standard Cmd+Q shortcut.
+# Nothing is written - the wizard is only opened and inspected.
+#
+# Leaves the computer as it was found: the app is quit at the end.
+#
+# Run with: run_uitest Assistants/CreateLiveMediaAssistant/Tests/create_live_media.uitest
+launch application "CreateLiveMediaAssistant"
+wait until window "Create Live Media" timeout 5s
+assert window "Create Live Media"
+assert menu item "CreateLiveMediaAssistant/About" exists
+assert menu item "File/Quit" enabled
+assert menu item "File/Quit" shortcut "Cmd+Q"
+press "Cmd+Q"
+wait until not exists window "Create Live Media" timeout 5s
+log "CreateLiveMediaAssistant starts, shows its wizard and quits"

@@ -51,3 +51,6 @@ core.**.AppImage
 Menu/Resources/wlanauth
 make_appimage/AppRun
 _pmsrc/
+tests.sum
+oldtests.sum
+oldtests.log

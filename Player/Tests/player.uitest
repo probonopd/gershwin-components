@@ -1,0 +1,19 @@
+#!/usr/bin/env run_uitest
+# Player: the media player must start, show its window and its playback
+# controls, then quit with the standard Cmd+Q shortcut.
+#
+# Leaves the computer as it was found: the app is quit at the end.
+#
+# Run with: run_uitest Player/Tests/player.uitest
+launch application "Player"
+wait until window "Player" timeout 5s
+assert window "Player"
+assert text contains "No file loaded"
+assert button "Mute"
+assert button "Open..."
+assert menu item "Player/Quit Player" shortcut "Cmd+Q"
+assert menu item "File/Open File..." shortcut "Cmd+O"
+assert menu item "Edit/Copy" shortcut "Cmd+C"
+press "Cmd+Q"
+wait until not exists window "Player" timeout 5s
+log "Player starts, shows its controls and quits"

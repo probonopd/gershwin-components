@@ -1,0 +1,18 @@
+#!/usr/bin/env run_uitest
+# Stickies: the sticky-notes app must start, show a note window and its main
+# menu, then quit with the standard Cmd+Q shortcut.
+#
+# Leaves the computer as it was found: the app is quit at the end.
+#
+# Run with: run_uitest Stickies/Tests/stickies.uitest
+launch application "Stickies"
+wait until window "Sticky Note" timeout 5s
+assert window "Sticky Note"
+assert menu item "Stickies/About Stickies" exists
+assert menu item "Stickies/Quit Stickies" exists
+assert menu item "Stickies/Quit Stickies" shortcut "Cmd+Q"
+assert menu item "File/New Note" shortcut "Cmd+N"
+assert menu item "Edit/Copy" shortcut "Cmd+C"
+press "Cmd+Q"
+wait until not exists window "Sticky Note" timeout 5s
+log "Stickies starts, shows its menu and quits"

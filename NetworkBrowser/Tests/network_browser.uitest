@@ -1,0 +1,17 @@
+#!/usr/bin/env run_uitest
+# NetworkBrowser: the network/neighborhood browser must start, show its
+# window and its main menu, then quit with the standard Cmd+Q shortcut.
+#
+# Leaves the computer as it was found: the app is quit at the end.
+#
+# Run with: run_uitest NetworkBrowser/Tests/network_browser.uitest
+launch application "NetworkBrowser"
+wait until window "Network Browser" timeout 5s
+assert window "Network Browser"
+assert menu item "NetworkBrowser/About Network Browser" exists
+assert menu item "NetworkBrowser/Quit Network Browser" exists
+assert menu item "NetworkBrowser/Quit Network Browser" shortcut "Cmd+Q"
+assert menu item "File/Open" exists
+press "Cmd+Q"
+wait until not exists window "Network Browser" timeout 5s
+log "NetworkBrowser starts, shows its menu and quits"

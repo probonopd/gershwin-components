@@ -1,0 +1,17 @@
+#!/usr/bin/env run_uitest
+# ColorAssistant: the display-calibrator assistant must start, show its
+# wizard and its main menu, then quit with the standard Cmd+Q shortcut.
+#
+# Leaves the computer as it was found: the app is quit at the end.
+#
+# Run with: run_uitest Assistants/ColorAssistant/Tests/color_assistant.uitest
+launch application "ColorAssistant"
+wait until window "Display Calibrator Assistant" timeout 5s
+assert window "Display Calibrator Assistant"
+assert text contains "Calibrate your display for accurate colors."
+assert menu item "ColorAssistant/About" exists
+assert menu item "File/Quit" enabled
+assert menu item "File/Quit" shortcut "Cmd+Q"
+press "Cmd+Q"
+wait until not exists window "Display Calibrator Assistant" timeout 5s
+log "ColorAssistant starts, shows its wizard and quits"
