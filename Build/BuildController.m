@@ -167,9 +167,17 @@ static const CGFloat kSpace16 = 16.0;
     return self;
 }
 
-- (void)setupMenu
+/* Build's main menu is set once at application startup (see
+ * BuildApplication applicationDidFinishLaunching), so every window - the
+ * catalog and the build workflow alike - has a working menu bar with the
+ * standard Cmd+Q quit.  Menu auto-validation is disabled so the items are
+ * never greyed out; the actions are standard responder-chain actions. */
++ (void)setupMainMenu
 {
+    if ([NSApp mainMenu] != nil) return;   /* built once in applicationDidFinishLaunching */
+
     NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@""];
+    [mainMenu setAutoenablesItems:NO];
 
     /* Application Menu */
     NSString *appName = [[NSProcessInfo processInfo] processName];
@@ -339,7 +347,7 @@ static const CGFloat kSpace16 = 16.0;
     }
 
     NSLog(@"showWindow: calling setupMenu");
-    [self setupMenu];
+    [BuildController setupMainMenu];
 
     if (makefilePath) {
         NSLog(@"showWindow: calling createProgressWindow");
@@ -359,7 +367,7 @@ static const CGFloat kSpace16 = 16.0;
     }
 
     NSLog(@"showProgressWindow: calling setupMenu");
-    [self setupMenu];
+    [BuildController setupMainMenu];
 
     NSLog(@"showProgressWindow: calling createProgressWindow");
     [self createProgressWindow];
@@ -941,7 +949,7 @@ static const CGFloat kSpace16 = 16.0;
 
     NSInteger result = [openPanel runModal];
     if (result != NSModalResponseOK) {
-        [NSApp terminate:self];
+        [self quitCleanly];
         return;
     }
 
@@ -1045,7 +1053,7 @@ static const CGFloat kSpace16 = 16.0;
         } else {
             [_logController appendLog:[NSString stringWithFormat:
                 @"\n=== Build failed (exit %d) ===\n\n", status]];
-            [NSApp terminate:self];
+            [self quitCleanly];
         }
         return;
     }
@@ -1141,20 +1149,43 @@ static const CGFloat kSpace16 = 16.0;
         NSLog(@"buildFinished: Install");
         [self startInstallWithLaunch:NO];
     } else if (status == 0) {
-        NSLog(@"buildFinished: OK -> quit");
+        NSLog(@"buildFinished: OK");
         [self cleanupTempDir];
-        [NSApp stop:self];
-        [NSApp terminate:self];
+        [self quitCleanly];
     } else if (status != 0 && button == NSAlertSecondButtonReturn) {
         NSLog(@"buildFinished: Show Build Log");
         [self showLog:nil];
     } else {
-        NSLog(@"buildFinished: Cancel -> quit");
+        NSLog(@"buildFinished: Cancel");
         [self cleanupTempDir];
-        [NSApp stop:self];
-        [NSApp terminate:self];
+        [self quitCleanly];
     }
     NSLog(@"buildFinished: done");
+}
+
+/* Quit the app after the result alert has fully unwound.  The Eau alert
+ * panel stops its modal on the next run loop pass and the panel is still
+ * being torn down while the button handler runs; terminating synchronously
+ * then closes the panel mid-teardown and the window churn crashes the
+ * desktop's window tracking (Workspace/Menu die flooded with BadWindow).
+ * Terminating from a later, idle run loop pass (the same state a SIGTERM
+ * finds) is clean.  Every finish path - OK/Cancel, install, launch, clone
+ * failure - quits through here. */
+- (void)quitCleanly
+{
+    [BuildController scheduleQuit];
+}
+
++ (void)scheduleQuit
+{
+    [NSApp performSelector:@selector(terminate:)
+                withObject:nil
+                afterDelay:0.5
+                   inModes:[NSArray arrayWithObjects:
+                     NSDefaultRunLoopMode,
+                     NSModalPanelRunLoopMode,
+                     NSEventTrackingRunLoopMode,
+                     nil]];
 }
 
 #pragma mark - Install
@@ -1286,8 +1317,7 @@ static const CGFloat kSpace16 = 16.0;
             return;
         }
         [self cleanupTempDir];
-        [NSApp stop:self];
-        [NSApp terminate:self];
+        [self quitCleanly];
         return;
     }
 
@@ -1312,16 +1342,19 @@ static const CGFloat kSpace16 = 16.0;
                 productPath = [[NSWorkspace sharedWorkspace] fullPathForApplication:name];
             }
             if (productPath) {
-                if ([ext isEqualToString:@"prefPane"]) {
-                    [[NSWorkspace sharedWorkspace] launchApplication:@"SystemPreferences"];
-                } else {
-                    [[NSWorkspace sharedWorkspace] launchApplication:name];
-                }
-                if (!self.keepBuildDir) {
-                    [self cleanupCatalogBuildDir];
-                }
-                [self cleanupTempDir];
-                [NSApp terminate:self];
+                /* launchApplication: connects to the target app via DO and can
+                   block while the freshly installed app is starting.  Run the
+                   launch off the main thread so the UI does not freeze; the
+                   terminate/cleanup that follows stays ordered after it. */
+                [NSThread detachNewThreadWithBlock: ^{
+                    if ([ext isEqualToString:@"prefPane"]) {
+                        [[NSWorkspace sharedWorkspace] launchApplication:@"SystemPreferences"];
+                    } else {
+                        [[NSWorkspace sharedWorkspace] launchApplication:name];
+                    }
+                    [self performSelectorOnMainThread: @selector(finishLaunchAndExit:)
+                                           withObject: nil waitUntilDone: NO];
+                }];
                 return;
             }
         }
@@ -1334,12 +1367,7 @@ static const CGFloat kSpace16 = 16.0;
     }
 
     [self cleanupTempDir];
-    [NSApp terminate:self];
-}
-
-- (void)terminateAfterDelay
-{
-    [NSApp terminate:self];
+    [self quitCleanly];
 }
 
 - (NSString *)displayNameFromMakefile
@@ -1866,6 +1894,19 @@ static const CGFloat kSpace16 = 16.0;
         [[NSFileManager defaultManager] removeItemAtPath:self.buildDir error:NULL];
         self.buildDir = nil;
     }
+}
+
+/* Runs on the main thread after the launched app has started (see the
+   install-and-launch path): finish cleanup and exit.  Split out so the
+   potentially blocking NSWorkspace launch can run on a background thread. */
+- (void)finishLaunchAndExit:(id)unused
+{
+    (void)unused;
+    if (!self.keepBuildDir) {
+        [self cleanupCatalogBuildDir];
+    }
+    [self cleanupTempDir];
+    [self quitCleanly];
 }
 
 - (NSDictionary *)gnustepInfo
@@ -2406,11 +2447,11 @@ static const CGFloat kSpace16 = 16.0;
             [installTask terminate];
         }
         [[NSNotificationCenter defaultCenter] removeObserver:self];
-        [NSApp terminate:self];
+        [self quitCleanly];
     } else if (closingWindow == [_logController window]) {
         BOOL busy = (buildTask && [buildTask isRunning]) || (installTask && [installTask isRunning]);
         if (!busy) {
-            [NSApp terminate:self];
+            [self quitCleanly];
         }
     }
 }

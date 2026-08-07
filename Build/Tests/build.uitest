@@ -1,0 +1,36 @@
+#!/usr/bin/env run_uitest
+# Build: the build/installer app must start, show its window and its build
+# controls, build World Clock from the catalog, verify the success alert,
+# dismiss it with OK, then quit with the standard Cmd+Q shortcut.
+#
+# The build clones World Clock and runs make, which takes a while; the success
+# alert appears once the app has been built.
+#
+# Run with: run_uitest Build/Tests/build.uitest
+launch application "Build"
+wait until window "Build" timeout 5s
+assert window "Build"
+assert button "Build"
+assert button "Open…"
+assert menu item "Build/About" exists
+assert menu item "Build/Quit" enabled
+assert menu item "Build/Quit" shortcut "Cmd+Q"
+assert menu item "Edit/Copy" shortcut "Cmd+C"
+
+# Filter the catalog down to World Clock, select it and build it.
+click textfield "Filter…"
+type "World Clock"
+wait until row "World Clock" timeout 5s
+click row "World Clock"
+click button "Build"
+
+# The build runs to completion and offers to install the built app.  OK
+# dismisses the alert and must cleanly shut the app down again (the built app
+# is not installed, Build quits itself).
+wait until button "OK" timeout 180s
+assert button "OK"
+click button "OK"
+wait until not exists button "OK" timeout 5s
+wait until not exists window "Build" timeout 5s
+wait until not exists application "Build" timeout 5s
+log "Build filters the catalog, builds World Clock, OK cleanly quits the app"

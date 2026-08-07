@@ -92,6 +92,11 @@ static NSString *toolPath(NSString *name)
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
+    /* Build's main menu must be present for every launch path (the catalog
+     * window and the makefile workflow alike); the catalog path never created
+     * a BuildController before showing its window, so without this the app
+     * ran with no menu bar. */
+    [BuildController setupMainMenu];
 }
 
 - (void)startBuildWorkflow
@@ -212,7 +217,7 @@ static NSString *toolPath(NSString *name)
                 [alert setInformativeText:[NSString stringWithFormat:NSLocalizedString(@"git clone failed: %@", @"Alert: git clone error with reason"), [e reason]]];
                 [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                 [alert runModal];
-                [NSApp terminate:nil];
+                [BuildController scheduleQuit];
             });
         }
 
@@ -225,7 +230,7 @@ static NSString *toolPath(NSString *name)
                 [alert setInformativeText:NSLocalizedString(@"git clone returned an error.", @"Alert: git clone error")];
                 [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                 [alert runModal];
-                [NSApp terminate:nil];
+                [BuildController scheduleQuit];
             });
         }
 
@@ -258,7 +263,7 @@ static NSString *toolPath(NSString *name)
                     [alert setInformativeText:NSLocalizedString(@"The cloned repository does not contain a GNUmakefile or Makefile.", @"Alert: no makefile in clone")];
                     [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                     [alert runModal];
-                    [NSApp terminate:nil];
+                    [BuildController scheduleQuit];
                 });
             } else {
                 dispatch_async(dispatch_get_main_queue(), ^{
