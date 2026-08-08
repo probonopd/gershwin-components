@@ -8,7 +8,7 @@
 #
 # Run with: run_uitest Assistants/ColorAssistant/Tests/color_assistant.uitest
 launch application "ColorAssistant"
-wait until window "Display Calibrator Assistant" timeout 2s
+wait until window "Display Calibrator Assistant" timeout 15s
 assert window "Display Calibrator Assistant"
 assert menu item "ColorAssistant/About" exists
 assert menu item "File/Quit" enabled

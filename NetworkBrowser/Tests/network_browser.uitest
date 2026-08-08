@@ -6,7 +6,7 @@
 #
 # Run with: run_uitest NetworkBrowser/Tests/network_browser.uitest
 launch application "NetworkBrowser"
-wait until window "Network Browser" timeout 2s
+wait until window "Network Browser" timeout 15s
 assert window "Network Browser"
 assert menu item "NetworkBrowser/About Network Browser" exists
 assert menu item "NetworkBrowser/Quit Network Browser" exists

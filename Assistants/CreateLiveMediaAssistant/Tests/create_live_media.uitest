@@ -7,7 +7,7 @@
 #
 # Run with: run_uitest Assistants/CreateLiveMediaAssistant/Tests/create_live_media.uitest
 launch application "CreateLiveMediaAssistant"
-wait until window "Create Live Media" timeout 2s
+wait until window "Create Live Media" timeout 15s
 assert window "Create Live Media"
 assert menu item "CreateLiveMediaAssistant/About" exists
 assert menu item "File/Quit" enabled

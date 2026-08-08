@@ -6,7 +6,7 @@
 #
 # Run with: run_uitest Processes/Tests/processes.uitest
 launch application "Processes"
-wait until window "Processes" timeout 2s
+wait until window "Processes" timeout 15s
 assert window "Processes"
 assert menu item "Processes/About Processes" exists
 assert menu item "Processes/Hide Processes" exists

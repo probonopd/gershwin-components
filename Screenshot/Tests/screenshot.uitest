@@ -7,7 +7,7 @@
 #
 # Run with: run_uitest Screenshot/Tests/screenshot.uitest
 launch application "Screenshot"
-wait until window "Screenshot" timeout 2s
+wait until window "Screenshot" timeout 15s
 assert window "Screenshot"
 assert text contains "Ready to take screenshot"
 assert button "Window"

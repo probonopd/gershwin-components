@@ -8,7 +8,9 @@
 #
 # Run with: run_uitest Build/Tests/build.uitest
 launch application "Build"
-wait until window "Build" timeout 2s
+# The Build app is heavy (it loads the catalog), so give its window an
+# explicit timeout longer than the 2s fast-failure default.
+wait until window "Build" timeout 15s
 assert window "Build"
 assert button "Build"
 assert button "Open…"

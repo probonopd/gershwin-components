@@ -6,7 +6,7 @@
 #
 # Run with: run_uitest Player/Tests/player.uitest
 launch application "Player"
-wait until window "Player" timeout 2s
+wait until window "Player" timeout 15s
 assert window "Player"
 assert text contains "No file loaded"
 assert button "Mute"

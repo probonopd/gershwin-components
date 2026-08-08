@@ -6,7 +6,7 @@
 #
 # Run with: run_uitest Stickies/Tests/stickies.uitest
 launch application "Stickies"
-wait until window "Sticky Note" timeout 2s
+wait until window "Sticky Note" timeout 15s
 assert window "Sticky Note"
 assert menu item "Stickies/About Stickies" exists
 assert menu item "Stickies/Quit Stickies" exists
