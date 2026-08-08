@@ -12,10 +12,11 @@
 activate application "Workspace"
 
 # Launch xterm and Processes through the Run dialog.  xterm's window title
-# is its shell's prompt (user@host:dir) by default, so give it an explicit
-# "-T xterm" title the test can find.  These take a few seconds to appear,
-# so give them an explicit timeout longer than the 2s default.
-run "xterm -T xterm"
+# defaults to its shell's prompt (user@host:dir), which the test cannot match,
+# so give it an explicit "-T xterm" title and run /bin/sh (which - unlike
+# bash - does not overwrite it).  These take a few seconds to appear, so give
+# them an explicit timeout longer than the 2s default.
+run "xterm -T xterm -e /bin/sh"
 wait until xwindow "xterm" timeout 15s
 run "Processes"
 wait until xwindow "Processes" timeout 15s
