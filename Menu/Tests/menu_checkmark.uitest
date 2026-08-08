@@ -4,10 +4,10 @@
 # Run with: run_uitest Menu/Tests/menu_checkmark.uitest
 activate application "Workspace"
 
-assert menu item "Ansicht/Seitenleiste zeigen" checked
-assert menu item "Ansicht/Seitenleiste zeigen" not disabled
+assert menu item "View/Show Sidebar" checked
+assert menu item "View/Show Sidebar" not disabled
 
-if menu item "Ansicht/Seitenleiste zeigen" checked
+if menu item "View/Show Sidebar" checked
   log "sidebar menu item is checked"
 end
 
