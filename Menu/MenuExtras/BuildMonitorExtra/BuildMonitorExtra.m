@@ -304,16 +304,15 @@ static NSString *ConfigKey(NSString *key)
 
 - (void)showRateLimitAlert
 {
-    NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText: @"GitHub API rate limit exceeded"];
-    [alert setInformativeText: @"The GitHub API rate limit has been reached. Build status updates will resume when the rate limit resets. Consider adding a personal access token in the Build Monitor configuration for a higher rate limit."];
-    [alert addButtonWithTitle: @"Configure"];
-    [alert addButtonWithTitle: @"Dismiss"];
-
-    NSInteger result = [alert runModal];
-    if (result == NSAlertFirstButtonReturn) {
-        [self showConfigPanel];
-    }
+    /* The rate-limit state is already visible in the extra's status (its icon
+     * and tooltip), so a blocking modal here would freeze Menu.app's main
+     * thread until a user clicks it.  On a headless or CI session there is no
+     * user, so the alert never gets dismissed, Menu.app stops servicing its
+     * DO menu server, and the Workspace - which waits on that connection
+     * during startup - hangs with it, making the whole desktop unresponsive.
+     * Log instead of blocking; do not raise a modal. */
+    NSLog(@"BuildMonitorExtra: GitHub API rate limit exceeded - build status "
+          @"updates paused until the rate limit resets.");
 }
 
 #pragma mark - Config Panel
