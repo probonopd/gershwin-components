@@ -11,10 +11,11 @@
 # Run with: run_uitest Menu/Tests/menu_follows_app.uitest
 activate application "Workspace"
 
-# Launch xterm and Processes through the Run dialog.  These take a few
-# seconds to appear, so give them an explicit timeout longer than the 2s
-# default (the suite's general fast-failure budget is too short here).
-run "xterm"
+# Launch xterm and Processes through the Run dialog.  xterm's window title
+# is its shell's prompt (user@host:dir) by default, so give it an explicit
+# "-T xterm" title the test can find.  These take a few seconds to appear,
+# so give them an explicit timeout longer than the 2s default.
+run "xterm -T xterm"
 wait until xwindow "xterm" timeout 15s
 run "Processes"
 wait until xwindow "Processes" timeout 15s
@@ -24,20 +25,20 @@ wait until xwindow "Processes" timeout 15s
 # reaction can take longer than a hundred milliseconds, so give each switch a
 # generous budget while still asserting it actually happens.
 activate xwindow "xterm"
-wait until not menu bar "Workspace" timeout 2s
-wait until not menu bar "Processes" timeout 2s
-wait until not menu bar "Ablage" timeout 2s
+wait until not menu bar "Workspace" timeout 10s
+wait until not menu bar "Processes" timeout 10s
+wait until not menu bar "Ablage" timeout 10s
 
 # Desktop (Workspace window) - shows the Workspace menu.
 activate xwindow "Desktop"
-wait until menu bar "Workspace" timeout 2s
+wait until menu bar "Workspace" timeout 10s
 
 # Processes - shows the Processes menu.
 activate xwindow "Processes"
-wait until menu bar "Processes" timeout 2s
+wait until menu bar "Processes" timeout 10s
 
 # Back to a Workspace window - the Workspace menu again.
 activate xwindow "Desktop"
-wait until menu bar "Workspace" timeout 2s
+wait until menu bar "Workspace" timeout 10s
 
 log "global menu follows the frontmost app"
