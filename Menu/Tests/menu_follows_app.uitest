@@ -11,11 +11,13 @@
 # Run with: run_uitest Menu/Tests/menu_follows_app.uitest
 activate application "Workspace"
 
-# Launch xterm and Processes through the Run dialog.
+# Launch xterm and Processes through the Run dialog.  These take a few
+# seconds to appear, so give them an explicit timeout longer than the 2s
+# default (the suite's general fast-failure budget is too short here).
 run "xterm"
-wait until xwindow "xterm"
+wait until xwindow "xterm" timeout 15s
 run "Processes"
-wait until xwindow "Processes"
+wait until xwindow "Processes" timeout 15s
 
 # xterm - has no own menu: must not show any app menu.
 activate xwindow "xterm"
