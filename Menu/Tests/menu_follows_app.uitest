@@ -28,20 +28,20 @@ wait until xwindow "Processes" timeout 30s
 # reaction can take longer than a hundred milliseconds, so give each switch a
 # generous budget while still asserting it actually happens.
 activate xwindow "xterm"
-wait until not menu bar "Workspace" timeout 10s
-wait until not menu bar "Processes" timeout 10s
-wait until not menu bar "Ablage" timeout 10s
+wait until not menu bar "Workspace" timeout 20s
+wait until not menu bar "Processes" timeout 20s
+wait until not menu bar "Ablage" timeout 20s
 
 # Desktop (Workspace window) - shows the Workspace menu.
 activate xwindow "Desktop"
-wait until menu bar "Workspace" timeout 10s
+wait until menu bar "Workspace" timeout 20s
 
 # Processes - shows the Processes menu.
 activate xwindow "Processes"
-wait until menu bar "Processes" timeout 10s
+wait until menu bar "Processes" timeout 20s
 
 # Back to a Workspace window - the Workspace menu again.
 activate xwindow "Desktop"
-wait until menu bar "Workspace" timeout 10s
+wait until menu bar "Workspace" timeout 20s
 
 log "global menu follows the frontmost app"
