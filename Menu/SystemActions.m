@@ -9,6 +9,7 @@
 #import <AppKit/AppKit.h>
 #import <dispatch/dispatch.h>
 #import <signal.h>
+#import <stdlib.h>
 #import <sys/utsname.h>
 #import <X11/Xlib.h>
 #import <X11/Xutil.h>
@@ -119,15 +120,25 @@ static NSString *SystemActionsExecutable(NSArray *paths)
     return nil;
 }
 
-/* Log out.  The Workspace is the root process of the Gershwin session
- * (Gershwin.sh ends with "exec Workspace"), so terminating it makes the
- * display manager end the session and return to the login screen on every
- * supported operating system. */
+/* Log out.  The current session is supervised by gershwin-session, so this
+ * logs the user out by asking that supervisor to end the session (SIGTERM).
+ * The supervisor then terminates all supervised apps (Workspace, Menu,
+ * WindowManager) and exits, making the display manager return to the login
+ * screen on every supported operating system.
+ *
+ * When Menu did not start under a session supervisor (e.g. a development
+ * run), we fall back to terminating Workspace, which used to be the session
+ * root before the supervisor existed. */
 + (NSArray *)logoutCommand
 {
-    /* The Workspace is the root process of the Gershwin session, so killing it
-       (SIGKILL, no delay) makes the display manager end the session and return
-       to the login screen immediately on every supported operating system. */
+    const char *sessionPidC = getenv("GERSHWIN_SESSION_PID");
+    if (sessionPidC && strlen(sessionPidC) > 0) {
+        NSString *kill = SystemActionsExecutable(@[@"/bin/kill", @"/usr/bin/kill"]);
+        if (kill) {
+            return @[kill, @"-TERM", [NSString stringWithUTF8String:sessionPidC]];
+        }
+    }
+    /* Fallback: terminate Workspace directly, ending the session. */
     NSString *killall = SystemActionsExecutable(@[@"/usr/bin/killall", @"/bin/killall"]);
     if (killall) return @[killall, @"-9", @"Workspace"];
     return nil;
@@ -151,6 +162,41 @@ static NSString *SystemActionsExecutable(NSArray *paths)
             });
         }
     });
+}
+
+/* The pid of the session supervisor this Menu belongs to, exported by
+ * gershwin-session.  Zero if we are not running under a session supervisor
+ * (e.g. a development run). */
++ (pid_t)sessionSupervisorPid
+{
+    const char *pidC = getenv("GERSHWIN_SESSION_PID");
+    if (pidC && *pidC) {
+        return (pid_t)strtol(pidC, NULL, 10);
+    }
+    return 0;
+}
+
+/* Ask the session supervisor to stop restarting apps.  During a power
+ * action we terminate the supervised apps ourselves; if the supervisor
+ * resurrected them the shutdown would never complete. */
++ (void)disableSessionAutoRestart
+{
+    pid_t pid = [self sessionSupervisorPid];
+    if (pid > 0) {
+        NSLog(@"SystemActions: Pausing session supervisor auto restart (pid %d).", (int)pid);
+        kill(pid, SIGUSR1);
+    }
+}
+
+/* Ask the session supervisor to resume restarting apps; called when a
+ * power action is cancelled and the session is to continue running. */
++ (void)enableSessionAutoRestart
+{
+    pid_t pid = [self sessionSupervisorPid];
+    if (pid > 0) {
+        NSLog(@"SystemActions: Resuming session supervisor auto restart (pid %d).", (int)pid);
+        kill(pid, SIGUSR2);
+    }
 }
 
 /* Launches the task and waits briefly.  A command that is still running after
@@ -215,6 +261,9 @@ static NSString *SystemActionsExecutable(NSArray *paths)
 
     NSLog(@"SystemActions: Gracefully terminating %lu application(s) before %@",
           (unsigned long)[apps count], action);
+    /* The session supervisor must not resurrect the applications while we are
+       shutting down; keep it idle until the power action is done. */
+    [self disableSessionAutoRestart];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         /* Only GNUstep applications (those with a reachable DO service) are
            actually asked to quit and waited on; other window owners such as
@@ -248,6 +297,9 @@ static NSString *SystemActionsExecutable(NSArray *paths)
                 [self executePowerCommandForAction:action];
             } else {
                 NSLog(@"SystemActions: User cancelled %@ - applications still running, not executing", action);
+                /* The session is staying up, so let the supervisor restart
+                   applications again. */
+                [self enableSessionAutoRestart];
             }
         } else {
             [self executePowerCommandForAction:action];
@@ -321,8 +373,10 @@ static NSString *SystemActionsExecutable(NSArray *paths)
     [apps removeObjectForKey:[[NSProcessInfo processInfo] processName]];
     [apps removeObjectForKey:@"Menu"];
 
-    /* The Workspace is the session root; it is killed at logout and handled
-       by the OS during shutdown/restart, so it is not asked to quit here. */
+    /* The session supervisor owns Workspace, Menu and WindowManager; it is
+       responsible for their lifecycle and it must stay alive until the
+       actual shutdown/restart/logout command runs.  Do not ask them to quit
+       here - the supervisor handles them. */
     [apps removeObjectForKey:@"Workspace"];
 
     NSMutableArray *result = [NSMutableArray array];
