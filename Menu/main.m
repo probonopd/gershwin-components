@@ -98,6 +98,35 @@ static void killOtherInstances(void) {
         
         // Compare the executable paths
         if ([otherRealPath isEqualToString:currentRealPath]) {
+            /* Only this user's instances: a Menu on another display/session
+             * belongs to a different (test) user and must be left alone.
+             * Linux reads /proc/<pid>/status; the BSDs fall back to ps. */
+            int otherUid = -1;
+#if defined(__linux__)
+            NSString *statusPath = [NSString stringWithFormat:@"/proc/%d/status", otherPID];
+            FILE *sf = fopen([statusPath UTF8String], "r");
+            if (sf) {
+                char line[256];
+                while (fgets(line, sizeof(line), sf)) {
+                    if (strncmp(line, "Uid:", 4) == 0) {
+                        sscanf(line + 4, "%d", &otherUid);
+                        break;
+                    }
+                }
+                fclose(sf);
+            }
+#else
+            char cmd[64];
+            snprintf(cmd, sizeof(cmd), "ps -o uid= -p %d", otherPID);
+            FILE *sf = popen(cmd, "r");
+            if (sf) {
+                if (fscanf(sf, "%d", &otherUid) != 1) otherUid = -1;
+                pclose(sf);
+            }
+#endif
+            if (otherUid != (int)getuid()) {
+                continue;
+            }
             NSDebugLLog(@"gwcomp", @"Menu.app: Killing other instance with PID %d", otherPID);
             kill(otherPID, SIGTERM);
             // Give it a moment to terminate gracefully
