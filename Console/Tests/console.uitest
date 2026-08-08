@@ -6,7 +6,7 @@
 #
 # Run with: run_uitest Console/Tests/console.uitest
 launch application "Console"
-wait until window "Console" timeout 5s
+wait until window "Console" timeout 2s
 assert window "Console"
 assert menu item "Console/About Console" exists
 assert menu item "Console/Quit Console" exists
@@ -14,5 +14,5 @@ assert menu item "Console/Quit Console" shortcut "Cmd+Q"
 assert menu item "File/New System Log Query" shortcut "Cmd+N"
 assert menu item "Edit/Copy" shortcut "Cmd+C"
 press "Cmd+Q"
-wait until not exists window "Console" timeout 5s
+wait until not exists window "Console" timeout 2s
 log "Console starts, shows its menu and quits"

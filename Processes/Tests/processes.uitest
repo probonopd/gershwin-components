@@ -6,12 +6,12 @@
 #
 # Run with: run_uitest Processes/Tests/processes.uitest
 launch application "Processes"
-wait until window "Processes" timeout 5s
+wait until window "Processes" timeout 2s
 assert window "Processes"
 assert menu item "Processes/About Processes" exists
 assert menu item "Processes/Hide Processes" exists
 assert menu item "Processes/Quit Processes" shortcut "Cmd+Q"
 assert menu item "Window/Minimize" shortcut "Cmd+M"
 press "Cmd+Q"
-wait until not exists window "Processes" timeout 5s
+wait until not exists window "Processes" timeout 2s
 log "Processes starts, shows its menu and quits"

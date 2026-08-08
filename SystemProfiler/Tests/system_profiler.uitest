@@ -6,7 +6,7 @@
 #
 # Run with: run_uitest SystemProfiler/Tests/system_profiler.uitest
 launch application "SystemProfiler"
-wait until window "System Profiler" timeout 5s
+wait until window "System Profiler" timeout 2s
 assert window "System Profiler"
 assert menu item "SystemProfiler/About SystemProfiler..." exists
 assert menu item "SystemProfiler/Hide SystemProfiler" exists
@@ -14,5 +14,5 @@ assert menu item "SystemProfiler/Quit SystemProfiler" shortcut "Cmd+Q"
 assert menu item "Edit/Copy" shortcut "Cmd+C"
 assert menu item "Edit/Copy" shortcut "Cmd+C"
 press "Cmd+Q"
-wait until not exists window "System Profiler" timeout 5s
+wait until not exists window "System Profiler" timeout 2s
 log "SystemProfiler starts, shows its menu and quits"

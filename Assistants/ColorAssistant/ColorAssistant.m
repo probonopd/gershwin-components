@@ -31,6 +31,7 @@ static int X11ErrorHandler(Display *dpy, XErrorEvent *ev)
 }
 
 - (BOOL)selectDisplay:(NSString *)outputName;
+- (BOOL)canCalibrate;
 - (void)applyGamma:(double)gamma whitePoint:(double)wp;
 - (void)applyToneWithShadows:(double)s midtones:(double)m highlights:(double)h;
 - (void)reset;
@@ -90,6 +91,34 @@ static int X11ErrorHandler(Display *dpy, XErrorEvent *ev)
         _savedGamma = current;
     }
     return (_rampSize > 0);
+}
+
+/* Whether ANY output on this display has a usable gamma ramp.  On headless
+ * or virtual systems (Xvfb, containers) there is none, so calibration is
+ * impossible and the app shows an error page instead of a broken wizard. */
+- (BOOL)canCalibrate
+{
+    if (!_dpy) return NO;
+    Window root = RootWindow(_dpy, DefaultScreen(_dpy));
+    XRRScreenResources *res = XRRGetScreenResources(_dpy, root);
+    if (!res) return NO;
+    BOOL ok = NO;
+    for (int i = 0; i < res->noutput; i++) {
+        XRROutputInfo *info = XRRGetOutputInfo(_dpy, res, res->outputs[i]);
+        if (info) {
+            if (info->crtc != None) {
+                XRRCrtcGamma *gamma = XRRGetCrtcGamma(_dpy, info->crtc);
+                if (gamma) {
+                    ok = (gamma->size > 0);
+                    XRRFreeGamma(gamma);
+                }
+            }
+            XRRFreeOutputInfo(info);
+        }
+        if (ok) break;
+    }
+    XRRFreeScreenResources(res);
+    return ok;
 }
 
 - (void)applyGamma:(double)gamma whitePoint:(double)wp
@@ -287,6 +316,16 @@ int main(int argc, const char *argv[])
         GSAssistantWindow *assistant = [builder build];
         [assistant setDelegate:delegate];
         [[assistant window] makeKeyAndOrderFront:nil];
+
+        /* On systems without a calibratable display (headless, Xvfb,
+         * containers) the wizard would be useless and the gamma sliders
+         * would silently do nothing.  Show an explicit error page instead
+         * of pretending calibration works. */
+        if (![[delegate gammaCtrl] canCalibrate]) {
+            [assistant showErrorPageWithTitle:@"Display Calibrator Assistant"
+                message:@"Display calibration is not available on this system.\n"
+                       "There is no display whose color output can be adjusted."];
+        }
 
         [NSApp run];
     }

@@ -7,11 +7,11 @@
 #
 # Run with: run_uitest Assistants/CreateLiveMediaAssistant/Tests/create_live_media.uitest
 launch application "CreateLiveMediaAssistant"
-wait until window "Create Live Media" timeout 5s
+wait until window "Create Live Media" timeout 2s
 assert window "Create Live Media"
 assert menu item "CreateLiveMediaAssistant/About" exists
 assert menu item "File/Quit" enabled
 assert menu item "File/Quit" shortcut "Cmd+Q"
 press "Cmd+Q"
-wait until not exists window "Create Live Media" timeout 5s
+wait until not exists window "Create Live Media" timeout 2s
 log "CreateLiveMediaAssistant starts, shows its wizard and quits"

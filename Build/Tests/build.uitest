@@ -8,7 +8,7 @@
 #
 # Run with: run_uitest Build/Tests/build.uitest
 launch application "Build"
-wait until window "Build" timeout 5s
+wait until window "Build" timeout 2s
 assert window "Build"
 assert button "Build"
 assert button "Open…"
@@ -20,7 +20,7 @@ assert menu item "Edit/Copy" shortcut "Cmd+C"
 # Filter the catalog down to World Clock, select it and build it.
 click textfield "Filter…"
 type "World Clock"
-wait until row "World Clock" timeout 5s
+wait until row "World Clock" timeout 2s
 click row "World Clock"
 click button "Build"
 
@@ -30,7 +30,7 @@ click button "Build"
 wait until button "OK" timeout 180s
 assert button "OK"
 click button "OK"
-wait until not exists button "OK" timeout 5s
-wait until not exists window "Build" timeout 5s
-wait until not exists application "Build" timeout 5s
+wait until not exists button "OK" timeout 2s
+wait until not exists window "Build" timeout 2s
+wait until not exists application "Build" timeout 2s
 log "Build filters the catalog, builds World Clock, OK cleanly quits the app"

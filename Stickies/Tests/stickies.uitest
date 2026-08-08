@@ -6,7 +6,7 @@
 #
 # Run with: run_uitest Stickies/Tests/stickies.uitest
 launch application "Stickies"
-wait until window "Sticky Note" timeout 5s
+wait until window "Sticky Note" timeout 2s
 assert window "Sticky Note"
 assert menu item "Stickies/About Stickies" exists
 assert menu item "Stickies/Quit Stickies" exists
@@ -14,5 +14,5 @@ assert menu item "Stickies/Quit Stickies" shortcut "Cmd+Q"
 assert menu item "File/New Note" shortcut "Cmd+N"
 assert menu item "Edit/Copy" shortcut "Cmd+C"
 press "Cmd+Q"
-wait until not exists window "Sticky Note" timeout 5s
+wait until not exists window "Sticky Note" timeout 2s
 log "Stickies starts, shows its menu and quits"

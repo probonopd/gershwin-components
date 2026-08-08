@@ -6,7 +6,7 @@
 #
 # Run with: run_uitest Whisper/Tests/whisper.uitest
 launch application "Whisper"
-wait until window "Whisper Speech-to-Text" timeout 5s
+wait until window "Whisper Speech-to-Text" timeout 2s
 assert window "Whisper Speech-to-Text"
 assert button "Record"
 assert button "Stop"
@@ -16,5 +16,5 @@ assert menu item "Whisper/Quit Whisper" shortcut "Cmd+Q"
 assert menu item "Whisper/Transcribe file..." shortcut "Cmd+O"
 assert menu item "Edit/Cut" shortcut "Cmd+X"
 press "Cmd+Q"
-wait until not exists window "Whisper Speech-to-Text" timeout 5s
+wait until not exists window "Whisper Speech-to-Text" timeout 2s
 log "Whisper starts, shows its controls and quits"

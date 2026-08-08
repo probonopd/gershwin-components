@@ -6,12 +6,12 @@
 #
 # Run with: run_uitest NetworkBrowser/Tests/network_browser.uitest
 launch application "NetworkBrowser"
-wait until window "Network Browser" timeout 5s
+wait until window "Network Browser" timeout 2s
 assert window "Network Browser"
 assert menu item "NetworkBrowser/About Network Browser" exists
 assert menu item "NetworkBrowser/Quit Network Browser" exists
 assert menu item "NetworkBrowser/Quit Network Browser" shortcut "Cmd+Q"
 assert menu item "File/Open" exists
 press "Cmd+Q"
-wait until not exists window "Network Browser" timeout 5s
+wait until not exists window "Network Browser" timeout 2s
 log "NetworkBrowser starts, shows its menu and quits"

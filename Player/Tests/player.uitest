@@ -6,7 +6,7 @@
 #
 # Run with: run_uitest Player/Tests/player.uitest
 launch application "Player"
-wait until window "Player" timeout 5s
+wait until window "Player" timeout 2s
 assert window "Player"
 assert text contains "No file loaded"
 assert button "Mute"
@@ -15,5 +15,5 @@ assert menu item "Player/Quit Player" shortcut "Cmd+Q"
 assert menu item "File/Open File..." shortcut "Cmd+O"
 assert menu item "Edit/Copy" shortcut "Cmd+C"
 press "Cmd+Q"
-wait until not exists window "Player" timeout 5s
+wait until not exists window "Player" timeout 2s
 log "Player starts, shows its controls and quits"
