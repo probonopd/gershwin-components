@@ -33,7 +33,7 @@ static NSString *ConfigKey(NSString *key)
 
     NSPanel *_configPanel;
     NSTextView *_reposTextView;
-    NSTextField *_tokenField;
+    NSSecureTextField *_tokenField;
 
     NSMutableDictionary *_pendingRepos;
     BOOL _running;
@@ -385,7 +385,7 @@ static NSString *ConfigKey(NSString *key)
     [label setSelectable: NO];
     [content addSubview: label];
 
-    _tokenField = [[NSTextField alloc] initWithFrame: NSMakeRect(pad, 52, sw, 22)];
+    _tokenField = [[NSSecureTextField alloc] initWithFrame: NSMakeRect(pad, 52, sw, 22)];
     [_tokenField setStringValue: _token ?: @""];
     [content addSubview: _tokenField];
 
