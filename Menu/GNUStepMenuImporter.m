@@ -164,7 +164,13 @@ static GNUStepMenuImporter *sSharedImporter = nil;
         return YES;
     }
 
-    NSConnection *connection = [NSConnection defaultConnection];
+    /* Use a dedicated NSConnection, NOT [NSConnection defaultConnection].
+       The default connection is a process-wide singleton: once a name is
+       registered on it, a later registerName: for the same name is a no-op
+       even if a name-server restart wiped the registry - so a lost
+       MenuServer registration could never be recovered.  A fresh connection
+       re-registers cleanly. */
+    NSConnection *connection = [[NSConnection alloc] init];
     [connection setRootObject:self];
 
     BOOL registered = NO;
@@ -175,9 +181,11 @@ static GNUStepMenuImporter *sSharedImporter = nil;
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception while registering server name: %@", e);
     }
 
-    // Keep the connection reference even if registration failed. We'll retry and use
-    // a polling fallback so menus can still be imported when we can't register the DO server.
-    self.menuServerConnection = connection;
+    if (registered) {
+        self.menuServerConnection = connection;
+    } else {
+        connection = nil;
+    }
 
     if (!registered) {
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Failed to register GNUstep menu server name %@", kGershwinMenuServerName);
@@ -205,6 +213,12 @@ static GNUStepMenuImporter *sSharedImporter = nil;
     dispatch_async(dispatch_get_main_queue(), ^{
         [self scanForExistingMenuServices];
     });
+
+    /* Keep the registration alive across name-server restarts.  The first
+       verification runs after a delay so startup lookups are not disturbed. */
+    [self performSelector: @selector(scheduleMenuServerVerification)
+               withObject: nil
+               afterDelay: 5.0];
 
     return YES;
 }
@@ -293,6 +307,56 @@ static GNUStepMenuImporter *sSharedImporter = nil;
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception in attemptRegisterRetry: %@", e);
         [self scheduleRegisterRetryWithAttempt:attempt + 1];
     }
+}
+
+/* Verify that our MenuServer registration still exists on the DO name server
+   and re-register if it vanished.  A name-server restart (gdnc) wipes the
+   whole names registry but the NSConnection object stays valid, so neither
+   registerService: nor NSConnectionDidDieNotification notices the loss - the
+   result is that Menu.app can no longer be found and NO GNUstep app shows an
+   app menu.  Check by re-resolving the name; if the lookup fails, drop the
+   stale connection and register fresh.  Runs on a timer so any user's desktop
+   recovers automatically. */
+- (void)verifyMenuServerRegistration
+{
+    @try {
+        NSConnection *found = [NSConnection connectionWithRegisteredName:
+            kGershwinMenuServerName host: @""];
+        if (found) {
+            [found invalidate];
+            /* Registration is alive.  Reschedule so the check keeps running
+               (the timer is non-repeating). */
+            [self scheduleMenuServerVerification];
+            return;
+        }
+        /* The name is gone - our connection's registration was lost.  Drop the
+           stale connection so registerService: creates a fresh one. */
+        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: MenuServer registration lost - re-registering");
+        NSPort *oldPort = [self.menuServerConnection receivePort];
+        if (oldPort) {
+            [[NSRunLoop currentRunLoop] removePort: oldPort
+                                           forMode: NSRunLoopCommonModes];
+        }
+        [self.menuServerConnection invalidate];
+        self.menuServerConnection = nil;
+        [self registerService];
+        [self scheduleMenuServerVerification];
+    } @catch (NSException *e) {
+        /* Lookup threw - the name server itself may be restarting.  Try again
+           on the next tick. */
+        [self scheduleMenuServerVerification];
+    }
+}
+
+- (void)scheduleMenuServerVerification
+{
+    /* Low frequency: a name-server restart is a rare event and the lookup is
+       cheap, but polling every second would waste CPU for nothing. */
+    [NSTimer scheduledTimerWithTimeInterval: 30.0
+                                     target: self
+                                   selector: @selector(verifyMenuServerRegistration)
+                                   userInfo: nil
+                                    repeats: NO];
 }
 
 - (BOOL)hasMenuForWindow:(unsigned long)windowId
