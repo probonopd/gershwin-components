@@ -17,11 +17,11 @@ activate application "Workspace"
 # bash - does not overwrite it).  These take a few seconds to appear, so give
 # them an explicit timeout longer than the 2s default.
 run "xterm -T xterm -e /bin/sh"
-wait until xwindow "xterm" timeout 30s
+wait until xwindow "xterm" timeout 60s
 # The Run dialog cannot resolve "Processes" by bare name, so use the full
 # bundle path; the window is still found by its "Processes" title below.
 run "/System/Applications/Utilities/Processes.app"
-wait until xwindow "Processes" timeout 30s
+wait until xwindow "Processes" timeout 60s
 
 # xterm - has no own menu: must not show any app menu.  The menu bar follows
 # the frontmost app; on a virtual display the focus change and Menu.app's
