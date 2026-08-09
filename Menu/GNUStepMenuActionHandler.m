@@ -116,16 +116,22 @@ static NSLock *connectionCacheLock = nil;
         /* The background probe may not have cached this client's connection
            yet (a freshly relaunched app registers its MenuClient after Menu
            scanned).  Fall back to a name lookup here - the client pushed its
-           menu, so it is alive and registered, and the lookup resolves fast.
-           This is what makes menu actions work after an app relaunch instead
-           of silently doing nothing. */
-        @try {
-            connection = [NSConnection connectionWithRegisteredName:clientName
-                                                               host:nil];
-            if (connection)
-                [self cacheConnection:connection forClient:clientName];
-        } @catch (NSException *e) {
-            connection = nil;
+           menu, so it is alive and registered.  On a slow VM the name lookup
+           can transiently fail; retry briefly so a menu action is not silently
+           dropped (which made the About box never appear in the uitests).
+           The lookup already blocks on the DO name server, so a bounded retry
+           adds no new freeze risk. */
+        for (int i = 0; i < 5 && !connection; i++) {
+            @try {
+                connection = [NSConnection connectionWithRegisteredName:clientName
+                                                                   host:nil];
+                if (connection)
+                    [self cacheConnection:connection forClient:clientName];
+            } @catch (NSException *e) {
+                connection = nil;
+            }
+            if (!connection && i < 4)
+                [NSThread sleepForTimeInterval:0.2];
         }
     }
     if (!connection) {
