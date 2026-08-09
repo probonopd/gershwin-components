@@ -27,7 +27,6 @@
     NSOperationQueue *_opQueue;
     NSTimeInterval _downloadStartTime;
     NSTimeInterval _lastUIUpdateTime;
-    id _dockProxy;
 }
 
 @property (nonatomic, weak) CLMController *controller;
