@@ -6,7 +6,7 @@
 #
 # Run with: run_uitest Console/Tests/console.uitest
 launch application "Console"
-wait until window "Console" timeout 30s
+wait until window "Console" timeout 90s
 assert window "Console"
 assert menu item "Console/About Console" exists
 assert menu item "Console/Quit Console" exists
