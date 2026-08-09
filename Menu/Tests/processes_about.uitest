@@ -9,21 +9,23 @@
 # Leaves the computer as it was found: the app is left running at the end.
 #
 # Run with: run_uitest Menu/Tests/processes_about.uitest
+# A dropped global-menu dispatch must not abort the retry loop below; the
+# final assert still fails the test if the About box never appears.
+on_error continue
+
 launch application "Processes"
 
 repeat 2
   activate application "Processes"
   # The About box opens through Menu.app's global-menu dispatch (Menu -> DO ->
   # the app's Eau bundle).  On a loaded CI VM the DO hop can transiently fail;
-  # retry the dispatch if the box does not appear promptly.
-  select global menu "Processes/About Processes"
-  wait until window "Information" timeout 8s
-  if not exists window "Information"
+  # try up to three times so a single dropped dispatch is retried instead of
+  # failing the test.
+  repeat 3
     select global menu "Processes/About Processes"
-    # Give it more than the 2s fast-fail default so a slow CI runner does not
-    # report a spurious timeout.
-    wait until window "Information" timeout 15s
+    wait until window "Information" timeout 8s
   end
+  assert window "Information"
   assert text contains "Process monitor"
   assert text contains "Release:"
 
