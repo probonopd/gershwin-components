@@ -14,7 +14,10 @@ launch application "Processes"
 repeat 2
   activate application "Processes"
   select global menu "Processes/About Processes"
-  wait until window "Information"
+  # The About box opens through Menu.app's global-menu dispatch + the
+  # standard about panel; give it more than the 2s fast-fail default so a
+  # slow CI runner does not report a spurious timeout.
+  wait until window "Information" timeout 15s
   assert text contains "Process monitor"
   assert text contains "Release:"
 
