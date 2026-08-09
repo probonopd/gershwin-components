@@ -1,8 +1,9 @@
 #!/usr/bin/env run_uitest
-# DISABLED (renamed from build.uitest): the Build app cannot build World
-# Clock in the headless CI sandboxes (no gnustep-make bootstrap there), so
-# this test's "Failed to build Clock" alert hangs for its full 180s timeout.
-# Re-enable by renaming back to build.uitest.
+# HEAVY: skipped unless UI_TEST_LEVEL=full.  The Build app cannot build World
+# Clock in the headless CI sandboxes (no gnustep-make bootstrap there), so this
+# test's "Failed to build Clock" alert hangs for its full 180s timeout.  The
+# harness skips everything under a "heavy" directory by default; run the suite
+# with UI_TEST_LEVEL=full to exercise it.
 #
 # Build: the build/installer app must start, show its window and its build
 # controls, build World Clock from the catalog, verify the success alert,
