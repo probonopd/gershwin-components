@@ -18,7 +18,10 @@
     dispatch_queue_t _extractQueue;
     // Holds the current NSData being read by libarchive so it stays alive
     NSData *_currentReadData;
+    int64_t _expectedOutputSize;
 }
+
+@synthesize expectedOutputSize = _expectedOutputSize;
 
 - (instancetype)init
 {
@@ -171,6 +174,12 @@ archive_read_cb(struct archive *a, void *client_data, const void **buf)
 
         extractedAny = YES;
 
+        // Uncompressed size is known for zip entries; raw streams report none.
+        int64_t entrySize = archive_entry_size(entry);
+        _expectedOutputSize = (entrySize > 0) ? entrySize : 0;
+        NSLog(@"CLMArchiveExtractor: extracting '%s' expectedOutputSize=%lld",
+              archive_entry_pathname(entry), (long long)_expectedOutputSize);
+
         // Read decompressed data in a loop
         const void *decompBuf;
         size_t decompLen;
@@ -220,6 +229,38 @@ archive_read_cb(struct archive *a, void *client_data, const void **buf)
             self->_completionHandler(error);
         });
     }
+}
+
++ (int64_t)scanImageSizeInArchiveFile:(NSString *)path
+{
+    struct archive *a = archive_read_new();
+    archive_read_support_filter_all(a);
+    archive_read_support_format_raw(a);
+    archive_read_support_format_zip(a);
+
+    if (archive_read_open_filename(a, [path UTF8String], 10240) != ARCHIVE_OK) {
+        archive_read_free(a);
+        return 0;
+    }
+
+    int64_t size = 0;
+    struct archive_entry *entry;
+    int r;
+    while ((r = archive_read_next_header(a, &entry)) == ARCHIVE_OK) {
+        mode_t filetype = archive_entry_filetype(entry);
+        if (filetype == AE_IFDIR || filetype == AE_IFLNK) continue;
+
+        const char *name = archive_entry_pathname(entry);
+        NSString *lower = name ? [[NSString stringWithUTF8String:name] lowercaseString] : @"";
+        if ([lower hasSuffix:@".iso"] || [lower hasSuffix:@".img"]) {
+            size = archive_entry_size(entry);
+            break;
+        }
+    }
+
+    archive_read_close(a);
+    archive_read_free(a);
+    return size;
 }
 
 - (NSError *)_errorWithFormat:(NSString *)format, ... NS_FORMAT_FUNCTION(1,2)

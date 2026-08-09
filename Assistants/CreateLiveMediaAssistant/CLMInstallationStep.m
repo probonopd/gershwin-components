@@ -183,6 +183,8 @@
     float percent = progress * 100.0;
     [_progressBar setDoubleValue:percent];
     [_progressBar setNeedsDisplay:YES];
+    NSLog(@"CLMInstallationStep: progressUpdated %.1f%% (bytes=%lld total=%lld)",
+          percent, (long long)bytes, (long long)total);
 
     // Data downloaded label
     NSString *dataStr = @"";
