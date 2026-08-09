@@ -13,11 +13,17 @@ launch application "Processes"
 
 repeat 2
   activate application "Processes"
+  # The About box opens through Menu.app's global-menu dispatch (Menu -> DO ->
+  # the app's Eau bundle).  On a loaded CI VM the DO hop can transiently fail;
+  # retry the dispatch if the box does not appear promptly.
   select global menu "Processes/About Processes"
-  # The About box opens through Menu.app's global-menu dispatch + the
-  # standard about panel; give it more than the 2s fast-fail default so a
-  # slow CI runner does not report a spurious timeout.
-  wait until window "Information" timeout 15s
+  wait until window "Information" timeout 8s
+  if not exists window "Information"
+    select global menu "Processes/About Processes"
+    # Give it more than the 2s fast-fail default so a slow CI runner does not
+    # report a spurious timeout.
+    wait until window "Information" timeout 15s
+  end
   assert text contains "Process monitor"
   assert text contains "Release:"
 
