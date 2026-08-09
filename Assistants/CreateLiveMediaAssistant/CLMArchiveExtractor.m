@@ -119,7 +119,11 @@ archive_read_cb(struct archive *a, void *client_data, const void **buf)
     }
 
     archive_read_support_filter_all(a);
+    // raw is the fallback for single-stream compressed files (iso.gz, iso.xz);
+    // zip is registered so a .zip container's first regular file (the image)
+    // is decompressed and streamed out on the fly.
     archive_read_support_format_raw(a);
+    archive_read_support_format_zip(a);
 
     struct extractor_context ctx;
     ctx.self = self;
@@ -133,7 +137,40 @@ archive_read_cb(struct archive *a, void *client_data, const void **buf)
     }
 
     struct archive_entry *entry;
+    BOOL extractedAny = NO;
+    BOOL isZip = NO;
     while ((r = archive_read_next_header(a, &entry)) == ARCHIVE_OK) {
+        // libarchive only settles on the format while reading the first
+        // header, so detect it here rather than right after archive_read_open.
+        if (!isZip) {
+            int fmt = archive_format(a);
+            isZip = ((fmt & ARCHIVE_FORMAT_BASE_MASK) == ARCHIVE_FORMAT_ZIP);
+        }
+
+        // For zip containers, skip non-regular entries (directories, symlinks)
+        // and non-image files (checksums, README), extracting the image on the
+        // fly. A raw stream reports a single regular entry, so this preserves
+        // the old behaviour. The source is a non-seekable download stream, so
+        // we cannot scan all entries first to pick the largest one; preferring
+        // .iso/.img entries is the streaming equivalent.
+        mode_t filetype = archive_entry_filetype(entry);
+        if (filetype == AE_IFDIR || filetype == AE_IFLNK) {
+            archive_read_data_skip(a);
+            continue;
+        }
+
+        if (isZip) {
+            const char *name = archive_entry_pathname(entry);
+            NSString *fname = name ? [NSString stringWithUTF8String:name] : @"";
+            NSString *lower = [fname lowercaseString];
+            if (!([lower hasSuffix:@".iso"] || [lower hasSuffix:@".img"])) {
+                archive_read_data_skip(a);
+                continue;
+            }
+        }
+
+        extractedAny = YES;
+
         // Read decompressed data in a loop
         const void *decompBuf;
         size_t decompLen;
@@ -153,10 +190,8 @@ archive_read_cb(struct archive *a, void *client_data, const void **buf)
             }
         }
 
-        if (r != ARCHIVE_EOF) {
-            // Only one entry expected for raw format, so we can stop
-            break;
-        }
+        // Only the first matching entry is extracted; stop here.
+        break;
     }
 
     archive_read_close(a);
@@ -164,6 +199,12 @@ archive_read_cb(struct archive *a, void *client_data, const void **buf)
 
     if (_cancelled) {
         [self _finishWithError:[self _errorWithFormat:@"Extraction cancelled"]];
+        return;
+    }
+
+    if (!extractedAny) {
+        [self _finishWithError:[self _errorWithFormat:
+            @"No .iso or .img file found in the archive"]];
         return;
     }
 

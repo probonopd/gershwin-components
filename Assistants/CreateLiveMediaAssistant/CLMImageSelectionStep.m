@@ -272,7 +272,14 @@
         [openPanel setCanChooseFiles:YES];
         [openPanel setCanChooseDirectories:NO];
         [openPanel setAllowsMultipleSelection:NO];
-        [openPanel setAllowedFileTypes:@[@"iso", @"img", @"gz", @"xz", @"bz2", @"zst", @"lz", @"lzma"]];
+        [openPanel setAllowedFileTypes:@[@"iso", @"img",
+                                         @"gz", @"gzip",
+                                         @"xz",
+                                         @"bz2", @"bzip2",
+                                         @"zst", @"zstd",
+                                         @"lz", @"lzma",
+                                         @"Z",
+                                         @"zip"]];
         
         NSInteger result = [openPanel runModal];
         if (result == NSFileHandlingPanelOKButton) {

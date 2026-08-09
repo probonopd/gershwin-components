@@ -41,6 +41,7 @@ static NSSet *compressedExtensions;
             @".lz", @".lzma",
             @".zst", @".zstd",
             @".Z",
+            @".zip",
             nil];
     }
 }
@@ -79,7 +80,8 @@ static NSSet *compressedExtensions;
     // Strip known compression extensions to check for .iso or .img base
     NSString *stripped = name;
     NSArray *compExts = @[@".gz", @".gzip", @".xz", @".bz2", @".bzip2",
-                          @".zst", @".zstd", @".lz", @".lzma", @".Z"];
+                          @".zst", @".zstd", @".lz", @".lzma", @".Z",
+                          @".zip"];
     for (NSString *ext in compExts) {
         if ([stripped hasSuffix:ext]) {
             stripped = [stripped substringToIndex:[stripped length] - [ext length]];
@@ -199,6 +201,9 @@ static NSSet *compressedExtensions;
             return;
         }
 
+        // Extraction is done; stop the downloader early so trailing entries
+        // in a zip (checksums, README) are not fetched.
+        [strongSelf->_downloader cancel];
         [strongSelf _finalizeDevice];
     };
 
