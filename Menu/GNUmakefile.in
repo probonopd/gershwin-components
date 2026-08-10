@@ -216,6 +216,8 @@ custom-install: $(APP_NAME).app
 		mkdir -p $(DESTDIR)/System/Library/MenuExtras; \
 		cp -R MenuExtras/ClockExtra/Clock.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
 		cp -R MenuExtras/BatteryExtra/Battery.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/CPUExtra/CPU.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/RAMExtra/RAM.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
 		cp -R MenuExtras/WLANExtra/WLAN.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
 		cp -R MenuExtras/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
 		cp -R MenuExtras/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
@@ -233,6 +235,8 @@ custom-install: $(APP_NAME).app
 			mkdir -p /Local/Library/MenuExtras; \
 			cp -R MenuExtras/ClockExtra/Clock.gsmenuextra /System/Library/MenuExtras/ || true; \
 			cp -R MenuExtras/BatteryExtra/Battery.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/CPUExtra/CPU.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/RAMExtra/RAM.gsmenuextra /System/Library/MenuExtras/ || true; \
 			cp -R MenuExtras/WLANExtra/WLAN.gsmenuextra /System/Library/MenuExtras/ || true; \
 			cp -R MenuExtras/SoundExtra/Sound.gsmenuextra /System/Library/MenuExtras/ || true; \
 			cp -R MenuExtras/BrightnessExtra/Brightness.gsmenuextra /System/Library/MenuExtras/ || true; \
