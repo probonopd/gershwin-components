@@ -35,8 +35,8 @@ static const float METRICS_TITLE_MESSAGE_GAP = 8.0;
 
 // Vertical spacing between multiple buttons shall be 12px
 static const float METRICS_BUTTON_VERT_INTERSPACE = 12.0;
-// Horizontal spacing between multiple buttons shall be 10px
-static const float METRICS_BUTTON_HORIZ_INTERSPACE = 10.0;
+// Horizontal spacing between multiple buttons shall be 12px (leave at least 12px between buttons)
+static const float METRICS_BUTTON_HORIZ_INTERSPACE = 12.0;
 
 // Normal buttons shall always be 20px high (resize any buttons requested to be 19-24px high to be 20px)
 // unless they contain an icon, in which case they may be higher if needed
@@ -112,7 +112,7 @@ static const float METRICS_TITLEBAR_ORB_BUTTON_SPACING = 4.0;
 static const float METRICS_TITLEBAR_ORB_REGION_WIDTH = 68.0;    // Left region reserved for 3 orbs + padding
 
 // Control Positioning in Dialogs
-// All spacing between dialog elements shall be a multiple of 4px (4, 8, 12, 16, 20, or 24).
+// All spacing between dialog elements shall be a multiple of 2px (2, 4, 6, 8, 12, 16, 20, or 24).
 // Guidelines:
 // - No space between window edge and scroll bars or frame for single-view document windows.
 // - For mixed control dialogs, maintain: 
