@@ -19,8 +19,37 @@ static ActionSearchController *_sharedController = nil;
 static pthread_mutex_t _singletonMutex = PTHREAD_MUTEX_INITIALIZER;
 
 static const CGFloat kSearchFieldWidth = 200;
-static const CGFloat kSearchFieldHeight = 22;
 static const CGFloat kMaxResultsShown = 15;
+
+
+#pragma mark - Search field background
+
+/* Solid rectangular backdrop behind the (rounded) search field so the search
+   box reads as one piece with the dropdown results panel below it.  The
+   results menu is drawn on a light near-white panel (see Eau's menu
+   background); without this, the panel is transparent and the rounded field
+   corners show the desktop through. */
+@interface SearchFieldBackgroundView : NSView
+@end
+
+@implementation SearchFieldBackgroundView
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    NSRect bounds = [self bounds];
+    /* Match Eau's dropdown-menu panel background (light near-white, no
+       transparency) so the search box blends into the results panel. */
+    [[NSColor colorWithCalibratedRed:0.97 green:0.97 blue:0.97 alpha:1.0] set];
+    NSRectFill(bounds);
+}
+
+- (BOOL)isOpaque
+{
+    return YES;
+}
+
+@end
 
 
 #pragma mark - ActionSearchResult
@@ -190,8 +219,11 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 
 - (void)createSearchPanel
 {
-    // Minimal borderless panel — just a surface for the text field, no extras
-    NSRect panelRect = NSMakeRect(0, 0, kSearchFieldWidth, kSearchFieldHeight);
+    // Minimal borderless panel — just a surface for the text field, no extras.
+    // Height is exactly one menu item so the search box aligns with the
+    // results menu rows below it.
+    CGFloat searchFieldHeight = [[GSTheme theme] menuItemHeight];
+    NSRect panelRect = NSMakeRect(0, 0, kSearchFieldWidth, searchFieldHeight);
 
     self.searchPanel = [[NSPanel alloc] initWithContentRect:panelRect
                                                   styleMask:NSBorderlessWindowMask
@@ -211,15 +243,20 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
        auto-hidden and auto-re-shown by the app activation cycle. */
     [self.searchPanel setHidesOnDeactivate:NO];
 
-    // Search field fills the panel exactly — no padding
+    // Search field inset 4px from the left/right edges of the background rect
+    // so the field's rounded corners sit inside the panel backdrop.
+    static const CGFloat kSearchFieldHPadding = 4.0;
+    NSRect fieldRect = NSMakeRect(kSearchFieldHPadding, 0,
+                                  NSWidth(panelRect) - 2 * kSearchFieldHPadding,
+                                  NSHeight(panelRect));
     BOOL themeSearch = [NSSearchFieldCell instancesRespondToSelector:@selector(EAUsearchButtonRectForBounds:)];
     if (themeSearch)
       {
-        self.searchField = [[NSSearchField alloc] initWithFrame:panelRect];
+        self.searchField = [[NSSearchField alloc] initWithFrame:fieldRect];
       }
     else
       {
-        NSTextField *tf = [[NSTextField alloc] initWithFrame:panelRect];
+        NSTextField *tf = [[NSTextField alloc] initWithFrame:fieldRect];
         [tf setBezeled:YES];
         [tf setBezelStyle:NSTextFieldRoundedBezel];
         [tf setEditable:YES];
@@ -235,6 +272,9 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
     [self.searchField setTarget:self];
     [self.searchField setAction:@selector(searchFieldSubmit:)];
     [self.searchField setFont:[NSFont menuFontOfSize:0]];
+    /* The field tracks the panel width (keeping the 4px side padding) so the
+       search box can stretch to match the results menu below it. */
+    [self.searchField setAutoresizingMask:NSViewWidthSizable];
 
     NSAttributedString *placeholder = [[NSAttributedString alloc]
         initWithString:@"Search menus..."
@@ -244,6 +284,11 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
         }];
     [[self.searchField cell] setPlaceholderAttributedString:placeholder];
 
+    /* Solid rectangular backdrop behind the rounded search field (see
+       SearchFieldBackgroundView above). */
+    SearchFieldBackgroundView *bg = [[SearchFieldBackgroundView alloc] initWithFrame:panelRect];
+    [bg setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    [[self.searchPanel contentView] addSubview:bg];
     [[self.searchPanel contentView] addSubview:self.searchField];
 
     NSDebugLLog(@"gwcomp", @"ActionSearchController: Created search panel (no padding)");
@@ -600,6 +645,21 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
         if (menuRep && [menuRep respondsToSelector:@selector(setHighlightedItemIndex:)]) {
             [menuRep setHighlightedItemIndex:highlightIndex];
             [menuRep setNeedsDisplay:YES];
+        }
+    }
+
+    /* The search box and the results menu must look like one connected
+       widget: stretch the search panel to the results menu's width.  The menu
+       window is sized by popUpMenuPositioningItem: above, so read its frame
+       now and match the panel to it. */
+    NSWindow *menuWindow = [self.resultsMenu window];
+    if (menuWindow) {
+        NSRect menuFrame = [menuWindow frame];
+        CGFloat menuWidth = NSWidth(menuFrame);
+        NSRect panelFrame = [self.searchPanel frame];
+        if (menuWidth > 1 && fabs(menuWidth - NSWidth(panelFrame)) > 1) {
+            panelFrame.size.width = menuWidth;
+            [self.searchPanel setFrame:panelFrame display:YES];
         }
     }
 }
