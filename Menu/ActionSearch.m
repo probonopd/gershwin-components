@@ -10,6 +10,7 @@
 #import "X11ShortcutManager.h"
 #import "MenuUtils.h"
 #import "WindowMonitor.h"
+#import "DBusConnection.h"
 #import <GNUstepGUI/GSTheme.h>
 #import <objc/runtime.h>
 #import <pthread.h>
@@ -66,8 +67,21 @@ static const CGFloat kMaxResultsShown = 15;
         self.keyEquivalent = [item keyEquivalent] ?: @"";
         self.modifierMask = [item keyEquivalentModifierMask];
         self.enabled = [item isEnabled];
+        self.kind = @"menu";
+        self.group = @"menu";
     }
     return self;
+}
+
++ (instancetype)runResultWithTitle:(NSString *)title target:(NSString *)target
+{
+    ActionSearchResult *r = [ActionSearchResult new];
+    r.title = title;
+    r.path = target;
+    r.keyEquivalent = @"";
+    r.enabled = YES;
+    r.kind = @"run";
+    return r;
 }
 
 - (NSString *)description
@@ -500,6 +514,141 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 
 #pragma mark - Search
 
+/* ── Run / Go To support (typeahead + completion) ─────────────────────── */
+
+/* True when the query should be treated as a filesystem path (starts with a
+   path separator, tilde or dot). */
+- (BOOL)isPathLikeQuery:(NSString *)query
+{
+    if ([query length] == 0) return NO;
+    return ([query hasPrefix:@"/"] || [query hasPrefix:@"~"]
+            || [query hasPrefix:@"./"] || [query hasPrefix:@"../"]
+            || [query hasPrefix:@"."]);
+}
+
+/* List of application bundle names (e.g. "TextEdit.app") in the standard app
+   directories.  Cached briefly so typing does not rescan every keystroke. */
+static NSArray *s_eau_cachedAppNames = nil;
+static NSTimeInterval s_eau_appCacheStamp = 0;
+static const NSTimeInterval kAppNameCacheTTL = 30.0;
+
+- (NSArray *)applicationBundleNames
+{
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (s_eau_cachedAppNames == nil || now - s_eau_appCacheStamp > kAppNameCacheTTL)
+      {
+        NSMutableArray *names = [NSMutableArray array];
+        for (NSString *dir in NSStandardApplicationPaths())
+          {
+            NSArray *contents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:NULL];
+            for (NSString *name in contents)
+              {
+                if ([name hasSuffix:@".app"]) {
+                  [names addObject:[name stringByDeletingPathExtension]];
+                }
+              }
+          }
+        [names sortUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+        s_eau_cachedAppNames = [names copy];
+        s_eau_appCacheStamp = now;
+      }
+    return s_eau_cachedAppNames;
+}
+
+/* Directory entries under `dir` whose names begin with `prefix`.  Used for
+   path (Go To) completion and suggestions. */
+- (NSArray *)completionsForPathQuery:(NSString *)query
+{
+    if ([query length] == 0) return @[];
+
+    NSString *expanded = [query stringByExpandingTildeInPath];
+    NSString *parent = [expanded stringByDeletingLastPathComponent];
+    NSString *last = [expanded lastPathComponent];
+    if ([parent length] == 0) parent = @"/";
+
+    NSArray *contents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:parent error:NULL];
+    NSMutableArray *matches = [NSMutableArray array];
+    NSString *lowerPrefix = [last lowercaseString];
+    for (NSString *name in contents)
+      {
+        if ([[name lowercaseString] hasPrefix:lowerPrefix])
+          {
+            NSString *full = [parent stringByAppendingPathComponent:name];
+            [matches addObject:full];
+          }
+      }
+    return matches;
+}
+
+/* Suggest Run / Go To results for a query that has no (or few) menu matches.
+   Bare words become app/command runs; path-like queries become folder opens. */
+- (void)addRunAndGoToResultsForQuery:(NSString *)query
+{
+    if ([query length] == 0) return;
+
+    if ([self isPathLikeQuery:query])
+      {
+        NSArray *paths = [self completionsForPathQuery:query];
+        for (NSString *p in paths)
+          {
+            BOOL isDir = NO;
+            [[NSFileManager defaultManager] fileExistsAtPath:p isDirectory:&isDir];
+            ActionSearchResult *r = [ActionSearchResult runResultWithTitle:
+              [NSString stringWithFormat:@"Go to %@", p] target:p];
+            r.kind = @"goto";
+            r.group = @"path";
+            r.enabled = isDir;
+            [self.filteredResults addObject:r];
+            if ([self.filteredResults count] >= kMaxResultsShown) break;
+          }
+        return;
+      }
+
+    /* Bare command: match app bundle names and PATH executables. */
+    NSString *lowerQuery = [query lowercaseString];
+    for (NSString *app in [self applicationBundleNames])
+      {
+        if ([[app lowercaseString] hasPrefix:lowerQuery])
+          {
+            ActionSearchResult *r = [ActionSearchResult runResultWithTitle:
+              [NSString stringWithFormat:@"Run %@", app] target:app];
+            r.kind = @"run";
+            r.group = @"app";
+            [self.filteredResults addObject:r];
+            if ([self.filteredResults count] >= kMaxResultsShown) break;
+          }
+      }
+
+    /* PATH executables (only the first few to keep the menu small). */
+    if ([self.filteredResults count] < kMaxResultsShown)
+      {
+        NSString *pathEnv = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
+        for (NSString *dir in [pathEnv componentsSeparatedByString:@":"])
+          {
+            if ([dir length] == 0) continue;
+            NSArray *contents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:NULL];
+            for (NSString *name in contents)
+              {
+                if ([[name lowercaseString] hasPrefix:lowerQuery]
+                    && ![[self applicationBundleNames] containsObject:name])
+                  {
+                    NSString *full = [dir stringByAppendingPathComponent:name];
+                    if ([[NSFileManager defaultManager] isExecutableFileAtPath:full])
+                      {
+                        ActionSearchResult *r = [ActionSearchResult runResultWithTitle:
+                          [NSString stringWithFormat:@"Run %@", name] target:full];
+                        r.kind = @"run";
+                        r.group = @"command";
+                        [self.filteredResults addObject:r];
+                        if ([self.filteredResults count] >= kMaxResultsShown) break;
+                      }
+                  }
+              }
+            if ([self.filteredResults count] >= kMaxResultsShown) break;
+          }
+      }
+}
+
 - (void)searchWithString:(NSString *)searchString
 {
     [self.filteredResults removeAllObjects];
@@ -523,6 +672,13 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
             break;
         }
     }
+
+    /* When the query matches no (or very few) menu items, fall back to Run /
+       Go To suggestions: launch an app/command, or open a folder path. */
+    if ([self.filteredResults count] < 3)
+      {
+        [self addRunAndGoToResultsForQuery:searchString];
+      }
 
     NSDebugLLog(@"gwcomp", @"ActionSearchController: Search '%@' found %lu results",
           searchString, (unsigned long)[self.filteredResults count]);
@@ -587,19 +743,37 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
     }
 
     NSString *previousTopLevelMenu = @"";
+    NSString *previousGroup = nil;
     for (NSUInteger i = 0; i < [self.filteredResults count]; i++) {
         ActionSearchResult *result = [self.filteredResults objectAtIndex:i];
 
-        NSString *topLevelMenu = result.path;
-        NSRange firstSpace = [topLevelMenu rangeOfString:@" "];
-        if (firstSpace.location != NSNotFound) {
-            topLevelMenu = [topLevelMenu substringToIndex:firstSpace.location];
+        /* Separators go between result GROUPS (menu entries, app bundles,
+           PATH commands, filesystem paths) - never between individual items
+           of the same group (e.g. each PATH command). */
+        NSString *group = [result.group length] ? result.group
+                           : (([result.kind length] == 0
+                               || [result.kind isEqualToString:@"menu"]) ? @"menu" : @"other");
+        BOOL addSeparator = NO;
+        if (previousGroup != nil && ![group isEqualToString:previousGroup]) {
+            addSeparator = YES;
+        } else if ([group isEqualToString:@"menu"] && i > 0) {
+            /* Within the menu group, separate different top-level menus. */
+            NSString *topLevelMenu = result.path;
+            NSRange firstSpace = [topLevelMenu rangeOfString:@" "];
+            if (firstSpace.location != NSNotFound) {
+                topLevelMenu = [topLevelMenu substringToIndex:firstSpace.location];
+            }
+            topLevelMenu = [topLevelMenu stringByReplacingOccurrencesOfString:@" \u25B7" withString:@""];
+            if (![topLevelMenu isEqual:previousTopLevelMenu]) {
+                addSeparator = YES;
+            }
+            previousTopLevelMenu = topLevelMenu;
         }
-        topLevelMenu = [topLevelMenu stringByReplacingOccurrencesOfString:@" \u25B7" withString:@""];
 
-        if (i > 0 && ![topLevelMenu isEqual:previousTopLevelMenu]) {
+        if (addSeparator) {
             [self.resultsMenu addItem:[NSMenuItem separatorItem]];
         }
+        previousGroup = group;
 
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:[result path]
                                                        action:@selector(resultMenuItemClicked:)
@@ -614,7 +788,6 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
         }
 
         [self.resultsMenu addItem:item];
-        previousTopLevelMenu = topLevelMenu;
     }
 
     if (self.resultsMenuTracking) {
@@ -678,7 +851,22 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 
 - (void)executeActionForResult:(ActionSearchResult *)result
 {
-    if (!result || !result.menuItem) {
+    if (!result) {
+        NSDebugLLog(@"gwcomp", @"ActionSearchController: Cannot execute - no result");
+        return;
+    }
+
+    /* Run / Go To results have no menu item - launch or open directly. */
+    if ([result.kind isEqualToString:@"run"]) {
+        [self launchTarget:result.path];
+        return;
+    }
+    if ([result.kind isEqualToString:@"goto"]) {
+        [self openPathInWorkspace:result.path];
+        return;
+    }
+
+    if (!result.menuItem) {
         NSDebugLLog(@"gwcomp", @"ActionSearchController: Cannot execute - no result or menu item");
         return;
     }
@@ -699,6 +887,52 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
     } else if ([originalItem action]) {
         [NSApp sendAction:[originalItem action] to:nil from:originalItem];
     }
+}
+
+/* Launch an app (by name or path) or a command, asynchronously so the search
+   box closes without blocking. */
+- (void)launchTarget:(NSString *)target
+{
+    if ([target length] == 0) return;
+    NSDebugLog(@"ActionSearchController: Launching %@", target);
+
+    [NSThread detachNewThreadWithBlock: ^{
+        if ([target hasSuffix:@".app"] || [target hasPrefix:@"/"]) {
+            if ([[NSWorkspace sharedWorkspace] launchApplication:target]) return;
+        }
+        /* Try name-based launch (app bundle in a standard dir). */
+        NSString *name = [target lastPathComponent];
+        if ([name hasSuffix:@".app"]) name = [name stringByDeletingPathExtension];
+        if ([[NSWorkspace sharedWorkspace] launchApplication:name]) return;
+        /* Fall back to executing a bare command. */
+        [NSTask launchedTaskWithLaunchPath:target arguments:@[]];
+    }];
+}
+
+/* Open a folder path in the Workspace. */
+- (void)openPathInWorkspace:(NSString *)path
+{
+    if ([path length] == 0) return;
+    NSString *expanded = [path stringByExpandingTildeInPath];
+    NSDebugLog(@"ActionSearchController: Opening folder %@", expanded);
+
+    [NSThread detachNewThreadWithBlock: ^{
+        NSURL *fileURL = [NSURL fileURLWithPath:expanded];
+        NSString *uri = [fileURL absoluteString];
+        @try {
+            /* Same call the Applications submenu uses (openFolderInWorkspace:). */
+            id result = [[GNUDBusConnection sessionBus] callMethod:@"ShowFolders"
+                                                        onService:@"org.freedesktop.FileManager1"
+                                                      objectPath:@"/org/freedesktop/FileManager1"
+                                                       interface:@"org.freedesktop.FileManager1"
+                                                       arguments:@[@[uri], @""]];
+            if (!result) {
+                [[NSWorkspace sharedWorkspace] openURL:fileURL];
+            }
+        } @catch (NSException *e) {
+            [[NSWorkspace sharedWorkspace] openURL:fileURL];
+        }
+    }];
 }
 
 #pragma mark - NSTextFieldDelegate

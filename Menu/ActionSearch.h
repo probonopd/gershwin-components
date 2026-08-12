@@ -21,7 +21,19 @@
 @property (nonatomic, strong) NSMenuItem *menuItem;      // Reference to actual menu item
 @property (nonatomic, assign) BOOL enabled;              // Whether item is enabled in original menu
 
+/* Kind of result: "menu" (a menu item), "run" (launch an app/command), or
+   "goto" (open a folder path).  Run/GoTo results carry the target in `path`. */
+@property (nonatomic, copy) NSString *kind;
+
+/* Group for separator placement: "menu", "app", "command" (PATH), or "path".
+   Results of the same group are shown contiguously with a separator between
+   different groups. */
+@property (nonatomic, copy) NSString *group;
+
 - (id)initWithMenuItem:(NSMenuItem *)item path:(NSString *)path;
+
+/* Convenience: build a Run or Go To result.  kind is "run" or "goto". */
++ (instancetype)runResultWithTitle:(NSString *)title target:(NSString *)target;
 
 @end
 
