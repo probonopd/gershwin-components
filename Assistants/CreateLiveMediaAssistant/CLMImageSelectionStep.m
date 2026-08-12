@@ -363,6 +363,42 @@
     [_releaseArrayController setSelectionIndex:0];
     
     [self requestNavigationUpdate];
+
+    // Fetch the real size via a HEAD request so the UI shows it and the
+    // disk-space check can use it. Size stays 0 (unknown) until it arrives,
+    // but the selection is already usable.
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        NSURL *url = [NSURL URLWithString:urlString];
+        NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+        [req setHTTPMethod:@"HEAD"];
+        [req setTimeoutInterval:15.0];
+
+        NSHTTPURLResponse *response = nil;
+        NSError *error = nil;
+        [NSURLConnection sendSynchronousRequest:req
+                              returningResponse:&response
+                                          error:&error];
+        long long size = 0;
+        if (!error && response) {
+            size = [response expectedContentLength];
+        }
+        NSLog(@"CLMImageSelectionStep: HEAD %@ -> size=%lld err=%@",
+              urlString, size, error);
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(weakSelf) strongSelf2 = weakSelf;
+            if (!strongSelf2 || size <= 0) return;
+            [asset setObject:[NSNumber numberWithLongLong:size] forKey:@"size"];
+            [asset setObject:[GSDiskUtilities formatSize:size] forKey:@"sizeFormatted"];
+            [strongSelf2->_releaseArrayController rearrangeObjects];
+            [strongSelf2->_releaseTableView reloadData];
+            [strongSelf2 requestNavigationUpdate];
+        });
+    });
 }
 
 - (void)loadLocalFile:(NSString *)filePath
@@ -528,7 +564,9 @@
             NSString *url = [selectedRelease objectForKey:@"url"];
             NSString *name = [selectedRelease objectForKey:@"name"];
             NSDebugLLog(@"gwcomp", @"CLMImageSelectionStep: name=%@ url=%@ size=%@", name, url, size);
-            if ([url length] > 0 && [size longLongValue] > 0 &&
+            // Size may be 0 (unknown) for direct download URLs; the image name
+            // check is enough to allow continuing.
+            if ([url length] > 0 &&
                 [CLMStreamOperation isImageAssetName:name]) {
                 NSDebugLLog(@"gwcomp", @"CLMImageSelectionStep: canContinue = YES");
                 return YES;
