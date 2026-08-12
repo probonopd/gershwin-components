@@ -857,18 +857,23 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [sysMenu addItem:searchItem];
         [sysMenu addItem:[NSMenuItem separatorItem]];
 
+        NSMenu *prefsSubmenu = [[NSMenu alloc] initWithTitle:NSLocalizedString(@"System Preferences", nil)];
+        self.systemPrefsSubmenu = prefsSubmenu;
+        self.systemPrefsSubmenuPopulated = NO;
+        /* Populate eagerly so the submenu is never empty: GNUstep's
+           auto-enabling greys out an item whose submenu has no items, which
+           would make "System Preferences" unclickable. */
+        [self populatePrefPanesSubmenu];
         NSMenuItem *prefsItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"System Preferences", nil)
                                                            action:@selector(openSystemPreferences:)
                                                     keyEquivalent:@""];
         [prefsItem setTarget:self];
         [sysMenu addItem:prefsItem];
+        [prefsItem setSubmenu:prefsSubmenu];
         [sysMenu addItem:[NSMenuItem separatorItem]];
 
         /* Power actions: shut down, restart and log out, ported from the
-         * Workspace main menu into the Command menu.  The separator above
-         * them separates the actions from the Applications submenu that gets
-         * inserted dynamically above them. */
-        [sysMenu addItem:[NSMenuItem separatorItem]];
+         * Workspace main menu into the Command menu. */
         NSMenuItem *restartItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Restart...", nil)
                                                              action:@selector(restart:)
                                                       keyEquivalent:@""];
@@ -1212,6 +1217,16 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
 - (void)menuNeedsUpdate:(NSMenu *)menu
 {
+    /* The System Preferences submenu is populated at build time; this guard
+       catches a stale cache so the submenu stays current without re-scanning
+       on every open. */
+    if (menu == self.systemPrefsSubmenu) {
+        if (!self.systemPrefsSubmenuPopulated) {
+            [self populatePrefPanesSubmenu];
+        }
+        return;
+    }
+
     /* Populate system menu but with throttling to avoid CPU thrashing from
        GNUstep calling menuNeedsUpdate: on every run-loop cycle for every
        submenu that has a delegate. */
@@ -1255,18 +1270,16 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     NSLog(@"AppMenuWidget: populateSystemMenu proceeding (cacheValid=%d, populated=%d)", cacheValid, self.systemMenuPopulatedFromCache);
 
-    /* Find the insertion point for the dynamic "Applications" submenu: right
-       after "System Preferences" + separator.  The power actions (Restart.../
-       Shut Down.../Log Out...) and their separator below are permanent and
-       must survive the refresh, so only the previous "Applications" item is
-       replaced. */
+    /* The dynamic "Applications" submenu lives above System Preferences: it is
+       inserted there on first population and replaced on refresh.  The power
+       actions (Restart.../Shut Down.../Log Out...) are permanent and survive. */
     NSArray *items = [menu itemArray];
-    NSInteger startIndex = 3;
+    NSInteger startIndex = 1;
     NSInteger appsIndex = NSNotFound;
     for (NSUInteger i = 0; i < [items count]; i++) {
         NSString *title = [[items objectAtIndex:i] title];
         if ([title isEqualToString:NSLocalizedString(@"System Preferences", nil)]) {
-            startIndex = (NSInteger)i + 2;
+            startIndex = (NSInteger)i;
         } else if ([title isEqualToString:NSLocalizedString(@"Applications", nil)]) {
             appsIndex = (NSInteger)i;
         }
@@ -1298,11 +1311,13 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [appsSubmenu addItem:none];
     }
 
-    NSMenuItem *appsItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Applications", nil)
-                                                      action:nil keyEquivalent:@""];
-    [appsItem setSubmenu:appsSubmenu];
-    [menu insertItem:appsItem atIndex:startIndex];
-    NSLog(@"AppMenuWidget: Inserted Applications submenu at index %ld, menu now has %ld items", (long)startIndex, (long)[menu numberOfItems]);
+    [self addLauncherItemWithTitle:NSLocalizedString(@"Applications", nil)
+                            action:nil
+                 representedObject:nil
+                           submenu:appsSubmenu
+                            toMenu:menu
+                            atIndex:startIndex];
+    NSLog(@"AppMenuWidget: Inserted Applications submenu at index %ld, menu has %ld items", (long)startIndex, (long)[menu numberOfItems]);
 
     self.systemMenuPopulatedFromCache = YES;
 }
@@ -1444,6 +1459,58 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     }
 }
 
+/* Build a launcher menu item that also carries a submenu: clicking the item
+   performs `action` (targeted at self) and its representedObject is `object`;
+   the item's submenu (may be nil) opens on hover/arrow.  This is the shared
+   shape of the Applications folder items and the System Preferences item. */
+- (NSMenuItem *)addLauncherItemWithTitle:(NSString *)title
+                                  action:(SEL)action
+                       representedObject:(id)object
+                                 submenu:(NSMenu *)submenu
+                                  toMenu:(NSMenu *)menu
+{
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title
+                                                  action:action
+                                           keyEquivalent:@""];
+    [item setTarget:self];
+    if (object) {
+        [item setRepresentedObject:object];
+    }
+    /* Add the item first, then attach the submenu: GNUstep's swizzled
+       setSubmenu: preserves a custom action, and auto-enabling evaluates the
+       item correctly only once it belongs to a menu. */
+    [menu addItem:item];
+    if (submenu) {
+        [item setSubmenu:submenu];
+    }
+    return item;
+}
+
+- (NSMenuItem *)addLauncherItemWithTitle:(NSString *)title
+                                  action:(SEL)action
+                       representedObject:(id)object
+                                 submenu:(NSMenu *)submenu
+                                  toMenu:(NSMenu *)menu
+                                 atIndex:(NSInteger)index
+{
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title
+                                                  action:action
+                                           keyEquivalent:@""];
+    [item setTarget:self];
+    if (object) {
+        [item setRepresentedObject:object];
+    }
+    if (index >= 0 && index <= (NSInteger)[menu numberOfItems]) {
+        [menu insertItem:item atIndex:index];
+    } else {
+        [menu addItem:item];
+    }
+    if (submenu) {
+        [item setSubmenu:submenu];
+    }
+    return item;
+}
+
 - (void)addMenuItemsFromTree:(NSDictionary *)tree toMenu:(NSMenu *)menu
 {
     /* Collect both subdirectory submenus and app items, then interleave
@@ -1576,29 +1643,186 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     }
 
     [NSThread detachNewThreadWithBlock: ^{
-        NSArray *names = @[@"System Preferences", @"SystemPreferences", @"System-Preferences"];
-        BOOL launched = NO;
-        for (NSString *name in names) {
-            if ([[NSWorkspace sharedWorkspace] launchApplication:name]) { launched = YES; break; }
+        /* Prefer the System-domain app bundle over any stale Local-domain
+           leftover, then fall back to name lookup.  Launch the app's
+           executable directly: GNUstep's NSWorkspace openURL: on a bundle
+           directory opens it as a *file* (TextEdit becomes the handler),
+           which never starts the app. */
+        NSArray *paths = @[@"/System/Applications/System Preferences.app",
+                           @"/System/Applications/SystemPreferences.app",
+                           @"/Applications/System Preferences.app",
+                           @"/Applications/SystemPreferences.app"];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSString *execPath = nil;
+        for (NSString *p in paths) {
+            if ([fm fileExistsAtPath:p]) { execPath = p; break; }
         }
-
-        if (!launched) {
-            NSArray *paths = @[@"/System/Applications/System Preferences.app",
-                               @"/System/Applications/SystemPreferences.app",
-                               @"/Applications/System Preferences.app",
-                               @"/Applications/SystemPreferences.app"];
-            NSFileManager *fm = [NSFileManager defaultManager];
-            for (NSString *p in paths) {
-                if ([fm fileExistsAtPath:p]) {
-                    [[NSWorkspace sharedWorkspace] openURL:[NSURL fileURLWithPath:p]];
-                    launched = YES;
-                    break;
-                }
+        if (!execPath) {
+            for (NSString *name in @[@"System Preferences", @"SystemPreferences", @"System-Preferences"]) {
+                NSString *p = [[NSWorkspace sharedWorkspace] fullPathForApplication:name];
+                if (p) { execPath = p; break; }
             }
         }
-        if (!launched) {
+        if (!execPath) {
             NSLog(@"AppMenuWidget: Could not find System Preferences to launch");
+            return;
         }
+
+        NSString *infoPath = [execPath stringByAppendingPathComponent:@"Resources/Info-gnustep.plist"];
+        if (![fm fileExistsAtPath:infoPath]) {
+            infoPath = [execPath stringByAppendingPathComponent:@"Contents/Info.plist"];
+        }
+        NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:infoPath];
+        NSString *execName = [info objectForKey:@"NSExecutable"];
+        if (execName) {
+            NSString *exe = [execPath stringByAppendingPathComponent:execName];
+            if ([fm isExecutableFileAtPath:exe]) {
+                [NSTask launchedTaskWithLaunchPath:exe arguments:@[]];
+                return;
+            }
+        }
+        NSString *exe = [execPath stringByAppendingPathComponent:
+                         [[execPath lastPathComponent] stringByDeletingPathExtension]];
+        if ([fm isExecutableFileAtPath:exe]) {
+            [NSTask launchedTaskWithLaunchPath:exe arguments:@[]];
+            return;
+        }
+        NSLog(@"AppMenuWidget: Could not find System Preferences executable to launch");
+    }];
+}
+
+/* Populate the System Preferences submenu with one item per installed
+   prefPane, taken from the same bundle directories SystemPreferences scans
+   (User, Local and System Library/Bundles).  Called lazily the first time the
+   submenu is about to open; each item launches SystemPreferences with the
+   pane name as a command-line argument so the pane opens directly. */
+- (void)populatePrefPanesSubmenu
+{
+    NSMenu *submenu = self.systemPrefsSubmenu;
+    if (!submenu) return;
+
+    self.systemPrefsSubmenuPopulated = YES;
+
+    NSArray *bundleDirs = @[
+        [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) lastObject],
+        [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSLocalDomainMask, YES) lastObject],
+        [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSSystemDomainMask, YES) lastObject]
+    ];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSMutableDictionary *panesByName = [NSMutableDictionary dictionary];
+    NSMutableArray *labels = [NSMutableArray array];
+
+    for (NSString *bundlesDir in bundleDirs) {
+        NSString *dir = [bundlesDir stringByAppendingPathComponent:@"Bundles"];
+        NSArray *contents = [fm contentsOfDirectoryAtPath:dir error:nil];
+        if (!contents) continue;
+
+        for (NSString *entry in contents) {
+            if (![[entry pathExtension] isEqualToString:@"prefPane"]) continue;
+            NSString *panePath = [dir stringByAppendingPathComponent:entry];
+
+            /* GNUstep prefPane bundles keep their metadata in
+               Resources/Info-gnustep.plist; fall back to the standard
+               Contents/Info.plist location. */
+            NSString *infoPath = [panePath stringByAppendingPathComponent:@"Resources/Info-gnustep.plist"];
+            if (![fm fileExistsAtPath:infoPath]) {
+                infoPath = [panePath stringByAppendingPathComponent:@"Contents/Info.plist"];
+            }
+            NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:infoPath];
+            if (!info) continue;
+
+            NSString *label = [info objectForKey:@"NSPrefPaneIconLabel"];
+            if (!label || [label length] == 0) {
+                label = [entry stringByDeletingPathExtension];
+            }
+            if (panesByName[label]) continue;   /* first occurrence wins */
+
+            panesByName[label] = @{ @"path": panePath, @"name": [entry stringByDeletingPathExtension] };
+            [labels addObject:label];
+        }
+    }
+
+    [labels sortUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+
+    for (NSString *label in labels) {
+        NSDictionary *pane = panesByName[label];
+        [self addLauncherItemWithTitle:label
+                                action:@selector(openPrefPane:)
+                     representedObject:pane[@"name"]
+                               submenu:nil
+                                toMenu:submenu];
+    }
+
+    if ([submenu numberOfItems] == 0) {
+        NSMenuItem *none = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"No preference panes found", nil)
+                                                      action:nil keyEquivalent:@""];
+        [none setEnabled:NO];
+        [submenu addItem:none];
+    }
+}
+
+/* Launch SystemPreferences and pass the pane name as a command-line argument;
+   SystemPreferences opens the named pane directly (its
+   openPaneFromCommandLineArguments matches bundle name or identifier). */
+- (void)openPrefPane:(NSMenuItem *)sender
+{
+    NSString *paneName = [sender representedObject];
+    if (!paneName || [paneName length] == 0) return;
+
+    NSMenu *parentMenu = [sender menu];
+    if (parentMenu && [parentMenu respondsToSelector:@selector(cancelTracking)]) {
+        [parentMenu performSelector:@selector(cancelTracking)];
+    }
+
+    [NSThread detachNewThreadWithBlock: ^{
+        /* Resolve the System Preferences app bundle, preferring the System
+           domain over any stale Local-domain leftover, then launch its
+           executable with the pane name as the argument. */
+        NSArray *paths = @[@"/System/Applications/System Preferences.app",
+                           @"/System/Applications/SystemPreferences.app",
+                           @"/Applications/System Preferences.app",
+                           @"/Applications/SystemPreferences.app"];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSString *execPath = nil;
+        for (NSString *p in paths) {
+            if ([fm fileExistsAtPath:p]) { execPath = p; break; }
+        }
+        if (!execPath) {
+            for (NSString *name in @[@"SystemPreferences", @"System Preferences", @"System-Preferences"]) {
+                NSString *p = [[NSWorkspace sharedWorkspace] fullPathForApplication:name];
+                if (p) { execPath = p; break; }
+            }
+        }
+        if (!execPath) {
+            NSLog(@"AppMenuWidget: Could not find System Preferences to open pane '%@'", paneName);
+            return;
+        }
+
+        /* GNUstep app bundles carry the executable in the bundle root (or in
+           Contents/MacOS); openPaneFromCommandLineArguments reads the pane
+           from the arguments. */
+        NSString *infoPath = [execPath stringByAppendingPathComponent:@"Resources/Info-gnustep.plist"];
+        if (![fm fileExistsAtPath:infoPath]) {
+            infoPath = [execPath stringByAppendingPathComponent:@"Contents/Info.plist"];
+        }
+        NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:infoPath];
+        NSString *execName = [info objectForKey:@"NSExecutable"];
+        if (execName) {
+            NSString *exe = [execPath stringByAppendingPathComponent:execName];
+            if ([fm isExecutableFileAtPath:exe]) {
+                [NSTask launchedTaskWithLaunchPath:exe arguments:@[paneName]];
+                return;
+            }
+        }
+        /* Fall back to the bundle-root executable name matching the app name. */
+        NSString *exe = [execPath stringByAppendingPathComponent:
+                         [[execPath lastPathComponent] stringByDeletingPathExtension]];
+        if ([fm isExecutableFileAtPath:exe]) {
+            [NSTask launchedTaskWithLaunchPath:exe arguments:@[paneName]];
+            return;
+        }
+        NSLog(@"AppMenuWidget: Could not find System Preferences executable to open pane '%@'", paneName);
     }];
 }
 

@@ -29,6 +29,12 @@
 /* The system submenu (contains Search, System Preferences, and dynamic application list) */
 @property (nonatomic, strong) NSMenu *systemMenu;
 
+/* The System Preferences submenu inside the Command menu.  It holds one item
+   per installed prefPane, populated by populatePrefPanesSubmenu (eagerly, so
+   GNUstep auto-enabling does not grey out the parent item). */
+@property (nonatomic, strong) NSMenu *systemPrefsSubmenu;
+@property (nonatomic, assign) BOOL systemPrefsSubmenuPopulated;
+
 /* Cached tree of .app bundles for the system submenu (rebuilt at most every 30s) */
 @property (nonatomic, strong) NSDictionary *cachedAppBundleTree;
 @property (nonatomic, assign) NSTimeInterval cachedAppBundleTreeTime;
@@ -68,6 +74,21 @@
 /* System submenu actions */
 - (void)openSystemPreferences:(NSMenuItem *)sender;
 - (void)openApplicationBundle:(NSMenuItem *)sender;
+- (void)openPrefPane:(NSMenuItem *)sender;
+
+/* Populate the System Preferences submenu with one item per installed
+   prefPane (lazy: called when the submenu is about to open). */
+- (void)populatePrefPanesSubmenu;
+
+/* Build a launcher menu item that also carries a submenu: clicking the item
+   performs `action` (targeted at self), and the arrow/hover opens `submenu`
+   (may be nil).  `representedObject` is stored for the action.  Shared by the
+   Applications folder items and the System Preferences item. */
+- (NSMenuItem *)addLauncherItemWithTitle:(NSString *)title
+                                  action:(SEL)action
+                       representedObject:(id)object
+                                 submenu:(NSMenu *)submenu
+                                  toMenu:(NSMenu *)menu;
 
 /* Make sure the dynamic Applications submenu (app launchers) is populated so
    it can be searched and displayed even before the Command menu is opened. */
