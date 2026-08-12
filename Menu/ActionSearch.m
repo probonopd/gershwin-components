@@ -193,6 +193,13 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
     [self.searchPanel setBackgroundColor:[NSColor clearColor]];
     [self.searchPanel setBecomesKeyOnlyIfNeeded:NO];
     [self.searchPanel setReleasedWhenClosed:NO];
+    /* NSPanel defaults to hidesOnDeactivate:YES.  That makes GNUstep remember
+       the panel when the app deactivates and order it front again when the
+       app reactivates - which would reopen the search box the moment the
+       user clicks back on the menu bar after it was dismissed.  The search
+       panel is closed explicitly (hideSearchPopup), so it must not be
+       auto-hidden and auto-re-shown by the app activation cycle. */
+    [self.searchPanel setHidesOnDeactivate:NO];
 
     // Search field fills the panel exactly — no padding
     BOOL themeSearch = [NSSearchFieldCell instancesRespondToSelector:@selector(EAUsearchButtonRectForBounds:)];

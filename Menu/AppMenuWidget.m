@@ -193,6 +193,8 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 - (BOOL)topLevelMenusMatch:(NSMenu *)a with:(NSMenu *)b;
 - (unsigned long)readActiveWindowFromX11;
 - (void)startupDesktopMenuLoad:(NSTimer *)timer;
+- (void)closeOpenMenuTracking;
+- (void)mainMenuDidEndTracking:(NSNotification *)note;
 
 @end
 
@@ -387,6 +389,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     self.currentWindowId = 0;
     self.currentWindowPID = 0;
     self.needsRedraw = YES;
+    [self closeOpenMenuTracking];
     if (self.menuView) {
         [self.menuView setMenu:nil];
         [self.menuView setHidden:YES];
@@ -744,6 +747,44 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     MENU_PROFILE_END(loadMenuForWindow);
 }
 
+/* Close any open dropdown menu (attached submenu panel) attached to the
+   current menu view, and clear the highlighted item.
+
+   GNUstep's NSMenuView embeds each open dropdown submenu as an "attached"
+   NSMenuPanel that is created and torn down while its tracking loop runs.  If
+   the menu view is destroyed or its menu replaced while such a panel is open,
+   the panel is orphaned - it stays in the window list, is never unmapped, and
+   keeps consuming pointer input (the "wedged" menu bar that no longer reacts
+   to clicks).  This routine walks the attached-menu chain and detaches/clears
+   it, so a menu-view rebuild always starts from a clean, non-tracking state.
+
+   It only acts on the transient panels opened by the menu bar - it does not
+   and cannot affect the normal application windows. */
+- (void)closeOpenMenuTracking
+{
+    if (!self.menuView) return;
+
+    NSView *view = self.menuView;
+    if (![view isKindOfClass:[NSMenuView class]]) return;
+    NSMenuView *menuView = (NSMenuView *)view;
+
+    @try {
+        /* Close the first-level dropdown (its NSMenuPanel window).  detachSubmenu
+           only closes second-level and deeper submenus; the currently open
+           dropdown is attachedMenu (menuView.attachedMenu), whose window must
+           be ordered out explicitly or it stays mapped and swallows input. */
+        NSMenu *attachedMenu = [menuView attachedMenu];
+        if (attachedMenu) {
+            [attachedMenu close];
+        }
+        /* Detach any remaining submenu chain and clear the highlight. */
+        [menuView detachSubmenu];
+        [menuView setHighlightedItemIndex:-1];
+    } @catch (NSException *e) {
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: closeOpenMenuTracking: %@", e);
+    }
+}
+
 - (void)setupMenuViewWithMenu:(NSMenu *)menu
 {
     MENU_PROFILE_BEGIN(setupMenuViewWithMenu);
@@ -751,6 +792,15 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         MENU_PROFILE_END(setupMenuViewWithMenu);
         return;
     }
+
+    /* Close any open dropdown submenu BEFORE destroying the menu view.
+       A dropdown (NSMenuPanel) is an attached submenu created by GNUstep's
+       NSMenuView tracking loop.  If we tear the menu view down while one is
+       open, detachSubmenu never runs, the panel is orphaned but stays in the
+       window list and keeps swallowing pointer input - the menu bar goes
+       "wedged" and stops responding to clicks.  Force the detach up front so
+       a rebuild can never orphan an open panel. */
+    [self closeOpenMenuTracking];
 
     self.currentMenu = menu;
 
@@ -862,6 +912,18 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(mainMenuDidBeginTracking:)
                                                      name:NSMenuDidBeginTrackingNotification
+                                                   object:menu];
+
+        /* Observe the end of tracking too.  GNUstep only closes a menu bar's
+           first-level dropdown panel itself when the interface style is
+           Windows95 (NSMenuView.m line 1919 guards on mainWindowMenuView being
+           non-nil, which is only set for that style).  With any other style the
+           dropdown window stays mapped after every interaction, sitting over
+           the menu bar and swallowing clicks - the "wedged" menu.  Close it
+           right after tracking ends so it can never stick. */
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(mainMenuDidEndTracking:)
+                                                     name:NSMenuDidEndTrackingNotification
                                                    object:menu];
 
 
@@ -1122,6 +1184,19 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     }
 
     [self.protocolManager refreshMenuStateForWindow:windowId];
+}
+
+/* Close the first-level dropdown right after the menu bar finishes tracking.
+   See the observer registration in setupMenuViewWithMenu: for why GNUstep
+   leaves the panel mapped; closing it here prevents the wedge from ever
+   forming.  Uses a delayed perform so the dropdown's own teardown (posted
+   inside trackWithEvent:) has finished first. */
+- (void)mainMenuDidEndTracking:(NSNotification *)note
+{
+    (void)note;
+    [self performSelector:@selector(closeOpenMenuTracking)
+               withObject:nil
+               afterDelay:0.0];
 }
 
 - (void)menuNeedsUpdate:(NSMenu *)menu
