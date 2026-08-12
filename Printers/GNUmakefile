@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 # Compiler flags for production builds
 # Note: -Wno-deprecated-declarations suppresses warning for cupsGetDevices which is
@@ -58,3 +59,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

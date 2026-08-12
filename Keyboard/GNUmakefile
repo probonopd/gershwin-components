@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 SUBPROJECTS = efivar
 
@@ -54,3 +55,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

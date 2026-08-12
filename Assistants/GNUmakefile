@@ -1,3 +1,4 @@
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 # Top-level GNUmakefile for Assistants
 # 1. Builds AssistantFramework (without installing)
 # 2. Builds each subfolder that has a GNUmakefile and no .DISABLED
@@ -49,3 +50,4 @@ install:
 		$(MAKE) -C $$d install; \
 	done
 	@echo "All assistants installed."
+

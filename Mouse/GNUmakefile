@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 Mouse_OBJCFLAGS += -Wall -Wextra -Werror -O2
 
@@ -48,3 +49,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

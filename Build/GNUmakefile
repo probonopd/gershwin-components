@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 APP_NAME = Build
 
@@ -29,3 +30,4 @@ Build_RESOURCE_FILES = \
 	Info-gnustep.plist
 
 include $(GNUSTEP_MAKEFILES)/application.make
+

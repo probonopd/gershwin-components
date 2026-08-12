@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = RAM
 BUNDLE_EXTENSION = .gsmenuextra
@@ -10,3 +11,4 @@ RAM_RESOURCE_FILES = Info.plist
 ADDITIONAL_OBJCFLAGS += -I../..
 
 include $(GNUSTEP_MAKEFILES)/bundle.make
+

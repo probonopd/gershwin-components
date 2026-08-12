@@ -1,6 +1,7 @@
 # GNUmakefile for LoginWindow GNUstep Application
 
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 GNUSTEP_APPS = $(GNUSTEP_SYSTEM_SERVICES)
 
 APP_NAME = LoginWindow
@@ -79,3 +80,4 @@ internal-application-install::
 	@true
 
 .PHONY: install uninstall
+

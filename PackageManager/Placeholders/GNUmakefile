@@ -1,3 +1,4 @@
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 # Placeholder wrapper apps organized by category
 #
 # Source: <Category>/<SafeName>/Resources/{Info.plist,Install.plist,<SafeName>.png}
@@ -80,3 +81,4 @@ all: $(CATS)
 
 .PHONY: system-install
 system-install: $(addprefix install-,$(CATS))
+

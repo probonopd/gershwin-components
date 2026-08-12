@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = BootEnvironments
 BootEnvironments_OBJC_FILES = BootEnvironmentPane.m BootConfigController.m MainView.m
@@ -49,3 +50,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

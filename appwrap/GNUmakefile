@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 TOOL_NAME = appwrap mkcombinedicon
 
@@ -33,3 +34,4 @@ ADDITIONAL_LDFLAGS += -lgnustep-base -lgnustep-gui
 include $(GNUSTEP_MAKEFILES)/tool.make
 
 -include GNUmakefile.postamble
+

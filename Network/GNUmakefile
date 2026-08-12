@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = Network
 
@@ -84,3 +85,4 @@ $(BUNDLE_NAME).install.bundle.variables::
 
 shared-instance-bundle-install::
 	@true
+

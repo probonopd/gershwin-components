@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 APP_NAME = SudoAskPass
 SudoAskPass_OBJC_FILES = SudoAskPass.m
@@ -58,3 +59,4 @@ internal-application-install::
 	@true
 
 .PHONY: install uninstall
+

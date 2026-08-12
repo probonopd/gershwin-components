@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 TOOL_NAME = UIBridgeServer
 
@@ -38,3 +39,4 @@ after-install::
 
 after-uninstall::
 	 rm -f $(DESTDIR)$(BINDIR)/UIBridgeServer
+

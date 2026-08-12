@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 # This is a simple project that just installs files from the files/ directory
 # No compilation needed, just file installation
@@ -100,3 +101,4 @@ install.local.shared.resources::
 	@true
 
 include $(GNUSTEP_MAKEFILES)/rules.make
+

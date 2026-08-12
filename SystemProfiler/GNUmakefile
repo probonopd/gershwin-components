@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 GNUSTEP_SYSTEM_APPS := $(GNUSTEP_SYSTEM_APPS)/Utilities
 GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
@@ -38,3 +39,4 @@ include $(GNUSTEP_MAKEFILES)/application.make
 
 before-install::
 	mkdir -p $(GNUSTEP_APPS)
+

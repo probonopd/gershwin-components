@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 TOOL_NAME = plistupdate
 
@@ -29,3 +30,4 @@ after-install::
 after-uninstall::
 	$(ECHO_NOTHING)rm -f "$(INSTALL_MAN_DIR)/$(MANPAGE)"$(END_ECHO)
 	@echo "Removed $(INSTALL_MAN_DIR)/$(MANPAGE)"
+

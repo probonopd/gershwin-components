@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 LIBRARY_NAME = libSoundBackend
 VERSION = 1.0
@@ -24,3 +25,4 @@ include $(GNUSTEP_MAKEFILES)/library.make
 after-install::
 	@rm -f $(GNUSTEP_SYSTEM_HEADERS)/SoundBackend/SoundController.h 2>/dev/null || true
 	@rm -f $(GNUSTEP_SYSTEM_HEADERS)/SoundBackend/SoundPane.h 2>/dev/null || true
+

@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = Display
 Display_OBJC_FILES = DisplayPane.m DisplayController.m DisplayView.m X11DisplayManager.m
@@ -52,3 +53,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

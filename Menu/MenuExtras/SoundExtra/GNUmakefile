@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = Sound
 BUNDLE_EXTENSION = .gsmenuextra
@@ -11,3 +12,4 @@ Sound_BUNDLE_LIBS += -lSoundBackend
 ADDITIONAL_OBJCFLAGS += -I../.. -I../../../Sound -I/System/Library/Headers/SoundBackend
 
 include $(GNUSTEP_MAKEFILES)/bundle.make
+

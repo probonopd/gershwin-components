@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = StartupDisk
 StartupDisk_OBJC_FILES = StartupDiskPane.m StartupDiskController.m
@@ -52,3 +53,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

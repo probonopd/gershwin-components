@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = NSICNSImageRep
 BUNDLE_EXTENSION = .bundle
@@ -19,3 +20,4 @@ after-install::
 	@echo "Installing NSICNSImageRep bundle to /System/Library/Bundles/"
 		mkdir -p /System/Library/Bundles
 		cp -R NSICNSImageRep.bundle /System/Library/Bundles/
+

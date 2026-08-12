@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 GNUSTEP_SYSTEM_APPS := $(GNUSTEP_SYSTEM_APPS)/Utilities
 GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
@@ -74,3 +75,4 @@ launch:
 	@echo './$(APP_NAME).app/$(APP_NAME)' >> launch.sh
 	@chmod +x launch.sh
 	@echo "Created launch script: launch.sh"
+

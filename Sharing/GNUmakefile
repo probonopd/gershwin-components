@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = Sharing
 
@@ -114,3 +115,4 @@ custom-uninstall:
 	fi
 
 uninstall:: custom-uninstall
+

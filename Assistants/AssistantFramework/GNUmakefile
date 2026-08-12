@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 # Framework configuration
 FRAMEWORK_NAME = GSAssistantFramework
@@ -121,3 +122,4 @@ clean::
 test: TestNewLayout
 	@echo "Running layout test..."
 	@echo "Note: Run './obj/TestNewLayout' to test both layout styles"
+

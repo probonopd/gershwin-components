@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 TOOL_NAME = PackageManagerTest
 
@@ -60,3 +61,4 @@ after-install:: ondemand placeholders
 clean::
 	$(MAKE) -C $(ONDEMAND_DIR) clean 2>/dev/null || true
 	$(MAKE) -C $(PLACEHOLDERS_DIR) clean 2>/dev/null || true
+

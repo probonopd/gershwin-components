@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = Sound
 
@@ -45,3 +46,4 @@ custom-uninstall:
 		echo "Removing $(BUNDLE_NAME) from $(PREF_INSTALL_DIR)"; \
 		rm -rf $(PREF_INSTALL_DIR)/$(BUNDLE_NAME)$(BUNDLE_EXTENSION); \
 	fi
+

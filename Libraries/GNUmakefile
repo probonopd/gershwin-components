@@ -1,3 +1,4 @@
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 # Top-level GNUmakefile for Libraries
 # Builds shared backend libraries so dependent components can
 # link against headers and libraries from the canonical system locations.
@@ -39,3 +40,4 @@ install: build
 		$(MAKE) -C $${d} install; \
 	done
 	@echo "All libraries installed."
+

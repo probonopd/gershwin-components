@@ -1,3 +1,4 @@
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 # Top-level (phony) GNUmakefile for gershwin-components
 # This makefile is intentionally minimal and "phony". It simply dispatches
 # common targets to all first-level subdirectories that contain a Makefile.
@@ -112,3 +113,4 @@ help:
 	echo "Available subdirectories:"; \
 	printf '  %s\n' $(SUBDIRS); \
 	echo "Targets: all (default), build, clean, distclean, install, help"
+
