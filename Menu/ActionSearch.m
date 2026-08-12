@@ -22,6 +22,11 @@ static pthread_mutex_t _singletonMutex = PTHREAD_MUTEX_INITIALIZER;
 static const CGFloat kSearchFieldWidth = 200;
 static const CGFloat kMaxResultsShown = 15;
 
+/* Full-text index search: debounce before running `mdfind`, and only bother
+   for queries at least this long (single characters are too noisy). */
+static const NSTimeInterval kIndexSearchDebounce = 0.15;
+static const NSUInteger kIndexSearchMinQueryLength = 2;
+
 
 #pragma mark - Search field background
 
@@ -153,6 +158,14 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 @interface ActionSearchController ()
 @property (nonatomic, assign) BOOL resultsMenuTracking;
 @property (nonatomic, assign) BOOL focusLossArmed;
+
+/* Full-text index search state (mdfind subprocess).  `indexSearchTask` is the
+   in-flight mdfind; `indexSearchQuery` is the query it was launched for so the
+   results can be dropped if the user has typed something else since;
+   `pendingIndexQuery` is the debounced query waiting to be launched. */
+@property (nonatomic, strong) NSTask *indexSearchTask;
+@property (nonatomic, copy) NSString *indexSearchQuery;
+@property (nonatomic, copy) NSString *pendingIndexQuery;
 @end
 
 @implementation ActionSearchController
@@ -391,6 +404,8 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 - (void)hideSearchPopup
 {
     self.focusLossArmed = NO;
+
+    [self cancelIndexSearch];
 
     if (self.resultsMenuTracking) {
         if ([self.resultsMenu respondsToSelector:@selector(cancelTracking)]) {
@@ -678,6 +693,12 @@ static const NSTimeInterval kAppNameCacheTTL = 30.0;
     if ([self.filteredResults count] < 3)
       {
         [self addRunAndGoToResultsForQuery:searchString];
+
+        /* Also search the full-text metadata index (gmds/mdfind) so files
+           whose contents or names contain the query show up below the menu
+           and Run/Go To matches.  Runs asynchronously; results are appended
+           when they arrive. */
+        [self startIndexSearchForQuery:searchString];
       }
 
     NSDebugLLog(@"gwcomp", @"ActionSearchController: Search '%@' found %lu results",
@@ -691,6 +712,145 @@ static const NSTimeInterval kAppNameCacheTTL = 30.0;
     }
 
     [self showResultsMenu];
+}
+
+#pragma mark - Full-text index search (mdfind)
+
+/* Cancel an in-flight or pending index search. */
+- (void)cancelIndexSearch
+{
+    self.pendingIndexQuery = nil;
+    if (self.indexSearchTask) {
+        @try { [self.indexSearchTask terminate]; }
+        @catch (NSException *e) { (void)e; }
+        self.indexSearchTask = nil;
+    }
+}
+
+/* Debounce a full-text index search for `query`.  The query is remembered in
+   pendingIndexQuery so a newer keystroke supersedes an older launch. */
+- (void)startIndexSearchForQuery:(NSString *)query
+{
+    if ([query length] < kIndexSearchMinQueryLength) {
+        [self cancelIndexSearch];
+        return;
+    }
+
+    [self cancelIndexSearch];
+    self.pendingIndexQuery = query;
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kIndexSearchDebounce * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (![self.searchPanel isVisible]) return;
+        if (![self.pendingIndexQuery isEqualToString:query]) return;  /* superseded */
+        self.pendingIndexQuery = nil;
+        /* Search whatever is in the field NOW.  The results-menu popup can
+           swallow the last keystroke's delegate callback, so the newest text
+           may never have reached startIndexSearchForQuery:; re-reading the
+           field here makes the previous debounce search the latest query. */
+        NSString *current = [[self.searchField stringValue]
+            stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if ([current length] == 0) return;
+        [self launchIndexSearchForQuery:current];
+    });
+}
+
+/* Run `mdfind` for `query` asynchronously.  Matches both full text
+   (GSMDItemTextContent) and file names (GSMDItemFSName), case-insensitive. */
+- (void)launchIndexSearchForQuery:(NSString *)query
+{
+    NSString *mdfindPath = @"/System/Library/Tools/mdfind";
+    if (![[NSFileManager defaultManager] isExecutableFileAtPath:mdfindPath]) {
+        return;
+    }
+
+    NSString *escaped = [query stringByReplacingOccurrencesOfString:@"\\"
+                                                        withString:@"\\\\"];
+    escaped = [escaped stringByReplacingOccurrencesOfString:@"\""
+                                                 withString:@"\\\""];
+    NSString *mdfindQuery = [NSString stringWithFormat:
+        @"(GSMDItemTextContent == \"*%@*\"c) || (GSMDItemFSName == \"*%@*\"c)",
+        escaped, escaped];
+
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:mdfindPath];
+    [task setArguments:@[mdfindQuery]];
+
+    NSPipe *pipe = [NSPipe pipe];
+    [task setStandardOutput:pipe];
+    [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+
+    self.indexSearchQuery = query;
+    self.indexSearchTask = task;
+
+    __weak typeof(self) weakSelf = self;
+    @try {
+        [task launch];
+    } @catch (NSException *e) {
+        (void)e;
+        self.indexSearchTask = nil;
+        return;
+    }
+
+    /* Read the output on a background thread so typing stays responsive;
+       readDataToEndOfFile blocks until mdfind exits (terminating the task
+       from -cancelIndexSearch closes the pipe and unblocks the read). */
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+        NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        NSMutableArray *paths = [NSMutableArray array];
+        if (output) {
+            NSArray *lines = [output componentsSeparatedByCharactersInSet:
+                [NSCharacterSet newlineCharacterSet]];
+            for (NSString *line in lines) {
+                if ([line length] == 0) continue;
+                [paths addObject:line];
+                if ([paths count] >= kMaxResultsShown) break;
+            }
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf indexSearchFinished:paths forQuery:query];
+        });
+    });
+}
+
+/* Merge the mdfind results into the results menu (main thread).  The results
+   are dropped if the query has changed or the box was closed meanwhile. */
+- (void)indexSearchFinished:(NSArray *)paths forQuery:(NSString *)query
+{
+    self.indexSearchTask = nil;
+    if (![self.searchPanel isVisible]) return;
+    if (![self.indexSearchQuery isEqualToString:query]) return;
+
+    NSString *current = [[self.searchField stringValue]
+        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    if (![current isEqualToString:query]) return;
+
+    if ([paths count] == 0) return;
+
+    BOOL added = NO;
+    for (NSString *path in paths) {
+        if ([self.filteredResults count] >= kMaxResultsShown) break;
+
+        BOOL duplicate = NO;
+        for (ActionSearchResult *r in self.filteredResults) {
+            if ([[r path] isEqualToString:path]) { duplicate = YES; break; }
+        }
+        if (duplicate) continue;
+
+        ActionSearchResult *r = [ActionSearchResult new];
+        r.title = [path lastPathComponent];
+        r.path = path;
+        r.keyEquivalent = @"";
+        r.enabled = YES;
+        r.kind = @"index";
+        r.group = @"index";
+        [self.filteredResults addObject:r];
+        added = YES;
+    }
+    if (!added) return;
+
+    [self showResultsMenuWithHighlight:[self currentHighlightedResultIndex]];
 }
 
 /* Order out the results-menu window (and its panels) without touching the
@@ -865,6 +1025,11 @@ static const NSTimeInterval kAppNameCacheTTL = 30.0;
         [self openPathInWorkspace:result.path];
         return;
     }
+    /* Full-text index results point at files/folders on disk. */
+    if ([result.kind isEqualToString:@"index"]) {
+        [self openIndexedResult:result.path];
+        return;
+    }
 
     if (!result.menuItem) {
         NSDebugLLog(@"gwcomp", @"ActionSearchController: Cannot execute - no result or menu item");
@@ -932,6 +1097,27 @@ static const NSTimeInterval kAppNameCacheTTL = 30.0;
         } @catch (NSException *e) {
             [[NSWorkspace sharedWorkspace] openURL:fileURL];
         }
+    }];
+}
+
+/* Open an index search hit: folders in the Workspace, other files with their
+   default application. */
+- (void)openIndexedResult:(NSString *)path
+{
+    if ([path length] == 0) return;
+    NSString *expanded = [path stringByExpandingTildeInPath];
+    NSDebugLog(@"ActionSearchController: Opening indexed path %@", expanded);
+
+    BOOL isDir = NO;
+    [[NSFileManager defaultManager] fileExistsAtPath:expanded isDirectory:&isDir];
+    if (isDir) {
+        [self openPathInWorkspace:expanded];
+        return;
+    }
+
+    NSURL *url = [NSURL fileURLWithPath:expanded];
+    [NSThread detachNewThreadWithBlock: ^{
+        [[NSWorkspace sharedWorkspace] openURL:url];
     }];
 }
 

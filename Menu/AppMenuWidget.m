@@ -769,16 +769,27 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     NSMenuView *menuView = (NSMenuView *)view;
 
     @try {
-        /* Close the first-level dropdown (its NSMenuPanel window).  detachSubmenu
-           only closes second-level and deeper submenus; the currently open
-           dropdown is attachedMenu (menuView.attachedMenu), whose window must
-           be ordered out explicitly or it stays mapped and swallows input. */
-        NSMenu *attachedMenu = [menuView attachedMenu];
-        if (attachedMenu) {
-            [attachedMenu close];
+        /* Close the first-level dropdown (its NSMenuPanel window) by ordering
+           the panel out, and clear the highlighted item.
+
+           The attached menu must NOT be messaged directly: when a dropdown
+           has been wedged (the menu view torn down while its panel was still
+           open), menuView.attachedMenu still points at an NSMenu that has
+           already been released, and sending it a message segfaults.  Menu
+           windows are retained by NSApp, so closing them by window is always
+           safe; ordering them out is exactly what un-wedges the menu bar
+           (an orphaned, still-mapped panel is what swallowed pointer input).
+           This app owns only its menu-bar dropdowns and the search results
+           menu as NSMenuPanels, so closing all visible ones matches the
+           original intent of tearing down any open menu tracking. */
+        NSArray *windows = [[NSApp windows] copy];
+        for (NSWindow *win in windows) {
+            NSString *cls = NSStringFromClass([win class]);
+            if ([cls hasPrefix:@"NSMenu"] && [win isVisible]) {
+                [win orderOut:nil];
+            }
         }
-        /* Detach any remaining submenu chain and clear the highlight. */
-        [menuView detachSubmenu];
+
         [menuView setHighlightedItemIndex:-1];
     } @catch (NSException *e) {
         NSDebugLLog(@"gwcomp", @"AppMenuWidget: closeOpenMenuTracking: %@", e);
