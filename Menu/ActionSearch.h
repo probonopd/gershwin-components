@@ -61,6 +61,12 @@
 - (void)toggleSearchPopupAtPoint:(NSPoint)point;
 
 /**
+ * Toggle the search popup (the Action Search).  Called by the global
+ * Cmd+Space (Alt+Space) shortcut and the Command menu's "Search..." item.
+ */
+- (void)toggleSearch:(id)sender;
+
+/**
  * Whether the search field is currently visible in the menu bar
  */
 - (BOOL)isSearchVisible;

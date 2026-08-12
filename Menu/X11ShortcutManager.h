@@ -120,6 +120,16 @@
 - (BOOL)isShortcutAlreadyTaken:(KeyCode)keycode modifier:(unsigned int)x11_modifier;
 
 /**
+ * Check whether a (keycode, modifier) pair is the reserved Alt+Space (Action
+ * Search) global shortcut that Menu.app keeps for itself.  App menus must not
+ * be able to claim it, and it always dispatches the Action Search toggle.
+ * @param keycode The keycode of the shortcut
+ * @param x11_modifier The modifier keys (Mod1Mask = Alt)
+ * @return YES if this is the reserved Alt+Space
+ */
+- (BOOL)isReservedActionSearchShortcut:(KeyCode)keycode modifier:(unsigned int)x11_modifier;
+
+/**
  * Register a special XF86 key (volume, brightness, etc.) without modifier.
  * The key is grabbed with AnyModifier; lock masks are filtered at dispatch.
  * @param keysym The X11 keysym (e.g. XF86XK_AudioRaiseVolume)

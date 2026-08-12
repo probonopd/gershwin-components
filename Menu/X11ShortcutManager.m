@@ -9,6 +9,7 @@
 #import "DBusConnection.h"
 #import "WindowMonitor.h"
 #import "MenuUtils.h"
+#import "ActionSearch.h"
 #import <Foundation/Foundation.h>
 #import <X11/Xlib.h>
 #import <X11/XKBlib.h>
@@ -745,6 +746,23 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     return !grabbed_successfully; // Return YES if taken, NO if available
 }
 
+/* Alt+Space is Menu.app's reserved global shortcut for the Action Search box.
+   True when the (keycode, modifier) pair is the space key under the Alt/Mod1
+   modifier - the X11 form of the Cmd+Space the user presses. */
+- (BOOL)isReservedActionSearchShortcut:(KeyCode)keycode modifier:(unsigned int)x11_modifier
+{
+    if (!_display) return NO;
+
+    KeySym space = XStringToKeysym("space");
+    KeyCode spaceCode = (space != NoSymbol) ? XKeysymToKeycode(_display, space) : 0;
+    if (spaceCode == 0) return NO;
+
+    /* The command key maps to Alt (Mod1); the reserved combo is Alt+space.
+       Ignore lock-key bits when comparing the modifier state. */
+    unsigned int mod = x11_modifier & ~(_numlock_mask | _capslock_mask | _scrolllock_mask);
+    return (keycode == spaceCode && (mod & Mod1Mask) != 0);
+}
+
 #pragma mark - Private Methods
 
 - (NSUInteger)getSwappedModifierMask:(NSUInteger)modifierMask
@@ -776,6 +794,16 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                    menuItemKey:(NSString *)menuItemKey 
                 shortcutString:(NSString *)shortcutString
 {
+    /* Alt+Space (Action Search) is reserved for Menu.app itself.  No app menu
+       may claim it - otherwise the desktop's menu (or any Control/Command
+       shortcut that maps to Alt+key) steals the global Action Search grab and
+       Alt+Space stops opening the search box. */
+    if ([self isReservedActionSearchShortcut:keycode modifier:x11_modifier]) {
+        NSDebugLog(@"X11ShortcutManager: Refusing %@ - Alt+Space is reserved for Action Search",
+              shortcutString);
+        return NO;
+    }
+
     // Check if this shortcut is already taken
     if ([self isShortcutAlreadyTaken:keycode modifier:x11_modifier]) {
         // Retry once — the old ungrab from a window switch may not have
@@ -1109,6 +1137,18 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                             // Create key for lookup using the filtered state (no swapping needed)
                             NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", 
                                                           keyEvent->keycode, filteredState];
+                            
+                            /* Alt+Space always opens the Action Search - even if an app
+                               menu managed to claim the grab, dispatch toggleSearch:
+                               directly.  This is Menu.app's own reserved global key. */
+                            if ([self isReservedActionSearchShortcut:keyEvent->keycode
+                                                             modifier:filteredState]) {
+                                NSDebugLog(@"X11ShortcutManager: Reserved Alt+Space - opening Action Search");
+                                dispatch_async(dispatch_get_main_queue(), ^{
+                                    [[ActionSearchController sharedController] toggleSearch:nil];
+                                });
+                                continue;
+                            }
                             
                             // Find the menu item for this shortcut
                             NSString *menuItemKey = [_grabbedKeys objectForKey:keycodeModifierKey];
