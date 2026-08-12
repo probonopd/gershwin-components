@@ -512,7 +512,15 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 
 - (void)showResultsMenu
 {
-    [self showResultsMenuWithHighlight:-1];
+    /* Highlight the first enabled result by default so Enter works without
+       first pressing an arrow key. */
+    NSArray *items = [self.resultsMenu itemArray];
+    NSInteger first = -1;
+    for (NSInteger i = 0; i < (NSInteger)[items count]; i++) {
+        NSMenuItem *mi = [items objectAtIndex:i];
+        if (![mi isSeparatorItem] && [mi isEnabled]) { first = i; break; }
+    }
+    [self showResultsMenuWithHighlight:first];
 }
 
 - (void)showResultsMenuWithHighlight:(NSInteger)highlightIndex
