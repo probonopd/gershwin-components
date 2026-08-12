@@ -69,6 +69,10 @@
 - (void)openSystemPreferences:(NSMenuItem *)sender;
 - (void)openApplicationBundle:(NSMenuItem *)sender;
 
+/* Make sure the dynamic Applications submenu (app launchers) is populated so
+   it can be searched and displayed even before the Command menu is opened. */
+- (void)ensureSystemMenuPopulated;
+
 /* Power actions (shut down / restart / log out) in the Command menu */
 - (void)restart:(NSMenuItem *)sender;
 - (void)shutDown:(NSMenuItem *)sender;

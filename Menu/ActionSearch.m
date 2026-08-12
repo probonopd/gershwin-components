@@ -62,9 +62,16 @@ static const CGFloat kMaxResultsShown = 15;
 - (void)gw_moveUp:(id)sender
 {
     id delegate = [self delegate];
-    if ([delegate respondsToSelector:@selector(textView:doCommandBySelector:)]) {
-        if ([delegate textView:self doCommandBySelector:@selector(moveUp:)]) {
-            return;
+    /* The field editor's delegate is the NSTextField, whose own delegate is
+       the search controller.  Walk the chain and route through
+       control:textView:doCommandBySelector: so arrow navigation reaches the
+       search controller. */
+    if (delegate && [delegate respondsToSelector:@selector(delegate)]) {
+        id owner = [delegate delegate];
+        if (owner && [owner respondsToSelector:@selector(control:textView:doCommandBySelector:)]) {
+            if ([owner control:nil textView:self doCommandBySelector:@selector(moveUp:)]) {
+                return;
+            }
         }
     }
     [self gw_moveUp:sender];
@@ -73,9 +80,12 @@ static const CGFloat kMaxResultsShown = 15;
 - (void)gw_moveDown:(id)sender
 {
     id delegate = [self delegate];
-    if ([delegate respondsToSelector:@selector(textView:doCommandBySelector:)]) {
-        if ([delegate textView:self doCommandBySelector:@selector(moveDown:)]) {
-            return;
+    if (delegate && [delegate respondsToSelector:@selector(delegate)]) {
+        id owner = [delegate delegate];
+        if (owner && [owner respondsToSelector:@selector(control:textView:doCommandBySelector:)]) {
+            if ([owner control:nil textView:self doCommandBySelector:@selector(moveDown:)]) {
+                return;
+            }
         }
     }
     [self gw_moveDown:sender];
@@ -219,6 +229,11 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
         self.searchField = tf;
       }
     [self.searchField setDelegate:self];
+    /* Enter in a text field ends editing and fires the field's action; the
+       search box must act on Return, so point the action at the submit
+       handler (which launches the highlighted or first matching result). */
+    [self.searchField setTarget:self];
+    [self.searchField setAction:@selector(searchFieldSubmit:)];
     [self.searchField setFont:[NSFont menuFontOfSize:0]];
 
     NSAttributedString *placeholder = [[NSAttributedString alloc]
@@ -346,7 +361,18 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 
 - (BOOL)isSearchVisible
 {
-    return [self.searchPanel isVisible];
+    /* GNUstep can leave the panel flagged visible while its X11 window is
+       unmapped - e.g. when the search was opened while another app had the
+       focus and the ordering was deferred.  Only treat the search as visible
+       when the panel is really on screen, so toggling can re-show it. */
+    if (![self.searchPanel isVisible]) return NO;
+    Display *display = [MenuUtils sharedDisplay];
+    if (!display) return YES;
+    Window xid = (Window)(uintptr_t)[self.searchPanel windowRef];
+    if (xid == 0) return NO;
+    XWindowAttributes attrs;
+    return (XGetWindowAttributes(display, xid, &attrs) == Success
+            && attrs.map_state == IsViewable);
 }
 
 - (void)toggleSearch:(id)sender
@@ -382,6 +408,13 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
     if (!currentMenu) {
         NSDebugLLog(@"gwcomp", @"ActionSearchController: No current menu available");
         return;
+    }
+
+    /* Populate the dynamic Applications submenu (app launchers) before
+       collecting, so applications are searchable even when the Command menu
+       has never been opened. */
+    if ([self.appMenuWidget respondsToSelector:@selector(ensureSystemMenuPopulated)]) {
+        [self.appMenuWidget ensureSystemMenuPopulated];
     }
 
     NSDebugLLog(@"gwcomp", @"ActionSearchController: Collecting items from: %@", [currentMenu title]);
@@ -449,7 +482,32 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
     NSDebugLLog(@"gwcomp", @"ActionSearchController: Search '%@' found %lu results",
           searchString, (unsigned long)[self.filteredResults count]);
 
+    if ([self.filteredResults count] == 0) {
+        /* No match - hide the results menu so a stale, emptied window does not
+           stay mapped as a blank rectangle below the search box. */
+        [self closeResultsMenuWindow];
+        return;
+    }
+
     [self showResultsMenu];
+}
+
+/* Order out the results-menu window (and its panels) without touching the
+   search box itself.  The box and the results menu are shown and hidden
+   together; this only tears down the menu when a query stops matching. */
+- (void)closeResultsMenuWindow
+{
+    @try
+        {
+            NSWindow *menuWindow = [self.resultsMenu window];
+            if (menuWindow && [menuWindow isVisible]) {
+                [menuWindow orderOut:nil];
+            }
+        }
+    @catch (NSException *e)
+        {
+            NSDebugLLog(@"gwcomp", @"ActionSearchController: closeResultsMenuWindow: %@", e);
+        }
 }
 
 - (void)showResultsMenu
@@ -516,21 +574,6 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
         self.resultsMenuTracking = NO;
     }
 
-    if (highlightIndex >= 0) {
-        if ([self.resultsMenu respondsToSelector:@selector(setHighlightedItemIndex:)]) {
-            SEL sel = @selector(setHighlightedItemIndex:);
-            NSMethodSignature *sig = [self.resultsMenu methodSignatureForSelector:sel];
-            if (sig) {
-                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-                [inv setSelector:sel];
-                [inv setTarget:self.resultsMenu];
-                NSInteger idx = highlightIndex;
-                [inv setArgument:&idx atIndex:2];
-                [inv invoke];
-            }
-        }
-    }
-
     // Position menu flush below the search field using the panel's content view
     NSView *contentView = [self.searchPanel contentView];
     NSPoint menuLocation = NSMakePoint(0, 0);
@@ -539,6 +582,18 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
     [self.resultsMenu popUpMenuPositioningItem:nil
                                     atLocation:menuLocation
                                         inView:contentView];
+
+    /* Highlight the target item AFTER the popup is positioned: displayPopUpMenu:
+       re-sizes and re-populates the menu view, which resets the highlight.  The
+       highlighted index lives on the NSMenuView (menuRepresentation), not the
+       NSMenu. */
+    if (highlightIndex >= 0) {
+        id menuRep = [self.resultsMenu menuRepresentation];
+        if (menuRep && [menuRep respondsToSelector:@selector(setHighlightedItemIndex:)]) {
+            [menuRep setHighlightedItemIndex:highlightIndex];
+            [menuRep setNeedsDisplay:YES];
+        }
+    }
 }
 
 - (void)resultMenuItemClicked:(NSMenuItem *)sender
@@ -656,11 +711,16 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
         return;
     }
 
-    // Still key — likely dismissed by Escape. Check the event that caused the close.
+    // Still key.  Close only if the menu was dismissed by Escape - a regular
+    // typed character also produces a keyDown here while the results menu is
+    // being re-shown on each keystroke, and must NOT close the search box.
     NSEvent *currentEvent = [NSApp currentEvent];
     if (currentEvent && [currentEvent type] == NSKeyDown) {
-        [self hideSearchPopup];
-        return;
+        NSString *chars = [currentEvent charactersIgnoringModifiers];
+        if ([chars length] > 0 && [chars characterAtIndex:0] == 0x1B) {
+            [self hideSearchPopup];
+            return;
+        }
     }
 }
 
@@ -709,13 +769,21 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 
     if (commandSelector == @selector(moveDown:)) {
         if ([self.filteredResults count] > 0) {
-            NSInteger firstIndex = -1;
             NSArray *items = [self.resultsMenu itemArray];
-            for (NSInteger ii = 0; ii < (NSInteger)[items count]; ii++) {
+            NSInteger cur = [self currentHighlightedResultIndex];
+            NSInteger target = -1;
+            for (NSInteger ii = cur + 1; ii < (NSInteger)[items count]; ii++) {
                 NSMenuItem *mi = [items objectAtIndex:ii];
-                if (![mi isSeparatorItem] && [mi isEnabled]) { firstIndex = ii; break; }
+                if (![mi isSeparatorItem] && [mi isEnabled]) { target = ii; break; }
             }
-            [self showResultsMenuWithHighlight:firstIndex];
+            if (target < 0) {
+                /* Wrap around to the first enabled item. */
+                for (NSInteger ii = 0; ii < (NSInteger)[items count]; ii++) {
+                    NSMenuItem *mi = [items objectAtIndex:ii];
+                    if (![mi isSeparatorItem] && [mi isEnabled]) { target = ii; break; }
+                }
+            }
+            [self showResultsMenuWithHighlight:target];
             return YES;
         }
         return NO;
@@ -723,13 +791,21 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 
     if (commandSelector == @selector(moveUp:)) {
         if ([self.filteredResults count] > 0) {
-            NSInteger lastIndex = -1;
             NSArray *items = [self.resultsMenu itemArray];
-            for (NSInteger ii = (NSInteger)[items count] - 1; ii >= 0; ii--) {
+            NSInteger cur = [self currentHighlightedResultIndex];
+            NSInteger target = -1;
+            for (NSInteger ii = cur - 1; ii >= 0; ii--) {
                 NSMenuItem *mi = [items objectAtIndex:ii];
-                if (![mi isSeparatorItem] && [mi isEnabled]) { lastIndex = ii; break; }
+                if (![mi isSeparatorItem] && [mi isEnabled]) { target = ii; break; }
             }
-            [self showResultsMenuWithHighlight:lastIndex];
+            if (target < 0) {
+                /* Wrap around to the last enabled item. */
+                for (NSInteger ii = (NSInteger)[items count] - 1; ii >= 0; ii--) {
+                    NSMenuItem *mi = [items objectAtIndex:ii];
+                    if (![mi isSeparatorItem] && [mi isEnabled]) { target = ii; break; }
+                }
+            }
+            [self showResultsMenuWithHighlight:target];
             return YES;
         }
         return NO;
@@ -744,7 +820,74 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
         return YES;
     }
 
+    /* Enter executes the highlighted result (or the first result when none is
+       highlighted).  The results menu is shown with popUpMenuPositioningItem:
+       which under this theme does not run a modal tracking loop, so the Return
+       key is delivered to the search field instead of the menu - handle it
+       here, mirroring what selecting a result row would do. */
+    if (commandSelector == @selector(insertNewline:)
+        || commandSelector == @selector(insertNewlineIgnoringFieldEditor:)) {
+        [self executeHighlightedResult];
+        return YES;
+    }
+
     return NO;
+}
+
+/* Fired when the user presses Return in the search field.  NSTextField ends
+   editing on Return and sends the field's action (see setAction: in
+   createSearchPanel:); this handler launches the highlighted (or first)
+   result, exactly like clicking a result row would. */
+- (void)searchFieldSubmit:(id)sender
+{
+    (void)sender;
+    /* The field action is also sent when the field editor ends editing - e.g.
+       whenever the results menu is shown while typing - so only act on a real
+       Return/Enter key press, not on the editing-end that the popup display
+       triggers for every typed character. */
+    NSEvent *currentEvent = [NSApp currentEvent];
+    if (!currentEvent || [currentEvent type] != NSKeyDown) {
+        return;
+    }
+    NSString *chars = [currentEvent characters];
+    if ([chars length] != 1 ||
+        ([chars characterAtIndex:0] != '\r' && [chars characterAtIndex:0] != '\n' && [chars characterAtIndex:0] != 3)) {
+        return;
+    }
+    [self executeHighlightedResult];
+}
+
+/* Current highlighted index in the results menu, or -1 when none. */
+- (NSInteger)currentHighlightedResultIndex
+{
+    id menuRep = [self.resultsMenu menuRepresentation];
+    if ([menuRep respondsToSelector:@selector(highlightedItemIndex)]) {
+        return (NSInteger)[menuRep highlightedItemIndex];
+    }
+    return -1;
+}
+
+- (void)executeHighlightedResult
+{
+    NSMenuItem *item = nil;
+    id menuRep = [self.resultsMenu menuRepresentation];
+    NSInteger highlightedIndex = -1;
+    if ([menuRep respondsToSelector:@selector(highlightedItemIndex)]) {
+        highlightedIndex = (NSInteger)[menuRep highlightedItemIndex];
+    }
+    if (highlightedIndex >= 0) {
+        item = [self.resultsMenu itemAtIndex:highlightedIndex];
+        if ([item isSeparatorItem] || ![item isEnabled]) item = nil;
+    }
+    if (!item) {
+        NSArray *items = [self.resultsMenu itemArray];
+        for (NSMenuItem *mi in items) {
+            if (![mi isSeparatorItem] && [mi isEnabled]) { item = mi; break; }
+        }
+    }
+    if (item) {
+        [self resultMenuItemClicked:item];
+    }
 }
 
 @end

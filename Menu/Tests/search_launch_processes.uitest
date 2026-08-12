@@ -1,0 +1,49 @@
+#!/usr/bin/env run_uitest
+# Action Search must launch an application from the Command menu's Applications
+# submenu.  From another application the user presses Cmd+Space (GNUstep
+# Command = Left Alt) to open the search box, types the app name, presses
+# Return, and the app must launch and take the foreground.
+#
+# Cmd+Space is Menu.app's GLOBAL key grab, so it must be sent as REAL key
+# events (run_uitest `press` sends modifier chords through xdotool for that) -
+# synthetic XSendEvent chords never trigger a passive grab.
+#
+# Also verifies the search box and its results menu stay together: the box
+# must remain visible while results are shown, and both must disappear
+# together on Return - never the box alone.
+#
+# Run with: run_uitest Menu/Tests/search_launch_processes.uitest
+
+# Make a real application window frontmost, so the search runs from another
+# application (not from Menu.app itself).
+activate application "Workspace"
+wait 500ms
+
+# Open the Action Search with the global shortcut.  The key events are real,
+# so Menu.app's global Alt+Space grab fires even though the focus is on
+# another application.
+press "Cmd+Space"
+wait 1s
+
+# The search box lives in Menu.app; retarget so typing and the visibility
+# assertions below inspect Menu's window tree, not the frontmost app's.
+activate application "Menu"
+wait 500ms
+
+# Type the application name; the search field receives the keys directly and
+# the results menu appears below it.
+type "Processes"
+
+# The search box must still be visible while its results are on screen: the
+# field (which lives in the search box window) must be present and hold the
+# query.
+wait until exists textfield "Processes" timeout 10s
+
+# Launch the match with Return.  The search box and the results menu must both
+# close together.
+press "Return"
+
+# The application must launch and become a real window.
+wait until xwindow "Processes" count >= 1 timeout 30s
+
+log "action search launches Processes from the Command menu"

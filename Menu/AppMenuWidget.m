@@ -1296,6 +1296,11 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     self.systemMenuPopulatedFromCache = YES;
 }
 
+- (void)ensureSystemMenuPopulated
+{
+    [self populateSystemMenu];
+}
+
 #pragma mark - Application bundle scanning (recursive with subdirectory submenus)
 
 - (NSDictionary *)scanApplicationBundleTree
