@@ -39,6 +39,7 @@
     NSMutableArray *displays;
     DisplayView *displayView;
     NSView *mainView;
+    NSBox *settingsBox;
     NSPopUpButton *resolutionPopup;
     NSSlider *scaleSlider;
     NSTextField *scaleValueLabel;
@@ -54,6 +55,7 @@
 }
 
 - (NSView *)createMainView;
+- (void)relayoutWithWidth:(CGFloat)width;
 - (void)refreshDisplays:(NSTimer *)timer;
 - (void)applyDisplayConfiguration;
 - (void)setPrimaryDisplay:(DisplayInfo *)display;

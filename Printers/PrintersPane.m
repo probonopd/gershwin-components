@@ -6,10 +6,26 @@
 
 #import "PrintersPane.h"
 #import "PrintersController.h"
+#include <cups/cups.h>
 
 @implementation PrintersPane
 
-+ (BOOL)isCompatible { return YES; }
++ (BOOL)isCompatible {
+    /* The pane needs a running CUPS daemon (it talks to cupsd over IPP).
+       Connect to the CUPS server; anything but a working connection means
+       the pane cannot operate. */
+    http_t *http = httpConnect2(cupsServer(), ippPort(), NULL, AF_UNSPEC,
+                                cupsEncryption(), 1, 30000, NULL);
+    if (http) {
+        httpClose(http);
+        return YES;
+    }
+    return NO;
+}
+
++ (NSString *)compatibilityReason {
+    return @"CUPS printing service not available — the cupsd daemon must be running";
+}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {

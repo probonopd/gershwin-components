@@ -10,6 +10,7 @@
 @interface KeyboardController : NSObject <NSTableViewDataSource, NSTableViewDelegate>
 {
     NSView *mainView;
+    NSBox *keyboardTypeBox;
     NSTableView *layoutTable;
     NSTableView *variantTable;
     NSScrollView *layoutScroll;
@@ -35,6 +36,7 @@
 }
 
 - (NSView *)createMainView;
+- (void)relayoutWithWidth:(CGFloat)width;
 - (void)refreshFromSystem;
 - (IBAction)applySelection:(id)sender;
 - (IBAction)isAppleKeyboardCheckboxChanged:(id)sender;

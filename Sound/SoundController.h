@@ -114,6 +114,7 @@
 
 // View creation
 - (NSView *)createMainView;
+- (void)relayoutWithWidth:(CGFloat)width;
 - (void)createSoundEffectsTab:(NSTabViewItem *)tab;
 - (void)createOutputTab:(NSTabViewItem *)tab;
 - (void)createInputTab:(NSTabViewItem *)tab;

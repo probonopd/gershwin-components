@@ -5,6 +5,7 @@
  */
 
 #import "EnergyController.h"
+#import "AppearanceMetrics.h"
 #import <dispatch/dispatch.h>
 
 static NSString *const kEnergyDomain = @"EnergyPreferences";
@@ -29,6 +30,56 @@ static NSString *const kEnergyDomain = @"EnergyPreferences";
 - (BOOL)writePowerFail:(BOOL)enable;
 - (void)applyAllSettings;
 - (void)updateStatus:(NSString *)message;
+
+/* Layout helpers (HIG group boxes and rows). */
+- (NSBox *)groupBoxWithTitle:(NSString *)title frame:(NSRect)frame inView:(NSView *)parent;
+- (NSTextField *)labelWithText:(NSString *)text frame:(NSRect)frame alignment:(NSTextAlignment)align;
+- (void)addCheckbox:(NSButton *)checkbox toBox:(NSBox *)box y:(CGFloat)y width:(CGFloat)w;
+- (NSTextField *)addInfoRowWithText:(NSString *)text toBox:(NSBox *)box y:(CGFloat)y width:(CGFloat)w;
+- (void)addPopUpRowWithLabel:(NSString *)label
+                      popup:(NSPopUpButton *)popup
+                      toBox:(NSBox *)box
+                          y:(CGFloat)y
+                      width:(CGFloat)w;
+- (void)addSliderRowWithLabel:(NSString *)label
+                       slider:(NSSlider *)slider
+                        value:(NSTextField *)value
+                        toBox:(NSBox *)box
+                            y:(CGFloat)y
+                        width:(CGFloat)w;
+@end
+
+/* The pane view. When the host window gives us a width (which is not the
+   560px base we built at), re-lay out the group boxes so the left/right
+   margins to the window edge stay symmetric. */
+@interface EnergyMainView : NSView
+{
+    EnergyController *_layoutOwner;
+}
+@end
+
+@implementation EnergyMainView
+- (void)setFrameSize:(NSSize)newSize
+{
+    [super setFrameSize:newSize];
+    [_layoutOwner relayoutWithWidth:newSize.width];
+}
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window] && [self superview]) {
+        /* The host window does not necessarily size the pane view to its
+           content area; make it fill the box content and re-lay out so the
+           left/right margins stay symmetric.  GNUstep's setFrame: bypasses
+           setFrameSize:, so re-lay out explicitly here. */
+        [self setFrame:[[self superview] bounds]];
+        [_layoutOwner relayoutWithWidth:[self bounds].size.width];
+    }
+}
+- (void)setLayoutOwner:(EnergyController *)owner
+{
+    _layoutOwner = owner;
+}
 @end
 
 @implementation EnergyController
@@ -121,239 +172,283 @@ static NSString *const kEnergyDomain = @"EnergyPreferences";
     if (mainView) {
         return mainView;
     }
-    mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 560, 370)];
-    CGFloat y = 352;
-    CGFloat labelX = 20;
-    CGFloat controlX = 160;
-    CGFloat controlW = 260;
-    CGFloat rowH = 22;
+    const CGFloat winW = 560, winH = 440;
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;      /* 24 */
+    const CGFloat topMargin = METRICS_CONTENT_TOP_MARGIN;        /* 15 */
+    const CGFloat bottomMargin = METRICS_SPACE_12;               /* under status line */
+    const CGFloat boxGap = METRICS_SPACE_8;                      /* between group boxes */
+    const CGFloat rowH = METRICS_TEXT_INPUT_FIELD_HEIGHT;        /* 22 */
+    const CGFloat rowGap = METRICS_SPACE_8;
+    const CGFloat checkboxRowH = METRICS_RADIO_BUTTON_LINE_SPACING; /* 20 */
+    const CGFloat boxTitleInset = 14.0;
+    /* Group-box heights sized to their content (title inset + rows +
+       16px inner margin top and bottom). */
+    const CGFloat powerBoxH = 128;      /* source, battery, governor */
+    const CGFloat displayBoxH = 98;     /* brightness slider, blank popup */
+    const CGFloat powerMgmtBoxH = 126;  /* 4 checkboxes */
 
-    // ---- Power Source Section ----
-    NSTextField *powerSection = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX, y, 200, 18)];
-    [powerSection setBezeled:NO];
-    [powerSection setEditable:NO];
-    [powerSection setSelectable:NO];
-    [powerSection setDrawsBackground:NO];
-    [powerSection setStringValue:@"Power Source"];
-    [powerSection setFont:[NSFont boldSystemFontOfSize:13]];
-    [powerSection setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:powerSection];
-    [powerSection release];
-    y -= 20;
+    mainView = [[EnergyMainView alloc] initWithFrame:NSMakeRect(0, 0, winW, winH)];
+    [(EnergyMainView *)mainView setLayoutOwner:self];
+    [mainView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    CGFloat contentW = winW - 2 * sideMargin;
+    CGFloat boxW = contentW;
 
-    // Source label
-    sourceLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX + 10, y, 300, rowH)];
-    [sourceLabel setBezeled:NO];
-    [sourceLabel setEditable:NO];
-    [sourceLabel setSelectable:NO];
-    [sourceLabel setDrawsBackground:NO];
-    [sourceLabel setStringValue:@"Source: reading..."];
-    [sourceLabel setFont:[NSFont systemFontOfSize:12]];
-    [sourceLabel setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:sourceLabel];
-    y -= 22;
+    CGFloat y = winH - topMargin;
 
-    batteryPercentLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX + 10, y, 120, rowH)];
-    [batteryPercentLabel setBezeled:NO];
-    [batteryPercentLabel setEditable:NO];
-    [batteryPercentLabel setSelectable:NO];
-    [batteryPercentLabel setDrawsBackground:NO];
-    [batteryPercentLabel setStringValue:@"Battery: --%"];
-    [batteryPercentLabel setFont:[NSFont systemFontOfSize:12]];
-    [batteryPercentLabel setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:batteryPercentLabel];
-    y -= 24;
+    /* ---- Power group box ---- */
+    powerBox = [self groupBoxWithTitle:@"Power"
+                                frame:NSMakeRect(sideMargin, y - powerBoxH, boxW, powerBoxH)
+                               inView:mainView];
+    {
+        CGFloat by = powerBoxH - boxTitleInset - METRICS_SPACE_16 - rowH;
+        sourceLabel = [self addInfoRowWithText:@"Source: reading..."
+                                         toBox:powerBox y:by width:boxW];
+        [sourceLabel retain];
 
-    // ---- Separator ----
-    NSBox *sep1 = [[NSBox alloc] initWithFrame:NSMakeRect(labelX, y - 2, 520, 1)];
-    [sep1 setBoxType:NSBoxSeparator];
-    [sep1 setAutoresizingMask:NSViewMaxYMargin | NSViewWidthSizable];
-    [mainView addSubview:sep1];
-    [sep1 release];
-    y -= 16;
+        by -= rowGap + rowH;
+        batteryPercentLabel = [self addInfoRowWithText:@"Battery: --%"
+                                                 toBox:powerBox y:by width:boxW];
+        [batteryPercentLabel retain];
 
-    // ---- CPU Performance Section ----
-    NSTextField *cpuSection = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX, y, 200, 18)];
-    [cpuSection setBezeled:NO];
-    [cpuSection setEditable:NO];
-    [cpuSection setSelectable:NO];
-    [cpuSection setDrawsBackground:NO];
-    [cpuSection setStringValue:@"CPU Performance"];
-    [cpuSection setFont:[NSFont boldSystemFontOfSize:13]];
-    [cpuSection setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:cpuSection];
-    [cpuSection release];
-    y -= 20;
+        by -= rowGap + rowH;
+        [self addPopUpRowWithLabel:@"Governor:"
+                            popup:governorPopUp =
+                            [[[NSPopUpButton alloc] initWithFrame:NSZeroRect] autorelease]
+                            toBox:powerBox y:by width:boxW];
+    }
+    y -= powerBoxH + boxGap;
 
-    // Governor label
-    NSTextField *govText = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX + 10, y, 120, rowH)];
-    [govText setBezeled:NO];
-    [govText setEditable:NO];
-    [govText setSelectable:NO];
-    [govText setDrawsBackground:NO];
-    [govText setStringValue:@"Governor:"];
-    [govText setAlignment:NSRightTextAlignment];
-    [govText setFont:[NSFont systemFontOfSize:12]];
-    [govText setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:govText];
-    [govText release];
+    /* ---- Display group box ---- */
+    displayBox = [self groupBoxWithTitle:@"Display"
+                                  frame:NSMakeRect(sideMargin, y - displayBoxH, boxW, displayBoxH)
+                                 inView:mainView];
+    {
+        CGFloat by = displayBoxH - boxTitleInset - METRICS_SPACE_16 - rowH;
+        [self addSliderRowWithLabel:@"Brightness:"
+                             slider:brightnessSlider =
+                             [[[NSSlider alloc] initWithFrame:NSZeroRect] autorelease]
+                              value:brightnessLabel =
+                             [[[NSTextField alloc] initWithFrame:NSZeroRect] autorelease]
+                              toBox:displayBox y:by width:boxW];
+        [brightnessSlider setMinValue:1];
+        [brightnessSlider setMaxValue:100];
+        [brightnessSlider setFloatValue:100];
+        [brightnessSlider setNumberOfTickMarks:11];
+        [brightnessSlider setAllowsTickMarkValuesOnly:NO];
+        [brightnessSlider setContinuous:YES];
+        [brightnessSlider setTarget:self];
+        [brightnessSlider setAction:@selector(settingChanged:)];
+        [brightnessLabel setStringValue:@"100%"];
 
-    governorPopUp = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, y, controlW, rowH)];
-    [governorPopUp setTarget:self];
-    [governorPopUp setAction:@selector(settingChanged:)];
-    [governorPopUp setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:governorPopUp];
-    y -= 28;
+        by -= rowGap + rowH;
+        [self addPopUpRowWithLabel:@"Screen blanks:"
+                            popup:blankPopUp =
+                            [[[NSPopUpButton alloc] initWithFrame:NSZeroRect] autorelease]
+                            toBox:displayBox y:by width:boxW];
+        [blankPopUp addItemWithTitle:@"Never"];
+        [blankPopUp addItemWithTitle:@"1 minute"];
+        [blankPopUp addItemWithTitle:@"5 minutes"];
+        [blankPopUp addItemWithTitle:@"10 minutes"];
+        [blankPopUp addItemWithTitle:@"15 minutes"];
+        [blankPopUp addItemWithTitle:@"30 minutes"];
+    }
+    y -= displayBoxH + boxGap;
 
-    // ---- Separator ----
-    NSBox *sep2 = [[NSBox alloc] initWithFrame:NSMakeRect(labelX, y - 2, 520, 1)];
-    [sep2 setBoxType:NSBoxSeparator];
-    [sep2 setAutoresizingMask:NSViewMaxYMargin | NSViewWidthSizable];
-    [mainView addSubview:sep2];
-    [sep2 release];
-    y -= 16;
+    /* ---- Power Management group box ---- */
+    powerMgmtBox = [self groupBoxWithTitle:@"Power Management"
+                                    frame:NSMakeRect(sideMargin, y - powerMgmtBoxH, boxW, powerMgmtBoxH)
+                                   inView:mainView];
+    {
+        CGFloat by = powerMgmtBoxH - boxTitleInset - METRICS_SPACE_16 - checkboxRowH;
+        [self addCheckbox:preventSleepCheckbox =
+                   [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease]
+                    toBox:powerMgmtBox y:by width:boxW];
+        [preventSleepCheckbox setButtonType:NSSwitchButton];
+        [preventSleepCheckbox setTitle:@"Prevent computer from sleeping when display is off"];
+        by -= checkboxRowH;
 
-    // ---- Display Section ----
-    NSTextField *dispSection = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX, y, 200, 18)];
-    [dispSection setBezeled:NO];
-    [dispSection setEditable:NO];
-    [dispSection setSelectable:NO];
-    [dispSection setDrawsBackground:NO];
-    [dispSection setStringValue:@"Display"];
-    [dispSection setFont:[NSFont boldSystemFontOfSize:13]];
-    [dispSection setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:dispSection];
-    [dispSection release];
-    y -= 20;
+        [self addCheckbox:hddSleepCheckbox =
+                   [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease]
+                    toBox:powerMgmtBox y:by width:boxW];
+        [hddSleepCheckbox setButtonType:NSSwitchButton];
+        [hddSleepCheckbox setTitle:@"Put hard disks to sleep when possible"];
+        by -= checkboxRowH;
 
-    // Brightness slider
-    NSTextField *brightText = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX + 10, y, 120, rowH)];
-    [brightText setBezeled:NO];
-    [brightText setEditable:NO];
-    [brightText setSelectable:NO];
-    [brightText setDrawsBackground:NO];
-    [brightText setStringValue:@"Brightness:"];
-    [brightText setAlignment:NSRightTextAlignment];
-    [brightText setFont:[NSFont systemFontOfSize:12]];
-    [brightText setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:brightText];
-    [brightText release];
+        [self addCheckbox:wakeNetworkCheckbox =
+                   [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease]
+                    toBox:powerMgmtBox y:by width:boxW];
+        [wakeNetworkCheckbox setButtonType:NSSwitchButton];
+        [wakeNetworkCheckbox setTitle:@"Wake for network access"];
+        by -= checkboxRowH;
 
-    brightnessSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(controlX, y + 2, controlW - 50, rowH)];
-    [brightnessSlider setMinValue:1];
-    [brightnessSlider setMaxValue:100];
-    [brightnessSlider setFloatValue:100];
-    [brightnessSlider setNumberOfTickMarks:11];
-    [brightnessSlider setAllowsTickMarkValuesOnly:NO];
-    [brightnessSlider setTarget:self];
-    [brightnessSlider setAction:@selector(settingChanged:)];
-    [brightnessSlider setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:brightnessSlider];
+        [self addCheckbox:powerFailCheckbox =
+                   [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease]
+                    toBox:powerMgmtBox y:by width:boxW];
+        [powerFailCheckbox setButtonType:NSSwitchButton];
+        [powerFailCheckbox setTitle:@"Start up automatically after a power failure"];
+    }
 
-    brightnessLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX + controlW - 40, y, 45, rowH)];
-    [brightnessLabel setBezeled:NO];
-    [brightnessLabel setEditable:NO];
-    [brightnessLabel setSelectable:NO];
-    [brightnessLabel setDrawsBackground:NO];
-    [brightnessLabel setStringValue:@"100%"];
-    [brightnessLabel setFont:[NSFont systemFontOfSize:11]];
-    [brightnessLabel setAlignment:NSRightTextAlignment];
-    [brightnessLabel setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:brightnessLabel];
-    y -= 28;
-
-    // Screen blank
-    NSTextField *blankText = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX + 10, y, 120, rowH)];
-    [blankText setBezeled:NO];
-    [blankText setEditable:NO];
-    [blankText setSelectable:NO];
-    [blankText setDrawsBackground:NO];
-    [blankText setStringValue:@"Screen blanks:"];
-    [blankText setAlignment:NSRightTextAlignment];
-    [blankText setFont:[NSFont systemFontOfSize:12]];
-    [blankText setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:blankText];
-    [blankText release];
-
-    blankPopUp = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(controlX, y, controlW, rowH)];
-    [blankPopUp addItemWithTitle:@"Never"];
-    [blankPopUp addItemWithTitle:@"1 minute"];
-    [blankPopUp addItemWithTitle:@"5 minutes"];
-    [blankPopUp addItemWithTitle:@"10 minutes"];
-    [blankPopUp addItemWithTitle:@"15 minutes"];
-    [blankPopUp addItemWithTitle:@"30 minutes"];
-    [blankPopUp setTarget:self];
-    [blankPopUp setAction:@selector(settingChanged:)];
-    [blankPopUp setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:blankPopUp];
-
-    // ---- Power Management Section ----
-    NSBox *sep3 = [[NSBox alloc] initWithFrame:NSMakeRect(labelX, y - 2, 520, 1)];
-    [sep3 setBoxType:NSBoxSeparator];
-    [sep3 setAutoresizingMask:NSViewMaxYMargin | NSViewWidthSizable];
-    [mainView addSubview:sep3];
-    [sep3 release];
-    y -= 16;
-
-    NSTextField *pmSection = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX, y, 200, 18)];
-    [pmSection setBezeled:NO];
-    [pmSection setEditable:NO];
-    [pmSection setSelectable:NO];
-    [pmSection setDrawsBackground:NO];
-    [pmSection setStringValue:@"Power Management"];
-    [pmSection setFont:[NSFont boldSystemFontOfSize:13]];
-    [pmSection setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:pmSection];
-    [pmSection release];
-    y -= 20;
-
-    preventSleepCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(labelX + 10, y, 510, rowH)];
-    [preventSleepCheckbox setButtonType:NSSwitchButton];
-    [preventSleepCheckbox setTitle:@"Prevent computer from sleeping when display is off"];
-    [preventSleepCheckbox setTarget:self];
-    [preventSleepCheckbox setAction:@selector(settingChanged:)];
-    [preventSleepCheckbox setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:preventSleepCheckbox];
-    y -= 26;
-
-    hddSleepCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(labelX + 10, y, 510, rowH)];
-    [hddSleepCheckbox setButtonType:NSSwitchButton];
-    [hddSleepCheckbox setTitle:@"Put hard disks to sleep when possible"];
-    [hddSleepCheckbox setTarget:self];
-    [hddSleepCheckbox setAction:@selector(settingChanged:)];
-    [hddSleepCheckbox setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:hddSleepCheckbox];
-    y -= 26;
-
-    wakeNetworkCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(labelX + 10, y, 510, rowH)];
-    [wakeNetworkCheckbox setButtonType:NSSwitchButton];
-    [wakeNetworkCheckbox setTitle:@"Wake for network access"];
-    [wakeNetworkCheckbox setTarget:self];
-    [wakeNetworkCheckbox setAction:@selector(settingChanged:)];
-    [wakeNetworkCheckbox setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:wakeNetworkCheckbox];
-    y -= 26;
-
-    powerFailCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(labelX + 10, y, 510, rowH)];
-    [powerFailCheckbox setButtonType:NSSwitchButton];
-    [powerFailCheckbox setTitle:@"Start up automatically after a power failure"];
-    [powerFailCheckbox setTarget:self];
-    [powerFailCheckbox setAction:@selector(settingChanged:)];
-    [powerFailCheckbox setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:powerFailCheckbox];
-
-    // Status label at the bottom
-    statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX, 6, 520, 26)];
-    [statusLabel setBezeled:NO];
-    [statusLabel setEditable:NO];
-    [statusLabel setSelectable:NO];
-    [statusLabel setDrawsBackground:NO];
+    /* Status label at the bottom, bottom-anchored */
+    statusLabel = [self labelWithText:@""
+                                frame:NSMakeRect(sideMargin, bottomMargin,
+                                                contentW, 18)
+                              alignment:NSTextAlignmentLeft];
     [statusLabel setFont:[NSFont systemFontOfSize:10]];
     [statusLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMaxYMargin)];
     [mainView addSubview:statusLabel];
 
     [self refreshFromSystem];
     return mainView;
+}
+
+/* Re-lay out the group boxes for the given view width, keeping the
+   left and right margins equal. Called whenever the host resizes the
+   pane view. */
+- (void)relayoutWithWidth:(CGFloat)width
+{
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;  /* 24 */
+    NSRect f;
+
+    if (powerBox) {
+        f = [powerBox frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        [powerBox setFrame:f];
+    }
+    if (displayBox) {
+        f = [displayBox frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        [displayBox setFrame:f];
+    }
+    if (powerMgmtBox) {
+        f = [powerMgmtBox frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        [powerMgmtBox setFrame:f];
+    }
+    if (statusLabel) {
+        f = [statusLabel frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        [statusLabel setFrame:f];
+    }
+}
+
+/* Build a titled group box, top-anchored. Width is managed by
+   relayoutWithWidth: so margins stay symmetric. */
+- (NSBox *)groupBoxWithTitle:(NSString *)title frame:(NSRect)frame inView:(NSView *)parent
+{
+    NSBox *box = [[NSBox alloc] initWithFrame:frame];
+    [box setTitle:title];
+    [box setBoxType:NSBoxPrimary];
+    [box setTitlePosition:NSAtTop];
+    [box setBorderType:NSBezelBorder];
+    [box setAutoresizingMask:NSViewMinYMargin];
+    [parent addSubview:box];
+    return box;
+}
+
+/* A plain read-only label. */
+- (NSTextField *)labelWithText:(NSString *)text frame:(NSRect)frame alignment:(NSTextAlignment)align
+{
+    NSTextField *label = [[NSTextField alloc] initWithFrame:frame];
+    [label setStringValue:text ?: @""];
+    [label setBezeled:NO];
+    [label setEditable:NO];
+    [label setSelectable:NO];
+    [label setDrawsBackground:NO];
+    [label setFont:[NSFont systemFontOfSize:11]];
+    [label setAlignment:align];
+    return label;
+}
+
+/* Position a checkbox in the top-left of a group box's content area.
+   Width-flexible so it tracks the box. */
+- (void)addCheckbox:(NSButton *)checkbox toBox:(NSBox *)box y:(CGFloat)y width:(CGFloat)w
+{
+    [checkbox setFrame:NSMakeRect(METRICS_SPACE_16, y, w - 2 * METRICS_SPACE_16, 18)];
+    [checkbox setAutoresizingMask:NSViewWidthSizable];
+    [box addSubview:checkbox];
+}
+
+/* A plain info row (source / battery status); returns the label. */
+- (NSTextField *)addInfoRowWithText:(NSString *)text toBox:(NSBox *)box y:(CGFloat)y width:(CGFloat)w
+{
+    NSTextField *label = [self labelWithText:text
+                                      frame:NSMakeRect(METRICS_SPACE_16, y + 1,
+                                                      w - 2 * METRICS_SPACE_16, 20)
+                                  alignment:NSTextAlignmentLeft];
+    [label setFont:[NSFont systemFontOfSize:12]];
+    [label setAutoresizingMask:NSViewWidthSizable];
+    [box addSubview:label];
+    return label;
+}
+
+/* A label + pop-up row: label on the left (right aligned), pop-up
+   stretching to fill the rest of the row. */
+- (void)addPopUpRowWithLabel:(NSString *)label
+                      popup:(NSPopUpButton *)popup
+                      toBox:(NSBox *)box
+                          y:(CGFloat)y
+                      width:(CGFloat)w
+{
+    const CGFloat pad = METRICS_SPACE_16;
+    const CGFloat labelW = 110;
+    const CGFloat gap = METRICS_SPACE_8;
+    const CGFloat popupW = w - 2 * pad - labelW - gap;
+
+    NSTextField *labelField = [self labelWithText:label
+                                            frame:NSMakeRect(pad, y + 1, labelW, 20)
+                                        alignment:NSTextAlignmentRight];
+    [labelField setFont:[NSFont systemFontOfSize:11]];
+    [labelField setAutoresizingMask:NSViewMaxXMargin];
+    [box addSubview:labelField];
+    [labelField release];
+
+    [popup setFrame:NSMakeRect(pad + labelW + gap, y, popupW, 22)];
+    [popup setAutoresizingMask:NSViewWidthSizable];
+    [popup setTarget:self];
+    [popup setAction:@selector(settingChanged:)];
+    [box addSubview:popup];
+}
+
+/* A label + slider + value row in a group box: label on the left (right
+   aligned), slider stretching, value label on the right. */
+- (void)addSliderRowWithLabel:(NSString *)label
+                       slider:(NSSlider *)slider
+                        value:(NSTextField *)value
+                        toBox:(NSBox *)box
+                            y:(CGFloat)y
+                        width:(CGFloat)w
+{
+    const CGFloat pad = METRICS_SPACE_16;
+    const CGFloat labelW = 110;
+    const CGFloat valueW = 50;
+    const CGFloat gap = METRICS_SPACE_8;
+    const CGFloat sliderW = w - 2 * pad - labelW - valueW - 2 * gap;
+
+    NSTextField *labelField = [self labelWithText:label
+                                            frame:NSMakeRect(pad, y + 1, labelW, 20)
+                                        alignment:NSTextAlignmentRight];
+    [labelField setFont:[NSFont systemFontOfSize:11]];
+    [labelField setAutoresizingMask:NSViewMaxXMargin];
+    [box addSubview:labelField];
+    [labelField release];
+
+    [slider setFrame:NSMakeRect(pad + labelW + gap, y, sliderW, 22)];
+    [slider setAutoresizingMask:NSViewWidthSizable];
+    [box addSubview:slider];
+
+    [value setFrame:NSMakeRect(pad + labelW + gap + sliderW + gap, y, valueW, 20)];
+    [value setAutoresizingMask:NSViewMinXMargin];
+    [value setBezeled:NO];
+    [value setEditable:NO];
+    [value setSelectable:NO];
+    [value setDrawsBackground:NO];
+    [value setFont:[NSFont systemFontOfSize:11]];
+    [value setAlignment:NSTextAlignmentRight];
+    [box addSubview:value];
 }
 
 #pragma mark - Actions

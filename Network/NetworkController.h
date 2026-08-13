@@ -47,7 +47,6 @@
     NSTextField *ipv6AddressField;
     NSTextField *dnsServersField;
     NSTextField *searchDomainsField;
-    NSButton *applyButton;
     NSButton *dhcpLeaseButton;
     
     // WiFi tab
@@ -100,13 +99,13 @@
 
 // View creation
 - (NSView *)createMainView;
+- (void)relayoutWithWidth:(CGFloat)width;
 - (void)createServiceListViewWithFrame:(NSRect)frame;
 - (void)createDetailViewWithFrame:(NSRect)frame;
 - (void)createStatusAreaWithFrame:(NSRect)frame;
 - (void)createTCPIPViewForTab:(NSTabViewItem *)tab;
 - (void)createDNSViewForTab:(NSTabViewItem *)tab;
 - (void)createWLANViewForTab:(NSTabViewItem *)tab;
-- (void)createBottomButtons;
 - (void)createPasswordPanel;
 - (void)createJoinNetworkPanel;
 - (void)createAdvancedPanel;
@@ -128,8 +127,6 @@
 - (IBAction)enableInterface:(id)sender;
 - (IBAction)disableInterface:(id)sender;
 - (IBAction)configureIPv4Changed:(id)sender;
-- (IBAction)applyChanges:(id)sender;
-- (IBAction)revertChanges:(id)sender;
 - (IBAction)renewDHCPLease:(id)sender;
 - (void)doEnableInterfaceAfterDelay:(NSTimer *)timer;
 

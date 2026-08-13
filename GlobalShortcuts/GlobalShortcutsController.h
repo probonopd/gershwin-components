@@ -16,13 +16,13 @@
     NSMutableArray *shortcuts;
     NSButton *addButton;
     NSButton *deleteButton;
-    NSButton *editButton;
     NSTextField *statusLabel;
 }
 
 - (id)init;
 - (void)dealloc;
 - (NSView *)createMainView;
+- (void)relayoutWithWidth:(CGFloat)width;
 - (void)refreshShortcuts:(NSTimer *)timer;
 - (void)addShortcut:(id)sender;
 - (void)deleteShortcut:(id)sender;

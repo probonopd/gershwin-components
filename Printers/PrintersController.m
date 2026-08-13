@@ -12,6 +12,39 @@
 #include <grp.h>
 #include <pwd.h>
 #include <sys/utsname.h>
+#import "AppearanceMetrics.h"
+
+@class PrintersController;
+
+/* The pane view. When the host window gives us a width (which is not the
+   560px base we built at), re-lay out the group boxes so the left/right
+   margins to the window edge stay symmetric. */
+@interface PrintersMainView : NSView
+{
+    PrintersController *_layoutOwner;
+}
+@end
+
+@implementation PrintersMainView
+- (void)setFrameSize:(NSSize)newSize
+{
+    [super setFrameSize:newSize];
+    [_layoutOwner relayoutWithWidth:newSize.width];
+}
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window] && [self superview]) {
+        /* GNUstep's setFrame: bypasses setFrameSize:, so re-lay out explicitly */
+        [self setFrame:[[self superview] bounds]];
+        [_layoutOwner relayoutWithWidth:[self bounds].size.width];
+    }
+}
+- (void)setLayoutOwner:(PrintersController *)owner
+{
+    _layoutOwner = owner;
+}
+@end
 
 #pragma mark - PrinterInfo Implementation
 
@@ -168,6 +201,14 @@ static void deviceCallback(const char *device_class,
 }
 
 #pragma mark - PrintersController Implementation
+
+@interface PrintersController ()
+/* Layout helpers (HIG group boxes and rows). */
+- (NSButton *)buttonWithTitle:(NSString *)title
+                       action:(SEL)action
+                         frame:(NSRect)frame
+                        square:(BOOL)square;
+@end
 
 @implementation PrintersController
 
@@ -349,243 +390,281 @@ static void deviceCallback(const char *device_class,
     if (mainView) {
         return mainView;
     }
-    
-    mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 560, 380)];
-    
-    if (!cupsAvailable) {
-        // Show error message if CUPS is not available
-        NSTextField *errorLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 160, 520, 60)];
-        [errorLabel setStringValue:@"Printer configuration is not available.\n"
-                                   @"The CUPS printing system is required but was not found.\n"
-                                   @"Please install CUPS and restart."];
-        [errorLabel setBezeled:NO];
-        [errorLabel setDrawsBackground:NO];
-        [errorLabel setEditable:NO];
-        [errorLabel setSelectable:NO];
-        [errorLabel setFont:[NSFont systemFontOfSize:14]];
-        [errorLabel setAlignment:NSCenterTextAlignment];
-        [mainView addSubview:errorLabel];
-        [errorLabel release];
-        
-        return mainView;
-    }
-    
-    // Add privilege warning banner at the top if user is not in lpadmin group
-    int warningHeight = 0;
-    if (!userInLpadminGroup) {
-        // Create a simple separator line
-        NSBox *warningBox = [[NSBox alloc] initWithFrame:NSMakeRect(0, 360, 560, 1)];
-        [warningBox setBoxType:NSBoxSeparator];
-        [mainView addSubview:warningBox];
-        [warningBox release];
-        
-        warningHeight = 25;
-        privilegeWarningLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 362, 520, 18)];
-        NSString *adminGroupName = [self getAdminGroupName];
-        [privilegeWarningLabel setStringValue:[NSString stringWithFormat:@"Not in '%@' group - printer management disabled", adminGroupName]];
-        [privilegeWarningLabel setBezeled:NO];
-        [privilegeWarningLabel setDrawsBackground:NO];
-        [privilegeWarningLabel setEditable:NO];
-        [privilegeWarningLabel setSelectable:NO];
-        [privilegeWarningLabel setFont:[NSFont systemFontOfSize:10]];
-        [privilegeWarningLabel setTextColor:[NSColor darkGrayColor]];
-        [mainView addSubview:privilegeWarningLabel];
-    }
-    
-    // Printers label
-    NSTextField *printersLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 335 - warningHeight, 200, 16)];
-    [printersLabel setStringValue:@"Printers"];
-    [printersLabel setBezeled:NO];
-    [printersLabel setDrawsBackground:NO];
-    [printersLabel setEditable:NO];
-    [printersLabel setSelectable:NO];
-    [printersLabel setFont:[NSFont boldSystemFontOfSize:11]];
-    [mainView addSubview:printersLabel];
-    [printersLabel release];
-    
-    // Printer table - takes up more space
-    int tableY = 180;
-    int tableHeight = 155 - warningHeight;
-    printerScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, tableY, 340, tableHeight)];
+
+    const CGFloat winW = 560, winH = 440;
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;      /* 24 */
+    const CGFloat topMargin = METRICS_CONTENT_TOP_MARGIN;        /* 15 */
+    const CGFloat bottomMargin = METRICS_SPACE_12;
+    const CGFloat statusH = 18;
+    const CGFloat buttonH = METRICS_BUTTON_HEIGHT;               /* 20 */
+    const CGFloat rowGap = METRICS_SPACE_8;
+    const CGFloat jobTableH = 80;
+
+    mainView = [[PrintersMainView alloc] initWithFrame:NSMakeRect(0, 0, winW, winH)];
+    [(PrintersMainView *)mainView setLayoutOwner:self];
+    [mainView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    CGFloat contentW = winW - 2 * sideMargin;
+
+    /* Bottom-up vertical layout (all recomputed in relayoutWithWidth:):
+       status, job buttons, job table (butts against buttons), printer
+       buttons, printer table (butts against buttons). */
+    CGFloat statusY = bottomMargin;
+    CGFloat jobButtonsY = statusY + statusH + rowGap;
+    CGFloat jobTableBottom = jobButtonsY + buttonH;           /* no gap */
+    CGFloat jobTableTop = jobTableBottom + jobTableH;
+    CGFloat printerButtonsY = jobTableTop + rowGap;
+    CGFloat printerTableBottom = printerButtonsY + buttonH;  /* no gap */
+    CGFloat printerTableTop = winH - topMargin;
+
+    /* ---- Printer table ---- */
+    printerScroll = [[NSScrollView alloc] initWithFrame:
+        NSMakeRect(sideMargin, printerTableBottom, contentW, printerTableTop - printerTableBottom)];
     [printerScroll setHasVerticalScroller:YES];
     [printerScroll setHasHorizontalScroller:NO];
     [printerScroll setBorderType:NSBezelBorder];
-    [printerScroll setAutoresizingMask:NSViewHeightSizable | NSViewWidthSizable];
     [mainView addSubview:printerScroll];
-    
+
     printerTable = [[NSTableView alloc] initWithFrame:[printerScroll bounds]];
     [printerTable setDelegate:self];
     [printerTable setDataSource:self];
     [printerTable setAllowsMultipleSelection:NO];
     [printerTable setAllowsEmptySelection:YES];
-    
-    NSTableColumn *printerNameColumn = [[NSTableColumn alloc] initWithIdentifier:@"name"];
-    [printerNameColumn setTitle:@"Name"];
-    [printerNameColumn setWidth:140];
-    [printerNameColumn setEditable:NO];
-    [printerTable addTableColumn:printerNameColumn];
-    [printerNameColumn release];
-    
-    NSTableColumn *printerStatusColumn = [[NSTableColumn alloc] initWithIdentifier:@"status"];
-    [printerStatusColumn setTitle:@"Status"];
-    [printerStatusColumn setWidth:80];
-    [printerStatusColumn setEditable:NO];
-    [printerTable addTableColumn:printerStatusColumn];
-    [printerStatusColumn release];
-    
-    NSTableColumn *printerJobsColumn = [[NSTableColumn alloc] initWithIdentifier:@"jobs"];
-    [printerJobsColumn setTitle:@"Jobs"];
-    [printerJobsColumn setWidth:50];
-    [printerJobsColumn setEditable:NO];
-    [printerTable addTableColumn:printerJobsColumn];
-    [printerJobsColumn release];
-    
-    NSTableColumn *printerDefaultColumn = [[NSTableColumn alloc] initWithIdentifier:@"default"];
-    [printerDefaultColumn setTitle:@"Default"];
-    [printerDefaultColumn setWidth:50];
-    [printerDefaultColumn setEditable:NO];
-    [printerTable addTableColumn:printerDefaultColumn];
-    [printerDefaultColumn release];
-    
+    [self addPrinterTableColumnsToTable:printerTable];
     [printerScroll setDocumentView:printerTable];
-    
-    // Printer buttons - compact 2x2 grid on the right
-    int buttonStartY = 335 - warningHeight;
-    
-    addButton = [[NSButton alloc] initWithFrame:NSMakeRect(370, buttonStartY - 24, 85, 22)];
-    [addButton setTitle:@"Add..."];
-    [addButton setBezelStyle:NSRoundedBezelStyle];
-    [addButton setTarget:self];
-    [addButton setAction:@selector(addPrinter:)];
-    [mainView addSubview:addButton];
-    
-    removeButton = [[NSButton alloc] initWithFrame:NSMakeRect(460, buttonStartY - 24, 80, 22)];
-    [removeButton setTitle:@"Remove"];
-    [removeButton setBezelStyle:NSRoundedBezelStyle];
-    [removeButton setTarget:self];
-    [removeButton setAction:@selector(removePrinter:)];
+
+    /* ---- Printer action row: [+][-] Default Options ---- */
+    CGFloat bx = sideMargin;
+    addButton = [self buttonWithTitle:@"+"
+                               action:@selector(addPrinter:)
+                                 frame:NSMakeRect(bx, printerButtonsY, 28, buttonH)
+                                square:YES];
+    bx += 28 - 1;   /* one outline-width overlap */
+    removeButton = [self buttonWithTitle:@"-"
+                                  action:@selector(removePrinter:)
+                                    frame:NSMakeRect(bx, printerButtonsY, 28, buttonH)
+                                   square:YES];
     [removeButton setEnabled:NO];
-    [mainView addSubview:removeButton];
-    
-    defaultButton = [[NSButton alloc] initWithFrame:NSMakeRect(370, buttonStartY - 50, 85, 22)];
-    [defaultButton setTitle:@"Default"];
-    [defaultButton setBezelStyle:NSRoundedBezelStyle];
-    [defaultButton setTarget:self];
-    [defaultButton setAction:@selector(setDefaultPrinter:)];
+    bx += 28 + METRICS_SPACE_8;
+
+    defaultButton = [self buttonWithTitle:@"Default"
+                                   action:@selector(setDefaultPrinter:)
+                                     frame:NSMakeRect(bx, printerButtonsY, 70, buttonH)
+                                    square:NO];
     [defaultButton setEnabled:NO];
-    [mainView addSubview:defaultButton];
-    
-    optionsButton = [[NSButton alloc] initWithFrame:NSMakeRect(460, buttonStartY - 50, 80, 22)];
-    [optionsButton setTitle:@"Options..."];
-    [optionsButton setBezelStyle:NSRoundedBezelStyle];
-    [optionsButton setTarget:self];
-    [optionsButton setAction:@selector(showPrinterOptions:)];
+    bx += 70 + METRICS_SPACE_8;
+
+    optionsButton = [self buttonWithTitle:@"Options..."
+                                   action:@selector(showPrinterOptions:)
+                                     frame:NSMakeRect(bx, printerButtonsY, 70, buttonH)
+                                    square:NO];
     [optionsButton setEnabled:NO];
-    [mainView addSubview:optionsButton];
-    
-    // Printer info label
-    printerInfoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(370, buttonStartY - 80, 170, 25)];
-    [printerInfoLabel setStringValue:@""];
-    [printerInfoLabel setBezeled:NO];
-    [printerInfoLabel setDrawsBackground:NO];
-    [printerInfoLabel setEditable:NO];
-    [printerInfoLabel setSelectable:YES];
-    [printerInfoLabel setFont:[NSFont systemFontOfSize:9]];
-    [printerInfoLabel setTextColor:[NSColor darkGrayColor]];
-    [mainView addSubview:printerInfoLabel];
-    
-    // Print queue label
-    NSTextField *queueLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 160, 200, 16)];
-    [queueLabel setStringValue:@"Print Queue"];
-    [queueLabel setBezeled:NO];
-    [queueLabel setDrawsBackground:NO];
-    [queueLabel setEditable:NO];
-    [queueLabel setSelectable:NO];
-    [queueLabel setFont:[NSFont boldSystemFontOfSize:11]];
-    [mainView addSubview:queueLabel];
-    [queueLabel release];
-    
-    // Job table - more compact
-    jobScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 80, 420, 75)];
+
+    /* ---- Job table ---- */
+    jobScroll = [[NSScrollView alloc] initWithFrame:
+        NSMakeRect(sideMargin, jobTableBottom, contentW, jobTableH)];
     [jobScroll setHasVerticalScroller:YES];
     [jobScroll setHasHorizontalScroller:NO];
     [jobScroll setBorderType:NSBezelBorder];
-    [jobScroll setAutoresizingMask:NSViewHeightSizable | NSViewWidthSizable];
     [mainView addSubview:jobScroll];
-    
+
     jobTable = [[NSTableView alloc] initWithFrame:[jobScroll bounds]];
     [jobTable setDelegate:self];
     [jobTable setDataSource:self];
     [jobTable setAllowsMultipleSelection:NO];
     [jobTable setAllowsEmptySelection:YES];
-    
-    NSTableColumn *jobIdColumn = [[NSTableColumn alloc] initWithIdentifier:@"jobId"];
-    [jobIdColumn setTitle:@"ID"];
-    [jobIdColumn setWidth:40];
-    [jobIdColumn setEditable:NO];
-    [jobTable addTableColumn:jobIdColumn];
-    [jobIdColumn release];
-    
-    NSTableColumn *jobTitleColumn = [[NSTableColumn alloc] initWithIdentifier:@"title"];
-    [jobTitleColumn setTitle:@"Document"];
-    [jobTitleColumn setWidth:180];
-    [jobTitleColumn setEditable:NO];
-    [jobTable addTableColumn:jobTitleColumn];
-    [jobTitleColumn release];
-    
-    NSTableColumn *jobUserColumn = [[NSTableColumn alloc] initWithIdentifier:@"user"];
-    [jobUserColumn setTitle:@"User"];
-    [jobUserColumn setWidth:80];
-    [jobUserColumn setEditable:NO];
-    [jobTable addTableColumn:jobUserColumn];
-    [jobUserColumn release];
-    
-    NSTableColumn *jobStatusColumn = [[NSTableColumn alloc] initWithIdentifier:@"status"];
-    [jobStatusColumn setTitle:@"Status"];
-    [jobStatusColumn setWidth:80];
-    [jobStatusColumn setEditable:NO];
-    [jobTable addTableColumn:jobStatusColumn];
-    [jobStatusColumn release];
-    
+    [self addJobTableColumnsToTable:jobTable];
     [jobScroll setDocumentView:jobTable];
-    
-    // Job control buttons - compact
-    cancelJobButton = [[NSButton alloc] initWithFrame:NSMakeRect(450, 107, 90, 22)];
-    [cancelJobButton setTitle:@"Cancel"];
-    [cancelJobButton setBezelStyle:NSRoundedBezelStyle];
-    [cancelJobButton setTarget:self];
-    [cancelJobButton setAction:@selector(cancelJob:)];
+
+    /* ---- Job action row: Cancel Hold ---- */
+    CGFloat jx = sideMargin;
+    cancelJobButton = [self buttonWithTitle:@"Cancel"
+                                     action:@selector(cancelJob:)
+                                       frame:NSMakeRect(jx, jobButtonsY, 70, buttonH)
+                                      square:NO];
     [cancelJobButton setEnabled:NO];
-    [mainView addSubview:cancelJobButton];
-    
-    pauseJobButton = [[NSButton alloc] initWithFrame:NSMakeRect(450, 82, 90, 22)];
-    [pauseJobButton setTitle:@"Hold"];
-    [pauseJobButton setBezelStyle:NSRoundedBezelStyle];
-    [pauseJobButton setTarget:self];
-    [pauseJobButton setAction:@selector(pauseResumeJob:)];
+    jx += 70 + METRICS_SPACE_8;
+
+    pauseJobButton = [self buttonWithTitle:@"Hold"
+                                    action:@selector(pauseResumeJob:)
+                                      frame:NSMakeRect(jx, jobButtonsY, 70, buttonH)
+                                     square:NO];
     [pauseJobButton setEnabled:NO];
-    [mainView addSubview:pauseJobButton];
-    
-    // Status label - at bottom
-    statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 8, 520, 28)];
+
+    /* ---- Status label at the bottom ---- */
+    statusLabel = [[NSTextField alloc] initWithFrame:
+        NSMakeRect(sideMargin, statusY, contentW, statusH)];
     [statusLabel setStringValue:@""];
     [statusLabel setBezeled:NO];
-    [statusLabel setDrawsBackground:NO];
     [statusLabel setEditable:NO];
     [statusLabel setSelectable:NO];
+    [statusLabel setDrawsBackground:NO];
     [statusLabel setFont:[NSFont systemFontOfSize:9]];
     [statusLabel setTextColor:[NSColor darkGrayColor]];
+    [statusLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMaxYMargin)];
     [mainView addSubview:statusLabel];
-    
-    // Disable admin buttons if user is not in lpadmin group
+
     if (!userInLpadminGroup) {
         [addButton setEnabled:NO];
         [removeButton setEnabled:NO];
         [defaultButton setEnabled:NO];
         [optionsButton setEnabled:NO];
     }
-    
+
     return mainView;
+}
+
+/* Re-lay out the pane for the given width. Positions are computed
+   bottom-up and explicitly so nothing relies on autoresizing quirks. */
+- (void)relayoutWithWidth:(CGFloat)width
+{
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;  /* 24 */
+    const CGFloat topMargin = METRICS_CONTENT_TOP_MARGIN;    /* 15 */
+    const CGFloat bottomMargin = METRICS_SPACE_12;
+    const CGFloat statusH = 18;
+    const CGFloat buttonH = METRICS_BUTTON_HEIGHT;
+    const CGFloat rowGap = METRICS_SPACE_8;
+    const CGFloat jobTableH = 80;
+    CGFloat height = [mainView bounds].size.height;
+    CGFloat contentW = width - 2 * sideMargin;
+    NSRect f;
+
+    CGFloat statusY = bottomMargin;
+    CGFloat jobButtonsY = statusY + statusH + rowGap;
+    CGFloat jobTableBottom = jobButtonsY + buttonH;
+    CGFloat jobTableTop = jobTableBottom + jobTableH;
+    CGFloat printerButtonsY = jobTableTop + rowGap;
+    CGFloat printerTableBottom = printerButtonsY + buttonH;
+    CGFloat printerTableTop = height - topMargin;
+
+    if (statusLabel) {
+        f = [statusLabel frame];
+        f.origin.x = sideMargin;
+        f.size.width = contentW;
+        f.origin.y = statusY;
+        f.size.height = statusH;
+        [statusLabel setFrame:f];
+    }
+
+    if (printerScroll && jobScroll) {
+        NSRect pf = [printerScroll frame];
+        pf.origin.x = sideMargin;
+        pf.size.width = contentW;
+        pf.origin.y = printerTableBottom;
+        pf.size.height = printerTableTop - printerTableBottom;
+        [printerScroll setFrame:pf];
+
+        NSRect jf = [jobScroll frame];
+        jf.origin.x = sideMargin;
+        jf.size.width = contentW;
+        jf.origin.y = jobTableBottom;
+        jf.size.height = jobTableTop - jobTableBottom;
+        [jobScroll setFrame:jf];
+    }
+
+    if ([addButton superview]) {
+        CGFloat bx = sideMargin;
+        f = [addButton frame];
+        f.origin.x = bx; f.origin.y = printerButtonsY; f.size.height = buttonH;
+        [addButton setFrame:f];
+        bx += 28 - 1;
+        f = [removeButton frame];
+        f.origin.x = bx; f.origin.y = printerButtonsY; f.size.height = buttonH;
+        [removeButton setFrame:f];
+        bx += 28 + METRICS_SPACE_8;
+        f = [defaultButton frame];
+        f.origin.x = bx; f.origin.y = printerButtonsY; f.size.height = buttonH;
+        [defaultButton setFrame:f];
+        bx += 70 + METRICS_SPACE_8;
+        f = [optionsButton frame];
+        f.origin.x = bx; f.origin.y = printerButtonsY; f.size.height = buttonH;
+        [optionsButton setFrame:f];
+
+        CGFloat jx = sideMargin;
+        f = [cancelJobButton frame];
+        f.origin.x = jx; f.origin.y = jobButtonsY; f.size.height = buttonH;
+        [cancelJobButton setFrame:f];
+        jx += 70 + METRICS_SPACE_8;
+        f = [pauseJobButton frame];
+        f.origin.x = jx; f.origin.y = jobButtonsY; f.size.height = buttonH;
+        [pauseJobButton setFrame:f];
+    }
+}
+
+/* A push button; square = rectangular (NSRegularSquareBezelStyle) for the
+   "+"/"-" row, rounded otherwise. */
+- (NSButton *)buttonWithTitle:(NSString *)title
+                       action:(SEL)action
+                         frame:(NSRect)frame
+                        square:(BOOL)square
+{
+    NSButton *button = [[NSButton alloc] initWithFrame:frame];
+    [button setTitle:title];
+    [button setButtonType:NSMomentaryPushInButton];
+    [button setBezelStyle:square ? NSRegularSquareBezelStyle : NSRoundedBezelStyle];
+    [button setTarget:self];
+    [button setAction:action];
+    [mainView addSubview:button];
+    return button;
+}
+
+/* Add the printer table columns (name / status / jobs / default). */
+- (void)addPrinterTableColumnsToTable:(NSTableView *)table
+{
+    NSTableColumn *col;
+    col = [[NSTableColumn alloc] initWithIdentifier:@"name"];
+    [col setTitle:@"Name"];
+    [col setWidth:140];
+    [col setEditable:NO];
+    [table addTableColumn:col];
+    [col release];
+    col = [[NSTableColumn alloc] initWithIdentifier:@"status"];
+    [col setTitle:@"Status"];
+    [col setWidth:80];
+    [col setEditable:NO];
+    [table addTableColumn:col];
+    [col release];
+    col = [[NSTableColumn alloc] initWithIdentifier:@"jobs"];
+    [col setTitle:@"Jobs"];
+    [col setWidth:50];
+    [col setEditable:NO];
+    [table addTableColumn:col];
+    [col release];
+    col = [[NSTableColumn alloc] initWithIdentifier:@"default"];
+    [col setTitle:@"Default"];
+    [col setWidth:50];
+    [col setEditable:NO];
+    [table addTableColumn:col];
+    [col release];
+}
+
+/* Add the job table columns (ID / document / user / status). */
+- (void)addJobTableColumnsToTable:(NSTableView *)table
+{
+    NSTableColumn *col;
+    col = [[NSTableColumn alloc] initWithIdentifier:@"jobId"];
+    [col setTitle:@"ID"];
+    [col setWidth:40];
+    [col setEditable:NO];
+    [table addTableColumn:col];
+    [col release];
+    col = [[NSTableColumn alloc] initWithIdentifier:@"title"];
+    [col setTitle:@"Document"];
+    [col setWidth:180];
+    [col setEditable:NO];
+    [table addTableColumn:col];
+    [col release];
+    col = [[NSTableColumn alloc] initWithIdentifier:@"user"];
+    [col setTitle:@"User"];
+    [col setWidth:80];
+    [col setEditable:NO];
+    [table addTableColumn:col];
+    [col release];
+    col = [[NSTableColumn alloc] initWithIdentifier:@"status"];
+    [col setTitle:@"Status"];
+    [col setWidth:80];
+    [col setEditable:NO];
+    [table addTableColumn:col];
+    [col release];
 }
 
 #pragma mark - Refresh Methods

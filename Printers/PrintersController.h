@@ -122,6 +122,7 @@ typedef struct cups_job_s cups_job_t;
 }
 
 - (NSView *)createMainView;
+- (void)relayoutWithWidth:(CGFloat)width;
 - (void)refreshPrinters:(NSTimer *)timer;
 - (void)refreshJobs;
 - (BOOL)isUserInLpadminGroup;

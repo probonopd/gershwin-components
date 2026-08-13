@@ -16,8 +16,9 @@
 #endif
 
 // Layout constants following Eau Theme HIG (AppearanceMetrics.h)
-static const CGFloat kWindowWidth = 668;
-static const CGFloat kWindowHeight = 400;
+// Content area matches the 640x480 window.
+static const CGFloat kWindowWidth = 640;
+static const CGFloat kWindowHeight = 440;
 static const CGFloat kServiceListWidth = 180;
 
 // HIG-compliant margins
@@ -25,14 +26,47 @@ static const CGFloat kContentSideMargin = 24.0;
 static const CGFloat kContentBottomMargin = 20.0;
 static const CGFloat kSpace8 = 8.0;
 static const CGFloat kSpace12 = 12.0;
-static const CGFloat kSpace16 = 16.0;
 
 // HIG-compliant control sizes
 static const CGFloat kButtonHeight = 20.0;
-static const CGFloat kButtonMinWidth = 100.0;
 static const CGFloat kFieldHeight = 22.0;
 static const CGFloat kLabelWidth = 110;
 static const CGFloat kStatusAreaHeight = 60;
+
+@class NetworkController;
+
+/* The pane view. The host window sizes it 5px wider than the box content
+   (GNUstep NSBox quirk); make it exactly fill its superview and re-lay out
+   so margins stay symmetric. */
+@interface NetworkMainView : NSView
+{
+    NetworkController *_layoutOwner;
+}
+@end
+
+@implementation NetworkMainView
+- (void)setFrameSize:(NSSize)newSize
+{
+    [super setFrameSize:newSize];
+    [_layoutOwner relayoutWithWidth:newSize.width];
+}
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window] && [self superview]) {
+        /* The host sizes the pane to the +5px-inflated / -12px-shortened
+           contentView.  Clamp it to the window content width and the
+           created height so the top of the layout is not clipped. */
+        CGFloat w = [[[self window] contentView] frame].size.width;
+        [self setFrame:NSMakeRect(0, 0, w, kWindowHeight)];
+        [_layoutOwner relayoutWithWidth:w];
+    }
+}
+- (void)setLayoutOwner:(NetworkController *)owner
+{
+    _layoutOwner = owner;
+}
+@end
 
 @interface NetworkController ()
 - (void)updateClonedMacPopup;
@@ -137,8 +171,10 @@ static const CGFloat kStatusAreaHeight = 60;
     CGFloat actualWidth = kWindowWidth;
     CGFloat actualHeight = kWindowHeight;
     
-    mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, actualWidth, actualHeight)];
-    [mainView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    mainView = [[NetworkMainView alloc] initWithFrame:NSMakeRect(0, 0, actualWidth, actualHeight)];
+    [(NetworkMainView *)mainView setLayoutOwner:self];
+    /* No autoresizing: the host's +5px-inflated contentView would otherwise
+       stretch the pane past the window. viewDidMoveToWindow clamps it. */
     
     // Check if backend is available
     if (![backend isAvailable]) {
@@ -151,11 +187,10 @@ static const CGFloat kStatusAreaHeight = 60;
     CGFloat viewWidth = NSWidth(viewBounds);
     CGFloat viewHeight = NSHeight(viewBounds);
     
-    // Create the split view area (HIG spacing)
-    // Panels fill the full width and extend to the top of the window
-    CGFloat buttonAreaHeight = kContentBottomMargin + kButtonHeight + kSpace8;
+    // Create the split view area (HIG spacing).  No bottom button bar, so
+    // the panes extend down to the bottom margin.
     CGFloat splitTop = viewHeight;
-    CGFloat splitBottom = buttonAreaHeight;
+    CGFloat splitBottom = kContentBottomMargin;
     CGFloat splitHeight = splitTop - splitBottom;
     
     // Service list on the left
@@ -168,9 +203,6 @@ static const CGFloat kStatusAreaHeight = 60;
     [self createDetailViewWithFrame:NSMakeRect(detailX, splitBottom, 
                                                 detailWidth, splitHeight)];
     
-    // Bottom buttons
-    [self createBottomButtons];
-    
     // Create panels
     [self createPasswordPanel];
     [self createAdvancedPanel];
@@ -179,6 +211,18 @@ static const CGFloat kStatusAreaHeight = 60;
     [self refreshInterfaces:nil];
     
     return mainView;
+}
+
+/* The pane is laid out against the actual bounds in createMainView; the
+   window is fixed size, so no per-resize repositioning is needed here.
+   Re-enforce the created height in case the host shortened it. */
+- (void)relayoutWithWidth:(CGFloat)width
+{
+    NSRect f = [mainView frame];
+    if (f.size.height != kWindowHeight) {
+        f.size.height = kWindowHeight;
+        [mainView setFrame:f];
+    }
 }
 
 - (void)createUnavailableView
@@ -270,11 +314,11 @@ static const CGFloat kStatusAreaHeight = 60;
     
     [serviceTable setMenu:serviceContextMenu];
     
-    // Bottom button bar with enable/disable buttons
+    // Bottom button bar with enable/disable buttons, sized to fit the panel
     CGFloat buttonY = kSpace8;
-    CGFloat btnWidth = kButtonMinWidth;
     CGFloat btnSpacing = kSpace8;
-    
+    CGFloat btnWidth = (frame.size.width - 3 * btnSpacing) / 2.0;
+
     enableButton = [[NSButton alloc] initWithFrame:
                     NSMakeRect(btnSpacing, buttonY, btnWidth, kButtonHeight)];
     [enableButton setBezelStyle:NSRoundedBezelStyle];
@@ -384,12 +428,12 @@ static const CGFloat kStatusAreaHeight = 60;
 
 - (void)createTCPIPViewForTab:(NSTabViewItem *)tab
 {
-    NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 220)];
-    [view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
+    [view setAutoresizingMask:NSViewWidthSizable];
     
     CGFloat y = NSHeight([view frame]) - kFieldHeight - kSpace8;
     CGFloat labelX = kSpace12;
-    CGFloat fieldX = kLabelWidth + kSpace8;
+    CGFloat fieldX = kSpace12 + kLabelWidth + kSpace8;
     CGFloat fieldWidth = NSWidth([view frame]) - fieldX - kSpace12;
 
     // Configure IPv4 popup
@@ -411,10 +455,10 @@ static const CGFloat kStatusAreaHeight = 60;
     [configureIPv4Popup addItemWithTitle:@"Off"];
     [configureIPv4Popup setTarget:self];
     [configureIPv4Popup setAction:@selector(configureIPv4Changed:)];
-    [configureIPv4Popup setAutoresizingMask:NSViewMaxXMargin];
+    [configureIPv4Popup setAutoresizingMask:NSViewWidthSizable];
     [view addSubview:configureIPv4Popup];
     
-    y -= kFieldHeight + kSpace16;
+    y -= kFieldHeight + kSpace8;
     
     // IP Address
     NSTextField *ipLabel = [[NSTextField alloc] initWithFrame:
@@ -432,10 +476,10 @@ static const CGFloat kStatusAreaHeight = 60;
                       NSMakeRect(fieldX, y, fieldWidth, kFieldHeight)];
     [ipAddressField setEditable:NO];
     [ipAddressField setPlaceholderString:@""];
-    [ipAddressField setAutoresizingMask:NSViewMaxXMargin];
+    [ipAddressField setAutoresizingMask:NSViewWidthSizable];
     [view addSubview:ipAddressField];
     
-    y -= kFieldHeight + kSpace16;
+    y -= kFieldHeight + kSpace8;
     
     // Subnet Mask
     NSTextField *subnetLabel = [[NSTextField alloc] initWithFrame:
@@ -453,10 +497,10 @@ static const CGFloat kStatusAreaHeight = 60;
                        NSMakeRect(fieldX, y, fieldWidth, kFieldHeight)];
     [subnetMaskField setEditable:NO];
     [subnetMaskField setPlaceholderString:@""];
-    [subnetMaskField setAutoresizingMask:NSViewMaxXMargin];
+    [subnetMaskField setAutoresizingMask:NSViewWidthSizable];
     [view addSubview:subnetMaskField];
     
-    y -= kFieldHeight + kSpace16;
+    y -= kFieldHeight + kSpace8;
     
     // Router
     NSTextField *routerLabel = [[NSTextField alloc] initWithFrame:
@@ -474,7 +518,7 @@ static const CGFloat kStatusAreaHeight = 60;
                    NSMakeRect(fieldX, y, fieldWidth, kFieldHeight)];
     [routerField setEditable:NO];
     [routerField setPlaceholderString:@""];
-    [routerField setAutoresizingMask:NSViewMaxXMargin];
+    [routerField setAutoresizingMask:NSViewWidthSizable];
     [view addSubview:routerField];
     
     y -= 28;
@@ -499,10 +543,10 @@ static const CGFloat kStatusAreaHeight = 60;
     [configureIPv6Popup addItemWithTitle:@"Off"];
     [configureIPv6Popup setTarget:self];
     [configureIPv6Popup setAction:@selector(configureIPv6Changed:)];
-    [configureIPv6Popup setAutoresizingMask:NSViewMaxXMargin];
+    [configureIPv6Popup setAutoresizingMask:NSViewWidthSizable];
     [view addSubview:configureIPv6Popup];
     
-    y -= kFieldHeight + kSpace16;
+    y -= kFieldHeight + kSpace8;
     
     // IPv6 Address (display only for now)
     NSTextField *ipv6Label = [[NSTextField alloc] initWithFrame:
@@ -520,10 +564,10 @@ static const CGFloat kStatusAreaHeight = 60;
                         NSMakeRect(fieldX, y, fieldWidth, kFieldHeight)];
     [ipv6AddressField setEditable:NO];
     [ipv6AddressField setPlaceholderString:@""];
-    [ipv6AddressField setAutoresizingMask:NSViewMaxXMargin];
+    [ipv6AddressField setAutoresizingMask:NSViewWidthSizable];
     [view addSubview:ipv6AddressField];
     
-    y -= kFieldHeight + kSpace16;
+    y -= kFieldHeight + kSpace8;
     
     // Renew DHCP Lease button
     dhcpLeaseButton = [[NSButton alloc] initWithFrame:
@@ -542,11 +586,11 @@ static const CGFloat kStatusAreaHeight = 60;
 - (void)createDNSViewForTab:(NSTabViewItem *)tab
 {
     NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 180)];
-    [view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    [view setAutoresizingMask:NSViewWidthSizable];
     
     CGFloat y = NSHeight([view frame]) - kFieldHeight - kSpace8;
     CGFloat labelX = kSpace12;
-    CGFloat fieldX = kLabelWidth + kSpace8;
+    CGFloat fieldX = kSpace12 + kLabelWidth + kSpace8;
     CGFloat fieldWidth = NSWidth([view frame]) - fieldX - kSpace12;
     
     // DNS Servers
@@ -565,10 +609,10 @@ static const CGFloat kStatusAreaHeight = 60;
                        NSMakeRect(fieldX, y, fieldWidth, kFieldHeight)];
     [dnsServersField setEditable:NO];
     [dnsServersField setPlaceholderString:@"e.g., 8.8.8.8, 8.8.4.4"];
-    [dnsServersField setAutoresizingMask:NSViewMaxXMargin];
+    [dnsServersField setAutoresizingMask:NSViewWidthSizable];
     [view addSubview:dnsServersField];
     
-    y -= kFieldHeight + kSpace16;
+    y -= kFieldHeight + kSpace8;
     
     // Search Domains
     NSTextField *searchLabel = [[NSTextField alloc] initWithFrame:
@@ -586,7 +630,7 @@ static const CGFloat kStatusAreaHeight = 60;
                           NSMakeRect(fieldX, y, fieldWidth, kFieldHeight)];
     [searchDomainsField setEditable:NO];
     [searchDomainsField setPlaceholderString:@"e.g., local, home"];
-    [searchDomainsField setAutoresizingMask:NSViewMaxXMargin];
+    [searchDomainsField setAutoresizingMask:NSViewWidthSizable];
     [view addSubview:searchDomainsField];
     
     [tab setView:view];
@@ -595,12 +639,12 @@ static const CGFloat kStatusAreaHeight = 60;
 
 - (void)createWLANViewForTab:(NSTabViewItem *)tab
 {
-    NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 200)];
-    [view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
+    [view setAutoresizingMask:NSViewWidthSizable];
     wlanView = view;
     
-    // WLAN power button
-    wlanPowerButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, 170, 130, kButtonHeight)];
+    // WLAN power button (top)
+    wlanPowerButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, 272, 130, kButtonHeight)];
     [wlanPowerButton setBezelStyle:NSRoundedBezelStyle];
     [wlanPowerButton setTitle:@"Turn WLAN Off"];
     [wlanPowerButton setTarget:self];
@@ -609,7 +653,7 @@ static const CGFloat kStatusAreaHeight = 60;
     [view addSubview:wlanPowerButton];
     
     // Scan progress indicator
-    scanProgress = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(150, 173, 16, 16)];
+    scanProgress = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(150, 273, 16, 16)];
     [scanProgress setStyle:NSProgressIndicatorSpinningStyle];
     [scanProgress setDisplayedWhenStopped:NO];
     [scanProgress setControlSize:NSSmallControlSize];
@@ -618,7 +662,7 @@ static const CGFloat kStatusAreaHeight = 60;
     
     // Network Name label
     NSTextField *networkLabel = [[NSTextField alloc] initWithFrame:
-                                  NSMakeRect(10, 145, 100, kFieldHeight)];
+                                  NSMakeRect(10, 242, 100, kFieldHeight)];
     [networkLabel setStringValue:@"Network Name:"];
     [networkLabel setBezeled:NO];
     [networkLabel setDrawsBackground:NO];
@@ -628,12 +672,12 @@ static const CGFloat kStatusAreaHeight = 60;
     [view addSubview:networkLabel];
     [networkLabel release];
     
-    // WLAN network table
-    wlanScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(10, 35, 380, 105)];
+    // WLAN network table (fills the space above the bottom row)
+    wlanScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(10, 35, 380, 199)];
     [wlanScrollView setHasVerticalScroller:YES];
     [wlanScrollView setHasHorizontalScroller:NO];
     [wlanScrollView setBorderType:NSBezelBorder];
-    [wlanScrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    [wlanScrollView setAutoresizingMask:NSViewWidthSizable];
     
     wlanTable = [[NSTableView alloc] initWithFrame:[[wlanScrollView contentView] bounds]];
     [wlanTable setDelegate:self];
@@ -679,15 +723,15 @@ static const CGFloat kStatusAreaHeight = 60;
     [view addSubview:wlanScrollView];
     
     // Bottom buttons
-    joinNetworkButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, 5, 100, kButtonHeight)];
+    joinNetworkButton = [[NSButton alloc] initWithFrame:NSMakeRect(10, 5, 50, kButtonHeight)];
     [joinNetworkButton setBezelStyle:NSRoundedBezelStyle];
-    [joinNetworkButton setTitle:@"Join Network"];
+    [joinNetworkButton setTitle:@"Join"];
     [joinNetworkButton setTarget:self];
     [joinNetworkButton setAction:@selector(joinNetwork:)];
     [joinNetworkButton setAutoresizingMask:NSViewMaxXMargin];
     [view addSubview:joinNetworkButton];
     
-    disconnectButton = [[NSButton alloc] initWithFrame:NSMakeRect(115, 5, 90, kButtonHeight)];
+    disconnectButton = [[NSButton alloc] initWithFrame:NSMakeRect(68, 5, 80, kButtonHeight)];
     [disconnectButton setBezelStyle:NSRoundedBezelStyle];
     [disconnectButton setTitle:@"Disconnect"];
     [disconnectButton setTarget:self];
@@ -695,18 +739,12 @@ static const CGFloat kStatusAreaHeight = 60;
     [disconnectButton setAutoresizingMask:NSViewMaxXMargin];
     [view addSubview:disconnectButton];
     
-    // MAC Address cloning popup
-    clonedMacLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(210, 8, 55, kFieldHeight)];
-    [clonedMacLabel setStringValue:@"MAC:"];
-    [clonedMacLabel setBezeled:NO];
-    [clonedMacLabel setDrawsBackground:NO];
-    [clonedMacLabel setEditable:NO];
-    [clonedMacLabel setFont:[NSFont systemFontOfSize:11]];
-    [clonedMacLabel setAutoresizingMask:NSViewMinXMargin];
-    [view addSubview:clonedMacLabel];
-    [clonedMacLabel release];
-
-    clonedMacPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(255, 5, 135, kButtonHeight)];
+    // MAC Address cloning popup, right-aligned (aligned with the buttons)
+    const CGFloat macPopupW = 135;
+    const CGFloat macLabelW = 40;
+    CGFloat macPopupX = NSWidth([view frame]) - 10 - macPopupW;
+    clonedMacPopup = [[NSPopUpButton alloc] initWithFrame:
+        NSMakeRect(macPopupX, 5, macPopupW, kButtonHeight)];
     [[clonedMacPopup menu] removeAllItems];
     [clonedMacPopup addItemWithTitle:@"Default (Permanent)"];
     [[clonedMacPopup lastItem] setRepresentedObject:@"permanent"];
@@ -722,39 +760,19 @@ static const CGFloat kStatusAreaHeight = 60;
     [clonedMacPopup setEnabled:NO];
     [view addSubview:clonedMacPopup];
     [clonedMacPopup release];
+
+    clonedMacLabel = [[NSTextField alloc] initWithFrame:
+        NSMakeRect(macPopupX - kSpace8 - macLabelW, 5, macLabelW, kButtonHeight)];
+    [clonedMacLabel setStringValue:@"MAC:"];
+    [clonedMacLabel setBezeled:NO];
+    [clonedMacLabel setDrawsBackground:NO];
+    [clonedMacLabel setEditable:NO];
+    [clonedMacLabel setFont:[NSFont systemFontOfSize:11]];
+    [clonedMacLabel setAutoresizingMask:NSViewMinXMargin];
+    [view addSubview:clonedMacLabel];
+    [clonedMacLabel release];
     
     [tab setView:view];
-}
-
-#pragma mark - Bottom Buttons
-
-- (void)createBottomButtons
-{
-    CGFloat y = kContentBottomMargin;
-    CGFloat viewWidth = NSWidth([mainView bounds]);
-    
-    // Apply button
-    applyButton = [[NSButton alloc] initWithFrame:
-                   NSMakeRect(viewWidth - kContentSideMargin - kButtonMinWidth, y, kButtonMinWidth, kButtonHeight)];
-    [applyButton setBezelStyle:NSRoundedBezelStyle];
-    [applyButton setTitle:@"Apply"];
-    [applyButton setTarget:self];
-    [applyButton setAction:@selector(applyChanges:)];
-    [applyButton setEnabled:NO];
-    [applyButton setAutoresizingMask:NSViewMinXMargin];
-    [mainView addSubview:applyButton];
-    
-    // Revert button
-    NSButton *revertButton = [[NSButton alloc] initWithFrame:
-                              NSMakeRect(viewWidth - kContentSideMargin - kButtonMinWidth * 2 - kSpace12, y, kButtonMinWidth, kButtonHeight)];
-    [revertButton setBezelStyle:NSRoundedBezelStyle];
-    [revertButton setTitle:@"Revert"];
-    [revertButton setTarget:self];
-    [revertButton setAction:@selector(revertChanges:)];
-    [revertButton setEnabled:NO];
-    [revertButton setAutoresizingMask:NSViewMinXMargin];
-    [mainView addSubview:revertButton];
-    [revertButton release];
 }
 
 #pragma mark - Password Panel
@@ -1334,9 +1352,8 @@ static const CGFloat kStatusAreaHeight = 60;
                 [self createWLANViewForTab:wlanTab];
                 [detailTabView addTabViewItem:wlanTab];
                 [wlanTab release];
-            }
-            
-            if (detailTabView) {
+                // Select WLAN only the first time it appears; on later
+                // refreshes keep the tab the user is currently on.
                 [detailTabView selectTabViewItemWithIdentifier:@"wlan"];
             }
             
@@ -1527,7 +1544,6 @@ static const CGFloat kStatusAreaHeight = 60;
     [routerField setEditable:manual];
     
     isEditing = YES;
-    [applyButton setEnabled:YES];
 }
 
 - (IBAction)configureIPv6Changed:(id)sender
@@ -1538,52 +1554,12 @@ static const CGFloat kStatusAreaHeight = 60;
     [ipv6AddressField setEditable:manual];
     
     isEditing = YES;
-    [applyButton setEnabled:YES];
     
     // TODO: When applying, use the selected IPv6 mode:
     // 0 = Automatically (SLAAC/DHCPv6)
     // 1 = Manually
     // 2 = Link-local only
     // 3 = Off (disable IPv6)
-}
-
-- (IBAction)applyChanges:(id)sender
-{
-    @try {
-        if (![self validateSelectedInterface]) {
-            [self showWarningAlert:@"No Service Selected" 
-                   informativeText:@"Please select a network service to configure."];
-            return;
-        }
-        
-        if (!backend || ![backend isAvailable]) {
-            [self showErrorAlert:@"Cannot Apply Changes" 
-                 informativeText:@"The network management service is not available."];
-            return;
-        }
-        
-        NSDebugLLog(@"gwcomp", @"[Network] Applying changes for: %@", [selectedInterface displayName]);
-        
-        // Create/update connection with new settings
-        // This would need to be implemented based on what was changed
-        
-        isEditing = NO;
-        [applyButton setEnabled:NO];
-        
-        [self refreshInterfaces:nil];
-    }
-    @catch (NSException *exception) {
-        NSDebugLLog(@"gwcomp", @"[Network] Exception in applyChanges: %@ - %@", [exception name], [exception reason]);
-        [self showErrorAlert:@"Error Applying Changes" 
-             informativeText:[NSString stringWithFormat:@"An unexpected error occurred: %@", [exception reason]]];
-    }
-}
-
-- (IBAction)revertChanges:(id)sender
-{
-    isEditing = NO;
-    [applyButton setEnabled:NO];
-    [self updateDetailView];
 }
 
 - (IBAction)renewDHCPLease:(id)sender

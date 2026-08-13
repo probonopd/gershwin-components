@@ -6,7 +6,43 @@
 
 
 #import "KeyboardController.h"
+#import "AppearanceMetrics.h"
 #import <dispatch/dispatch.h>
+
+@class KeyboardController;
+
+/* The pane view. When the host window gives us a width (which is not the
+   560px base we built at), re-lay out the group boxes so the left/right
+   margins to the window edge stay symmetric. */
+@interface KeyboardMainView : NSView
+{
+    KeyboardController *_layoutOwner;
+}
+@end
+
+@implementation KeyboardMainView
+- (void)setFrameSize:(NSSize)newSize
+{
+    [super setFrameSize:newSize];
+    [_layoutOwner relayoutWithWidth:newSize.width];
+}
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window] && [self superview]) {
+        /* The host window does not necessarily size the pane view to its
+           content area; make it fill the box content and re-lay out so the
+           left/right margins stay symmetric.  GNUstep's setFrame: bypasses
+           setFrameSize:, so re-lay out explicitly here. */
+        [self setFrame:[[self superview] bounds]];
+        [_layoutOwner relayoutWithWidth:[self bounds].size.width];
+    }
+}
+- (void)setLayoutOwner:(KeyboardController *)owner
+{
+    _layoutOwner = owner;
+}
+@end
 
 static NSString *const kKeyboardDomain = @"KeyboardPreferences";
 static NSString *const kDefaultKeyboardFile = @"/etc/default/keyboard";
@@ -41,6 +77,16 @@ static NSComparisonResult LayoutComparator(id a, id b, void *context)
 - (NSString *)trimmed:(NSString *)value;
 - (void)updateStatus:(NSString *)message;
 - (void)showAlertWithTitle:(NSString *)title text:(NSString *)text;
+
+/* Layout helpers (HIG group boxes and rows). */
+- (NSBox *)groupBoxWithTitle:(NSString *)title frame:(NSRect)frame inView:(NSView *)parent;
+- (NSTextField *)labelWithText:(NSString *)text frame:(NSRect)frame alignment:(NSTextAlignment)align;
+- (void)addCheckbox:(NSButton *)checkbox toBox:(NSBox *)box y:(CGFloat)y width:(CGFloat)w;
+- (void)addPopUpRowWithLabel:(NSString *)label
+                      popup:(NSPopUpButton *)popup
+                      toBox:(NSBox *)box
+                          y:(CGFloat)y
+                      width:(CGFloat)w;
 @end
 
 @implementation KeyboardController
@@ -85,116 +131,122 @@ static NSComparisonResult LayoutComparator(id a, id b, void *context)
 
     [self ensureMetadataLoaded];
 
-    // Make the preference pane slightly shorter to remove unneeded vertical space
-    mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 560, 320)];
+    const CGFloat winW = 560, winH = 440;
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;      /* 24 */
+    const CGFloat topMargin = METRICS_CONTENT_TOP_MARGIN;        /* 15 */
+    const CGFloat bottomMargin = METRICS_SPACE_12;               /* under status line */
+    const CGFloat boxGap = METRICS_SPACE_8;                      /* between group boxes */
+    const CGFloat rowH = METRICS_TEXT_INPUT_FIELD_HEIGHT;        /* 22 */
+    const CGFloat checkboxRowH = METRICS_RADIO_BUTTON_LINE_SPACING; /* 20 */
+    const CGFloat boxTitleInset = 14.0;
+    const CGFloat keyboardTypeBoxH = 96;      /* apple checkbox, type popup */
+    const CGFloat tryFieldH = 24;             /* try text field (no box) */
+    const CGFloat statusH = 18;
 
-    // Try layout text field at the bottom above the status label (moved down)
-    NSTextField *tryLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 46, 100, 20)];
-    [tryLabel setBezeled:NO];
-    [tryLabel setEditable:NO];
-    [tryLabel setSelectable:NO];
-    [tryLabel setDrawsBackground:NO];
-    [tryLabel setStringValue:@"Try layout:"];
-    [tryLabel setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:tryLabel];
-    [tryLabel release];
+    mainView = [[KeyboardMainView alloc] initWithFrame:NSMakeRect(0, 0, winW, winH)];
+    [(KeyboardMainView *)mainView setLayoutOwner:self];
+    [mainView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    CGFloat contentW = winW - 2 * sideMargin;
+    CGFloat boxW = contentW;
 
-    tryTextField = [[NSTextField alloc] initWithFrame:NSMakeRect(120, 42, 420, 24)];
-    [tryTextField setEditable:YES];
-    [tryTextField setSelectable:YES];
-    [tryTextField setBezeled:YES];
-    [tryTextField setDrawsBackground:YES];
-    [tryTextField setPlaceholderString:@"Type here to test the keyboard layout"];
-    [tryTextField setAutoresizingMask:(NSViewWidthSizable | NSViewMaxYMargin)];
-    [mainView addSubview:tryTextField];
+    CGFloat y = winH - topMargin;
 
-    // Swap checkbox (moved down to reduce vertical spacing)
-    isAppleKeyboardCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, 280, 300, 18)];
-    [isAppleKeyboardCheckbox setButtonType:NSSwitchButton];
-    [isAppleKeyboardCheckbox setTitle:@"Apple keyboard"];
-    [isAppleKeyboardCheckbox setTarget:self];
-    [isAppleKeyboardCheckbox setAction:@selector(isAppleKeyboardCheckboxChanged:)];
-    [isAppleKeyboardCheckbox setAutoresizingMask:NSViewMinYMargin | NSViewWidthSizable];
-    [mainView addSubview:isAppleKeyboardCheckbox];
+    /* ---- Keyboard Type group box ---- */
+    keyboardTypeBox = [self groupBoxWithTitle:@"Keyboard Type"
+                                       frame:NSMakeRect(sideMargin, y - keyboardTypeBoxH, boxW, keyboardTypeBoxH)
+                                      inView:mainView];
+    {
+        CGFloat by = keyboardTypeBoxH - boxTitleInset - METRICS_SPACE_16 - checkboxRowH;
+        [self addCheckbox:isAppleKeyboardCheckbox =
+                   [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease]
+                    toBox:keyboardTypeBox y:by width:boxW];
+        [isAppleKeyboardCheckbox setButtonType:NSSwitchButton];
+        [isAppleKeyboardCheckbox setTitle:@"Apple keyboard"];
+        [isAppleKeyboardCheckbox setTarget:self];
+        [isAppleKeyboardCheckbox setAction:@selector(isAppleKeyboardCheckboxChanged:)];
 
-    // Keyboard type popup (no separate label)
-    // Place the popup aligned with the checkbox on the right
-    keyboardTypePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(320, 275, 140, 26)];
-    [keyboardTypePopup addItemWithTitle:@"ANSI"];
-    [keyboardTypePopup addItemWithTitle:@"ISO"];
-    [keyboardTypePopup addItemWithTitle:@"JIS"];
-    [keyboardTypePopup setTarget:self];
-    [keyboardTypePopup setAction:@selector(keyboardTypeChanged:)];
-    [keyboardTypePopup setAutoresizingMask:NSViewMinYMargin];
-    [mainView addSubview:keyboardTypePopup];
+        by -= METRICS_SPACE_8 + rowH;
+        [self addPopUpRowWithLabel:@"Type:"
+                            popup:keyboardTypePopup =
+                            [[[NSPopUpButton alloc] initWithFrame:NSZeroRect] autorelease]
+                            toBox:keyboardTypeBox y:by width:boxW];
+        [keyboardTypePopup addItemWithTitle:@"ANSI"];
+        [keyboardTypePopup addItemWithTitle:@"ISO"];
+        [keyboardTypePopup addItemWithTitle:@"JIS"];
+        [keyboardTypePopup setTarget:self];
+        [keyboardTypePopup setAction:@selector(keyboardTypeChanged:)];
+    }
 
-    // Move the single 'Layout:' label in front of the dropdown to reduce visual clutter
-    NSTextField *layoutLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(260, 275, 60, 20)];
-    [layoutLabel setBezeled:NO];
-    [layoutLabel setEditable:NO];
-    [layoutLabel setSelectable:NO];
-    [layoutLabel setDrawsBackground:NO];
-    [layoutLabel setStringValue:@"Layout:"];
-    [layoutLabel setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
-    [mainView addSubview:layoutLabel];
-    [layoutLabel release];
+    /* ---- Layout + variant tables, side by side (no group box),
+             filling the space between the box and the try field ---- */
+    {
+        const CGFloat gap = METRICS_SPACE_8;
+        const CGFloat tryFieldY = bottomMargin + statusH + METRICS_SPACE_8;
+        const CGFloat tablesBottom = tryFieldY + tryFieldH + boxGap;
+        const CGFloat tablesTop = winH - topMargin - keyboardTypeBoxH - boxGap;
+        const CGFloat tablesH = tablesTop - tablesBottom;
+        const CGFloat halfW = (boxW - gap) / 2.0;
 
-    // Variant label removed to simplify UI — the variant list itself is self-explanatory
+        layoutScroll = [[NSScrollView alloc] initWithFrame:
+            NSMakeRect(sideMargin, tablesBottom, halfW, tablesH)];
+        [layoutScroll setHasVerticalScroller:YES];
+        [layoutScroll setHasHorizontalScroller:NO];
+        [layoutScroll setBorderType:NSBezelBorder];
+        [mainView addSubview:layoutScroll];
 
-    // Layout table - slightly shorter to reduce unneeded vertical space
-    layoutScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 100, 270, 140)];
-    [layoutScroll setHasVerticalScroller:YES];
-    [layoutScroll setHasHorizontalScroller:NO];
-    [layoutScroll setBorderType:NSBezelBorder];
-    [layoutScroll setAutoresizingMask:NSViewHeightSizable | NSViewWidthSizable];
-    [mainView addSubview:layoutScroll];
+        layoutTable = [[NSTableView alloc] initWithFrame:[layoutScroll bounds]];
+        [layoutTable setDelegate:self];
+        [layoutTable setDataSource:self];
+        [layoutTable setAllowsMultipleSelection:NO];
+        [layoutTable setAllowsEmptySelection:NO];
+        NSTableColumn *layoutColumn = [[NSTableColumn alloc] initWithIdentifier:@"layout"];
+        [layoutColumn setTitle:@""];
+        [layoutColumn setWidth:250];
+        [layoutColumn setEditable:NO];
+        [layoutTable addTableColumn:layoutColumn];
+        [layoutColumn release];
+        [layoutScroll setDocumentView:layoutTable];
 
-    layoutTable = [[NSTableView alloc] initWithFrame:[layoutScroll bounds]];
-    [layoutTable setDelegate:self];
-    [layoutTable setDataSource:self];
-    [layoutTable setAllowsMultipleSelection:NO];
-    [layoutTable setAllowsEmptySelection:NO];
+        variantScroll = [[NSScrollView alloc] initWithFrame:
+            NSMakeRect(sideMargin + halfW + gap, tablesBottom, halfW, tablesH)];
+        [variantScroll setHasVerticalScroller:YES];
+        [variantScroll setHasHorizontalScroller:NO];
+        [variantScroll setBorderType:NSBezelBorder];
+        [mainView addSubview:variantScroll];
 
-    NSTableColumn *layoutColumn = [[NSTableColumn alloc] initWithIdentifier:@"layout"];
-    [layoutColumn setTitle:@""];
-    [layoutColumn setWidth:250];
-    [layoutColumn setEditable:NO];
-    [layoutTable addTableColumn:layoutColumn];
-    [layoutColumn release];
+        variantTable = [[NSTableView alloc] initWithFrame:[variantScroll bounds]];
+        [variantTable setDelegate:self];
+        [variantTable setDataSource:self];
+        [variantTable setAllowsMultipleSelection:NO];
+        [variantTable setAllowsEmptySelection:YES];
+        NSTableColumn *variantColumn = [[NSTableColumn alloc] initWithIdentifier:@"variant"];
+        [variantColumn setTitle:@""];
+        [variantColumn setWidth:210];
+        [variantColumn setEditable:NO];
+        [variantTable addTableColumn:variantColumn];
+        [variantColumn release];
+        [variantScroll setDocumentView:variantTable];
+    }
 
-    [layoutScroll setDocumentView:layoutTable];
+    /* ---- Try text field directly on the view (single item, no box) ---- */
+    {
+        const CGFloat tryFieldY = bottomMargin + statusH + METRICS_SPACE_8;
+        tryTextField = [[NSTextField alloc] initWithFrame:
+            NSMakeRect(sideMargin, tryFieldY, contentW, tryFieldH)];
+        [tryTextField setEditable:YES];
+        [tryTextField setSelectable:YES];
+        [tryTextField setBezeled:YES];
+        [tryTextField setDrawsBackground:YES];
+        [tryTextField setPlaceholderString:@"Type here to test the keyboard layout"];
+        [tryTextField setAutoresizingMask:NSViewWidthSizable];
+        [mainView addSubview:tryTextField];
+    }
 
-    // Variant table - slightly shorter to reduce vertical space
-    variantScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(310, 100, 230, 140)];
-    [variantScroll setHasVerticalScroller:YES];
-    [variantScroll setHasHorizontalScroller:NO];
-    [variantScroll setBorderType:NSBezelBorder];
-    [variantScroll setAutoresizingMask:NSViewHeightSizable | NSViewMinXMargin | NSViewWidthSizable];
-    [mainView addSubview:variantScroll];
-
-    variantTable = [[NSTableView alloc] initWithFrame:[variantScroll bounds]];
-    [variantTable setDelegate:self];
-    [variantTable setDataSource:self];
-    [variantTable setAllowsMultipleSelection:NO];
-    [variantTable setAllowsEmptySelection:YES];
-
-    NSTableColumn *variantColumn = [[NSTableColumn alloc] initWithIdentifier:@"variant"];
-    [variantColumn setTitle:@""];
-    [variantColumn setWidth:210];
-    [variantColumn setEditable:NO];
-    [variantTable addTableColumn:variantColumn];
-    [variantColumn release];
-
-    [variantScroll setDocumentView:variantTable];
-
-
-
-    // Status label at the bottom (height reduced for compact layout)
-    statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 6, 520, 30)];
-    [statusLabel setBezeled:NO];
-    [statusLabel setEditable:NO];
-    [statusLabel setSelectable:NO];
-    [statusLabel setDrawsBackground:NO];
+    /* Status label at the bottom */
+    statusLabel = [self labelWithText:@""
+                                frame:NSMakeRect(sideMargin, bottomMargin,
+                                                contentW, statusH)
+                              alignment:NSTextAlignmentLeft];
     [statusLabel setFont:[NSFont systemFontOfSize:10]];
     [statusLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMaxYMargin)];
     [mainView addSubview:statusLabel];
@@ -203,6 +255,109 @@ static NSComparisonResult LayoutComparator(id a, id b, void *context)
     [self refreshFromSystem];
 
     return mainView;
+}
+
+/* Re-lay out the group boxes for the given view width, keeping the
+   left and right margins equal. Called whenever the host resizes the
+   pane view. */
+- (void)relayoutWithWidth:(CGFloat)width
+{
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;  /* 24 */
+    NSRect f;
+
+    if (keyboardTypeBox) {
+        f = [keyboardTypeBox frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        [keyboardTypeBox setFrame:f];
+    }
+    if (layoutScroll && variantScroll) {
+        const CGFloat gap = METRICS_SPACE_8;
+        const CGFloat halfW = (width - 2 * sideMargin - gap) / 2.0;
+        f = [layoutScroll frame];
+        f.origin.x = sideMargin;
+        f.size.width = halfW;
+        [layoutScroll setFrame:f];
+        f = [variantScroll frame];
+        f.origin.x = sideMargin + halfW + gap;
+        f.size.width = halfW;
+        [variantScroll setFrame:f];
+    }
+    if (tryTextField) {
+        f = [tryTextField frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        [tryTextField setFrame:f];
+    }
+    if (statusLabel) {
+        f = [statusLabel frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        [statusLabel setFrame:f];
+    }
+}
+
+/* Build a titled group box, top-anchored. Width is managed by
+   relayoutWithWidth: so margins stay symmetric. */
+- (NSBox *)groupBoxWithTitle:(NSString *)title frame:(NSRect)frame inView:(NSView *)parent
+{
+    NSBox *box = [[NSBox alloc] initWithFrame:frame];
+    [box setTitle:title];
+    [box setBoxType:NSBoxPrimary];
+    [box setTitlePosition:NSAtTop];
+    [box setBorderType:NSBezelBorder];
+    [box setAutoresizingMask:NSViewMinYMargin];
+    [parent addSubview:box];
+    return box;
+}
+
+/* A plain read-only label. */
+- (NSTextField *)labelWithText:(NSString *)text frame:(NSRect)frame alignment:(NSTextAlignment)align
+{
+    NSTextField *label = [[NSTextField alloc] initWithFrame:frame];
+    [label setStringValue:text ?: @""];
+    [label setBezeled:NO];
+    [label setEditable:NO];
+    [label setSelectable:NO];
+    [label setDrawsBackground:NO];
+    [label setFont:[NSFont systemFontOfSize:11]];
+    [label setAlignment:align];
+    return label;
+}
+
+/* Position a checkbox in the top-left of a group box's content area.
+   Width-flexible so it tracks the box. */
+- (void)addCheckbox:(NSButton *)checkbox toBox:(NSBox *)box y:(CGFloat)y width:(CGFloat)w
+{
+    [checkbox setFrame:NSMakeRect(METRICS_SPACE_16, y, w - 2 * METRICS_SPACE_16, 18)];
+    [checkbox setAutoresizingMask:NSViewWidthSizable];
+    [box addSubview:checkbox];
+}
+
+/* A label + pop-up row: label on the left (right aligned), pop-up
+   stretching to fill the rest of the row. */
+- (void)addPopUpRowWithLabel:(NSString *)label
+                      popup:(NSPopUpButton *)popup
+                      toBox:(NSBox *)box
+                          y:(CGFloat)y
+                      width:(CGFloat)w
+{
+    const CGFloat pad = METRICS_SPACE_16;
+    const CGFloat labelW = 110;
+    const CGFloat gap = METRICS_SPACE_8;
+    const CGFloat popupW = w - 2 * pad - labelW - gap;
+
+    NSTextField *labelField = [self labelWithText:label
+                                            frame:NSMakeRect(pad, y + 1, labelW, 20)
+                                        alignment:NSTextAlignmentRight];
+    [labelField setFont:[NSFont systemFontOfSize:11]];
+    [labelField setAutoresizingMask:NSViewMaxXMargin];
+    [box addSubview:labelField];
+    [labelField release];
+
+    [popup setFrame:NSMakeRect(pad + labelW + gap, y, popupW, 22)];
+    [popup setAutoresizingMask:NSViewWidthSizable];
+    [box addSubview:popup];
 }
 
 - (void)ensureMetadataLoaded

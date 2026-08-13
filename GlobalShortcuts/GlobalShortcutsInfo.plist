@@ -4,6 +4,6 @@
     NSExecutable = GlobalShortcuts;
     NSMainNibFile = "";
     NSPrefPaneIconFile = "GlobalShortcuts.png";
-    NSPrefPaneIconLabel = "Global Shortcuts";
+    NSPrefPaneIconLabel = "Shortcuts";
     NSPrincipalClass = GlobalShortcutsPane;
 }
