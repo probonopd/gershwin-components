@@ -655,7 +655,7 @@ enum {
         for (NSString *line in lines) {
             if ([line length] == 0) continue;
             
-            NSArray *fields = [line componentsSeparatedByString:@":"];
+            NSArray *fields = [self parseTerseLine:line];
             if ([fields count] < 3) continue;
             
             NSString *deviceName = [fields objectAtIndex:0];
@@ -672,6 +672,7 @@ enum {
             if ([deviceName hasPrefix:@"docker"]) continue;
             if ([deviceName hasPrefix:@"virbr"]) continue;
             if ([deviceType isEqualToString:@"wifi-p2p"]) continue;
+            if ([deviceType isEqualToString:@"bt"]) continue;
             
             NetworkInterface *iface = [[NetworkInterface alloc] init];
             [iface setIdentifier:deviceName];
@@ -951,7 +952,7 @@ enum {
         for (NSString *line in lines) {
             if ([line length] == 0) continue;
             
-            NSArray *fields = [line componentsSeparatedByString:@":"];
+            NSArray *fields = [self parseTerseLine:line];
             if ([fields count] < 3) continue;
             
             NSString *name = [fields objectAtIndex:0];
@@ -1263,6 +1264,33 @@ enum {
     return status;
 }
 
+/* Parse a line of nmcli terse (-t) output.  Fields are separated by ':' and
+   a literal ':' inside a value is escaped as '\:'.  Returns the unescaped
+   fields, so SSIDs and BSSIDs come out clean (no NUL/garbage bytes). */
+- (NSArray *)parseTerseLine:(NSString *)line
+{
+    NSMutableArray *fields = [NSMutableArray array];
+    NSMutableString *current = [NSMutableString string];
+    NSUInteger len = [line length];
+    NSUInteger i;
+
+    for (i = 0; i < len; i++) {
+        unichar c = [line characterAtIndex: i];
+        if (c == '\\' && i + 1 < len && [line characterAtIndex: i + 1] == ':') {
+            [current appendString: @":"];
+            i++;
+        } else if (c == ':') {
+            /* Copy: the array must not share the mutable buffer we clear next */
+            [fields addObject: [NSString stringWithString: current]];
+            [current setString: @""];
+        } else {
+            [current appendFormat: @"%C", c];
+        }
+    }
+    [fields addObject: [NSString stringWithString: current]];
+    return fields;
+}
+
 - (NSMutableArray *)buildWLANsList
 {
     NSMutableArray *networks = [NSMutableArray array];
@@ -1282,12 +1310,15 @@ enum {
         for (NSString *line in lines) {
             if ([line length] == 0) continue;
             
-            // Handle escaped colons in SSID (nmcli uses \: for colons in SSIDs)
-            NSString *processedLine = [line stringByReplacingOccurrencesOfString:@"\\:" withString:@"\x00"];
-            NSArray *fields = [processedLine componentsSeparatedByString:@":"];
+            // nmcli terse output separates fields with ':' and escapes a
+            // literal ':' inside a value as '\:'.  Split on unescaped
+            // colons only, so an SSID that is (or contains) a MAC address
+            // like "D4:24:DD:06:06:79" is kept intact instead of being
+            // mangled by NUL-byte placeholders.
+            NSArray *fields = [self parseTerseLine:line];
             if ([fields count] < 5) continue;
             
-            NSString *ssid = [[fields objectAtIndex:0] stringByReplacingOccurrencesOfString:@"\x00" withString:@":"];
+            NSString *ssid = [fields objectAtIndex:0];
             NSString *bssid = [fields objectAtIndex:1];
             int signal = [[fields objectAtIndex:2] intValue];
             NSString *securityStr = [fields objectAtIndex:3];
@@ -1633,7 +1664,7 @@ enum {
     if (output) {
         for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
             if ([line length] == 0) continue;
-            NSArray *fields = [line componentsSeparatedByString:@":"];
+            NSArray *fields = [self parseTerseLine:line];
             if ([fields count] >= 2 && [[fields objectAtIndex:1] isEqualToString:@"802-11-wireless"]) {
                 NSString *name = [fields objectAtIndex:0];
                 if ([name length] > 0) {
