@@ -1555,6 +1555,12 @@ static int handleX11Error(Display *display, XErrorEvent *event)
                                                    keyEquivalent:@""];
             [item setTarget:self];
             [item setRepresentedObject:entry[@"_path"]];
+            /* Show the application's icon in the menu (Eau renders it at a
+               fixed size in the image column). */
+            NSImage *icon = [[NSWorkspace sharedWorkspace] iconForFile:entry[@"_path"]];
+            if (icon) {
+                [item setImage:icon];
+            }
             [menu addItem:item];
         }
     }
@@ -1738,7 +1744,24 @@ static int handleX11Error(Display *display, XErrorEvent *event)
             }
             if (panesByName[label]) continue;   /* first occurrence wins */
 
-            panesByName[label] = @{ @"path": panePath, @"name": [entry stringByDeletingPathExtension] };
+            /* Icon file lives in the bundle's Resources (or Contents/Resources
+               for a standard bundle layout). */
+            NSString *iconName = [info objectForKey:@"NSPrefPaneIconFile"];
+            NSString *iconPath = nil;
+            if (iconName && [iconName length] > 0) {
+                NSString *resDir = [panePath stringByAppendingPathComponent:@"Resources"];
+                if (![fm fileExistsAtPath:resDir]) {
+                    resDir = [panePath stringByAppendingPathComponent:@"Contents/Resources"];
+                }
+                NSString *candidate = [resDir stringByAppendingPathComponent:iconName];
+                if ([fm fileExistsAtPath:candidate]) {
+                    iconPath = candidate;
+                }
+            }
+
+            panesByName[label] = @{ @"path": panePath,
+                                    @"name": [entry stringByDeletingPathExtension],
+                                    @"icon": iconPath ?: @"" };
             [labels addObject:label];
         }
     }
@@ -1747,11 +1770,19 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     for (NSString *label in labels) {
         NSDictionary *pane = panesByName[label];
-        [self addLauncherItemWithTitle:label
-                                action:@selector(openPrefPane:)
-                     representedObject:pane[@"name"]
-                               submenu:nil
-                                toMenu:submenu];
+        NSMenuItem *item = [self addLauncherItemWithTitle:label
+                                                   action:@selector(openPrefPane:)
+                                        representedObject:pane[@"name"]
+                                                  submenu:nil
+                                                   toMenu:submenu];
+        /* Show the pane's icon (Eau renders it at a fixed size). */
+        NSString *iconPath = pane[@"icon"];
+        if (iconPath && [iconPath length] > 0) {
+            NSImage *icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
+            if (icon) {
+                [item setImage:icon];
+            }
+        }
     }
 
     if ([submenu numberOfItems] == 0) {
