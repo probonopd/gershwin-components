@@ -1726,7 +1726,13 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 - (void)activeWindowPollTick:(NSTimer *)timer
 {
     @try {
-        unsigned long activeWindow = [MenuUtils getActiveWindowFresh];
+        /* Use the WindowMonitor's cached active window (event-driven, no new
+           X connection).  The old code opened a fresh X connection on every
+           tick - 10/sec, ~36000/hour - which accumulated measurable CPU on a
+           long-running Menu.app.  The monitor's value is kept fresh by its
+           event loop; the poll here only needs to re-fire in case that loop
+           stalls, so reading the cached value is sufficient. */
+        unsigned long activeWindow = [[WindowMonitor sharedMonitor] getActiveWindow];
 
         if (activeWindow == 0 || activeWindow == self.lastProcessedWindowId) {
             return;

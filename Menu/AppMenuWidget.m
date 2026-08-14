@@ -456,6 +456,19 @@ static int handleX11Error(Display *display, XErrorEvent *event)
             NSDebugLLog(@"gwcomp", @"AppMenuWidget: Same PID %d — assuming menu unchanged", (int)newPID);
             return;
         }
+        /* Some apps do not set _NET_WM_PID, so getWindowPID: returns 0 and the
+           PID check above cannot fire.  In that case still skip the rebuild if
+           the fetched menu is structurally identical to what we already show:
+           rebuilding is expensive (tears down and re-creates the whole menu
+           view tree, draining a large autorelease pool) and doing it on every
+           focus notification for a PID-less window is what made Menu.app burn
+           CPU and become unresponsive over long sessions. */
+        NSMenu *current = [self.menuView menu];
+        NSMenu *candidate = [self.protocolManager getMenuForWindow:windowId];
+        if (current && candidate && [self topLevelMenusMatch:current with:candidate]) {
+            NSDebugLLog(@"gwcomp", @"AppMenuWidget: Same window 0x%lx, menu unchanged (PID unknown %d) — skipping rebuild", windowId, (int)newPID);
+            return;
+        }
     }
 
     /* If the window has no registered menu yet, check if we're switching windows. */
@@ -700,8 +713,19 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         MENU_PROFILE_END(loadMenuForWindow);
         return;
     }
-    if (newPID == 0) {
-        NSLog(@"AppMenuWidget: _NET_WM_PID not set on window 0x%lx — falling back to full rebuild", windowId);
+    /* Same window, menu unchanged, but PID unknown (app does not set
+       _NET_WM_PID).  Previously this fell through to a full rebuild on every
+       focus notification, which over a long session repeatedly tore down and
+       rebuilt the whole menu view tree and drained huge autorelease pools -
+       Menu.app would burn CPU and stop responding.  Rebuild is only needed
+       when the structure actually changed. */
+    if (newPID == 0 && self.currentWindowId == windowId && self.currentMenu &&
+        self.menuView && ![self.menuView isHidden] &&
+        [self.menuView menu] == self.currentMenu &&
+        [self topLevelMenusMatch:self.currentMenu with:menu]) {
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: Skipping menu rebuild for 0x%lx (same window, unchanged, PID unknown)", windowId);
+        MENU_PROFILE_END(loadMenuForWindow);
+        return;
     }
 
     unsigned long previousWindowId = self.currentWindowId;
