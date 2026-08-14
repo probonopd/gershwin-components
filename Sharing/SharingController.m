@@ -1403,7 +1403,6 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
     [applyHostnameButton setTarget:self];
     [applyHostnameButton setAction:@selector(applyHostname:)];
     [applyHostnameButton setBezelStyle:NSRoundedBezelStyle];
-    [applyHostnameButton setFont:[NSFont systemFontOfSize:13]];
     [applyHostnameButton setEnabled:NO];
     [mainView addSubview:applyHostnameButton];
     

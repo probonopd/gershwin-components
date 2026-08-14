@@ -433,7 +433,6 @@ typedef NS_ENUM(NSInteger, BTOperation) {
 
     pairButton = [[NSButton alloc] initWithFrame:NSMakeRect(detailX, dy, 70, 22)];
     [pairButton setTitle:@"Pair"];
-    [pairButton setFont:[NSFont systemFontOfSize:11]];
     [pairButton setTarget:self];
     [pairButton setAction:@selector(pairDevice:)];
     [pairButton setEnabled:NO];
@@ -441,7 +440,6 @@ typedef NS_ENUM(NSInteger, BTOperation) {
 
     connectButton = [[NSButton alloc] initWithFrame:NSMakeRect(detailX + 75, dy, 75, 22)];
     [connectButton setTitle:@"Connect"];
-    [connectButton setFont:[NSFont systemFontOfSize:11]];
     [connectButton setTarget:self];
     [connectButton setAction:@selector(connectDevice:)];
     [connectButton setEnabled:NO];
@@ -449,7 +447,6 @@ typedef NS_ENUM(NSInteger, BTOperation) {
 
     disconnectButton = [[NSButton alloc] initWithFrame:NSMakeRect(detailX + 75, dy, 75, 22)];
     [disconnectButton setTitle:@"Disconnect"];
-    [disconnectButton setFont:[NSFont systemFontOfSize:11]];
     [disconnectButton setTarget:self];
     [disconnectButton setAction:@selector(disconnectDevice:)];
     [disconnectButton setEnabled:NO];
@@ -458,7 +455,6 @@ typedef NS_ENUM(NSInteger, BTOperation) {
 
     trustButton = [[NSButton alloc] initWithFrame:NSMakeRect(detailX, dy, 70, 22)];
     [trustButton setTitle:@"Trust"];
-    [trustButton setFont:[NSFont systemFontOfSize:11]];
     [trustButton setTarget:self];
     [trustButton setAction:@selector(trustDevice:)];
     [trustButton setEnabled:NO];
