@@ -200,6 +200,15 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 
 - (void)_deferredFocusToSearchField
 {
+    /* Opening the search while another app has the focus (the global
+       Alt+Space grab fires regardless of the frontmost app) can defer the
+       panel ordering: GNUstep then flags the panel visible while its X11
+       window is still unmapped, so the search never actually appears and the
+       field never accepts input.  When that happens, re-order the panel
+       front now that the app has had a runloop turn to activate. */
+    if (![self isSearchVisible]) {
+        [self.searchPanel orderFront:nil];
+    }
     if ([self.searchPanel isVisible]) {
         [self.searchPanel makeKeyWindow];
         [self.searchPanel makeFirstResponder:self.searchField];
