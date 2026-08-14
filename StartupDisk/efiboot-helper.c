@@ -127,8 +127,10 @@ int main(int argc, char *argv[]) {
             result = run_command(command, &output, &error);
             send_response(result, output, error);
         } else if (strncmp(line, "set_next_boot ", 14) == 0) {
-            char command[1024];
-            snprintf(command, sizeof(command), "efibootmgr -n %s", line + 14);
+            char command[2048];
+            /* efibootmgr requires -n -b <bootnum>; the bare -n <bootnum>
+               form prints usage and fails. */
+            snprintf(command, sizeof(command), "efibootmgr -n -b %s", line + 14);
             result = run_command(command, &output, &error);
             send_response(result, output, error);
         } else if (strcmp(line, "restart") == 0) {
