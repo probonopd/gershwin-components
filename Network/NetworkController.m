@@ -54,12 +54,13 @@ static const CGFloat kStatusAreaHeight = 60;
 {
     [super viewDidMoveToWindow];
     if ([self window] && [self superview]) {
-        /* The host sizes the pane to the +5px-inflated / -12px-shortened
-           contentView.  Clamp it to the window content width and the
-           created height so the top of the layout is not clipped. */
-        CGFloat w = [[[self window] contentView] frame].size.width;
-        [self setFrame:NSMakeRect(0, 0, w, kWindowHeight)];
-        [_layoutOwner relayoutWithWidth:w];
+        /* The host sizes the pane to the +5px-inflated contentView.  Fill
+           the superview (the prefsBox content area) exactly so the left/right
+           margins are symmetric and the top is not clipped, then re-lay out
+           the panels to the actual height.  GNUstep's setFrame: bypasses
+           setFrameSize:, so re-lay out explicitly here. */
+        [self setFrame:[[self superview] bounds]];
+        [_layoutOwner relayoutWithWidth:NSWidth([[self superview] bounds])];
     }
 }
 - (void)setLayoutOwner:(NetworkController *)owner
@@ -213,15 +214,50 @@ static const CGFloat kStatusAreaHeight = 60;
     return mainView;
 }
 
-/* The pane is laid out against the actual bounds in createMainView; the
-   window is fixed size, so no per-resize repositioning is needed here.
-   Re-enforce the created height in case the host shortened it. */
+/* The host sizes the pane view to its content area, which is not the
+   kWindowHeight we built at (it is ~11px shorter on this stack).  Keep the
+   two panels filling from the bottom margin to the top of whatever height
+   the view actually has, so no panel content is clipped. */
 - (void)relayoutWithWidth:(CGFloat)width
 {
-    NSRect f = [mainView frame];
-    if (f.size.height != kWindowHeight) {
-        f.size.height = kWindowHeight;
-        [mainView setFrame:f];
+    NSRect bounds = [mainView bounds];
+    CGFloat h = NSHeight(bounds);
+    CGFloat splitBottom = kContentBottomMargin;
+    CGFloat splitHeight = h - splitBottom;
+
+    if (serviceBox) {
+        NSRect f = [serviceBox frame];
+        f.origin.y = splitBottom;
+        f.size.height = splitHeight;
+        [serviceBox setFrame:f];
+    }
+    if (detailBox) {
+        NSRect f = [detailBox frame];
+        f.origin.y = splitBottom;
+        f.size.height = splitHeight;
+        [detailBox setFrame:f];
+    }
+    if (detailView) {
+        /* detailView is the detailBox contentView; keep it exactly filling
+           the box's content area and re-fit the status area (top-anchored)
+           and the tab view (fills the rest) to the new height. */
+        NSRect f = [detailView frame];
+        f.size.height = splitHeight;
+        [detailView setFrame:f];
+
+        if (statusIcon) {
+            NSView *statusView = [statusIcon superview];
+            if (statusView) {
+                NSRect sf = [statusView frame];
+                sf.origin.y = NSHeight(f) - kStatusAreaHeight;
+                [statusView setFrame:sf];
+            }
+        }
+        if (detailTabView) {
+            NSRect tf = [detailTabView frame];
+            tf.size.height = NSHeight(f) - kStatusAreaHeight - kSpace8;
+            [detailTabView setFrame:tf];
+        }
     }
 }
 
@@ -250,7 +286,7 @@ static const CGFloat kStatusAreaHeight = 60;
 - (void)createServiceListViewWithFrame:(NSRect)frame
 {
     // Container with bezel border (standard appearance, no dark colors)
-    NSBox *serviceBox = [[NSBox alloc] initWithFrame:frame];
+    serviceBox = [[NSBox alloc] initWithFrame:frame];
     [serviceBox setBoxType:NSBoxCustom];
     [serviceBox setBorderType:NSBezelBorder];
     [serviceBox setTitlePosition:NSNoTitle];
@@ -323,7 +359,6 @@ static const CGFloat kStatusAreaHeight = 60;
                     NSMakeRect(btnSpacing, buttonY, btnWidth, kButtonHeight)];
     [enableButton setBezelStyle:NSRoundedBezelStyle];
     [enableButton setTitle:@"Enable"];
-    [enableButton setFont:[NSFont systemFontOfSize:12]];
     [enableButton setTarget:self];
     [enableButton setAction:@selector(enableInterface:)];
     [enableButton setEnabled:NO];
@@ -333,7 +368,6 @@ static const CGFloat kStatusAreaHeight = 60;
                      NSMakeRect(btnSpacing * 2 + btnWidth, buttonY, btnWidth, kButtonHeight)];
     [disableButton setBezelStyle:NSRoundedBezelStyle];
     [disableButton setTitle:@"Disable"];
-    [disableButton setFont:[NSFont systemFontOfSize:12]];
     [disableButton setTarget:self];
     [disableButton setAction:@selector(disableInterface:)];
     [disableButton setEnabled:NO];
@@ -345,7 +379,7 @@ static const CGFloat kStatusAreaHeight = 60;
 - (void)createDetailViewWithFrame:(NSRect)frame
 {
     // Container with border - use standard bezel for Eau theme compliance
-    NSBox *detailBox = [[NSBox alloc] initWithFrame:frame];
+    detailBox = [[NSBox alloc] initWithFrame:frame];
     [detailBox setBoxType:NSBoxCustom];
     [detailBox setBorderType:NSBezelBorder];
     [detailBox setTitlePosition:NSNoTitle];
@@ -690,7 +724,7 @@ static const CGFloat kStatusAreaHeight = 60;
     [wlanTable setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     
     NSTableColumn *signalColumn = [[NSTableColumn alloc] initWithIdentifier:@"signal"];
-    [signalColumn setWidth:24];
+    [signalColumn setWidth:40];
     [signalColumn setEditable:NO];
     [[signalColumn headerCell] setStringValue:@""];
     [wlanTable addTableColumn:signalColumn];

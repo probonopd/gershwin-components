@@ -22,6 +22,7 @@
     NSView *mainView;
     
     // Service list (left side)
+    NSBox *serviceBox;
     NSScrollView *serviceScrollView;
     NSTableView *serviceTable;
     NSButton *enableButton;
@@ -29,6 +30,7 @@
     NSMenu *serviceContextMenu;
     
     // Detail view (right side)  
+    NSBox *detailBox;
     NSView *detailView;
     NSTabView *detailTabView;
     

@@ -1256,14 +1256,14 @@ static int bsd_wlan_disconnect(void) {
 
     /* Use wpa_cli disconnect if available */
     if (find_wpa_cli()) {
-        char cmd[256];
+        char cmd[512];
         snprintf(cmd, sizeof(cmd), "%s -i %s disconnect 2>/dev/null",
                  wpa_cli_path, wlan_dev);
         system(cmd);
     }
 
     /* Release DHCP */
-    char kill_cmd[256];
+    char kill_cmd[512];
     snprintf(kill_cmd, sizeof(kill_cmd), "pkill -f 'dhclient.*%s' 2>/dev/null", wlan_dev);
     system(kill_cmd);
 
@@ -1528,11 +1528,17 @@ static int is_pseudo_nic(const char *nic) {
     return 0;
 }
 
-/* Read the contents of /etc/rc.conf (and /etc/rc.conf.local if it exists) */
+/* Read the contents of /etc/rc.conf (and /etc/rc.conf.local if it exists).
+ * A missing rc.conf is not an error: fresh installs and Live systems have
+ * no rc.conf yet, and setup-nic is what creates it.  Only a real read
+ * failure (e.g. permissions) is reported as an error. */
 static int read_rc_conf(char *buf, size_t buf_size) {
     buf[0] = '\0';
     FILE *f = fopen("/etc/rc.conf", "r");
-    if (!f) return 0;
+    if (!f) {
+        if (errno == ENOENT) return 1; /* treat as empty config */
+        return 0;
+    }
     size_t total = 0;
     size_t nread;
     char tmp[4096];
@@ -1566,6 +1572,36 @@ static int bsd_setup_nic(const char *nic) {
     if (is_pseudo_nic(nic)) {
         fprintf(stdout, "setup-nic: skipping pseudo-interface %s\n", nic);
         return 0;
+    }
+
+    /* This command persists the NIC config into the rc.d world
+     * (/etc/rc.conf via sysrc).  Some FreeBSD-derived systems do not use
+     * rc.d at all:
+     *   - NextBSD uses launchd: there is no /etc/rc.conf, no
+     *     /etc/defaults/rc.conf and no /etc/rc.d, so sysrc cannot work.
+     *   - A Live/read-only root (e.g. the Gershwin Live ISO) has nothing to
+     *     persist to anyway.
+     * In both cases the interface is already configured by the boot
+     * mechanism, so persisting to rc.conf is a no-op.  Treat it as a
+     * successful no-op, not an error, so the pref pane does not report a
+     * spurious "Network Error" alert.
+     *
+     * sysrc reads /etc/defaults/rc.conf as its base defaults; if that file
+     * is absent, the rc.d configuration world is not present.  Detect it by
+     * trying to run sysrc, which is the authoritative check. */
+    if (!find_sysrc()) {
+        fprintf(stdout, "setup-nic: sysrc not found; skipping rc.conf configuration for %s\n", nic);
+        return 0;
+    }
+    {
+        char error[MAX_OUTPUT] = {0};
+        char *probe_args[] = {sysrc_path, "-n", "defaultrouter", NULL};
+        int rc = run_command(probe_args, error, sizeof(error));
+        if (rc != 0 && strstr(error, "/etc/defaults/rc.conf") != NULL) {
+            /* rc.conf world absent (NextBSD launchd, or Live system). */
+            fprintf(stdout, "setup-nic: no rc.conf configuration world (NextBSD launchd / Live system); skipping rc.conf configuration for %s\n", nic);
+            return 0;
+        }
     }
 
     /* Read current rc.conf content */
