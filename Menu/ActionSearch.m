@@ -355,22 +355,35 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 
 - (void)showSearchPopupAtPoint:(NSPoint)point
 {
-    (void)point;
-
     [[X11ShortcutManager sharedManager] suspendKeyGrabs];
 
     [self collectMenuItems];
     [self.searchField setStringValue:@""];
     [self.filteredResults removeAllObjects];
 
-    // Position panel below the menu bar, at the left edge of the screen
+    // Position panel at the given point, constrained to screen bounds
     NSRect panelFrame = [self.searchPanel frame];
     NSRect screenFrame = [[NSScreen mainScreen] frame];
     const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
 
-    panelFrame.origin.x = screenFrame.origin.x + 8;
-    panelFrame.origin.y = screenFrame.origin.y + screenFrame.size.height
-                          - menuBarHeight - panelFrame.size.height;
+    panelFrame.origin.x = point.x;
+    panelFrame.origin.y = point.y;
+
+    // Constrain to screen bounds
+    if (panelFrame.origin.x + panelFrame.size.width > screenFrame.origin.x + screenFrame.size.width) {
+        panelFrame.origin.x = screenFrame.origin.x + screenFrame.size.width - panelFrame.size.width;
+    }
+    if (panelFrame.origin.y + panelFrame.size.height > screenFrame.origin.y + screenFrame.size.height) {
+        panelFrame.origin.y = screenFrame.origin.y + screenFrame.size.height - panelFrame.size.height;
+    }
+    if (panelFrame.origin.x < screenFrame.origin.x) {
+        panelFrame.origin.x = screenFrame.origin.x;
+    }
+    /* In GNUstep y-up coordinates, position the panel exactly 1 menu bar height
+       below the top of the screen. The panel's bottom will be at
+       screenHeight - menuBarHeight, and since the anchor is at the bottom of the
+       widget, origin.y places the panel just below the menu bar. */
+    panelFrame.origin.y = screenFrame.size.height - 2 * menuBarHeight;
 
     [self.searchPanel setFrame:panelFrame display:YES];
 
@@ -435,7 +448,7 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
 
 - (void)toggleSearchPopupAtPoint:(NSPoint)point
 {
-    if ([self.searchPanel isVisible]) {
+    if ([self isSearchVisible]) {
         [self hideSearchPopup];
     } else {
         [self showSearchPopupAtPoint:point];
@@ -450,7 +463,7 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
        when the panel is really on screen, so toggling can re-show it. */
     if (![self.searchPanel isVisible]) return NO;
     Display *display = [MenuUtils sharedDisplay];
-    if (!display) return YES;
+    if (!display) return NO;
     Window xid = (Window)(uintptr_t)[self.searchPanel windowRef];
     if (xid == 0) return NO;
     XWindowAttributes attrs;
@@ -467,13 +480,16 @@ static const NSTimeInterval kFocusLossArmDelay = 0.05;
         return;
     }
 
+    // Position at the left edge, below the menu bar (matching the original
+     // top-left positioning from the search icon click)
     NSRect screenFrame = [[NSScreen mainScreen] frame];
-    NSPoint centerPoint = NSMakePoint(
-        screenFrame.origin.x + screenFrame.size.width / 2,
-        screenFrame.origin.y + screenFrame.size.height / 2 + 200
+    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    NSPoint topLeftPoint = NSMakePoint(
+        screenFrame.origin.x + 8,
+        screenFrame.origin.y + screenFrame.size.height - menuBarHeight
     );
 
-    [self showSearchPopupAtPoint:centerPoint];
+    [self showSearchPopupAtPoint:topLeftPoint];
 }
 
 #pragma mark - Menu Collection
@@ -971,7 +987,8 @@ static const NSTimeInterval kAppNameCacheTTL = 30.0;
 
     // Position menu flush below the search field using the panel's content view
     NSView *contentView = [self.searchPanel contentView];
-    NSPoint menuLocation = NSMakePoint(0, 0);
+    NSRect contentViewFrame = [contentView frame];
+    NSPoint menuLocation = NSMakePoint(0, NSHeight(contentViewFrame));
 
     self.resultsMenuTracking = YES;
     [self.resultsMenu popUpMenuPositioningItem:nil
