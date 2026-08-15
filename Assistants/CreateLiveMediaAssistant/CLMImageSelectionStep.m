@@ -59,8 +59,8 @@
     // Fit step view to installer card inner area
     _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 228)];
     
-    // Repository selection (flush top)
-    NSTextField *repoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 210, 86, 16)];
+    // Repository selection (flush top) - 24px side margins per HIG
+    NSTextField *repoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 210, 86, 16)];
     [repoLabel setStringValue:NSLocalizedString(@"Repository:", @"")];
     [repoLabel setBezeled:NO];
     [repoLabel setDrawsBackground:NO];
@@ -68,7 +68,7 @@
     [repoLabel setSelectable:NO];
     [_stepView addSubview:repoLabel];
     
-    _repositoryPopUp = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(96, 208, 250, 20)];
+    _repositoryPopUp = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(112, 208, 218, 20)];
     NSArray<NSString *> *repos = CLMAvailableRepositories();
     for (NSString *repoURL in repos) {
         NSString *repoTitle = repoURL;
@@ -89,7 +89,7 @@
     [_stepView addSubview:_repositoryPopUp];
     
     // Prerelease checkbox
-    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(8, 188, 220, 18)];
+    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(24, 188, 220, 18)];
     [_prereleaseCheckbox setButtonType:NSSwitchButton];
     [_prereleaseCheckbox setTitle:@"Show Pre-release builds"];
     [_prereleaseCheckbox setState:NSOffState];
@@ -113,8 +113,8 @@
     [_loadingLabel setHidden:YES];
     [_stepView addSubview:_loadingLabel];
     
-    // Release table (flush below checkbox)
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(8, 86, 338, 100)];
+    // Release table (flush below checkbox) - 24px side margins per HIG
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(24, 86, 306, 100)];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:NO];
     [scrollView setBorderType:NSBezelBorder];
@@ -159,7 +159,7 @@
                                                object:_releaseTableView];
     
     // Info labels below the table
-    _dateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 70, 338, 14)];
+    _dateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 70, 306, 14)];
     [_dateLabel setStringValue:NSLocalizedString(@"", @"")];
     [_dateLabel setBezeled:NO];
     [_dateLabel setDrawsBackground:NO];
@@ -168,7 +168,7 @@
     [_dateLabel setFont:[NSFont systemFontOfSize:10]];
     [_stepView addSubview:_dateLabel];
     
-    _urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 26, 338, 42)];
+    _urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 26, 306, 42)];
     [_urlLabel setStringValue:NSLocalizedString(@"", @"")];
     [_urlLabel setBezeled:NO];
     [_urlLabel setDrawsBackground:NO];
@@ -179,7 +179,7 @@
     [[_urlLabel cell] setUsesSingleLineMode:NO];
     [_stepView addSubview:_urlLabel];
     
-    _sizeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 10, 338, 14)];
+    _sizeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 10, 306, 14)];
     [_sizeLabel setStringValue:NSLocalizedString(@"", @"")];
     [_sizeLabel setBezeled:NO];
     [_sizeLabel setDrawsBackground:NO];
