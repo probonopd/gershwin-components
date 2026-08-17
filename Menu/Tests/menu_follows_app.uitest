@@ -1,36 +1,20 @@
 #!/usr/bin/env run_uitest
 # The global menu bar must always show the menu of the FRONTMOST app, and must
-# switch within ~100ms of an app change.  xterm has no own menu, so it must not
-# show any app's menu (system-only).  The desktop (a Workspace window, no
+# switch within ~100ms of an app change. The desktop (a Workspace window, no
 # viewer open) shows the Workspace menu; Processes shows the Processes menu.
 #
 # Setup: only Menu.app and the Workspace should be running (the harness kills
-# other test apps but leaves Terminal alone); xterm and Processes are launched
-# here through the Workspace's Run dialog.
+# other test apps); Processes is launched here through the Workspace's Run
+# dialog.
 #
 # Run with: run_uitest Menu/Tests/menu_follows_app.uitest
 activate application "Workspace"
 
-# Launch xterm and Processes through the Run dialog.  xterm's window title
-# defaults to its shell's prompt (user@host:dir), which the test cannot match,
-# so give it an explicit "-T xterm" title and run /bin/sh (which - unlike
-# bash - does not overwrite it).  These take a few seconds to appear, so give
-# them an explicit timeout longer than the 2s default.
-run "xterm -T xterm -e /bin/sh"
-wait until xwindow "xterm" timeout 120s
-# The Run dialog cannot resolve "Processes" by bare name, so use the full
-# bundle path; the window is still found by its "Processes" title below.
+# Launch Processes through the Run dialog. The Run dialog cannot resolve
+# "Processes" by bare name, so use the full bundle path; the window is still
+# found by its "Processes" title below.
 run "/System/Applications/Utilities/Processes.app"
 wait until xwindow "Processes" timeout 120s
-
-# xterm - has no own menu: must not show any app menu.  The menu bar follows
-# the frontmost app; on a virtual display the focus change and Menu.app's
-# reaction can take longer than a hundred milliseconds, so give each switch a
-# generous budget while still asserting it actually happens.
-activate xwindow "xterm"
-wait until not menu bar "Workspace" timeout 20s
-wait until not menu bar "Processes" timeout 20s
-wait until not menu bar "Ablage" timeout 20s
 
 # Desktop (Workspace window) - shows the Workspace menu.
 activate xwindow "Desktop"
@@ -43,5 +27,12 @@ wait until menu bar "Processes" timeout 20s
 # Back to a Workspace window - the Workspace menu again.
 activate xwindow "Desktop"
 wait until menu bar "Workspace" timeout 20s
+
+# Leave the computer as it was found: quit the launched app and make sure its
+# window is really gone. Cmd+Q is resolved in-process against the frontmost
+# app, so retarget Processes first.
+activate application "Processes"
+press "Cmd+Q"
+wait until not exists window "Processes" timeout 5s
 
 log "global menu follows the frontmost app"

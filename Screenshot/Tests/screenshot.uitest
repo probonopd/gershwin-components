@@ -1,6 +1,6 @@
 #!/usr/bin/env run_uitest
 # Screenshot: the screenshot utility must start, show its window and its
-# capture controls, then quit with the standard Cmd+Q shortcut.  The app is
+# capture controls, then quit with the standard Cmd+Q shortcut. The app is
 # not activated, so no screenshot is taken.
 #
 # Leaves the computer as it was found: the app is quit at the end.

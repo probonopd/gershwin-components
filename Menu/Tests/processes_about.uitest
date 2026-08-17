@@ -6,7 +6,7 @@
 # menu bound to the previous instance's dead service would silently do
 # nothing).
 #
-# Leaves the computer as it was found: the app is left running at the end.
+# Leaves the computer as it was found: the app is quit at the end.
 #
 # Run with: run_uitest Menu/Tests/processes_about.uitest
 # A dropped global-menu dispatch must not abort the retry loop below; the
@@ -18,7 +18,7 @@ launch application "Processes"
 repeat 2
   activate application "Processes"
   # The About box opens through Menu.app's global-menu dispatch (Menu -> DO ->
-  # the app's Eau bundle).  On a loaded CI VM the DO hop can transiently fail;
+  # the app's Eau bundle). On a loaded CI VM the DO hop can transiently fail;
   # try up to three times so a single dropped dispatch is retried instead of
   # failing the test.
   repeat 3
@@ -35,5 +35,11 @@ repeat 2
   wait 1s
   launch application "Processes"
 end
+
+# Leave the computer as it was found: quit the launched app and make sure its
+# window is really gone.
+activate application "Processes"
+press "Cmd+Q"
+wait until not exists window "Processes" timeout 5s
 
 log "about box stable across relaunches"

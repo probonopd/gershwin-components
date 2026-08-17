@@ -1,6 +1,6 @@
 #!/usr/bin/env run_uitest
 # Action Search must launch an application from the Command menu's Applications
-# submenu.  From another application the user presses Cmd+Space (GNUstep
+# submenu. From another application the user presses Cmd+Space (GNUstep
 # Command = Left Alt) to open the search box, types the app name, presses
 # Return, and the app must launch and take the foreground.
 #
@@ -19,7 +19,7 @@
 activate application "Workspace"
 wait 500ms
 
-# Open the Action Search with the global shortcut.  The key events are real,
+# Open the Action Search with the global shortcut. The key events are real,
 # so Menu.app's global Alt+Space grab fires even though the focus is on
 # another application.
 press "Cmd+Space"
@@ -39,11 +39,18 @@ type "Processes"
 # query.
 wait until exists textfield "Processes" timeout 10s
 
-# Launch the match with Return.  The search box and the results menu must both
+# Launch the match with Return. The search box and the results menu must both
 # close together.
 press "Return"
 
 # The application must launch and become a real window.
 wait until xwindow "Processes" count >= 1 timeout 30s
+
+# Leave the computer as it was found: quit the launched app and make sure its
+# window is really gone. Cmd+Q is resolved in-process against the frontmost
+# app, so retarget Processes first (the search box belongs to Menu).
+activate application "Processes"
+press "Cmd+Q"
+wait until not exists window "Processes" timeout 5s
 
 log "action search launches Processes from the Command menu"
