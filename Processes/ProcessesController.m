@@ -57,6 +57,26 @@
 #endif
 #endif
 
+// TEMPORARY DIAGNOSTIC (FreeBSD CI: main window never maps while the app runs
+// fine - About box and dock icon both work).  The harness discards app stderr
+// (NSDebugLLog never surfaces), so write each launch step straight to a file
+// that CI copies out.  TODO: remove once the root cause is found.
+static void PC_FILE_LOG(NSString *msg)
+{
+  NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath: @"/tmp/processes_launch.log"];
+  if (fh == nil) {
+    [[NSFileManager defaultManager] createFileAtPath: @"/tmp/processes_launch.log"
+                                            contents: nil attributes: nil];
+    fh = [NSFileHandle fileHandleForWritingAtPath: @"/tmp/processes_launch.log"];
+  }
+  if (fh) {
+    [fh seekToEndOfFile];
+    [fh writeData: [msg dataUsingEncoding: NSUTF8StringEncoding]];
+    [fh writeData: [@"\n" dataUsingEncoding: NSUTF8StringEncoding]];
+    [fh closeFile];
+  }
+}
+
 // NSTableView subclass that draws full-row alternating backgrounds (no per-cell gaps)
 @interface ProcessTableView : NSTableView
 @end
@@ -849,18 +869,25 @@ static ProcessesController *sharedController = nil;
 // NSApplicationDelegate
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
-    PC_INFO(@"applicationDidFinishLaunching start");
-    [self createUI];
-    PC_INFO(@"created UI");
-    [self startMonitoring];
-    PC_INFO(@"started monitoring");
-    [_mainWindow makeKeyAndOrderFront:self];
-    
-    // Force a couple of refresh attempts to ensure background worker runs
-    [self performSelector:@selector(refreshProcesses) withObject:nil afterDelay:0.1];
-    [self performSelector:@selector(refreshProcesses) withObject:nil afterDelay:1.0];
-    // Also call refresh synchronously once as a last resort
-    [self refreshProcesses];
+    PC_FILE_LOG(@"applicationDidFinishLaunching enter");
+    @try {
+        [self createUI];
+        PC_FILE_LOG(@"createUI returned");
+        [self startMonitoring];
+        PC_FILE_LOG(@"startMonitoring returned");
+        [_mainWindow makeKeyAndOrderFront:self];
+        PC_FILE_LOG([NSString stringWithFormat: @"makeKeyAndOrderFront called, window visible=%d", [_mainWindow isVisible]]);
+        
+        // Force a couple of refresh attempts to ensure background worker runs
+        [self performSelector:@selector(refreshProcesses) withObject:nil afterDelay:0.1];
+        [self performSelector:@selector(refreshProcesses) withObject:nil afterDelay:1.0];
+        // Also call refresh synchronously once as a last resort
+        [self refreshProcesses];
+        PC_FILE_LOG(@"applicationDidFinishLaunching exit");
+    } @catch (NSException *e) {
+        PC_FILE_LOG([NSString stringWithFormat: @"EXCEPTION in applicationDidFinishLaunching: %@ reason=%@",
+                     [e name], [e reason]]);
+    }
 }
 
 - (void)setupMenu
@@ -892,6 +919,7 @@ static ProcessesController *sharedController = nil;
 
 - (void)createUI
 {
+    PC_FILE_LOG(@"createUI enter");
     // Create main window
     _mainWindow = [[NSWindow alloc] initWithContentRect:NSMakeRect(100, 100, 800, 600)
                                                 styleMask:(NSTitledWindowMask | NSClosableWindowMask | NSMiniaturizableWindowMask | NSResizableWindowMask)
@@ -899,8 +927,10 @@ static ProcessesController *sharedController = nil;
                                                     defer:NO];
     [_mainWindow setTitle:@"Processes"];
     [_mainWindow setDelegate:self];
+    PC_FILE_LOG([NSString stringWithFormat: @"createUI: window created title=%@", [_mainWindow title]]);
     
     [self setupMenu];
+    PC_FILE_LOG(@"createUI: setupMenu done");
     
     // Create scroll view for table
     NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:[[_mainWindow contentView] bounds]];
@@ -909,9 +939,12 @@ static ProcessesController *sharedController = nil;
     [scrollView setAutohidesScrollers:YES];
     [scrollView setBorderType:NSBezelBorder];
     [scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    PC_FILE_LOG(@"createUI: scrollView done");
 
+    PC_FILE_LOG(@"createUI: table view before");
     // Create table view
     _processesTableView = [[ProcessTableView alloc] initWithFrame:[scrollView bounds]];
+    PC_FILE_LOG(@"createUI: table view created");
     [_processesTableView setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
     [_processesTableView setRowHeight:[_processesTableView rowHeight] - 2.0];
     [_processesTableView setDataSource:self];
@@ -963,6 +996,7 @@ static ProcessesController *sharedController = nil;
     
     [scrollView setDocumentView:_processesTableView];
     [[_mainWindow contentView] addSubview:scrollView];
+    PC_FILE_LOG(@"createUI: documentView + subview done");
 
 #if PROCESSES_DEBUG
     // Diagnostic: log frames and column count to ensure table is visible and sized correctly
