@@ -27,7 +27,9 @@ wait 1s
 
 # The search box lives in Menu.app; retarget so typing and the visibility
 # assertions below inspect Menu's window tree, not the frontmost app's.
-activate application "Menu"
+# Use `target` (not `activate`): raising Menu by clicking its menu bar would
+# dismiss the search box that Cmd+Space just opened.
+target application "Menu"
 wait 500ms
 
 # Type the application name; the search field receives the keys directly and
