@@ -805,11 +805,17 @@ static const CGFloat kSpace16 = 16.0;
     _currentProjectIndex = [_projectFileCounts count] - 1;
 
     if (_progressBar) {
-        NSUInteger totalProjects = [_projectFileCounts count];
+        NSInteger totalEstimate = [self totalEstimatedFiles];
         [_progressBar setIndeterminate:NO];
         [_progressBar setMinValue:0];
-        [_progressBar setMaxValue:totalProjects];
-        [_progressBar setDoubleValue:_currentProjectIndex];
+        [_progressBar setMaxValue:totalEstimate > 0 ? totalEstimate : 1];
+        [_progressBar setDoubleValue:0];
+        if (totalEstimate <= 0) {
+            // Could not estimate the number of source files; fall back to an
+            // indeterminate bar for the whole build.
+            [_progressBar setIndeterminate:YES];
+            [_progressBar startAnimation:nil];
+        }
     }
 
     NSString *dName = [self displayNameFromMakefile];
@@ -1002,13 +1008,9 @@ static const CGFloat kSpace16 = 16.0;
                 pos = r.location + r.length;
             }
             if (compiled > 0) {
-                NSInteger curTotal = [_projectFileCounts[_currentProjectIndex] integerValue];
-                NSInteger curCompiled = [_projectCompiledCounts[_currentProjectIndex] integerValue] + compiled;
-                if (curCompiled > curTotal) curCompiled = curTotal;
-                _projectCompiledCounts[_currentProjectIndex] = @(curCompiled);
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    double fraction = (curTotal > 0) ? (double)curCompiled / curTotal : 1.0;
-                    [_progressBar setDoubleValue:_currentProjectIndex + fraction];
+                    [self updateProgressForCompiledFiles:compiled
+                                              taskRunning:[buildTask isRunning]];
                 });
             }
         }
@@ -1613,19 +1615,47 @@ static const CGFloat kSpace16 = 16.0;
         NSString *trimmed = [line stringByTrimmingCharactersInSet:
             [NSCharacterSet whitespaceCharacterSet]];
 
-        // Count source file variables
-        for (NSString *var in varNames) {
-            NSString *prefixed = target ? [NSString stringWithFormat:@"%@_%@", target, var] : nil;
-            if ((prefixed && [trimmed hasPrefix:prefixed]) || [trimmed hasPrefix:var]) {
-                NSString *value = [self parseVariableValue:trimmed];
-                if ([value length] > 0) {
-                    NSArray *parts = [value componentsSeparatedByCharactersInSet:
-                        [NSCharacterSet whitespaceCharacterSet]];
-                    for (NSString *part in parts) {
-                        if ([part length] > 0 && ![part isEqualToString:@"\\"]) {
-                            count++;
+        // Variable name on the left-hand side of an assignment, if any.
+        NSString *varName = nil;
+        NSRange eqRange = [trimmed rangeOfString:@"="];
+        if (eqRange.location != NSNotFound) {
+            varName = [trimmed substringToIndex:eqRange.location];
+            varName = [varName stringByTrimmingCharactersInSet:
+                [NSCharacterSet whitespaceCharacterSet]];
+            // Strip assignment modifiers such as ':' (:=) and '+' (+=).
+            NSCharacterSet *modifiers = [NSCharacterSet characterSetWithCharactersInString:@":+"];
+            while ([varName length] > 0 &&
+                   [modifiers characterIsMember:
+                       [varName characterAtIndex:[varName length] - 1]]) {
+                varName = [varName substringToIndex:[varName length] - 1];
+            }
+            varName = [varName stringByTrimmingCharactersInSet:
+                [NSCharacterSet whitespaceCharacterSet]];
+        }
+
+        if ([varName length] > 0) {
+            // Count source file variables.  Match the bare name (OBJC_FILES),
+            // the target-prefixed form (TheUnarchiver_OBJC_FILES), or any
+            // _OBJC_FILES-style variable: gnustep-make compiles all of them
+            // (LIBRARY_OBJC_FILES and the tool lists from Makefile.common,
+            // per-target SUBPROJECTS, etc.), so counting only the bare or
+            // target-prefixed form under-counts badly for library projects.
+            for (NSString *var in varNames) {
+                NSString *prefixed = target ? [NSString stringWithFormat:@"%@_%@", target, var] : nil;
+                if ([varName isEqualToString:var]
+                    || (prefixed && [varName isEqualToString:prefixed])
+                    || [varName hasSuffix:[@"_" stringByAppendingString:var]]) {
+                    NSString *value = [self parseVariableValue:trimmed];
+                    if ([value length] > 0) {
+                        NSArray *parts = [value componentsSeparatedByCharactersInSet:
+                            [NSCharacterSet whitespaceCharacterSet]];
+                        for (NSString *part in parts) {
+                            if ([part length] > 0 && ![part isEqualToString:@"\\"]) {
+                                count++;
+                            }
                         }
                     }
+                    break;
                 }
             }
         }
@@ -1646,8 +1676,10 @@ static const CGFloat kSpace16 = 16.0;
             }
         }
 
-        // Recurse into SUBPROJECTS
-        if ([trimmed hasPrefix:@"SUBPROJECTS"]) {
+        // Recurse into SUBPROJECTS, including the per-target xxx_SUBPROJECTS
+        // form (e.g. TheUnarchiver_SUBPROJECTS) used by many apps.
+        if ([varName isEqualToString:@"SUBPROJECTS"]
+            || (varName && [varName hasSuffix:@"_SUBPROJECTS"])) {
             NSString *val = [self parseVariableValue:trimmed];
             if ([val length] > 0) {
                 NSArray *subs = [val componentsSeparatedByCharactersInSet:
@@ -1669,6 +1701,49 @@ static const CGFloat kSpace16 = 16.0;
     }
 
     return count;
+}
+
+- (NSInteger)totalEstimatedFiles
+{
+    NSInteger total = 0;
+    for (NSNumber *n in _projectFileCounts) {
+        total += [n integerValue];
+    }
+    return total;
+}
+
+/* Advance the progress bar by the given number of just-compiled files.
+   The bar runs from 0 to totalEstimatedFiles (the sum of all project
+   segments).  If the static estimate is exhausted while a build task is
+   still running - which happens whenever the estimate under-counts, e.g.
+   for makefiles that use $(VAR) indirection - a determinate bar would sit
+   at 100% until the build ends.  In that case fall back to an indeterminate
+   bar; buildFinished sets it to 100% when the build actually completes. */
+- (void)updateProgressForCompiledFiles:(NSInteger)compiled taskRunning:(BOOL)running
+{
+    if (!_progressBar) return;
+    if ([_projectFileCounts count] == 0 || compiled <= 0) return;
+
+    NSInteger curTotal = [_projectFileCounts[_currentProjectIndex] integerValue];
+    NSInteger curCompiled = [_projectCompiledCounts[_currentProjectIndex] integerValue] + compiled;
+    if (curCompiled > curTotal) curCompiled = curTotal;
+    _projectCompiledCounts[_currentProjectIndex] = @(curCompiled);
+
+    NSInteger totalCompiled = 0;
+    for (NSNumber *n in _projectCompiledCounts) {
+        totalCompiled += [n integerValue];
+    }
+    NSInteger totalEstimate = [self totalEstimatedFiles];
+
+    if (totalEstimate <= 0 || (running && totalCompiled >= totalEstimate)) {
+        if (![_progressBar isIndeterminate]) {
+            [_progressBar setIndeterminate:YES];
+            [_progressBar startAnimation:nil];
+        }
+    } else {
+        [_progressBar setMaxValue:totalEstimate];
+        [_progressBar setDoubleValue:totalCompiled];
+    }
 }
 
 - (NSString *)productExtensionFromMakefile
@@ -2271,11 +2346,11 @@ static const CGFloat kSpace16 = 16.0;
     _currentProjectIndex = [_projectFileCounts count] - 1;
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSUInteger n = [_projectFileCounts count];
+        NSInteger totalEstimate = [self totalEstimatedFiles];
         [_progressBar setIndeterminate:NO];
         [_progressBar setMinValue:0];
-        [_progressBar setMaxValue:n];
-        [_progressBar setDoubleValue:_currentProjectIndex];
+        [_progressBar setMaxValue:totalEstimate > 0 ? totalEstimate : 1];
+        [_progressBar setDoubleValue:0];
     });
 
     NSPipe *bOut = [NSPipe pipe];
@@ -2315,12 +2390,7 @@ static const CGFloat kSpace16 = 16.0;
         }
         if (compiled > 0) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                NSInteger curTotal = [_projectFileCounts[_currentProjectIndex] integerValue];
-                NSInteger curCompiled = [_projectCompiledCounts[_currentProjectIndex] integerValue] + compiled;
-                if (curCompiled > curTotal) curCompiled = curTotal;
-                _projectCompiledCounts[_currentProjectIndex] = @(curCompiled);
-                double fraction = (curTotal > 0) ? (double)curCompiled / curTotal : 1.0;
-                [_progressBar setDoubleValue:_currentProjectIndex + fraction];
+                [self updateProgressForCompiledFiles:compiled taskRunning:NO];
             });
         }
     }
