@@ -12,6 +12,9 @@ assert window "Create Live Media"
 assert menu item "CreateLiveMediaAssistant/About" exists
 assert menu item "File/Quit" enabled
 assert menu item "File/Quit" shortcut "Cmd+Q"
-press "Cmd+Q"
-wait until not exists window "Create Live Media" timeout 2s
+activate application "CreateLiveMediaAssistant"
+wait until menu bar "CreateLiveMediaAssistant" timeout 10s
+press "Alt+Q"
+wait until not exists window "Create Live Media" timeout 5s
+assert not exists application "CreateLiveMediaAssistant"
 log "CreateLiveMediaAssistant starts, shows its wizard and quits"

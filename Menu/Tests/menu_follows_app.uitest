@@ -3,9 +3,9 @@
 # switch within ~100ms of an app change. The desktop (a Workspace window, no
 # viewer open) shows the Workspace menu; Processes shows the Processes menu.
 #
-# Setup: only Menu.app and the Workspace should be running (the harness kills
-# other test apps); Processes is launched here through the Workspace's Run
-# dialog.
+# Setup: only Menu.app and the Workspace should be running; Processes is
+# launched here through the Workspace's Run dialog and quit again at the end
+# (the test cleans up after itself; the harness does not).
 #
 # Run with: run_uitest Menu/Tests/menu_follows_app.uitest
 activate application "Workspace"
@@ -28,12 +28,13 @@ wait until menu bar "Processes" timeout 20s
 activate xwindow "Desktop"
 wait until menu bar "Workspace" timeout 20s
 
-# Leave the computer as it was found: quit the launched app and make sure its
-# window is really gone. Cmd+Q is resolved in-process against the frontmost
-# app, so retarget Processes first.
+# Leave the computer as it was found: quit the launched app and make sure it
+# has really quit. Alt+Q is resolved in-process against the frontmost app, so
+# retarget Processes first.
 activate application "Processes"
-press "Cmd+Q"
+wait until menu bar "Processes" timeout 10s
+press "Alt+Q"
 wait until not exists window "Processes" timeout 5s
-assert not exists window "Processes"
+assert not exists application "Processes"
 
 log "global menu follows the frontmost app"

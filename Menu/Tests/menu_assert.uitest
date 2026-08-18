@@ -15,10 +15,12 @@ if menu item "Processes/About Processes" enabled
   log "About Processes is enabled"
 end
 
-# Leave the computer as it was found: quit the launched app and make sure its
-# window is really gone.
-press "Cmd+Q"
+# Leave the computer as it was found: quit the launched app and make sure it
+# has really quit.
+activate application "Processes"
+wait until menu bar "Processes" timeout 10s
+press "Alt+Q"
 wait until not exists window "Processes" timeout 5s
-assert not exists window "Processes"
+assert not exists application "Processes"
 
 log "menu assertions pass"

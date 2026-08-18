@@ -2,9 +2,11 @@
 # GTK menu actions through Menu.app's global menu, verified for a relaunch.
 # Launches viking (a GTK app with no DriveUI socket), activates its window,
 # triggers Help -> About via the GLOBAL menu and waits for the About dialog.
-# The enclosing test harness kills and relaunches viking between runs; the
-# action must reach the LIVE app instance every time (a stale menu bound to a
-# dead process would silently do nothing and this wait would time out).
+# The action must reach the LIVE app instance every time (a stale menu bound
+# to a dead process would silently do nothing and this wait would time out).
+#
+# Leaves the computer as it was found: the About dialog is closed and viking
+# is quit at the end (the test cleans up after itself; the harness does not).
 #
 # Run with: run_uitest Menu/Tests/heavy/viking_about.uitest
 launch application "viking"
@@ -12,4 +14,15 @@ wait until xwindow "Viking"
 activate xwindow "Viking"
 select global menu "Hilfe/Über"
 wait until xwindow "Info zu Viking"
+
+# Leave the computer as it was found: close the About dialog, then the main
+# viking window (closing the GTK app's last window quits it).
+activate xwindow "Info zu Viking"
+press "Alt+F4"
+wait until not exists xwindow "Info zu Viking" timeout 5s
+activate xwindow "Viking"
+press "Alt+F4"
+wait until not exists xwindow "Viking" timeout 5s
+assert not exists xwindow "Viking"
+
 log "viking about opened via global menu"

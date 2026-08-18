@@ -13,6 +13,9 @@ assert window "Display Calibrator Assistant"
 assert menu item "ColorAssistant/About" exists
 assert menu item "File/Quit" enabled
 assert menu item "File/Quit" shortcut "Cmd+Q"
-press "Cmd+Q"
-wait until not exists window "Display Calibrator Assistant" timeout 2s
+activate application "ColorAssistant"
+wait until menu bar "ColorAssistant" timeout 10s
+press "Alt+Q"
+wait until not exists window "Display Calibrator Assistant" timeout 5s
+assert not exists application "ColorAssistant"
 log "ColorAssistant starts, shows its wizard or error page and quits"

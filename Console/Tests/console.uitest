@@ -13,6 +13,9 @@ assert menu item "Console/Quit Console" exists
 assert menu item "Console/Quit Console" shortcut "Cmd+Q"
 assert menu item "File/New System Log Query" shortcut "Cmd+N"
 assert menu item "Edit/Copy" shortcut "Cmd+C"
-press "Cmd+Q"
-wait until not exists window "Console" timeout 2s
+activate application "Console"
+wait until menu bar "Console" timeout 10s
+press "Alt+Q"
+wait until not exists window "Console" timeout 5s
+assert not exists application "Console"
 log "Console starts, shows its menu and quits"

@@ -15,6 +15,9 @@ assert button "Copy to Clipboard"
 assert menu item "Whisper/Quit Whisper" shortcut "Cmd+Q"
 assert menu item "Whisper/Transcribe file..." shortcut "Cmd+O"
 assert menu item "Edit/Cut" shortcut "Cmd+X"
-press "Cmd+Q"
-wait until not exists window "Whisper Speech-to-Text" timeout 2s
+activate application "Whisper"
+wait until menu bar "Whisper" timeout 10s
+press "Alt+Q"
+wait until not exists window "Whisper Speech-to-Text" timeout 5s
+assert not exists application "Whisper"
 log "Whisper starts, shows its controls and quits"

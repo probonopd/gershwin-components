@@ -14,6 +14,9 @@ assert button "Open..."
 assert menu item "Player/Quit Player" shortcut "Cmd+Q"
 assert menu item "File/Open File..." shortcut "Cmd+O"
 assert menu item "Edit/Copy" shortcut "Cmd+C"
-press "Cmd+Q"
-wait until not exists window "Player" timeout 2s
+activate application "Player"
+wait until menu bar "Player" timeout 10s
+press "Alt+Q"
+wait until not exists window "Player" timeout 5s
+assert not exists application "Player"
 log "Player starts, shows its controls and quits"

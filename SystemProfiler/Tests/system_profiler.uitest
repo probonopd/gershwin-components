@@ -13,6 +13,9 @@ assert menu item "SystemProfiler/Hide SystemProfiler" exists
 assert menu item "SystemProfiler/Quit SystemProfiler" shortcut "Cmd+Q"
 assert menu item "Edit/Copy" shortcut "Cmd+C"
 assert menu item "Edit/Copy" shortcut "Cmd+C"
-press "Cmd+Q"
-wait until not exists window "System Profiler" timeout 2s
+activate application "SystemProfiler"
+wait until menu bar "SystemProfiler" timeout 10s
+press "Alt+Q"
+wait until not exists window "System Profiler" timeout 5s
+assert not exists application "SystemProfiler"
 log "SystemProfiler starts, shows its menu and quits"

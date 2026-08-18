@@ -18,6 +18,9 @@ assert menu item "NetworkBrowser/About Network Browser" exists
 assert menu item "NetworkBrowser/Quit Network Browser" exists
 assert menu item "NetworkBrowser/Quit Network Browser" shortcut "Cmd+Q"
 assert menu item "File/Open" exists
-press "Cmd+Q"
-wait until not exists window "Network Browser" timeout 2s
+activate application "NetworkBrowser"
+wait until menu bar "NetworkBrowser" timeout 10s
+press "Alt+Q"
+wait until not exists window "Network Browser" timeout 5s
+assert not exists application "NetworkBrowser"
 log "NetworkBrowser starts, shows its menu and quits"

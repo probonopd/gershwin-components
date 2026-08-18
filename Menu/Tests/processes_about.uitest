@@ -6,25 +6,19 @@
 # menu bound to the previous instance's dead service would silently do
 # nothing).
 #
-# Leaves the computer as it was found: the app is quit at the end.
+# Leaves the computer as it was found: the app is quit at the end (the test
+# cleans up after itself; the harness does not).
 #
 # Run with: run_uitest Menu/Tests/processes_about.uitest
-# A dropped global-menu dispatch must not abort the retry loop below; the
-# final assert still fails the test if the About box never appears.
-on_error continue
-
+# The About box opens through Menu.app's global-menu dispatch (Menu -> DO ->
+# the app's Eau bundle).  The `wait until` below polls for 8s, so a dispatch
+# that takes a moment is covered; a dropped dispatch fails the test hard.
 launch application "Processes"
 
 repeat 2
   activate application "Processes"
-  # The About box opens through Menu.app's global-menu dispatch (Menu -> DO ->
-  # the app's Eau bundle). On a loaded CI VM the DO hop can transiently fail;
-  # try up to three times so a single dropped dispatch is retried instead of
-  # failing the test.
-  repeat 3
-    select global menu "Processes/About Processes"
-    wait until window "Information" timeout 8s
-  end
+  select global menu "Processes/About Processes"
+  wait until window "Information" timeout 8s
   assert window "Information"
   assert text contains "Process monitor"
   assert text contains "Release:"
@@ -36,11 +30,12 @@ repeat 2
   launch application "Processes"
 end
 
-# Leave the computer as it was found: quit the launched app and make sure its
-# window is really gone.
+# Leave the computer as it was found: quit the launched app and make sure it
+# has really quit.
 activate application "Processes"
-press "Cmd+Q"
+wait until menu bar "Processes" timeout 10s
+press "Alt+Q"
 wait until not exists window "Processes" timeout 5s
-assert not exists window "Processes"
+assert not exists application "Processes"
 
 log "about box stable across relaunches"

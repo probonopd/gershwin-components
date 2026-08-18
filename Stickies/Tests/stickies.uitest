@@ -13,6 +13,9 @@ assert menu item "Stickies/Quit Stickies" exists
 assert menu item "Stickies/Quit Stickies" shortcut "Cmd+Q"
 assert menu item "File/New Note" shortcut "Cmd+N"
 assert menu item "Edit/Copy" shortcut "Cmd+C"
-press "Cmd+Q"
-wait until not exists window "Sticky Note" timeout 2s
+activate application "Stickies"
+wait until menu bar "Stickies" timeout 10s
+press "Alt+Q"
+wait until not exists window "Sticky Note" timeout 5s
+assert not exists application "Stickies"
 log "Stickies starts, shows its menu and quits"

@@ -48,12 +48,13 @@ press "Return"
 # The application must launch and become a real window.
 wait until xwindow "Processes" count >= 1 timeout 30s
 
-# Leave the computer as it was found: quit the launched app and make sure its
-# window is really gone. Cmd+Q is resolved in-process against the frontmost
-# app, so retarget Processes first (the search box belongs to Menu).
+# Leave the computer as it was found: quit the launched app and make sure it
+# has really quit. Alt+Q is resolved in-process against the frontmost app, so
+# retarget Processes first (the search box belongs to Menu).
 activate application "Processes"
-press "Cmd+Q"
+wait until menu bar "Processes" timeout 10s
+press "Alt+Q"
 wait until not exists window "Processes" timeout 5s
-assert not exists window "Processes"
+assert not exists application "Processes"
 
 log "action search launches Processes from the Command menu"
