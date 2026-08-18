@@ -14,4 +14,5 @@ assert menu item "Processes/Quit Processes" shortcut "Cmd+Q"
 assert menu item "Window/Minimize" shortcut "Cmd+M"
 press "Cmd+Q"
 wait until not exists window "Processes" timeout 2s
+assert not exists window "Processes"
 log "Processes starts, shows its menu and quits"

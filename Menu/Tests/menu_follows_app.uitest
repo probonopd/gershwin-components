@@ -34,5 +34,6 @@ wait until menu bar "Workspace" timeout 20s
 activate application "Processes"
 press "Cmd+Q"
 wait until not exists window "Processes" timeout 5s
+assert not exists window "Processes"
 
 log "global menu follows the frontmost app"

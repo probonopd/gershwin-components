@@ -19,5 +19,6 @@ end
 # window is really gone.
 press "Cmd+Q"
 wait until not exists window "Processes" timeout 5s
+assert not exists window "Processes"
 
 log "menu assertions pass"
