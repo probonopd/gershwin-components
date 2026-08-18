@@ -11,15 +11,17 @@
 #
 # Run with: run_uitest Menu/Tests/processes_about.uitest
 # The About box opens through Menu.app's global-menu dispatch (Menu -> DO ->
-# the app's Eau bundle).  The `wait until` below polls for 8s, so a dispatch
-# that takes a moment is covered; a dropped dispatch fails the test hard.
+# the app's Eau bundle).  Eau's GSInfoPanel setTitle: rename makes the title a
+# deterministic "About <AppName>" on every locale, so the `wait until` polls
+# for that exact title for 8s - a dispatch that takes a moment is covered, a
+# dropped dispatch fails the test hard.
 launch application "Processes"
 
 repeat 2
   activate application "Processes"
   select global menu "Processes/About Processes"
-  wait until window "Information" timeout 8s
-  assert window "Information"
+  wait until window "About Processes" timeout 8s
+  assert window "About Processes"
   assert text contains "Process monitor"
   assert text contains "Release:"
 
