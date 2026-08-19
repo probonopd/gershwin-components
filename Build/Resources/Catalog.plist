@@ -230,6 +230,14 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>The Unarchiver</string>
+		<key>GitURL</key>
+		<string>https://github.com/probonopd/theunarchiver-gnustep</string>
+		<key>Description</key>
+		<string>Archive extractor for GNUstep (7-Zip, RAR, StuffIt, tar, zip, and more)</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>Thematic</string>
 		<key>GitURL</key>
 		<string>https://github.com/gnustep/apps-thematic</string>
