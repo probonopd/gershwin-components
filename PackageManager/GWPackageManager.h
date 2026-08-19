@@ -24,6 +24,7 @@ typedef NS_ENUM(NSInteger, GWPackageManagerError) {
     GWPackageManagerErrorBackendUnavailable,
     GWPackageManagerErrorCommandFailed,
     GWPackageManagerErrorPlistInvalid,
+    GWPackageManagerErrorDatabaseUnavailable,
 };
 
 #pragma mark - Progress Handler Protocol

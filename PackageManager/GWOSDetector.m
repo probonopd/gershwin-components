@@ -199,4 +199,38 @@ static NSCharacterSet *_whitespaceSet(void)
   return fallback;
 }
 
++ (NSString *)packageManagerFamily
+{
+  NSString *osID = [self currentOSIdentifier];
+
+  // Keep these lists in sync with the backend factory in GWPackageManager.m.
+  if ([osID isEqualToString:@"debian"] ||
+      [osID isEqualToString:@"ubuntu"] ||
+      [osID isEqualToString:@"devuan"] ||
+      [osID isEqualToString:@"kali"] ||
+      [osID isEqualToString:@"linuxmint"] ||
+      [osID isEqualToString:@"raspbian"] ||
+      [osID isEqualToString:@"pop"] ||
+      [osID isEqualToString:@"elementary"] ||
+      [osID isEqualToString:@"zorin"])
+    return @"debian";
+
+  if ([osID isEqualToString:@"arch"] ||
+      [osID isEqualToString:@"manjaro"] ||
+      [osID isEqualToString:@"endeavouros"] ||
+      [osID isEqualToString:@"arcolinux"])
+    return @"arch";
+
+  if ([osID isEqualToString:@"freebsd"] ||
+      [osID isEqualToString:@"ghostbsd"] ||
+      [osID isEqualToString:@"dragonfly"])
+    return @"freebsd";
+
+  if ([osID isEqualToString:@"openbsd"])
+    return @"openbsd";
+
+  NSLog(@"GWOSDetector <- packageManagerFamily: unknown OS '%@'", osID);
+  return nil;
+}
+
 @end

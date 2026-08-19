@@ -31,43 +31,30 @@
 
 static id<GWPackageManagerBackend> _createBackend(void)
 {
-  NSString *osID = [GWOSDetector currentOSIdentifier];
+  NSString *family = [GWOSDetector packageManagerFamily];
 
-  if ([osID isEqualToString:@"debian"] ||
-      [osID isEqualToString:@"ubuntu"] ||
-      [osID isEqualToString:@"devuan"] ||
-      [osID isEqualToString:@"kali"] ||
-      [osID isEqualToString:@"linuxmint"] ||
-      [osID isEqualToString:@"raspbian"] ||
-      [osID isEqualToString:@"pop"] ||
-      [osID isEqualToString:@"elementary"] ||
-      [osID isEqualToString:@"zorin"])
+  if ([family isEqualToString:@"debian"])
     {
       return [[GWDebBackend alloc] init];
     }
 
-  if ([osID isEqualToString:@"arch"] ||
-      [osID isEqualToString:@"manjaro"] ||
-      [osID isEqualToString:@"endeavouros"] ||
-      [osID isEqualToString:@"arcolinux"])
+  if ([family isEqualToString:@"arch"])
     {
       return [[GWArchBackend alloc] init];
     }
 
-  if ([osID isEqualToString:@"freebsd"] ||
-      [osID isEqualToString:@"ghostbsd"] ||
-      [osID isEqualToString:@"dragonfly"])
+  if ([family isEqualToString:@"freebsd"])
     {
       return [[GWFreeBSDBackend alloc] init];
     }
 
-  if ([osID isEqualToString:@"openbsd"])
+  if ([family isEqualToString:@"openbsd"])
     {
       return [[GWOpenBSDBackend alloc] init];
     }
 
   // Fallback: try debian-style as most common
-  NSLog(@"GWPackageManager: Unknown OS '%@', falling back to Debian backend", osID);
+  NSLog(@"GWPackageManager: Unknown OS, falling back to Debian backend");
   return [[GWDebBackend alloc] init];
 }
 

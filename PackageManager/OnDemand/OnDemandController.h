@@ -9,8 +9,8 @@
 
 #import <Cocoa/Cocoa.h>
 #import <Foundation/Foundation.h>
-#import "../GWPackageManager.h"
-#import "../GWPackageInstallSpec.h"
+#import <PackageManager/GWPackageManager.h>
+#import <PackageManager/GWPackageInstallSpec.h>
 
 @class ODLogWindowController;
 

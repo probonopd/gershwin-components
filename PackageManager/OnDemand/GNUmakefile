@@ -7,27 +7,11 @@ PACKAGE_NAME = OnDemand
 OnDemand_PRINCIPAL_CLASS = NSApplication
 OnDemand_APPLICATION_ICON =
 
-# Bundle PackageManager sources into a local directory at build time
-# (GNUstep make doesn't support source files outside the project dir)
-PACKAGE_MANAGER_SRC = ..
-BUNDLED_PM_SRC = _pmsrc
-
-# Copy PackageManager .m files into local _pmsrc/ at make parse time
-# (clean removes the dir to force fresh copy on next build)
-_BUNDLED := $(shell mkdir -p $(BUNDLED_PM_SRC) && cp $(PACKAGE_MANAGER_SRC)/GW*.m $(BUNDLED_PM_SRC)/ 2>/dev/null)
-
-# Source files
+# Source files.  The PackageManager framework is built first by the parent
+# GNUmakefile; we link against it instead of bundling the sources.
 OnDemand_OBJC_FILES = \
   main.m \
-  OnDemandController.m \
-  $(BUNDLED_PM_SRC)/GWSystemCommandExecutor.m \
-  $(BUNDLED_PM_SRC)/GWOSDetector.m \
-  $(BUNDLED_PM_SRC)/GWPackageInstallSpec.m \
-  $(BUNDLED_PM_SRC)/GWDebBackend.m \
-  $(BUNDLED_PM_SRC)/GWArchBackend.m \
-  $(BUNDLED_PM_SRC)/GWFreeBSDBackend.m \
-  $(BUNDLED_PM_SRC)/GWOpenBSDBackend.m \
-  $(BUNDLED_PM_SRC)/GWPackageManager.m
+  OnDemandController.m
 
 # Resource files (plists)
 OnDemand_RESOURCE_FILES = \
@@ -37,18 +21,19 @@ OnDemand_RESOURCE_FILES = \
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fobjc-arc-exceptions
 ADDITIONAL_OBJCFLAGS += -Wall -Wextra
 ADDITIONAL_OBJCFLAGS += -Wno-nullability-completeness -Wno-unused-parameter
-# PackageManager headers for bundled sources
-ADDITIONAL_OBJCFLAGS += -I..
+
+# Link against the PackageManager framework, which is installed system-wide to
+# /System/Library/Frameworks by 'gmake install' in the parent directory.  The
+# app does not embed the framework; it resolves it via the system install.
+ADDITIONAL_OBJCFLAGS += -I/System/Library/Headers
+ADDITIONAL_LDFLAGS += -L/System/Library/Frameworks/PackageManager.framework/Versions/1 -lPackageManager
+ADDITIONAL_LDFLAGS += -Wl,-rpath,/System/Library/Frameworks/PackageManager.framework/Versions/1
 
 # Link with AppKit, Foundation, and libdispatch
 OnDemand_FRAMEWORKS_DEPEND_UPON = AppKit Foundation
 ADDITIONAL_LDFLAGS += -ldispatch
 
 include $(GNUSTEP_MAKEFILES)/application.make
-
-# Clean up bundled sources too
-clean::
-	rm -rf $(BUNDLED_PM_SRC)
 
 # Manual copy of resource files into built app
 $(APP_NAME).app/Resources/Info.plist: Resources/Info.plist

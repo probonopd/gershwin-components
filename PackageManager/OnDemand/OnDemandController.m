@@ -15,7 +15,7 @@
  */
 
 #import "OnDemandController.h"
-#import "../GWSystemCommandExecutor.h"
+#import <PackageManager/GWSystemCommandExecutor.h>
 
 #pragma mark - Constants (derived from AppearanceMetrics.h)
 

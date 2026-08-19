@@ -51,7 +51,7 @@ install-$(1): $(1)
 	  instdir="/System/Applications/$$$$cat/$$$$dname.app"; \
 	  $(SUDO) mkdir -p "$$$$instdir/Resources"; \
 	  $(SUDO) cp "$$$$bdir/Resources/"* "$$$$instdir/Resources/"; \
-	  $(SUDO) ln -sf /System/Library/Services/OnDemand.app/OnDemand "$$$$instdir/$$$$dname"; \
+	  $(SUDO) ln -sf /System/Applications/Utilities/OnDemand.app/OnDemand "$$$$instdir/$$$$dname"; \
 	done
 endef
 
