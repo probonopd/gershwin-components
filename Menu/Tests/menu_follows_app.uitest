@@ -16,6 +16,14 @@ activate application "Workspace"
 run "/System/Applications/Utilities/Processes.app"
 wait until xwindow "Processes" timeout 120s
 
+# Wait for the menu bar to actually switch to Processes before activating the
+# Desktop window again.  The rapid Workspace -> Processes -> Workspace focus
+# sequence can race Menu.app's focus coalescing (a 30ms deferred update), and
+# the second switch is then silently dropped.  Serializing each transition
+# makes the test verify what it promises: the menu bar follows the frontmost
+# app, not merely that an activation was requested.
+wait until menu bar "Processes" timeout 20s
+
 # Desktop (Workspace window) - shows the Workspace menu.
 activate xwindow "Desktop"
 wait until menu bar "Workspace" timeout 20s
