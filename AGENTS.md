@@ -11,10 +11,12 @@ to the SYSTEM domain unless noted.
   `GNUmakefile` only dispatches to subdirs; it does not build the GNUstep libs.
 - Build all (except library consumers): `gmake`
 - Build one component: `cd <dir> && gmake`
-- Install all: `sudo gmake install` — installs `Libraries` first, then builds
-  the **library consumers** (`Menu Network Sound Whisper`) that `gmake` alone
-  skips. So a changed component only compiles during `install` if it links a
-  backend from `Libraries/`.
+- Install all: `sudo gmake install` — installs `Libraries` and the
+  `PackageManager` framework first, then builds the **library consumers**
+  (`Build Menu Network Sound Whisper`) and `PackageManager/OnDemand`, which
+  `gmake` alone skips because they link the shared libs. So a changed
+  component only compiles during `install` if it links a backend from
+  `Libraries/` or the `PackageManager` framework.
 - Install one component: `cd <dir> && sudo gmake install
   GNUSTEP_INSTALLATION_DOMAIN=SYSTEM`
 - Clean: `gmake clean`. Root-owned build artifacts (`obj/`, `.app`, `Build`)
@@ -28,6 +30,11 @@ to the SYSTEM domain unless noted.
 - Flat: each top-level dir is a component (app, pref pane, bundle, or tool).
 - `Libraries/` holds shared backends (`SoundBackend`, `NetworkBackend`) that
   `Menu`, `Network`, `Sound`, `Whisper` link against.
+- `PackageManager/` builds the `PackageManager.framework` (cross-distro package
+  install/uninstall + the bundled header database in `Resources/headers.db`).
+  It installs to `/System/Library/Frameworks`; `Build` and
+  `PackageManager/OnDemand` link it system-wide (no embedding). `OnDemand` and
+  `Placeholders` are built and installed only during `install`.
 - `make_appimage/` is a GNUstep tool (`make_appimage`, `make_standalone`) that
   packs built `.app`/`.bundle` dirs into self-contained AppImages; uses
   `appimagetool` + `patchelf`.

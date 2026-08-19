@@ -181,6 +181,15 @@
 /* Hint: install dev package */
 "\nAfter installing the corresponding development package, try building again." = "\nAfter installing the corresponding development package, try building again.";
 
+/* Alert title: install missing packages and rebuild */
+"Install missing packages and rebuild?" = "Install missing packages and rebuild?";
+
+/* Alert message: install packages to fix build */
+"The build needs headers from these packages:\n\n%@\n\nInstall them now and try building again?" = "The build needs headers from these packages:\n\n%@\n\nInstall them now and try building again?";
+
+/* Button: install packages and rebuild */
+"Install and Rebuild" = "Install and Rebuild";
+
 /* Hint: use alternative */
 "\nPlease consider an alternative, as this technology is not planned to be supported on this system." = "\nPlease consider an alternative, as this technology is not planned to be supported on this system.";
 

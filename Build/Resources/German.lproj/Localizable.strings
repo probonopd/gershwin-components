@@ -181,6 +181,15 @@
 /* Hint: install dev package */
 "\nAfter installing the corresponding development package, try building again." = "\nNach der Installation des entsprechenden Entwicklungspakets versuchen Sie es erneut.";
 
+/* Alert title: install missing packages and rebuild */
+"Install missing packages and rebuild?" = "Fehlende Pakete installieren und neu erstellen?";
+
+/* Alert message: install packages to fix build */
+"The build needs headers from these packages:\n\n%@\n\nInstall them now and try building again?" = "Der Build ben\u00f6tigt Header aus diesen Paketen:\n\n%@\n\nJetzt installieren und erneut versuchen?";
+
+/* Button: install packages and rebuild */
+"Install and Rebuild" = "Installieren und neu erstellen";
+
 /* Hint: use alternative */
 "\nPlease consider an alternative, as this technology is not planned to be supported on this system." = "\nBitte ziehen Sie eine Alternative in Betracht, da diese Technologie auf diesem System nicht unterst\u00fctzt werden wird.";
 

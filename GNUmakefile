@@ -24,8 +24,9 @@ all: build
 # Libraries have been installed.  During "gmake" (build only) we skip them
 # because /System may not contain the libraries yet.  "sudo gmake install"
 # installs Libraries first, then builds and installs these consumers.
+# Build links the PackageManager framework and thus has the same constraint.
 ifneq ($(filter Libraries,$(SUBDIRS)),)
-LIBRARY_CONSUMERS := $(filter Menu Network Sound Whisper,$(SUBDIRS))
+LIBRARY_CONSUMERS := $(filter Menu Network Sound Whisper Build,$(SUBDIRS))
 else
 LIBRARY_CONSUMERS :=
 endif
@@ -79,7 +80,8 @@ distclean: clean
 # For library consumers we also run their build step during install because
 # they could not be compiled during "gmake" (no Libraries in /System yet).
 install:
-	@# Phase 1: install Libraries so consumers can find headers and .so files
+	@# Phase 1: install Libraries and the PackageManager framework so consumers
+	@# can find their headers and .so files.
 	@if [ -d "Libraries" ] && [ -f "Libraries/GNUmakefile" ]; then \
 		echo "Installing Libraries..."; \
 		if ( [ -f "Libraries/Makefile.in" ] && ( [ ! -f "Libraries/Makefile" ] || [ "Libraries/Makefile.in" -nt "Libraries/Makefile" ] ) ) || \
@@ -87,6 +89,10 @@ install:
 			$(call run_configure,Libraries); \
 		fi; \
 		$(MAKE) -C Libraries install; \
+	fi
+	@if [ -d "PackageManager" ] && [ -f "PackageManager/GNUmakefile" ]; then \
+		echo "Installing PackageManager framework..."; \
+		$(MAKE) -C PackageManager install; \
 	fi
 	@# Phase 2: install everything else
 	@for d in $(filter-out Libraries,$(SUBDIRS)); do \
