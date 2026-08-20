@@ -20,7 +20,6 @@ static const BOOL kShowTextInMenuBar = NO;
     int _percent;
     char _status[256];
     char _source[64];
-    BOOL _showPercentage;
     int _timeRemainingMinutes;
     BOOL _running;
 }
@@ -236,12 +235,6 @@ static const BOOL kShowTextInMenuBar = NO;
     }
 }
 
-- (void)toggleShowPercentage:(id)sender
-{
-    (void)sender;
-    _showPercentage = !_showPercentage;
-}
-
 - (void)openBatteryPrefs:(id)sender
 {
     (void)sender;
@@ -367,15 +360,6 @@ static const BOOL kShowTextInMenuBar = NO;
             [m addItem:timeItem];
         }
     }
-
-    [m addItem:[NSMenuItem separatorItem]];
-
-    NSMenuItem *pctItem = [[NSMenuItem alloc] initWithTitle:@"Show Percentage"
-                                                     action:@selector(toggleShowPercentage:)
-                                              keyEquivalent:@""];
-    [pctItem setTarget:self];
-    [pctItem setState:_showPercentage ? NSOnState : NSOffState];
-    [m addItem:pctItem];
 
     [m addItem:[NSMenuItem separatorItem]];
 
