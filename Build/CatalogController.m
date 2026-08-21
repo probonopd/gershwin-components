@@ -500,20 +500,9 @@ static const CGFloat kWinHeight = 260.0;
 
 #pragma mark - Catalog refresh from server
 
-/* Build an IMF-fixdate (RFC 7231) string in GMT for the If-Modified-Since
-   header from a local file modification date. */
-- (NSString *)imfFixdateFromDate:(NSDate *)date
-{
-    NSCalendarDate *cd = [NSCalendarDate dateWithTimeIntervalSinceReferenceDate:
-                          [date timeIntervalSinceReferenceDate]];
-    return [cd descriptionWithCalendarFormat:@"%a, %d %b %Y %H:%M:%S GMT"
-                                    timeZone:[NSTimeZone timeZoneWithAbbreviation:@"GMT"]
-                                      locale:nil];
-}
-
-/* Runs on a background thread: download the catalog if it is newer than the
-   local copy and store it in Caches. Always calls back on the main thread with
-   an error message (or nil on success) so the window can report problems. */
+/* Runs on a background thread: download the catalog and store it in Caches.
+   Always calls back on the main thread with an error message (or nil on
+   success) so the window can report problems. */
 - (void)fetchCatalogInBackground
 {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
@@ -533,19 +522,21 @@ static const CGFloat kWinHeight = 260.0;
 
         NSString *cachePath = [CatalogEntry catalogCachePath];
 
-        /* Only send If-Modified-Since when we already hold a downloaded Caches
-           copy, whose mtime is a genuine "last fetched" timestamp. The bundled
-           copy's mtime is the app install time and would always look newer than
-           the server, wrongly yielding a 304. When falling back to the bundle
-           we do a full GET and decide via content comparison below. */
-        if (cachePath && [fm fileExistsAtPath:cachePath]) {
-            NSDictionary *attrs = [fm attributesOfItemAtPath:cachePath error:NULL];
-            NSDate *localDate = [attrs objectForKey:NSFileModificationDate];
-            if (localDate) {
-                NSString *ims = [self imfFixdateFromDate:localDate];
-                if (ims) {
-                    [req setValue:ims forHTTPHeaderField:@"If-Modified-Since"];
-                }
+        /* Track the catalog by its content-derived ETag, kept in a sidecar file
+           next to the Caches copy. raw.githubusercontent.com branch refs report
+           a Last-Modified that does NOT track the latest commit, so the usual
+           If-Modified-Since conditional wrongly returns 304 and the app would
+           keep a stale catalog forever. The ETag, however, is derived from the
+           actual blob content, so If-None-Match is reliable: we only re-download
+           when the catalog really changed, and never miss an update. */
+        NSString *etagPath = [cachePath stringByAppendingString:@".etag"];
+        NSString *storedEtag = nil;
+        if (etagPath && [fm fileExistsAtPath:etagPath]) {
+            storedEtag = [NSString stringWithContentsOfFile:etagPath
+                                                  encoding:NSUTF8StringEncoding
+                                                     error:NULL];
+            if ([storedEtag length] > 0) {
+                [req setValue:storedEtag forHTTPHeaderField:@"If-None-Match"];
             }
         }
 
@@ -566,6 +557,7 @@ static const CGFloat kWinHeight = 260.0;
             BOOL proceed = YES;
             if ([http isKindOfClass:[NSHTTPURLResponse class]]) {
                 if ([http statusCode] == 304) {
+                    /* Catalog unchanged: keep the cached copy, no reload. */
                     proceed = NO;
                 } else if ([http statusCode] != 200) {
                     errorMessage = [NSString stringWithFormat:
@@ -586,8 +578,22 @@ static const CGFloat kWinHeight = 260.0;
                 if (![parsed isKindOfClass:[NSArray class]]) {
                     errorMessage = NSLocalizedString(@"The downloaded catalog is not valid.",
                                                      @"Catalog fetch error: bad plist");
-                } else if (cachePath) {
-                    [data writeToFile:cachePath atomically:YES];
+                } else {
+                    if (cachePath) {
+                        [data writeToFile:cachePath atomically:YES];
+                    }
+                    /* Persist the new ETag so the next run can skip re-downloading
+                       an unchanged catalog. */
+                    NSString *newEtag = nil;
+                    if ([http isKindOfClass:[NSHTTPURLResponse class]]) {
+                        newEtag = [[http allHeaderFields] objectForKey:@"ETag"];
+                    }
+                    if (newEtag && etagPath) {
+                        [newEtag writeToFile:etagPath
+                                  atomically:YES
+                                    encoding:NSUTF8StringEncoding
+                                       error:NULL];
+                    }
                 }
             }
         }
