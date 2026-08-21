@@ -682,5 +682,101 @@
 		<key>Description</key>
 		<string>PowerPC emulator for running classic Mac OS and early Mac OS X</string>
 	</dict>
+	<dict>
+		<key>Name</key>
+		<string>GSChess</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/apps-gschess</string>
+		<key>Description</key>
+		<string>Chess game for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>ScoreMaker</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/apps-scoremaker</string>
+		<key>Description</key>
+		<string>Music score creation app for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Breakout</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Breakout</string>
+		<key>Description</key>
+		<string>Breakout game for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Billiards</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Billiards</string>
+		<key>Description</key>
+		<string>Billiards/pool game for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MacBasic</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/MacBasic</string>
+		<key>Description</key>
+		<string>Basic programming environment for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>NX Void</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/NX_Void</string>
+		<key>Description</key>
+		<string>Game/app from gcasa for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Mandelbrot</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Mandelbrot</string>
+		<key>Description</key>
+		<string>Mandelbrot fractal explorer for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Dictionary</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Dictionary</string>
+		<key>Description</key>
+		<string>Dictionary app for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>StepDown</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/stepdown</string>
+		<key>Description</key>
+		<string>StepDown app for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>ST TOS</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/ST_TOS</string>
+		<key>Description</key>
+		<string>Atari ST/TOS emulator frontend for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>ScorePlayer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/ScorePlayer</string>
+		<key>Description</key>
+		<string>Music score player for GNUstep</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Molecule</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Molecule</string>
+		<key>Description</key>
+		<string>Molecule viewer for GNUstep</string>
+	</dict>
 </array>
 </plist>
