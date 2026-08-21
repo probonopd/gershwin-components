@@ -64,12 +64,30 @@ static void installSignalHandlers(void)
   sigaction(SIGUSR2, &a, NULL);
 }
 
+/* The environment every supervised app is launched with.  It is the
+ * supervisor's own environment plus GERSHWIN_SESSION_PID, which tells each
+ * supervised app the pid of its own session supervisor so it can signal it
+ * (e.g. to log out).  We must pass this explicitly via -setEnvironment:
+ * because GNUstep's NSTask snapshots the environment at process startup and
+ * does not pick up variables added later with setenv(); without this, the
+ * child would see an empty GERSHWIN_SESSION_PID and could not address its
+ * supervisor. */
+static NSDictionary *supervisedEnvironment(void)
+{
+  NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+  if (env == nil) env = [NSMutableDictionary dictionary];
+  [env setObject: [NSString stringWithFormat: @"%d", (int)getpid()]
+           forKey: @"GERSHWIN_SESSION_PID"];
+  return env;
+}
+
 static NSTask *launchApp(NSString *name)
 {
   NSTask *task = [[NSTask alloc] init];
 
   [task setLaunchPath: @"/usr/bin/env"];
   [task setArguments: [NSArray arrayWithObject: name]];
+  [task setEnvironment: supervisedEnvironment()];
   NSLog(@"Starting %@...", name);
   @try
     {
