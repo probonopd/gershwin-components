@@ -58,7 +58,8 @@ static const CGFloat kWinHeight = 260.0;
     [_tableView release];
     [_searchField release];
     [_buildButton release];
-    [_loadingPanel release];
+    [_spinner release];
+    [_statusLabel release];
     [super dealloc];
 }
 
@@ -69,25 +70,6 @@ static const CGFloat kWinHeight = 260.0;
         return;
     }
 
-    /* The first time the catalog is requested we must download the latest
-       catalog from the server before showing the window, so the user never
-       sees a stale list. Show a lightweight progress panel and present the
-       real window only once the fetch has completed (success or failure). */
-    if (_catalogRefreshStarted) {
-        return;
-    }
-    _catalogRefreshStarted = YES;
-    [self showLoadingPanel];
-    [NSThread detachNewThreadSelector:@selector(fetchCatalogInBackground)
-                             toTarget:self
-                           withObject:nil];
-}
-
-/* Build and display the catalog window. Called on the main thread once the
-   initial catalog download has finished; reloading entries from disk first so
-   any catalog that was just downloaded into Caches is what gets shown. */
-- (void)presentCatalogWindow
-{
     [self loadEntriesFromLocal];
 
     CGFloat right = kSideMargin;
@@ -191,8 +173,37 @@ static const CGFloat kWinHeight = 260.0;
         [_buildButton setEnabled:YES];
     }
 
+    /* Spinner + status text at the lower-left, shown while the catalog is
+       being refreshed from the server. */
+    _spinner = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(kSideMargin, bottom, 16, 16)];
+    [_spinner setStyle:NSProgressIndicatorSpinningStyle];
+    [_spinner setIndeterminate:YES];
+    [_spinner setDisplayedWhenStopped:NO];
+    [_spinner setHidden:YES];
+    [contentView addSubview:_spinner];
+
+    _statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(kSideMargin + 22, bottom, 170, 16)];
+    [_statusLabel setBezeled:NO];
+    [_statusLabel setDrawsBackground:NO];
+    [_statusLabel setEditable:NO];
+    [_statusLabel setSelectable:NO];
+    [_statusLabel setStringValue:NSLocalizedString(@"Updating catalog…", @"Status while refreshing catalog")];
+    [_statusLabel setHidden:YES];
+    [contentView addSubview:_statusLabel];
+
     [_window center];
     [_window orderFront:nil];
+
+    /* Refresh the catalog from the server in the background the first time the
+       window is shown. The list is refreshed (and the spinner hidden) once the
+       download has completed. */
+    if (!_catalogRefreshStarted) {
+        _catalogRefreshStarted = YES;
+        [self showSpinner];
+        [NSThread detachNewThreadSelector:@selector(fetchCatalogInBackground)
+                                 toTarget:self
+                               withObject:nil];
+    }
 }
 
 - (void)loadEntriesFromLocal
@@ -230,6 +241,26 @@ static const CGFloat kWinHeight = 260.0;
 
 #pragma mark - Search
 
+/* Extract the repository owner (organization or user) from a Git URL such as
+   https://github.com/probonopd/DingusPPC.app -> "probonopd". Used so the search
+   field can match apps by their GitHub owner, not just by name/description. */
+- (NSString *)ownerFromGitURL:(NSString *)gitURL
+{
+    if ([gitURL length] == 0) return @"";
+    NSString *s = gitURL;
+    NSRange scheme = [s rangeOfString:@"://"];
+    if (scheme.location != NSNotFound) {
+        s = [s substringFromIndex:NSMaxRange(scheme)];
+    }
+    NSArray *parts = [s componentsSeparatedByString:@"/"];
+    /* parts[0] is the host (e.g. github.com); the owner is the next segment. */
+    if ([parts count] > 1) {
+        NSString *owner = [parts objectAtIndex:1];
+        if ([owner length] > 0) return owner;
+    }
+    return @"";
+}
+
 - (void)filterContent:(id)sender
 {
     NSString *searchString = [_searchField stringValue];
@@ -242,7 +273,8 @@ static const CGFloat kWinHeight = 260.0;
         for (CatalogEntry *entry in _entries) {
             NSString *lowerSearch = [searchString lowercaseString];
             if ([[entry.name lowercaseString] rangeOfString:lowerSearch].location != NSNotFound ||
-                [[entry.desc lowercaseString] rangeOfString:lowerSearch].location != NSNotFound) {
+                [[entry.desc lowercaseString] rangeOfString:lowerSearch].location != NSNotFound ||
+                [[[self ownerFromGitURL:entry.gitURL] lowercaseString] rangeOfString:lowerSearch].location != NSNotFound) {
                 [filtered addObject:entry];
             }
         }
@@ -480,17 +512,21 @@ static const CGFloat kWinHeight = 260.0;
 }
 
 /* Runs on a background thread: download the catalog if it is newer than the
-   local copy and store it in Caches. Always calls back on the main thread so
-   the catalog window can be presented regardless of success or failure. */
+   local copy and store it in Caches. Always calls back on the main thread with
+   an error message (or nil on success) so the window can report problems. */
 - (void)fetchCatalogInBackground
 {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
     NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *errorMessage = nil;
 
     NSString *urlString = [CatalogEntry remoteCatalogURLString];
     NSURL *url = [NSURL URLWithString:urlString];
 
-    if (url) {
+    if (!url) {
+        errorMessage = NSLocalizedString(@"The catalog address is invalid.",
+                                         @"Catalog fetch error");
+    } else {
         NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url
                                                           cachePolicy:NSURLRequestReloadIgnoringCacheData
                                                       timeoutInterval:15.0];
@@ -518,13 +554,24 @@ static const CGFloat kWinHeight = 260.0;
         NSData *data = [NSURLConnection sendSynchronousRequest:req
                                             returningResponse:&response
                                                         error:&error];
-        if (data && [data length] > 0 && !error) {
+        if (!data || [data length] == 0 || error) {
+            errorMessage = [NSString stringWithFormat:
+                NSLocalizedString(@"Could not download the catalog: %@",
+                                  @"Catalog fetch error with reason"),
+                (error ? [error localizedDescription]
+                        : NSLocalizedString(@"no data received",
+                                            @"Catalog fetch error: empty"))];
+        } else {
             NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
             BOOL proceed = YES;
             if ([http isKindOfClass:[NSHTTPURLResponse class]]) {
                 if ([http statusCode] == 304) {
                     proceed = NO;
                 } else if ([http statusCode] != 200) {
+                    errorMessage = [NSString stringWithFormat:
+                        NSLocalizedString(@"The catalog server returned an error (HTTP %d).",
+                                          @"Catalog fetch error with status code"),
+                        (int)[http statusCode]];
                     proceed = NO;
                 }
             }
@@ -536,28 +583,54 @@ static const CGFloat kWinHeight = 260.0;
                                                     options:NSPropertyListImmutable
                                                      format:NULL
                                                       error:NULL];
-                if ([parsed isKindOfClass:[NSArray class]]) {
-                    if (cachePath) {
-                        [data writeToFile:cachePath atomically:YES];
-                    }
+                if (![parsed isKindOfClass:[NSArray class]]) {
+                    errorMessage = NSLocalizedString(@"The downloaded catalog is not valid.",
+                                                     @"Catalog fetch error: bad plist");
+                } else if (cachePath) {
+                    [data writeToFile:cachePath atomically:YES];
                 }
             }
         }
     }
 
-    [self performSelectorOnMainThread:@selector(catalogFetchDidFinish)
-                           withObject:nil
+    [self performSelectorOnMainThread:@selector(catalogFetchDidFinishWithError:)
+                           withObject:errorMessage
                         waitUntilDone:NO];
     [pool release];
 }
 
-/* Called on the main thread once the background fetch has completed: dismiss
-   the loading panel and show the catalog window (with whatever catalog is now
-   on disk, downloaded or not). */
-- (void)catalogFetchDidFinish
+/* Called on the main thread once the background fetch has completed: report any
+   error, hide the spinner, and refresh the list with whatever catalog is now on
+   disk. */
+- (void)catalogFetchDidFinishWithError:(NSString *)errorMessage
 {
-    [self hideLoadingPanel];
-    [self presentCatalogWindow];
+    [self hideSpinner];
+
+    if (errorMessage) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:NSLocalizedString(@"Catalog Update Failed",
+                                                @"Alert title: catalog fetch failed")];
+        [alert setInformativeText:errorMessage];
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
+        [alert runModal];
+        [alert release];
+    }
+
+    [self reloadCatalog];
+}
+
+- (void)showSpinner
+{
+    [_spinner startAnimation:nil];
+    [_spinner setHidden:NO];
+    [_statusLabel setHidden:NO];
+}
+
+- (void)hideSpinner
+{
+    [_spinner stopAnimation:nil];
+    [_spinner setHidden:YES];
+    [_statusLabel setHidden:YES];
 }
 
 - (void)reloadCatalog
@@ -572,48 +645,6 @@ static const CGFloat kWinHeight = 260.0;
         [_buildButton setEnabled:YES];
     } else {
         [_buildButton setEnabled:NO];
-    }
-}
-
-#pragma mark - Loading panel
-
-- (void)showLoadingPanel
-{
-    NSRect f = NSMakeRect(0, 0, 300, 90);
-    _loadingPanel = [[NSWindow alloc] initWithContentRect:f
-                                               styleMask:NSWindowStyleMaskTitled
-                                                 backing:NSBackingStoreBuffered
-                                                   defer:NO];
-    [_loadingPanel setTitle:NSLocalizedString(@"Build", @"Window title")];
-    NSView *cv = [_loadingPanel contentView];
-
-    NSTextField *label = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 45, 260, 20)];
-    [label setBezeled:NO];
-    [label setDrawsBackground:NO];
-    [label setEditable:NO];
-    [label setSelectable:NO];
-    [label setStringValue:NSLocalizedString(@"Downloading catalog…", @"Loading panel text")];
-    [cv addSubview:label];
-    [label release];
-
-    NSProgressIndicator *pi = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(20, 20, 260, 20)];
-    [pi setStyle:NSProgressIndicatorBarStyle];
-    [pi setIndeterminate:YES];
-    [pi setDisplayedWhenStopped:NO];
-    [pi startAnimation:nil];
-    [cv addSubview:pi];
-    [pi release];
-
-    [_loadingPanel center];
-    [_loadingPanel orderFront:nil];
-}
-
-- (void)hideLoadingPanel
-{
-    if (_loadingPanel) {
-        [_loadingPanel orderOut:nil];
-        [_loadingPanel release];
-        _loadingPanel = nil;
     }
 }
 

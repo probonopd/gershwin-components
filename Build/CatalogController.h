@@ -15,7 +15,8 @@
     NSArray *_entries;
     NSArray *_filteredEntries;
     BOOL _catalogRefreshStarted;
-    NSWindow *_loadingPanel;
+    NSProgressIndicator *_spinner;
+    NSTextField *_statusLabel;
 }
 
 - (void)showWindow;
