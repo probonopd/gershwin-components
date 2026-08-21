@@ -16,7 +16,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/neoncortex/Brutus</string>
 		<key>Description</key>
-		<string>A plain, no-frills text editor</string>
+		<string>Edit text in a plain, no-frills editor</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -56,7 +56,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/Clock</string>
 		<key>Description</key>
-		<string>A simple analog clock</string>
+		<string>Show the time on a simple analog clock</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -64,7 +64,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/erincodepirate/gs_clock</string>
 		<key>Description</key>
-		<string>A simple analog desktop clock</string>
+		<string>Show the time on a simple analog desktop clock</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -88,7 +88,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/Gem</string>
 		<key>Description</key>
-		<string>A simple plain text editor</string>
+		<string>Edit text in a simple plain text editor</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -120,7 +120,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/MediaPlayer</string>
 		<key>Description</key>
-		<string>A simple front end for the mpv media player</string>
+		<string>Play media through a simple front end for the mpv player</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -144,7 +144,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/Notepad</string>
 		<key>Description</key>
-		<string>A simple notepad for quick notes</string>
+		<string>Jot quick notes in a simple notepad</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -160,7 +160,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/hsnamr/SmallNote</string>
 		<key>Description</key>
-		<string>A small app for jotting down notes</string>
+		<string>Jot down notes in a small note-taking app</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -168,7 +168,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/alexmyczko/StepBill.app</string>
 		<key>Description</key>
-		<string>A port of the classic xbill game - stop Bill from taking over your computers</string>
+		<string>Stop Bill from taking over your computers in this port of the classic xbill game</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -184,7 +184,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/SurfBoard</string>
 		<key>Description</key>
-		<string>A desktop imageboard browser</string>
+		<string>Browse imageboards from the desktop</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -200,7 +200,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/probonopd/SystemEmulator</string>
 		<key>Description</key>
-		<string>A desktop frontend for the QEMU virtual machine emulator</string>
+		<string>Run virtual machines through a desktop frontend for the QEMU emulator</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -258,7 +258,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gnustep/apps-topbar</string>
 		<key>Description</key>
-		<string>A persistent bar at the top of the screen</string>
+		<string>Keep a persistent bar pinned at the top of the screen</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -382,7 +382,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gnustep/gap</string>
 		<key>Description</key>
-		<string>A collection of small games</string>
+		<string>Play a collection of small games</string>
 		<key>MakefilePath</key>
 		<string>user-apps/Games/GNUmakefile</string>
 	</dict>
@@ -688,7 +688,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gcasa/apps-gschess</string>
 		<key>Description</key>
-		<string>A native chess game with a legal-move engine, an alpha-beta AI opponent, move history, board flipping, and undo</string>
+		<string>Play chess against a built-in alpha-beta AI, with a legal-move engine, move history, board flipping, and undo</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -712,7 +712,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gcasa/Billiards</string>
 		<key>Description</key>
-		<string>A simple pool game with smooth, animated ball physics</string>
+		<string>Play pool with smooth, animated ball physics</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -720,7 +720,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gcasa/MacBasic</string>
 		<key>Description</key>
-		<string>A small structured BASIC interpreter with block statements, functions, and a drawing window</string>
+		<string>Write and run BASIC programs with block statements, functions, and a drawing window</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -728,7 +728,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gcasa/NX_Void</string>
 		<key>Description</key>
-		<string>A recreation of the classic NX_Void arcade game</string>
+		<string>Play the classic NX_Void arcade game</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -736,7 +736,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gcasa/Mandelbrot</string>
 		<key>Description</key>
-		<string>An interactive fractal explorer for zooming into the Mandelbrot set</string>
+		<string>Explore the Mandelbrot set by zooming into an interactive fractal</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -744,7 +744,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gcasa/Dictionary</string>
 		<key>Description</key>
-		<string>A classic-style dictionary browser that looks up words via the local dict service and shows Wikipedia illustrations</string>
+		<string>Look up words in a classic-style dictionary browser that shows Wikipedia illustrations</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -752,7 +752,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gcasa/stepdown</string>
 		<key>Description</key>
-		<string>A lightweight Markdown editor</string>
+		<string>Edit Markdown in a lightweight editor</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -760,7 +760,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gcasa/ST_TOS</string>
 		<key>Description</key>
-		<string>A vector-graphics homage to Star Trek: Strategic Operations Simulator, with sound effects generated at runtime</string>
+		<string>Pilot a vector-graphics homage to Star Trek: Strategic Operations Simulator, with runtime-generated sound</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -776,7 +776,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gcasa/Molecule</string>
 		<key>Description</key>
-		<string>A ball-and-stick molecule viewer with rotation, zoom, atom labels, and automatic animation for built-in molecules</string>
+		<string>View molecules as ball-and-stick models with rotation, zoom, atom labels, and automatic animation</string>
 	</dict>
 </array>
 </plist>
