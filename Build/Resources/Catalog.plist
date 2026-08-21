@@ -674,5 +674,13 @@
 		<key>Description</key>
 		<string>Transfer files between an Android device and the desktop</string>
 	</dict>
+	<dict>
+		<key>Name</key>
+		<string>DingusPPC</string>
+		<key>GitURL</key>
+		<string>https://github.com/probonopd/DingusPPC.app</string>
+		<key>Description</key>
+		<string>PowerPC emulator for running classic Mac OS and early Mac OS X</string>
+	</dict>
 </array>
 </plist>
