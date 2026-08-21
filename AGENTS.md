@@ -69,6 +69,11 @@ to the SYSTEM domain unless noted.
   `Area: short summary` (e.g. `Menu: suppress BadWindow flood from racing
   window scans`). Commit only when asked.
 - No em-dashes in text; use plain `-`.
+- Catalog descriptions (`Build/Resources/Catalog.plist`): write user-facing,
+  "speaking" descriptions that say what the app does, not how it is built. Never
+  name the underlying toolkit or platform: avoid "GNUstep", "OPENSTEP", "Cocoa",
+  "macOS", "NeXT"/"NeXTSTEP", and Apple OS names (e.g. "Mac OS"). The catalog is
+  shown to end users, so describe function only.
 - New files: if the project is non-GPL, header
   `Copyright (c) 2026 Simon Peter / SPDX-License-Identifier: BSD-2-Clause`.
 - Always fix build warnings and rebuild clean before finishing.
