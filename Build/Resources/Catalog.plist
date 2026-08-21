@@ -666,5 +666,13 @@
 		<key>MakefilePath</key>
 		<string>Applications/Demos/MskOrganDemo/GNUmakefile</string>
 	</dict>
+	<dict>
+		<key>Name</key>
+		<string>DroidTransfer</string>
+		<key>GitURL</key>
+		<string>https://github.com/probonopd/DroidTransfer</string>
+		<key>Description</key>
+		<string>Transfer files between an Android device and the desktop</string>
+	</dict>
 </array>
 </plist>
