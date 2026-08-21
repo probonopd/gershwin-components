@@ -58,6 +58,7 @@ static const CGFloat kWinHeight = 260.0;
     [_tableView release];
     [_searchField release];
     [_buildButton release];
+    [_loadingPanel release];
     [super dealloc];
 }
 
@@ -68,15 +69,26 @@ static const CGFloat kWinHeight = 260.0;
         return;
     }
 
-    /* Refresh the catalog from the server in the background the first time the
-       window is shown. The table reloads automatically once a newer catalog
-       has been downloaded into Caches. */
-    if (!_catalogRefreshStarted) {
-        _catalogRefreshStarted = YES;
-        [NSThread detachNewThreadSelector:@selector(fetchCatalogInBackground)
-                                 toTarget:self
-                               withObject:nil];
+    /* The first time the catalog is requested we must download the latest
+       catalog from the server before showing the window, so the user never
+       sees a stale list. Show a lightweight progress panel and present the
+       real window only once the fetch has completed (success or failure). */
+    if (_catalogRefreshStarted) {
+        return;
     }
+    _catalogRefreshStarted = YES;
+    [self showLoadingPanel];
+    [NSThread detachNewThreadSelector:@selector(fetchCatalogInBackground)
+                             toTarget:self
+                           withObject:nil];
+}
+
+/* Build and display the catalog window. Called on the main thread once the
+   initial catalog download has finished; reloading entries from disk first so
+   any catalog that was just downloaded into Caches is what gets shown. */
+- (void)presentCatalogWindow
+{
+    [self loadEntriesFromLocal];
 
     CGFloat right = kSideMargin;
     CGFloat bottom = kBottomMargin;
@@ -181,6 +193,14 @@ static const CGFloat kWinHeight = 260.0;
 
     [_window center];
     [_window orderFront:nil];
+}
+
+- (void)loadEntriesFromLocal
+{
+    [_entries release];
+    _entries = [[CatalogEntry loadCatalog] retain];
+    [_filteredEntries release];
+    _filteredEntries = [_entries retain];
 }
 
 #pragma mark - List actions
@@ -460,7 +480,8 @@ static const CGFloat kWinHeight = 260.0;
 }
 
 /* Runs on a background thread: download the catalog if it is newer than the
-   local copy, store it in Caches, and reload the table on the main thread. */
+   local copy and store it in Caches. Always calls back on the main thread so
+   the catalog window can be presented regardless of success or failure. */
 - (void)fetchCatalogInBackground
 {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
@@ -468,90 +489,80 @@ static const CGFloat kWinHeight = 260.0;
 
     NSString *urlString = [CatalogEntry remoteCatalogURLString];
     NSURL *url = [NSURL URLWithString:urlString];
-    if (!url) {
-        [pool release];
-        return;
-    }
 
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url
-                                                      cachePolicy:NSURLRequestReloadIgnoringCacheData
-                                                  timeoutInterval:15.0];
+    if (url) {
+        NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url
+                                                          cachePolicy:NSURLRequestReloadIgnoringCacheData
+                                                      timeoutInterval:15.0];
 
-    NSString *cachePath = [CatalogEntry catalogCachePath];
-    NSString *localPath = [CatalogEntry localCatalogPath];
+        NSString *cachePath = [CatalogEntry catalogCachePath];
 
-    /* Only send If-Modified-Since when we already hold a downloaded Caches
-       copy, whose mtime is a genuine "last fetched" timestamp. The bundled
-       copy's mtime is the app install time and would always look newer than
-       the server, wrongly yielding a 304. When falling back to the bundle we
-       do a full GET and decide via content comparison below. */
-    if (cachePath && [fm fileExistsAtPath:cachePath]) {
-        NSDictionary *attrs = [fm attributesOfItemAtPath:cachePath error:NULL];
-        NSDate *localDate = [attrs objectForKey:NSFileModificationDate];
-        if (localDate) {
-            NSString *ims = [self imfFixdateFromDate:localDate];
-            if (ims) {
-                [req setValue:ims forHTTPHeaderField:@"If-Modified-Since"];
+        /* Only send If-Modified-Since when we already hold a downloaded Caches
+           copy, whose mtime is a genuine "last fetched" timestamp. The bundled
+           copy's mtime is the app install time and would always look newer than
+           the server, wrongly yielding a 304. When falling back to the bundle
+           we do a full GET and decide via content comparison below. */
+        if (cachePath && [fm fileExistsAtPath:cachePath]) {
+            NSDictionary *attrs = [fm attributesOfItemAtPath:cachePath error:NULL];
+            NSDate *localDate = [attrs objectForKey:NSFileModificationDate];
+            if (localDate) {
+                NSString *ims = [self imfFixdateFromDate:localDate];
+                if (ims) {
+                    [req setValue:ims forHTTPHeaderField:@"If-Modified-Since"];
+                }
+            }
+        }
+
+        NSURLResponse *response = nil;
+        NSError *error = nil;
+        NSData *data = [NSURLConnection sendSynchronousRequest:req
+                                            returningResponse:&response
+                                                        error:&error];
+        if (data && [data length] > 0 && !error) {
+            NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
+            BOOL proceed = YES;
+            if ([http isKindOfClass:[NSHTTPURLResponse class]]) {
+                if ([http statusCode] == 304) {
+                    proceed = NO;
+                } else if ([http statusCode] != 200) {
+                    proceed = NO;
+                }
+            }
+
+            if (proceed) {
+                /* Only accept a well-formed catalog array. */
+                NSArray *parsed = [NSPropertyListSerialization
+                                      propertyListWithData:data
+                                                    options:NSPropertyListImmutable
+                                                     format:NULL
+                                                      error:NULL];
+                if ([parsed isKindOfClass:[NSArray class]]) {
+                    if (cachePath) {
+                        [data writeToFile:cachePath atomically:YES];
+                    }
+                }
             }
         }
     }
 
-    NSURLResponse *response = nil;
-    NSError *error = nil;
-    NSData *data = [NSURLConnection sendSynchronousRequest:req
-                                        returningResponse:&response
-                                                    error:&error];
-    if (error || [data length] == 0) {
-        [pool release];
-        return;
-    }
-
-    NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
-    if ([http isKindOfClass:[NSHTTPURLResponse class]] && [http statusCode] == 304) {
-        [pool release];
-        return;
-    }
-    if ([http isKindOfClass:[NSHTTPURLResponse class]] && [http statusCode] != 200) {
-        [pool release];
-        return;
-    }
-
-    /* Only accept a well-formed catalog array. */
-    NSArray *parsed = [NSPropertyListSerialization propertyListWithData:data
-                                                                options:NSPropertyListImmutable
-                                                                 format:NULL
-                                                                  error:NULL];
-    if (![parsed isKindOfClass:[NSArray class]]) {
-        [pool release];
-        return;
-    }
-
-    /* Determine whether the download differs from what we currently display. */
-    BOOL changed = YES;
-    NSData *localData = [NSData dataWithContentsOfFile:localPath];
-    if (localData && [localData isEqualToData:data]) {
-        changed = NO;
-    }
-
-    if (cachePath) {
-        [data writeToFile:cachePath atomically:YES];
-    }
-
-    if (changed) {
-        [self performSelectorOnMainThread:@selector(reloadCatalog)
-                               withObject:nil
-                            waitUntilDone:NO];
-    }
-
+    [self performSelectorOnMainThread:@selector(catalogFetchDidFinish)
+                           withObject:nil
+                        waitUntilDone:NO];
     [pool release];
+}
+
+/* Called on the main thread once the background fetch has completed: dismiss
+   the loading panel and show the catalog window (with whatever catalog is now
+   on disk, downloaded or not). */
+- (void)catalogFetchDidFinish
+{
+    [self hideLoadingPanel];
+    [self presentCatalogWindow];
 }
 
 - (void)reloadCatalog
 {
-    [_entries release];
-    _entries = [[CatalogEntry loadCatalog] retain];
-    [_filteredEntries release];
-    _filteredEntries = [_entries retain];
+    [self loadEntriesFromLocal];
 
     [_tableView reloadData];
 
@@ -561,6 +572,48 @@ static const CGFloat kWinHeight = 260.0;
         [_buildButton setEnabled:YES];
     } else {
         [_buildButton setEnabled:NO];
+    }
+}
+
+#pragma mark - Loading panel
+
+- (void)showLoadingPanel
+{
+    NSRect f = NSMakeRect(0, 0, 300, 90);
+    _loadingPanel = [[NSWindow alloc] initWithContentRect:f
+                                               styleMask:NSWindowStyleMaskTitled
+                                                 backing:NSBackingStoreBuffered
+                                                   defer:NO];
+    [_loadingPanel setTitle:NSLocalizedString(@"Build", @"Window title")];
+    NSView *cv = [_loadingPanel contentView];
+
+    NSTextField *label = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 45, 260, 20)];
+    [label setBezeled:NO];
+    [label setDrawsBackground:NO];
+    [label setEditable:NO];
+    [label setSelectable:NO];
+    [label setStringValue:NSLocalizedString(@"Downloading catalog…", @"Loading panel text")];
+    [cv addSubview:label];
+    [label release];
+
+    NSProgressIndicator *pi = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(20, 20, 260, 20)];
+    [pi setStyle:NSProgressIndicatorBarStyle];
+    [pi setIndeterminate:YES];
+    [pi setDisplayedWhenStopped:NO];
+    [pi startAnimation:nil];
+    [cv addSubview:pi];
+    [pi release];
+
+    [_loadingPanel center];
+    [_loadingPanel orderFront:nil];
+}
+
+- (void)hideLoadingPanel
+{
+    if (_loadingPanel) {
+        [_loadingPanel orderOut:nil];
+        [_loadingPanel release];
+        _loadingPanel = nil;
     }
 }
 

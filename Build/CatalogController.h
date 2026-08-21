@@ -15,6 +15,7 @@
     NSArray *_entries;
     NSArray *_filteredEntries;
     BOOL _catalogRefreshStarted;
+    NSWindow *_loadingPanel;
 }
 
 - (void)showWindow;
