@@ -8,6 +8,31 @@
 #import "CatalogEntry.h"
 #import "BuildController.h"
 
+/* A field editor for the search field that intercepts Up/Down. Instead of
+   moving the text cursor (a single-line field has none to move), it ends
+   editing and jumps focus into the results list, so arrow keys let the user
+   leave the search box and navigate the catalog. */
+@interface CatalogFieldEditor : NSTextView
+{
+    id _catalogTarget;
+}
+- (void)setCatalogTarget:(id)target;
+@end
+
+@implementation CatalogFieldEditor
+- (void)setCatalogTarget:(id)target { _catalogTarget = target; }
+- (void)moveUp:(id)sender
+{
+    if (_catalogTarget && [_catalogTarget respondsToSelector:@selector(exitSearchFieldIntoResultsWithDelta:)])
+        [_catalogTarget exitSearchFieldIntoResultsWithDelta:-1];
+}
+- (void)moveDown:(id)sender
+{
+    if (_catalogTarget && [_catalogTarget respondsToSelector:@selector(exitSearchFieldIntoResultsWithDelta:)])
+        [_catalogTarget exitSearchFieldIntoResultsWithDelta:+1];
+}
+@end
+
 static NSString *toolPath(NSString *name)
 {
     NSString *p = [NSTask launchPathForTool:name];
@@ -168,6 +193,14 @@ static const CGFloat kWinHeight = 260.0;
                                                object:_searchField];
     [contentView addSubview:_searchField];
 
+    /* Restore the last-used filter so the search persists across launches. */
+    NSString *savedFilter = [[NSUserDefaults standardUserDefaults]
+        stringForKey:@"BuildCatalogSearchFilter"];
+    if ([savedFilter length] > 0) {
+        [_searchField setStringValue:savedFilter];
+        [self filterContent:nil];
+    }
+
     if ([_filteredEntries count] > 0) {
         [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
         [_buildButton setEnabled:YES];
@@ -264,6 +297,10 @@ static const CGFloat kWinHeight = 260.0;
 - (void)filterContent:(id)sender
 {
     NSString *searchString = [_searchField stringValue];
+
+    /* Persist the filter so it survives app restarts / reboots. */
+    [[NSUserDefaults standardUserDefaults] setObject:searchString
+                                              forKey:@"BuildCatalogSearchFilter"];
 
     if ([searchString length] == 0) {
         [_filteredEntries release];
@@ -498,6 +535,34 @@ static const CGFloat kWinHeight = 260.0;
     [NSApp terminate:self];
 }
 
+/* Hand our custom field editor to the search field so Up/Down can leave the
+   box and jump into the results list. */
+- (id)windowWillReturnFieldEditor:(NSWindow *)sender toObject:(id)anObject
+{
+    if (anObject == _searchField) {
+        if (!_searchFieldEditor) {
+            _searchFieldEditor = [[CatalogFieldEditor alloc] init];
+            [_searchFieldEditor setCatalogTarget:self];
+        }
+        return _searchFieldEditor;
+    }
+    return nil;
+}
+
+/* Called from the search field's field editor on Up/Down: end editing, move
+   focus into the results table, and select the first (Down) or last (Up) row.
+   Once the table has focus, arrow keys navigate rows natively. */
+- (void)exitSearchFieldIntoResultsWithDelta:(NSInteger)delta
+{
+    NSInteger count = [_filteredEntries count];
+    if (count == 0) return;
+    NSInteger row = (delta > 0) ? 0 : (count - 1);
+    [[_searchField window] makeFirstResponder:_tableView];
+    [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:row]
+            byExtendingSelection:NO];
+    [_tableView scrollRowToVisible:row];
+}
+
 #pragma mark - Catalog refresh from server
 
 /* Runs on a background thread: download the catalog and store it in Caches.
@@ -698,15 +763,9 @@ static const CGFloat kWinHeight = 260.0;
 {
     [self loadEntriesFromLocal];
 
-    [_tableView reloadData];
-
-    if ([_filteredEntries count] > 0) {
-        [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0]
-                byExtendingSelection:NO];
-        [_buildButton setEnabled:YES];
-    } else {
-        [_buildButton setEnabled:NO];
-    }
+    /* Re-apply the current filter (which may have been restored from
+       NSUserDefaults or typed by the user) to the freshly loaded catalog. */
+    [self filterContent:nil];
 }
 
 @end
