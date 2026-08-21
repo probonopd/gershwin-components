@@ -477,9 +477,16 @@ static const CGFloat kWinHeight = 260.0;
                                                       cachePolicy:NSURLRequestReloadIgnoringCacheData
                                                   timeoutInterval:15.0];
 
+    NSString *cachePath = [CatalogEntry catalogCachePath];
     NSString *localPath = [CatalogEntry localCatalogPath];
-    if ([fm fileExistsAtPath:localPath]) {
-        NSDictionary *attrs = [fm attributesOfItemAtPath:localPath error:NULL];
+
+    /* Only send If-Modified-Since when we already hold a downloaded Caches
+       copy, whose mtime is a genuine "last fetched" timestamp. The bundled
+       copy's mtime is the app install time and would always look newer than
+       the server, wrongly yielding a 304. When falling back to the bundle we
+       do a full GET and decide via content comparison below. */
+    if (cachePath && [fm fileExistsAtPath:cachePath]) {
+        NSDictionary *attrs = [fm attributesOfItemAtPath:cachePath error:NULL];
         NSDate *localDate = [attrs objectForKey:NSFileModificationDate];
         if (localDate) {
             NSString *ims = [self imfFixdateFromDate:localDate];
@@ -520,7 +527,6 @@ static const CGFloat kWinHeight = 260.0;
     }
 
     /* Determine whether the download differs from what we currently display. */
-    NSString *cachePath = [CatalogEntry catalogCachePath];
     BOOL changed = YES;
     NSData *localData = [NSData dataWithContentsOfFile:localPath];
     if (localData && [localData isEqualToData:data]) {

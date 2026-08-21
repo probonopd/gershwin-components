@@ -10,7 +10,7 @@
 
 + (NSString *)remoteCatalogURLString
 {
-    return @"https://raw.githubusercontent.com/gershwin-desktop/gershwin-components/refs/heads/main/Build/Resources/Catalog.plist";
+    return @"https://raw.githubusercontent.com/gershwin-desktop/gershwin-components/refs/heads/dev/Build/Resources/Catalog.plist";
 }
 
 /* Path to the cached catalog in the user Caches directory, creating the
