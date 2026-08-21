@@ -253,6 +253,15 @@ static NSString *SystemActionsExecutable(NSArray *paths)
  * when the system goes down.  Only then is the single per-OS command run. */
 + (void)beginPowerAction:(NSString *)action
 {
+    /* The session supervisor (gershwin-session) restarts Workspace, Menu and
+       WindowManager whenever they exit.  Before any power action we tell it to
+       stop doing that, so a supervised app that exits while we are shutting
+       the session down is not brought back to life.  This must happen up front
+       for every action - even when no other applications are open - otherwise
+       the supervisor could resurrect a supervised app during the OS teardown
+       of a restart or shutdown. */
+    [self disableSessionAutoRestart];
+
     NSArray *apps = [self runningGNUstepApplicationsForAction:action];
     if ([apps count] == 0) {
         [self executePowerCommandForAction:action];
@@ -261,9 +270,6 @@ static NSString *SystemActionsExecutable(NSArray *paths)
 
     NSLog(@"SystemActions: Gracefully terminating %lu application(s) before %@",
           (unsigned long)[apps count], action);
-    /* The session supervisor must not resurrect the applications while we are
-       shutting down; keep it idle until the power action is done. */
-    [self disableSessionAutoRestart];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         /* Only GNUstep applications (those with a reachable DO service) are
            actually asked to quit and waited on; other window owners such as
@@ -308,9 +314,12 @@ static NSString *SystemActionsExecutable(NSArray *paths)
 }
 
 /* Discovers the running applications that own visible windows and returns
- * name/pid pairs.  The Menu itself and the Workspace (the session root, which
- * must stay alive until the OS command runs or is killed at logout) are
- * excluded. */
+ * name/pid pairs.  Only Menu is excluded: it must stay alive until the OS
+ * power command has been launched (and, for logout, until it has signalled
+ * the session supervisor to end the session).  Every other GNUstep app
+ * including the supervised Workspace and WindowManager is returned so it can
+ * be asked to quit gracefully; their supervisor's auto restart has already
+ * been disabled by the caller. */
 + (NSArray *)runningGNUstepApplicationsForAction:(NSString *)action
 {
     (void)action;
@@ -369,15 +378,18 @@ static NSString *SystemActionsExecutable(NSArray *paths)
     XCloseDisplay(display);
     XSetErrorHandler(previousHandler);
 
-    /* Never terminate ourselves. */
+    /* Never terminate ourselves - Menu must stay alive until the OS power
+       command has actually been launched (and, for logout, until it has asked
+       the supervisor to end the session). */
     [apps removeObjectForKey:[[NSProcessInfo processInfo] processName]];
     [apps removeObjectForKey:@"Menu"];
 
-    /* The session supervisor owns Workspace, Menu and WindowManager; it is
-       responsible for their lifecycle and it must stay alive until the
-       actual shutdown/restart/logout command runs.  Do not ask them to quit
-       here - the supervisor handles them. */
-    [apps removeObjectForKey:@"Workspace"];
+    /* Workspace, WindowManager and the other supervised apps are no longer
+       shielded from graceful termination here.  Because we disabled the
+       supervisor's auto restart at the start of the power action, asking them
+       to quit over DO is safe: if they exit, the supervisor will not bring
+       them back.  This lets them save state (and, for logout, end the session
+       cleanly) instead of being raw-SIGTERM'd by the supervisor later. */
 
     NSMutableArray *result = [NSMutableArray array];
     for (NSString *name in apps) {
