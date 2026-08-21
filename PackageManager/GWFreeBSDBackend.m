@@ -8,11 +8,11 @@
 
 #import "GWFreeBSDBackend.h"
 #import "GWPackageManager.h"
+#import "GWSudoHelper.h"
 
 #pragma mark - Constants
 
 static NSString *const kPkgPath = @"/usr/sbin/pkg";
-static NSString *const kSudoPath = @"/usr/bin/sudo";
 
 #pragma mark - GWFreeBSDBackend
 
@@ -55,11 +55,15 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
 
   // Install local packages first
   if ([filePaths count] > 0) {
-    NSMutableArray *args = [NSMutableArray arrayWithArray:@[@"-A", @"-E", kPkgPath, @"add", @"-f"]];
+    NSArray *sudoArgs = GWSudoArgPrefix();
+    NSString *launchPath = ([sudoArgs count] > 0) ? GWSudoPath() : kPkgPath;
+    NSMutableArray *args = [NSMutableArray arrayWithArray:sudoArgs];
+    [args addObject:kPkgPath];
+    [args addObjectsFromArray:@[@"add", @"-f"]];
     [args addObjectsFromArray:filePaths];
 
     NSString *capturedStderr = nil;
-    int status = [_executor execute:kSudoPath
+    int status = [_executor execute:launchPath
                           arguments:args
                      stdoutCallback:^(NSString *line) {
                        if ([progressHandler respondsToSelector:@selector(installDidOutputLine:)])
@@ -88,21 +92,25 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
 
   // Install packages from repositories
   if ([packageNames count] > 0) {
-    NSMutableArray *args = [NSMutableArray arrayWithArray:@[@"-A", @"-E", kPkgPath, @"install", @"-y"]];
+    NSArray *sudoArgs = GWSudoArgPrefix();
+    NSString *launchPath = ([sudoArgs count] > 0) ? GWSudoPath() : kPkgPath;
+    NSMutableArray *args = [NSMutableArray arrayWithArray:sudoArgs];
+    [args addObject:kPkgPath];
+    [args addObjectsFromArray:@[@"install", @"-y"]];
     [args addObjectsFromArray:packageNames];
 
     int status = 0;
-    int retries = 0;
-    const int maxRetries = 30;
-    __block BOOL waitingWasReported = NO;
+    int attempts = 0;
+    const int maxAttempts = 30;
+    __block BOOL lockSeen = NO;
+    BOOL repoUpdateDone = NO;
 
-    do
+    while (attempts < maxAttempts)
       {
-        waitingWasReported = NO;
+        lockSeen = NO;
 
-        if (retries > 0)
+        if (attempts > 0)
           {
-            NSLog(@"GWFreeBSDBackend -> lock detected, retrying (%d/%d)...", retries, maxRetries);
             [NSThread sleepForTimeInterval:2.0];
             [progressHandler installDidProgress:0.5f
                                        message:@"Waiting for other installations to finish…"];
@@ -110,32 +118,55 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
 
         NSLog(@"GWFreeBSDBackend -> pkg install -y %@", packageNames);
         NSString *capturedStderr = nil;
-        status = [_executor execute:kSudoPath
+        status = [_executor execute:launchPath
                           arguments:args
                      stdoutCallback:^(NSString *line) {
-                       if ([progressHandler respondsToSelector:@selector(installDidOutputLine:)])
-                         [progressHandler installDidOutputLine:line];
-                     }
+                        if ([progressHandler respondsToSelector:@selector(installDidOutputLine:)])
+                          [progressHandler installDidOutputLine:line];
+                      }
                      stderrCallback:^(NSString *line) {
-                       if ([progressHandler respondsToSelector:@selector(installDidOutputLine:)])
-                         [progressHandler installDidOutputLine:line];
+                        if ([progressHandler respondsToSelector:@selector(installDidOutputLine:)])
+                          [progressHandler installDidOutputLine:line];
 
-                       if (!waitingWasReported &&
-                           [line rangeOfString:@"database is locked"
-                                      options:NSCaseInsensitiveSearch].location != NSNotFound)
-                         {
-                           waitingWasReported = YES;
-                           [progressHandler installDidProgress:0.5f
-                                                      message:@"Waiting for other installations to finish…"];
-                         }
-                     }
-               capturedErrorOutput:&capturedStderr];
+                        if (!lockSeen &&
+                            [line rangeOfString:@"database is locked"
+                                       options:NSCaseInsensitiveSearch].location != NSNotFound)
+                          {
+                            lockSeen = YES;
+                            [progressHandler installDidProgress:0.5f
+                                                       message:@"Waiting for other installations to finish…"];
+                          }
+                      }
+                capturedErrorOutput:&capturedStderr];
         if (capturedStderr)
           _capturedErrorOutput = [_capturedErrorOutput stringByAppendingString:capturedStderr];
 
-        retries++;
+        if (status == 0)
+          break;
+
+        // The repository catalog may be missing or stale on a fresh install
+        // ("Repository ... cannot be opened. 'pkg update' required"). Bring it
+        // up to date once and retry, instead of failing outright.
+        if (!repoUpdateDone && [self _repoNeedsUpdate:capturedStderr])
+          {
+            repoUpdateDone = YES;
+            NSLog(@"GWFreeBSDBackend -> repo catalog missing/stale, running 'pkg update'");
+            [self _runPkgUpdate:progressHandler];
+            attempts++;
+            continue;
+          }
+
+        // Transient lock contention: back off and retry.
+        if (lockSeen)
+          {
+            NSLog(@"GWFreeBSDBackend -> lock detected, retrying (%d/%d)...", attempts, maxAttempts);
+            attempts++;
+            continue;
+          }
+
+        // Any other failure is fatal.
+        break;
       }
-    while (status != 0 && waitingWasReported && retries < maxRetries);
 
     NSLog(@"GWFreeBSDBackend <- pkg exit code: %d", status);
     if (status != 0) {
@@ -167,10 +198,14 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
   [progressHandler installDidProgress:0.5f message:@"Removing packages..."];
 
   if ([packageNames count] > 0) {
-    NSMutableArray *args = [NSMutableArray arrayWithArray:@[@"-A", @"-E", kPkgPath, @"delete", @"-y"]];
+    NSArray *sudoArgs = GWSudoArgPrefix();
+    NSString *launchPath = ([sudoArgs count] > 0) ? GWSudoPath() : kPkgPath;
+    NSMutableArray *args = [NSMutableArray arrayWithArray:sudoArgs];
+    [args addObject:kPkgPath];
+    [args addObjectsFromArray:@[@"delete", @"-y"]];
     [args addObjectsFromArray:packageNames];
 
-    int status = [_executor execute:kSudoPath arguments:args];
+    int status = [_executor execute:launchPath arguments:args];
     if (status != 0) {
       if (error) {
         *error = [NSError errorWithDomain:GWPackageManagerErrorDomain
@@ -268,6 +303,52 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
 
   NSLog(@"GWFreeBSDBackend <- packageOwningFile: %@ -> (not found)", path);
   return nil;
+}
+
+#pragma mark - Repository Catalog Maintenance
+
+/// Detect the "catalog missing/stale" condition from pkg's stderr.
+/// pkg prints e.g. "Repository FreeBSD cannot be opened. 'pkg update' required"
+/// or "the repository ... needs to be updated" when the local catalog is absent
+/// or out of date; in both cases a `pkg update` recovers.
+- (BOOL)_repoNeedsUpdate:(NSString *)stderrOutput
+{
+  if (!stderrOutput || [stderrOutput length] == 0)
+    return NO;
+  NSArray *signatures = @[@"cannot be opened",
+                          @"pkg update",
+                          @"needs to be updated",
+                          @"needs updating",
+                          @"repository cannot"];
+  NSString *lower = [stderrOutput lowercaseString];
+  for (NSString *sig in signatures)
+    {
+      if ([lower rangeOfString:sig].location != NSNotFound)
+        return YES;
+    }
+  return NO;
+}
+
+/// Refresh the package catalog so repository installs can proceed.
+- (void)_runPkgUpdate:(nullable id<GWInstallProgressHandler>)progress
+{
+  [progress installDidProgress:0.03f message:@"Updating package catalog..."];
+  NSArray *sudoArgs = GWSudoArgPrefix();
+  NSString *launchPath = ([sudoArgs count] > 0) ? GWSudoPath() : kPkgPath;
+  NSMutableArray *args = [NSMutableArray arrayWithArray:sudoArgs];
+  [args addObject:kPkgPath];
+  [args addObject:@"update"];
+  [_executor execute:launchPath
+            arguments:args
+       stdoutCallback:^(NSString *line) {
+         if ([progress respondsToSelector:@selector(installDidOutputLine:)])
+           [progress installDidOutputLine:line];
+       }
+       stderrCallback:^(NSString *line) {
+         if ([progress respondsToSelector:@selector(installDidOutputLine:)])
+           [progress installDidOutputLine:line];
+       }
+  capturedErrorOutput:NULL];
 }
 
 @end

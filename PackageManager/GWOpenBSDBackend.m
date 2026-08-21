@@ -8,13 +8,13 @@
 
 #import "GWOpenBSDBackend.h"
 #import "GWPackageManager.h"
+#import "GWSudoHelper.h"
 
 #pragma mark - Constants
 
 static NSString *const kPkgInfoPath = @"/usr/sbin/pkg_info";
 static NSString *const kPkgAddPath = @"/usr/sbin/pkg_add";
 static NSString *const kPkgDeletePath = @"/usr/sbin/pkg_delete";
-static NSString *const kSudoPath = @"/usr/bin/sudo";
 
 #pragma mark - GWOpenBSDBackend
 
@@ -57,11 +57,14 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
 
   // Install local files first
   if ([filePaths count] > 0) {
-    NSMutableArray *args = [NSMutableArray arrayWithArray:@[@"-A", @"-E", kPkgAddPath]];
+    NSArray *sudoArgs = GWSudoArgPrefix();
+    NSString *launchPath = ([sudoArgs count] > 0) ? GWSudoPath() : kPkgAddPath;
+    NSMutableArray *args = [NSMutableArray arrayWithArray:sudoArgs];
+    [args addObject:kPkgAddPath];
     [args addObjectsFromArray:filePaths];
 
     NSString *capturedStderr = nil;
-    int status = [_executor execute:kSudoPath
+    int status = [_executor execute:launchPath
                           arguments:args
                      stdoutCallback:^(NSString *line) {
                        if ([progressHandler respondsToSelector:@selector(installDidOutputLine:)])
@@ -90,7 +93,11 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
 
   // Install packages from repositories
   if ([packageNames count] > 0) {
-    NSMutableArray *args = [NSMutableArray arrayWithArray:@[@"-A", @"-E", kPkgAddPath, @"-V"]];
+    NSArray *sudoArgs = GWSudoArgPrefix();
+    NSString *launchPath = ([sudoArgs count] > 0) ? GWSudoPath() : kPkgAddPath;
+    NSMutableArray *args = [NSMutableArray arrayWithArray:sudoArgs];
+    [args addObject:kPkgAddPath];
+    [args addObjectsFromArray:@[@"-V"]];
     [args addObjectsFromArray:packageNames];
 
     int status = 0;
@@ -112,7 +119,7 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
 
         NSLog(@"GWOpenBSDBackend -> pkg_add -V %@", packageNames);
         NSString *capturedStderr = nil;
-        status = [_executor execute:kSudoPath
+        status = [_executor execute:launchPath
                           arguments:args
                      stdoutCallback:^(NSString *line)
         {
@@ -171,10 +178,13 @@ capturedErrorOutput:&capturedStderr];
   [progressHandler installDidProgress:0.5f message:@"Removing packages..."];
 
   if ([packageNames count] > 0) {
-    NSMutableArray *args = [NSMutableArray arrayWithArray:@[@"-A", @"-E", kPkgDeletePath]];
+    NSArray *sudoArgs = GWSudoArgPrefix();
+    NSString *launchPath = ([sudoArgs count] > 0) ? GWSudoPath() : kPkgDeletePath;
+    NSMutableArray *args = [NSMutableArray arrayWithArray:sudoArgs];
+    [args addObject:kPkgDeletePath];
     [args addObjectsFromArray:packageNames];
 
-    int status = [_executor execute:kSudoPath arguments:args];
+    int status = [_executor execute:launchPath arguments:args];
     if (status != 0) {
       if (error) {
         *error = [NSError errorWithDomain:GWPackageManagerErrorDomain

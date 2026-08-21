@@ -145,12 +145,24 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
 /// Resolve the actual .app bundle path from argv[0] so symlinked
 /// placeholders load their own Resources/Install.plist rather than
 /// the symlink target's bundle (OnDemand.app).
+///
+/// IMPORTANT: do NOT canonicalize the path with stringByStandardizingPath.
+/// That resolves symlinks, which would turn a placeholder such as
+/// Zeal.app (a symlink to OnDemand.app/OnDemand) into OnDemand.app and
+/// make it load OnDemand's own Install.plist (installing the wrong app).
+/// We only make relative paths absolute; we keep the symlink intact and
+/// walk up the directory chain until we hit the first ".app" component.
 - (NSString *)_actualBundlePath
 {
   NSString *arg0 = [[[NSProcessInfo processInfo] arguments] firstObject];
   if (arg0)
     {
-      NSString *absPath = [arg0 stringByStandardizingPath];
+      NSString *absPath = arg0;
+      if (![absPath isAbsolutePath])
+        {
+          NSString *cwd = [[NSFileManager defaultManager] currentDirectoryPath];
+          absPath = [cwd stringByAppendingPathComponent:arg0];
+        }
       NSString *dir = absPath;
       while (dir && ![dir isEqualToString:@"/"])
         {

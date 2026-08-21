@@ -8,12 +8,12 @@
 
 #import "GWDebBackend.h"
 #import "GWPackageManager.h"
+#import "GWSudoHelper.h"
 
 #pragma mark - Constants
 
 static NSString *const kAPTGetPath = @"/usr/bin/apt-get";
 static NSString *const kDpkgPath = @"/usr/bin/dpkg";
-static NSString *const kSudoPath = @"/usr/bin/sudo";
 
 #pragma mark - GWDebBackend
 
@@ -55,12 +55,16 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
 
   // Install local .deb files first
   if ([filePaths count] > 0) {
-    NSMutableArray *args = [NSMutableArray arrayWithArray:@[@"-A", @"-E", kDpkgPath, @"-i"]];
+    NSArray *sudoArgs = GWSudoArgPrefix();
+    NSString *launchPath = ([sudoArgs count] > 0) ? GWSudoPath() : kDpkgPath;
+    NSMutableArray *args = [NSMutableArray arrayWithArray:sudoArgs];
+    [args addObject:kDpkgPath];
+    [args addObjectsFromArray:@[@"-i"]];
     [args addObjectsFromArray:filePaths];
 
     NSLog(@"GWDebBackend -> dpkg -i local packages: %@", filePaths);
     NSString *dpkgStderr = nil;
-    int status = [_executor execute:kSudoPath
+    int status = [_executor execute:launchPath
                           arguments:args
                      stdoutCallback:^(NSString *line) {
                        if ([progressHandler respondsToSelector:@selector(installDidOutputLine:)])
@@ -90,10 +94,15 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
 
   // Install packages from repositories
   if ([packageNames count] > 0) {
-    NSMutableArray *args = [NSMutableArray arrayWithArray:@[@"-A", @"-E", kAPTGetPath, @"install", @"-y"]];
+    NSArray *sudoArgs = GWSudoArgPrefix();
+    NSString *launchPath = ([sudoArgs count] > 0) ? GWSudoPath() : kAPTGetPath;
+    NSMutableArray *args = [NSMutableArray arrayWithArray:sudoArgs];
+    [args addObject:kAPTGetPath];
+    [args addObjectsFromArray:@[@"install", @"-y"]];
     [args addObjectsFromArray:packageNames];
 
     int status = 0;
+    // default status for the first iteration
     int retries = 0;
     const int maxRetries = 30;
     __block BOOL waitingWasReported = NO;
@@ -112,7 +121,7 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
 
         NSLog(@"GWDebBackend -> apt-get install -y %@", packageNames);
         NSString *aptStderr = nil;
-        status = [_executor execute:kSudoPath
+        status = [_executor execute:launchPath
                           arguments:args
                      stdoutCallback:^(NSString *line)
         {
@@ -174,10 +183,14 @@ static NSString *const kSudoPath = @"/usr/bin/sudo";
   [progressHandler installDidProgress:0.5f message:@"Removing packages..."];
 
   if ([packageNames count] > 0) {
-    NSMutableArray *args = [NSMutableArray arrayWithArray:@[@"-A", @"-E", kAPTGetPath, @"remove", @"-y"]];
+    NSArray *sudoArgs = GWSudoArgPrefix();
+    NSString *launchPath = ([sudoArgs count] > 0) ? GWSudoPath() : kAPTGetPath;
+    NSMutableArray *args = [NSMutableArray arrayWithArray:sudoArgs];
+    [args addObject:kAPTGetPath];
+    [args addObjectsFromArray:@[@"remove", @"-y"]];
     [args addObjectsFromArray:packageNames];
 
-    int status = [_executor execute:kSudoPath arguments:args];
+    int status = [_executor execute:launchPath arguments:args];
     if (status != 0) {
       if (error) {
         *error = [NSError errorWithDomain:GWPackageManagerErrorDomain

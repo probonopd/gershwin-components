@@ -223,7 +223,10 @@ static NSCharacterSet *_whitespaceSet(void)
 
   if ([osID isEqualToString:@"freebsd"] ||
       [osID isEqualToString:@"ghostbsd"] ||
-      [osID isEqualToString:@"dragonfly"])
+      [osID isEqualToString:@"dragonfly"] ||
+      // NextBSD is a FreeBSD-derived OS (ID_LIKE=freebsd) and uses the
+      // same pkg(8) tooling, so it belongs to the FreeBSD family.
+      [osID isEqualToString:@"nextbsd"])
     return @"freebsd";
 
   if ([osID isEqualToString:@"openbsd"])
