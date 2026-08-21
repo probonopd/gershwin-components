@@ -33,16 +33,13 @@
     return [appDir stringByAppendingPathComponent:@"Catalog.plist"];
 }
 
-/* Prefer a previously downloaded catalog from Caches; fall back to the copy
-   shipped inside the application bundle. */
+/* The catalog is never bundled; it is always fetched from the server into
+   Caches. Return the Caches path (which may not exist yet on a fresh run);
+   the loader tolerates a missing file by yielding an empty list until the
+   first fetch completes. */
 + (NSString *)localCatalogPath
 {
-    NSString *cachePath = [self catalogCachePath];
-    if (cachePath && [[NSFileManager defaultManager] fileExistsAtPath:cachePath]) {
-        return cachePath;
-    }
-    return [[[NSBundle mainBundle] resourcePath]
-            stringByAppendingPathComponent:@"Catalog.plist"];
+    return [self catalogCachePath];
 }
 
 + (NSArray *)loadCatalog

@@ -37,7 +37,6 @@ Build_RESOURCE_FILES = \
 	Resources/check.png \
 	Resources/Blacklist.plist \
 	Resources/GNUstep.info.plist \
-	Resources/Catalog.plist \
 	Resources/English.lproj \
 	Resources/German.lproj \
 	Info-gnustep.plist
