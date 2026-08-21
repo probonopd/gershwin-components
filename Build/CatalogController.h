@@ -14,6 +14,7 @@
     NSButton *_buildButton;
     NSArray *_entries;
     NSArray *_filteredEntries;
+    BOOL _catalogRefreshStarted;
 }
 
 - (void)showWindow;

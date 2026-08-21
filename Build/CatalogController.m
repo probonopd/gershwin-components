@@ -68,6 +68,16 @@ static const CGFloat kWinHeight = 260.0;
         return;
     }
 
+    /* Refresh the catalog from the server in the background the first time the
+       window is shown. The table reloads automatically once a newer catalog
+       has been downloaded into Caches. */
+    if (!_catalogRefreshStarted) {
+        _catalogRefreshStarted = YES;
+        [NSThread detachNewThreadSelector:@selector(fetchCatalogInBackground)
+                                 toTarget:self
+                               withObject:nil];
+    }
+
     CGFloat right = kSideMargin;
     CGFloat bottom = kBottomMargin;
     CGFloat btnW = kBtnWide;
@@ -434,6 +444,118 @@ static const CGFloat kWinHeight = 260.0;
 - (void)windowWillClose:(NSNotification *)notification
 {
     [NSApp terminate:self];
+}
+
+#pragma mark - Catalog refresh from server
+
+/* Build an IMF-fixdate (RFC 7231) string in GMT for the If-Modified-Since
+   header from a local file modification date. */
+- (NSString *)imfFixdateFromDate:(NSDate *)date
+{
+    NSCalendarDate *cd = [NSCalendarDate dateWithTimeIntervalSinceReferenceDate:
+                          [date timeIntervalSinceReferenceDate]];
+    return [cd descriptionWithCalendarFormat:@"%a, %d %b %Y %H:%M:%S GMT"
+                                    timeZone:[NSTimeZone timeZoneWithAbbreviation:@"GMT"]
+                                      locale:nil];
+}
+
+/* Runs on a background thread: download the catalog if it is newer than the
+   local copy, store it in Caches, and reload the table on the main thread. */
+- (void)fetchCatalogInBackground
+{
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    NSString *urlString = [CatalogEntry remoteCatalogURLString];
+    NSURL *url = [NSURL URLWithString:urlString];
+    if (!url) {
+        [pool release];
+        return;
+    }
+
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url
+                                                      cachePolicy:NSURLRequestReloadIgnoringCacheData
+                                                  timeoutInterval:15.0];
+
+    NSString *localPath = [CatalogEntry localCatalogPath];
+    if ([fm fileExistsAtPath:localPath]) {
+        NSDictionary *attrs = [fm attributesOfItemAtPath:localPath error:NULL];
+        NSDate *localDate = [attrs objectForKey:NSFileModificationDate];
+        if (localDate) {
+            NSString *ims = [self imfFixdateFromDate:localDate];
+            if (ims) {
+                [req setValue:ims forHTTPHeaderField:@"If-Modified-Since"];
+            }
+        }
+    }
+
+    NSURLResponse *response = nil;
+    NSError *error = nil;
+    NSData *data = [NSURLConnection sendSynchronousRequest:req
+                                        returningResponse:&response
+                                                    error:&error];
+    if (error || [data length] == 0) {
+        [pool release];
+        return;
+    }
+
+    NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
+    if ([http isKindOfClass:[NSHTTPURLResponse class]] && [http statusCode] == 304) {
+        [pool release];
+        return;
+    }
+    if ([http isKindOfClass:[NSHTTPURLResponse class]] && [http statusCode] != 200) {
+        [pool release];
+        return;
+    }
+
+    /* Only accept a well-formed catalog array. */
+    NSArray *parsed = [NSPropertyListSerialization propertyListWithData:data
+                                                                options:NSPropertyListImmutable
+                                                                 format:NULL
+                                                                  error:NULL];
+    if (![parsed isKindOfClass:[NSArray class]]) {
+        [pool release];
+        return;
+    }
+
+    /* Determine whether the download differs from what we currently display. */
+    NSString *cachePath = [CatalogEntry catalogCachePath];
+    BOOL changed = YES;
+    NSData *localData = [NSData dataWithContentsOfFile:localPath];
+    if (localData && [localData isEqualToData:data]) {
+        changed = NO;
+    }
+
+    if (cachePath) {
+        [data writeToFile:cachePath atomically:YES];
+    }
+
+    if (changed) {
+        [self performSelectorOnMainThread:@selector(reloadCatalog)
+                               withObject:nil
+                            waitUntilDone:NO];
+    }
+
+    [pool release];
+}
+
+- (void)reloadCatalog
+{
+    [_entries release];
+    _entries = [[CatalogEntry loadCatalog] retain];
+    [_filteredEntries release];
+    _filteredEntries = [_entries retain];
+
+    [_tableView reloadData];
+
+    if ([_filteredEntries count] > 0) {
+        [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0]
+                byExtendingSelection:NO];
+        [_buildButton setEnabled:YES];
+    } else {
+        [_buildButton setEnabled:NO];
+    }
 }
 
 @end
