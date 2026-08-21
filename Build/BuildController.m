@@ -1407,22 +1407,19 @@ static const CGFloat kSpace16 = 16.0;
                     productPath = nil;
                 }
             } else {
-                [[NSWorkspace sharedWorkspace] findApplications];
-                productPath = [[NSWorkspace sharedWorkspace] fullPathForApplication:name];
+                /* Resolve the real install location instead of guessing via the
+                   workspace application index, which does not know a freshly
+                   installed app (it lands in the SYSTEM or LOCAL domain
+                   Applications dir, e.g. /Local/Applications). */
+                productPath = [self installedAppPathForName:name];
             }
             if (productPath) {
-                /* launchApplication: connects to the target app via DO and can
-                   block while the freshly installed app is starting.  Run the
-                   launch off the main thread so the UI does not freeze; the
-                   terminate/cleanup that follows stays ordered after it.  The
-                   launch result decides the project's green/red label. */
+                /* Launch off the main thread so the UI does not freeze while the
+                   freshly installed app starts. The launch result decides the
+                   project's green/red label. */
                 [NSThread detachNewThreadWithBlock: ^{
-                    BOOL launched = NO;
-                    if ([ext isEqualToString:@"prefPane"]) {
-                        launched = [[NSWorkspace sharedWorkspace] launchApplication:@"SystemPreferences"];
-                    } else {
-                        launched = [[NSWorkspace sharedWorkspace] launchApplication:name];
-                    }
+                    BOOL launched = [self launchInstalledAppAtPath:productPath
+                                                         extension:ext];
                     [self performSelectorOnMainThread: @selector(finishLaunchAndExit:)
                                            withObject: [NSNumber numberWithBool:launched]
                                         waitUntilDone: NO];
@@ -1443,6 +1440,78 @@ static const CGFloat kSpace16 = 16.0;
 
     [self cleanupTempDir];
     [self quitCleanly];
+}
+
+/* After `gmake install` the product sits in one of the standard Applications
+   directories of the SYSTEM/LOCAL/USER/NETWORK domains (these external projects
+   default to the LOCAL domain, i.e. /Local/Applications). The workspace
+   application index does not know about a just-installed bundle, so resolve the
+   actual path ourselves by scanning those directories. */
+- (NSString *)installedAppPathForName:(NSString *)name
+{
+    if (!name) return nil;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *appName = [name stringByAppendingPathExtension:@"app"];
+
+    NSMutableArray *roots = [NSMutableArray array];
+    NSSearchPathDomainMask domains[] = { NSSystemDomainMask, NSLocalDomainMask,
+                                         NSUserDomainMask, NSNetworkDomainMask };
+    for (int i = 0; i < 4; i++) {
+        [roots addObjectsFromArray:
+            NSSearchPathForDirectoriesInDomains(NSApplicationDirectory, domains[i], YES)];
+        NSArray *libDirs = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory,
+                                                               domains[i], YES);
+        for (NSString *ld in libDirs) {
+            [roots addObject:[ld stringByAppendingPathComponent:@"CoreServices/Applications"]];
+            [roots addObject:[ld stringByAppendingPathComponent:@"Bundles"]];
+        }
+    }
+    [roots addObject:@"/System/Applications"];
+    [roots addObject:@"/System/Library/Applications"];
+    [roots addObject:@"/System/Library/CoreServices/Applications"];
+    [roots addObject:@"/Local/Applications"];
+    [roots addObject:@"/Local/Library/Applications"];
+    [roots addObject:[@"~/Applications" stringByExpandingTildeInPath]];
+
+    for (NSString *root in roots) {
+        if ([root length] == 0) continue;
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:root isDirectory:&isDir] || !isDir) continue;
+
+        /* Direct child <name>.app ... */
+        NSString *cand = [root stringByAppendingPathComponent:appName];
+        if ([fm fileExistsAtPath:cand]) return cand;
+
+        /* ... and one level deep, e.g. <root>/<subdir>/<name>.app. */
+        NSArray *entries = [fm contentsOfDirectoryAtPath:root error:NULL];
+        for (NSString *e in entries) {
+            NSString *nested = [[root stringByAppendingPathComponent:e]
+                stringByAppendingPathComponent:appName];
+            if ([fm fileExistsAtPath:nested]) return nested;
+        }
+    }
+    return nil;
+}
+
+/* Launch an installed product by its actual path. For apps we use openapp with
+   the full path so it works regardless of the workspace application index. */
+- (BOOL)launchInstalledAppAtPath:(NSString *)productPath extension:(NSString *)ext
+{
+    if ([ext isEqualToString:@"prefPane"]) {
+        return [[NSWorkspace sharedWorkspace] launchApplication:@"SystemPreferences"];
+    }
+    NSString *openapp = [NSTask launchPathForTool:@"openapp"];
+    if (!openapp) return NO;
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:openapp];
+    [task setArguments:@[productPath]];
+    [task setStandardInput:[NSFileHandle fileHandleWithNullDevice]];
+    @try {
+        [task launch];
+        return YES;
+    } @catch (NSException *exception) {
+        return NO;
+    }
 }
 
 - (NSString *)displayNameFromMakefile

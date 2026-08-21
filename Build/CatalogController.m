@@ -516,86 +516,99 @@ static const CGFloat kWinHeight = 260.0;
         errorMessage = NSLocalizedString(@"The catalog address is invalid.",
                                          @"Catalog fetch error");
     } else {
-        NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url
-                                                          cachePolicy:NSURLRequestReloadIgnoringCacheData
-                                                      timeoutInterval:15.0];
-
         NSString *cachePath = [CatalogEntry catalogCachePath];
-
-        /* Track the catalog by its content-derived ETag, kept in a sidecar file
-           next to the Caches copy. raw.githubusercontent.com branch refs report
-           a Last-Modified that does NOT track the latest commit, so the usual
-           If-Modified-Since conditional wrongly returns 304 and the app would
-           keep a stale catalog forever. The ETag, however, is derived from the
-           actual blob content, so If-None-Match is reliable: we only re-download
-           when the catalog really changed, and never miss an update. */
-        NSString *etagPath = [cachePath stringByAppendingString:@".etag"];
-        NSString *storedEtag = nil;
-        if (etagPath && [fm fileExistsAtPath:etagPath]) {
-            storedEtag = [NSString stringWithContentsOfFile:etagPath
-                                                  encoding:NSUTF8StringEncoding
-                                                     error:NULL];
-            if ([storedEtag length] > 0) {
-                [req setValue:storedEtag forHTTPHeaderField:@"If-None-Match"];
-            }
-        }
-
-        NSURLResponse *response = nil;
-        NSError *error = nil;
-        NSData *data = [NSURLConnection sendSynchronousRequest:req
-                                            returningResponse:&response
-                                                        error:&error];
-        if (!data || [data length] == 0 || error) {
-            errorMessage = [NSString stringWithFormat:
-                NSLocalizedString(@"Could not download the catalog: %@",
-                                  @"Catalog fetch error with reason"),
-                (error ? [error localizedDescription]
-                        : NSLocalizedString(@"no data received",
-                                            @"Catalog fetch error: empty"))];
+        NSString *curlPath = [NSTask launchPathForTool:@"curl"];
+        if (!curlPath) {
+            errorMessage = NSLocalizedString(@"The catalog download tool (curl) is missing.",
+                                             @"Catalog fetch error");
+        } else if (!cachePath) {
+            errorMessage = NSLocalizedString(@"The catalog cache directory is unavailable.",
+                                             @"Catalog fetch error");
         } else {
-            NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
-            BOOL proceed = YES;
-            if ([http isKindOfClass:[NSHTTPURLResponse class]]) {
-                if ([http statusCode] == 304) {
-                    /* Catalog unchanged: keep the cached copy, no reload. */
-                    proceed = NO;
-                } else if ([http statusCode] != 200) {
+            NSString *tmpDir = NSTemporaryDirectory();
+            NSString *dlPath = [tmpDir stringByAppendingPathComponent:@"BuildCatalog.dl"];
+            NSString *hdrPath = [tmpDir stringByAppendingPathComponent:@"BuildCatalog.hdr"];
+            [fm removeItemAtPath:dlPath error:NULL];
+            [fm removeItemAtPath:hdrPath error:NULL];
+
+            /* Track the catalog by its content-derived ETag so we only re-download
+               when it actually changes. raw.githubusercontent branch refs report a
+               Last-Modified that does NOT track the latest commit, so If-Modified-Since
+               style checks are unreliable; the ETag is content-derived and stable. */
+            NSString *etagPath = [cachePath stringByAppendingString:@".etag"];
+            NSMutableArray *args = [NSMutableArray arrayWithObjects:@"-fsSL", nil];
+            NSString *storedEtag = nil;
+            if (etagPath && [fm fileExistsAtPath:etagPath]) {
+                storedEtag = [NSString stringWithContentsOfFile:etagPath
+                                                      encoding:NSUTF8StringEncoding
+                                                         error:NULL];
+                if ([storedEtag length] > 0) {
+                    [args addObject:@"-H"];
+                    [args addObject:[NSString stringWithFormat:@"If-None-Match: %@", storedEtag]];
+                }
+            }
+            [args addObject:@"-D"];
+            [args addObject:hdrPath];
+            [args addObject:@"-o"];
+            [args addObject:dlPath];
+            [args addObject:urlString];
+
+            /* libcurl (via the curl CLI) follows the GitHub raw 302 redirects that
+               GNUstep's NSURLConnection cannot, so this path is reliable. */
+            NSTask *task = [[NSTask alloc] init];
+            [task setLaunchPath:curlPath];
+            [task setArguments:args];
+            [task launch];
+            [task waitUntilExit];
+            int status = [task terminationStatus];
+            [task release];
+
+            if (status != 0) {
+                errorMessage = [NSString stringWithFormat:
+                    NSLocalizedString(@"Could not download the catalog (curl exit %d).",
+                                      @"Catalog fetch error with curl status"),
+                    status];
+            } else {
+                NSString *headers = [NSString stringWithContentsOfFile:hdrPath
+                                                              encoding:NSUTF8StringEncoding
+                                                                 error:NULL];
+                NSInteger code = [self statusCodeFromHeaders:headers];
+                if (code == 304) {
+                    /* Unchanged: keep the cached copy, no reload. */
+                } else if (code != 200) {
                     errorMessage = [NSString stringWithFormat:
                         NSLocalizedString(@"The catalog server returned an error (HTTP %d).",
                                           @"Catalog fetch error with status code"),
-                        (int)[http statusCode]];
-                    proceed = NO;
-                }
-            }
-
-            if (proceed) {
-                /* Only accept a well-formed catalog array. */
-                NSArray *parsed = [NSPropertyListSerialization
-                                      propertyListWithData:data
-                                                    options:NSPropertyListImmutable
-                                                     format:NULL
-                                                      error:NULL];
-                if (![parsed isKindOfClass:[NSArray class]]) {
-                    errorMessage = NSLocalizedString(@"The downloaded catalog is not valid.",
-                                                     @"Catalog fetch error: bad plist");
+                        (int)code];
                 } else {
-                    if (cachePath) {
-                        [data writeToFile:cachePath atomically:YES];
-                    }
-                    /* Persist the new ETag so the next run can skip re-downloading
-                       an unchanged catalog. */
-                    NSString *newEtag = nil;
-                    if ([http isKindOfClass:[NSHTTPURLResponse class]]) {
-                        newEtag = [[http allHeaderFields] objectForKey:@"ETag"];
-                    }
-                    if (newEtag && etagPath) {
-                        [newEtag writeToFile:etagPath
-                                  atomically:YES
-                                    encoding:NSUTF8StringEncoding
-                                       error:NULL];
+                    NSData *data = [NSData dataWithContentsOfFile:dlPath];
+                    if (!data || [data length] == 0) {
+                        errorMessage = NSLocalizedString(@"The downloaded catalog is empty.",
+                                                         @"Catalog fetch error: empty");
+                    } else {
+                        NSArray *parsed = [NSPropertyListSerialization
+                                              propertyListWithData:data
+                                                            options:NSPropertyListImmutable
+                                                             format:NULL
+                                                              error:NULL];
+                        if (![parsed isKindOfClass:[NSArray class]]) {
+                            errorMessage = NSLocalizedString(@"The downloaded catalog is not valid.",
+                                                             @"Catalog fetch error: bad plist");
+                        } else {
+                            [data writeToFile:cachePath atomically:YES];
+                            NSString *newEtag = [self etagFromHeaders:headers];
+                            if (newEtag && etagPath) {
+                                [newEtag writeToFile:etagPath
+                                      atomically:YES
+                                        encoding:NSUTF8StringEncoding
+                                           error:NULL];
+                            }
+                        }
                     }
                 }
             }
+            [fm removeItemAtPath:dlPath error:NULL];
+            [fm removeItemAtPath:hdrPath error:NULL];
         }
     }
 
@@ -603,6 +616,48 @@ static const CGFloat kWinHeight = 260.0;
                            withObject:errorMessage
                         waitUntilDone:NO];
     [pool release];
+}
+
+/* Parse the final HTTP status code from a curl -D header dump. With -L the dump
+   contains every response's headers; we want the last HTTP/ line (the final,
+   post-redirect response). Returns 0 if none is found. */
+- (NSInteger)statusCodeFromHeaders:(NSString *)headers
+{
+    if ([headers length] == 0) return 0;
+    NSInteger code = 0;
+    NSArray *lines = [headers componentsSeparatedByString:@"\n"];
+    for (NSString *line in lines) {
+        NSString *s = [line stringByTrimmingCharactersInSet:
+                          [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if ([s hasPrefix:@"HTTP/"]) {
+            NSRange sp = [s rangeOfString:@" "];
+            if (sp.location != NSNotFound) {
+                NSString *num = [[s substringFromIndex:NSMaxRange(sp)]
+                                    stringByTrimmingCharactersInSet:
+                                      [NSCharacterSet whitespaceCharacterSet]];
+                code = [num integerValue];
+            }
+        }
+    }
+    return code;
+}
+
+/* Extract the (last) ETag: header from a curl -D header dump. */
+- (NSString *)etagFromHeaders:(NSString *)headers
+{
+    if ([headers length] == 0) return nil;
+    NSString *etag = nil;
+    NSArray *lines = [headers componentsSeparatedByString:@"\n"];
+    for (NSString *line in lines) {
+        NSString *s = [line stringByTrimmingCharactersInSet:
+                          [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if ([[s lowercaseString] hasPrefix:@"etag:"]) {
+            etag = [[s substringFromIndex:5]
+                       stringByTrimmingCharactersInSet:
+                         [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        }
+    }
+    return etag;
 }
 
 /* Called on the main thread once the background fetch has completed: report any
