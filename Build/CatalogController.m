@@ -227,6 +227,14 @@ static const CGFloat kWinHeight = 260.0;
     [_window center];
     [_window orderFront:nil];
 
+    /* Give the list keyboard focus so Up/Down navigate rows on the very first
+       keypress.  Without this the initial key event is consumed just to make
+       the table the first responder, and only the second press moves the
+       selection. */
+    if ([_filteredEntries count] > 0) {
+        [_window makeFirstResponder:_tableView];
+    }
+
     /* Refresh the catalog from the server in the background the first time the
        window is shown. The list is refreshed (and the spinner hidden) once the
        download has completed. */
@@ -556,7 +564,14 @@ static const CGFloat kWinHeight = 260.0;
 {
     NSInteger count = [_filteredEntries count];
     if (count == 0) return;
-    NSInteger row = (delta > 0) ? 0 : (count - 1);
+    // Step one row from the current selection rather than always jumping to the
+    // first/last row, so the first arrow press actually moves the highlight
+    // (jumping to row 0 is a no-op when row 0 is already selected).
+    NSInteger current = [_tableView selectedRow];
+    NSInteger row = (current < 0) ? ((delta > 0) ? 0 : count - 1)
+                                   : current + delta;
+    if (row < 0) row = 0;
+    if (row >= count) row = count - 1;
     [[_searchField window] makeFirstResponder:_tableView];
     [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:row]
             byExtendingSelection:NO];
