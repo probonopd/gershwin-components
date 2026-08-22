@@ -2375,6 +2375,32 @@ static const unsigned long long modelMinSizes[] = {
 
 #pragma mark - GNUstep Service: Dictate Text
 
+- (void)showListeningWindow
+{
+    NSWindow *win = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 300, 60)
+                                                 styleMask:NSTitledWindowMask
+                                                   backing:NSBackingStoreBuffered
+                                                     defer:NO];
+    [win setTitle:@"Whisper"];
+    [win center];
+    NSTextField *l = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 20, 260, 20)];
+    [l setStringValue:@"Listening... speak now"];
+    [l setEditable:NO]; [l setSelectable:NO];
+    [l setBordered:NO]; [l setBezeled:NO]; [l setDrawsBackground:NO];
+    [[win contentView] addSubview:l];
+    [win makeKeyAndOrderFront:self];
+    [win display];
+    objc_setAssociatedObject(self, "_listenWin", win, OBJC_ASSOCIATION_RETAIN);
+}
+
+- (void)hideListeningWindow
+{
+    NSWindow *w = objc_getAssociatedObject(self, "_listenWin");
+    [w close];
+    [w release];
+    objc_setAssociatedObject(self, "_listenWin", nil, OBJC_ASSOCIATION_RETAIN);
+}
+
 // Returns the default capture device path (ALSA "plughw:N,M" or OSS "/dev/dspN")
 // or nil if no input backend is available.
 - (NSString *)defaultCaptureDevice
@@ -2442,6 +2468,13 @@ static const unsigned long long modelMinSizes[] = {
         return;
     }
 
+    // Feedback window so the user knows to speak NOW.
+    // Created on the main thread (AppKit requirement); dictate blocks
+    // on this DO thread until recording completes.
+    [self performSelectorOnMainThread:@selector(showListeningWindow)
+                           withObject:nil
+                        waitUntilDone:YES];
+
     // Record until silence-after-speech, no-speech timeout, or hard cap
     NSDate *started = [NSDate date];
     BOOL heardSpeech = NO;
@@ -2468,9 +2501,13 @@ static const unsigned long long modelMinSizes[] = {
 
         NSTimeInterval elapsed = -[started timeIntervalSinceNow];
         if (heardSpeech && silentChecks >= 4) break;         // ~2 s of silence
-        if (!heardSpeech && elapsed > 10.0) break;           // nothing said
-        if (elapsed > 60.0) break;                           // hard cap
+        if (!heardSpeech && elapsed > 20.0) break;           // nothing said
+        if (elapsed > 120.0) break;                          // hard cap
     }
+
+    [self performSelectorOnMainThread:@selector(hideListeningWindow)
+                           withObject:nil
+                        waitUntilDone:YES];
 
     WCaptureData *cd = wcapture_stop(cap);
     if (!cd || cd->n_samples == 0 || !heardSpeech) {
