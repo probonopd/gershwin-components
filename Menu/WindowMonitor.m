@@ -19,6 +19,7 @@
     Display *_display;
     Window _rootWindow;
     Atom _netActiveWindowAtom;
+    Atom _gershwinActiveAppAtom;
     Atom _gstepAppAtom;
     unsigned long _currentActiveWindow;
     BOOL _monitoring;
@@ -57,6 +58,7 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
         _display = NULL;
         _rootWindow = 0;
         _netActiveWindowAtom = 0;
+        _gershwinActiveAppAtom = 0;
         _gstepAppAtom = 0;
         _currentActiveWindow = 0;
         _monitoring = NO;
@@ -106,6 +108,7 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
         }
         _rootWindow = DefaultRootWindow(_display);
         _netActiveWindowAtom = XInternAtom(_display, "_NET_ACTIVE_WINDOW", False);
+        _gershwinActiveAppAtom = XInternAtom(_display, "_GERSHWIN_ACTIVE_APP", False);
         _gstepAppAtom = XInternAtom(_display, "_GNUSTEP_WM_ATTR", False);
         XSelectInput(_display, _rootWindow, PropertyChangeMask | SubstructureNotifyMask);
         XSync(_display, False);
@@ -120,6 +123,17 @@ NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorA
                 && event.xproperty.window == _rootWindow
                 && event.xproperty.atom == _netActiveWindowAtom) {
                 [self checkActiveWindow];
+            } else if (event.type == PropertyNotify
+                && event.xproperty.window == _rootWindow
+                && event.xproperty.atom == _gershwinActiveAppAtom) {
+                /* The frontmost application changed without a window change
+                   (e.g. Alt-Tab between two windowless apps).  Re-post the
+                   current active window (0 when windowless) so the widget
+                   re-evaluates its application-level menu. */
+                NSDictionary *userInfo = @{@"windowId": @(_currentActiveWindow)};
+                [self performSelectorOnMainThread:@selector(_postWindowNotification:)
+                                       withObject:userInfo
+                                    waitUntilDone:NO];
             } else if (event.type == DestroyNotify || event.type == UnmapNotify) {
                 Window affected = (event.type == DestroyNotify)
                     ? event.xdestroywindow.window : event.xunmap.window;

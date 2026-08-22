@@ -776,22 +776,29 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         double cpuPercent = (cpuDelta / wallDelta) * 100.0;
         unsigned long activeWindowId = [[WindowMonitor sharedMonitor] getActiveWindow];
         unsigned long shownWindowId = self.appMenuWidget ? self.appMenuWidget.currentWindowId : 0UL;
+        /* Track how many GNUstep windows have cached menus: this must stay
+           bounded.  Growth across a long session indicates windows closing
+           without unregistering (crash/no DO unregister); the importer's
+           reconcileMenusWithLiveWindows: sweep purges those. */
+        NSUInteger cachedMenuCount = [GNUStepMenuImporter cachedMenuCount];
         if (wallDelta > 1.5) {
-            NSLog(@"[CPU] delayed sample last %.2fs total=%.2f%% user=%.2fms sys=%.2fms active=0x%lx shown=0x%lx",
+            NSLog(@"[CPU] delayed sample last %.2fs total=%.2f%% user=%.2fms sys=%.2fms active=0x%lx shown=0x%lx menus=%lu",
                   wallDelta,
                   cpuPercent,
                   userDelta * 1000.0,
                   systemDelta * 1000.0,
                   activeWindowId,
-                  shownWindowId);
+                  shownWindowId,
+                  (unsigned long)cachedMenuCount);
         } else {
-            NSLog(@"[CPU] last %.2fs total=%.2f%% user=%.2fms sys=%.2fms active=0x%lx shown=0x%lx",
+            NSLog(@"[CPU] last %.2fs total=%.2f%% user=%.2fms sys=%.2fms active=0x%lx shown=0x%lx menus=%lu",
                   wallDelta,
                   cpuPercent,
                   userDelta * 1000.0,
                   systemDelta * 1000.0,
                   activeWindowId,
-                  shownWindowId);
+                  shownWindowId,
+                  (unsigned long)cachedMenuCount);
         }
     }
 

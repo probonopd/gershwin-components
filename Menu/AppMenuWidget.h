@@ -29,6 +29,11 @@
 /* The system submenu (contains Search, System Preferences, and dynamic application list) */
 @property (nonatomic, strong) NSMenu *systemMenu;
 
+/* The reusable system ⌘ submenu.  Built once and cached across every menu-bar
+   rebuild: recreating it per switch made each switch tear down the same ~40-menu
+   tree, a multi-second 100%-CPU dealloc cascade. */
+@property (nonatomic, strong) NSMenu *cachedSystemMenu;
+
 /* The System Preferences submenu inside the Command menu.  It holds one item
    per installed prefPane, populated by populatePrefPanesSubmenu (eagerly, so
    GNUstep auto-enabling does not grey out the parent item). */
@@ -66,6 +71,7 @@
 - (void)displayMenuForWindow:(unsigned long)windowId;
 - (void)setupMenuViewWithMenu:(NSMenu *)menu;
 - (void)loadMenu:(NSMenu *)menu forWindow:(unsigned long)windowId;
+- (void)loadApplicationMenu:(NSMenu *)menu forPID:(pid_t)pid;
 - (void)checkAndDisplayMenuForNewlyRegisteredWindow:(unsigned long)windowId;
 - (BOOL)isPlaceholderMenu:(NSMenu *)menu;
 - (void)closeActiveWindow:(NSMenuItem *)sender;

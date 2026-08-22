@@ -18,6 +18,17 @@
 - (oneway void)updateMenuEnabledStatesForWindow:(bycopy NSNumber *)windowId
                                        menuData:(bycopy NSDictionary *)menuData
                                      clientName:(bycopy NSString *)clientName;
+
+/* Application-level menu (frontmost app without a window, e.g. a
+   menu-bar-only app, or an app whose last window closed).  The menu is
+   keyed by clientName (client PID), NOT by a window.  Menu.app shows it
+   when no focused window owns a window-level menu.  Semantics mirror the
+   window-level trio above. */
+- (oneway void)updateMenuForApplication:(bycopy NSDictionary *)menuData
+                             clientName:(bycopy NSString *)clientName;
+- (oneway void)unregisterApplication:(bycopy NSString *)clientName;
+- (oneway void)updateApplicationMenuEnabledStates:(bycopy NSDictionary *)menuData
+                                        clientName:(bycopy NSString *)clientName;
 @end
 
 @protocol GSGNUstepMenuClient
@@ -35,4 +46,9 @@
 // (enabled/disabled, checkmarks) are up-to-date before the user sees them.
 // Must respond promptly (< 300 ms).
 - (bycopy id)validateMenuStateForWindow:(NSNumber *)windowId;
+
+// Ask the client to push its application-level menu (frontmost-app menu)
+// via updateMenuForApplication:menuData:clientName:.  Used when Menu.app
+// starts after a windowless app, or after the app's last window closes.
+- (oneway void)requestApplicationMenuUpdate;
 @end

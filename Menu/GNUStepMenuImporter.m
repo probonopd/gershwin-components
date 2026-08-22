@@ -14,6 +14,8 @@
 #import <dispatch/dispatch.h>
 #import <time.h>
 #import <X11/Xlib.h>
+#import <signal.h>
+#import <errno.h>
 
 /* Coarse DO-call throttle for full menu rebuilds.
    GWorkspace can fire updateMenuForWindow: thousands of times per second via DO.
@@ -24,6 +26,10 @@
 #define DO_STATE_UPDATE_MIN_NS   50000000LL   /*  50 ms */
 static struct timespec _lastMenuUpdateAccepted;
 static struct timespec _lastStateUpdateAccepted;
+/* App-level menu pushes use their own throttle gates so a windowless app's
+   menu updates never collide with (and get dropped by) the window-level ones. */
+static struct timespec _lastApplicationMenuUpdateAccepted;
+static struct timespec _lastApplicationStateUpdateAccepted;
 
 /* ============================================================
    PER-WINDOW PROXY MATERIALIZATION CACHE  —  DO NOT REMOVE!
@@ -102,6 +108,14 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
 // push.  Lets the click path skip the synchronous DO pull when states are
 // known to be current, so repeated menu opens are lag-free.
 @property (nonatomic, strong) NSMutableDictionary *lastStateRefreshByWindow;
+// Application-level menus, keyed by clientName ("org.gnustep.Gershwin.MenuClient.<pid>").
+// These back the menu bar for windowless frontmost apps.  clientPidByClientName
+// lets us advertise the set of menu-bearing apps to the WM (root property
+// _GERSHWIN_MENU_APPS) so Alt-Tab can list windowless apps.
+@property (nonatomic, strong) NSMutableDictionary *menusByClient;
+@property (nonatomic, strong) NSMutableDictionary *clientPidByClientName;
+@property (nonatomic, strong) NSMutableDictionary *lastApplicationMenuDataByClient;
+@property (nonatomic, strong) NSMutableDictionary *lastApplicationStateRefreshByClient;
 @property (nonatomic, strong) NSConnection *menuServerConnection;
 // Workaround: retry attempts when registering DO server fails
 @property (nonatomic) NSInteger registerRetryAttempts;
@@ -126,6 +140,15 @@ static GNUStepMenuImporter *sSharedImporter = nil;
       [NSNumber numberWithUnsignedLong:windowId]];
 }
 
+/* Number of windows that currently have a cached menu tree.  Used by the CPU
+   profiler to detect unbounded growth from windows that closed without
+   unregistering.  Must stay bounded thanks to reconcileMenusWithLiveWindows. */
++ (NSUInteger)cachedMenuCount
+{
+    if (sSharedImporter == nil) return 0;
+    return [sSharedImporter.menusByWindow count];
+}
+
 - (instancetype)init
 {
     self = [super init];
@@ -136,6 +159,10 @@ static GNUStepMenuImporter *sSharedImporter = nil;
         _lastMenuDataByWindow = [[NSMutableDictionary alloc] init];
         _lastMenuUpdateTimeByWindow = [[NSMutableDictionary alloc] init];
         _lastStateRefreshByWindow = [[NSMutableDictionary alloc] init];
+        _menusByClient = [[NSMutableDictionary alloc] init];
+        _clientPidByClientName = [[NSMutableDictionary alloc] init];
+        _lastApplicationMenuDataByClient = [[NSMutableDictionary alloc] init];
+        _lastApplicationStateRefreshByClient = [[NSMutableDictionary alloc] init];
 
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
@@ -147,6 +174,16 @@ static GNUStepMenuImporter *sSharedImporter = nil;
         // Register the GNUstep menu server immediately so apps can connect
         // This must happen early, before any GNUstep apps try to connect
         [self registerService];
+
+        /* Reconcile cached menu state against live X windows periodically so
+           windows that close without unregistering (crash, no DO unregister)
+           do not accumulate in menusByWindow forever.  The sweep is cheap: a
+           per-window XGetWindowAttributes existence check. */
+        [NSTimer scheduledTimerWithTimeInterval: 30.0
+                                         target: self
+                                       selector: @selector(reconcileMenusWithLiveWindows)
+                                       userInfo: nil
+                                        repeats: YES];
     }
     return self;
 }
@@ -359,6 +396,99 @@ static GNUStepMenuImporter *sSharedImporter = nil;
                                     repeats: NO];
 }
 
+#pragma mark - Stale-window reconcile
+
+/* Purge menu state for windows that no longer exist in X.  Menu entries are
+   only removed by unregisterWindow:, which relies on the client app calling
+   the DO unregister when it closes a window.  Apps that crash, or that close
+   a window without unregistering, leave their menu tree cached in
+   menusByWindow forever.  Over a long session this grows RSS unboundedly and
+   turns every app-switch menu replacement (menusByWindow[windowId] = menu)
+   into a deep dealloc storm of the replaced tree on the main thread.  Run
+   periodically and drop entries whose X window is gone. */
+- (void)reconcileMenusWithLiveWindows
+{
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self reconcileMenusWithLiveWindows];
+        });
+        return;
+    }
+
+    NSArray *keys = [self.menusByWindow allKeys];
+    NSMutableArray *staleKeys = [NSMutableArray array];
+    for (NSNumber *windowKey in keys) {
+        unsigned long windowId = [windowKey unsignedLongValue];
+        if (windowId != 0 && ![MenuUtils isWindowValid:windowId]) {
+            [staleKeys addObject:windowKey];
+        }
+    }
+
+    if ([staleKeys count] == 0) {
+        return;
+    }
+
+    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Reconcile purging %lu stale window(s)",
+          (unsigned long)[staleKeys count]);
+    for (NSNumber *windowKey in staleKeys) {
+        [self.menusByWindow removeObjectForKey:windowKey];
+        [self.clientNamesByWindow removeObjectForKey:windowKey];
+        [self.lastMenuDataByWindow removeObjectForKey:windowKey];
+        [self.lastMenuUpdateTimeByWindow removeObjectForKey:windowKey];
+        [self.lastStateRefreshByWindow removeObjectForKey:windowKey];
+        @synchronized (_materializationTimeByWindow) {
+            NSString *prefix = [NSString stringWithFormat:@"%lu:",
+                                          [windowKey unsignedLongValue]];
+            NSArray *mkeys = [_materializationTimeByWindow allKeys];
+            for (NSString *mk in mkeys) {
+                if ([mk hasPrefix:prefix])
+                    [_materializationTimeByWindow removeObjectForKey:mk];
+            }
+        }
+    }
+
+    /* Drop application-level menus whose owning process has exited.  A
+       windowless app can disappear without sending unregisterApplication:
+       (crash, SIGKILL); without this sweep its menu stays in menusByClient
+       and the Alt-Tab menu-app list goes stale. */
+    [self reconcileApplicationMenusWithLiveProcesses];
+}
+
+/* Remove app-level menus for clients whose process is no longer alive. */
+- (void)reconcileApplicationMenusWithLiveProcesses
+{
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self reconcileApplicationMenusWithLiveProcesses];
+        });
+        return;
+    }
+
+    NSArray *clientNames = [self.menusByClient allKeys];
+    NSMutableArray *deadClients = [NSMutableArray array];
+    for (NSString *clientName in clientNames) {
+        NSNumber *pidNum = [self.clientPidByClientName objectForKey:clientName];
+        if (!pidNum || [pidNum unsignedIntValue] == 0) {
+            continue;
+        }
+        pid_t pid = [pidNum intValue];
+        /* kill(pid, 0) reports ESRCH for a dead process (and EPERM for a
+           live one owned by someone else, which still means alive). */
+        if (kill(pid, 0) == -1 && errno == ESRCH) {
+            [deadClients addObject:clientName];
+        }
+    }
+
+    if ([deadClients count] == 0) {
+        return;
+    }
+    for (NSString *clientName in deadClients) {
+        [self removeApplicationMenuForClient:clientName];
+    }
+    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Reconcile purged %lu stale application menu(s)",
+          (unsigned long)[deadClients count]);
+}
+
 - (BOOL)hasMenuForWindow:(unsigned long)windowId
 {
     NSNumber *key = [NSNumber numberWithUnsignedLong:windowId];
@@ -521,6 +651,7 @@ static GNUStepMenuImporter *sSharedImporter = nil;
     [self.clientNamesByWindow removeObjectForKey:windowKey];
     [self.lastMenuDataByWindow removeObjectForKey:windowKey];
     [self.lastMenuUpdateTimeByWindow removeObjectForKey:windowKey];
+    [self.lastStateRefreshByWindow removeObjectForKey:windowKey];
 
     /* Clear the materialization cache for this window so that if the window
        reopens (same or new app instance), the next updateMenuForWindow: call
@@ -856,6 +987,336 @@ static GNUStepMenuImporter *sSharedImporter = nil;
     @catch (NSException *exception) {
         NSLog(@"GNUStepMenuImporter: Exception in unregisterWindow: %@", exception);
     }
+}
+
+#pragma mark - Application-level menus
+
+/* Parse the pid embedded in a GNUstep menu client name
+   ("org.gnustep.Gershwin.MenuClient.<pid>").  Returns 0 when unparseable. */
+- (pid_t)_pidFromClientName:(NSString *)clientName
+{
+    if (!clientName || [clientName length] == 0) return 0;
+    NSArray *parts = [clientName componentsSeparatedByString:@"."];
+    NSString *pidPart = [parts lastObject];
+    if (!pidPart || [pidPart length] == 0) return 0;
+    return (pid_t)[pidPart integerValue];
+}
+
+/* Rewrite the _GERSHWIN_MENU_APPS root property with the PIDs of every app
+   that currently has an application-level menu.  The window manager reads
+   this so its Alt-Tab switcher can list windowless apps (apps with a menu
+   but no windows) alongside regular windows. */
+- (void)publishMenuAppsProperty
+{
+    NSMutableArray *pids = [NSMutableArray array];
+    NSArray *clientNames = [self.clientPidByClientName allKeys];
+    for (NSString *clientName in clientNames) {
+        NSNumber *pidNum = [self.clientPidByClientName objectForKey:clientName];
+        if (pidNum && [pidNum unsignedIntValue] != 0) {
+            [pids addObject:pidNum];
+        }
+    }
+    /* Sort so the property is stable and diffable. */
+    [pids sortUsingSelector:@selector(compare:)];
+    [MenuUtils setMenuApps:pids];
+}
+
+/* Store an application-level menu for a client (removing any stale entry) and
+   refresh the menu bar if that client is the currently displayed app.  The
+   app is the "currently displayed app" when the widget shows an app-level
+   menu (currentWindowId == 0) for the same PID. */
+- (void)storeApplicationMenu:(NSMenu *)menu
+                    menuData:(NSDictionary *)menuData
+                  clientName:(NSString *)clientName
+{
+    BOOL isNew = ([self.menusByClient objectForKey:clientName] == nil);
+    NSString *oldClient = nil;
+    if (isNew) {
+        /* If the same PID previously pushed under a differently-formatted name,
+           drop it so we do not end up with two entries for one app. */
+        pid_t pid = [self _pidFromClientName:clientName];
+        for (NSString *candidate in [self.clientPidByClientName allKeys]) {
+            if ([[self.clientPidByClientName objectForKey:candidate] intValue] == (int)pid
+                && ![candidate isEqualToString:clientName]) {
+                [self removeApplicationMenuForClient:candidate];
+            }
+        }
+    } else {
+        oldClient = clientName;
+    }
+
+    self.menusByClient[clientName] = menu;
+    pid_t pid = [self _pidFromClientName:clientName];
+    if (pid > 0) {
+        self.clientPidByClientName[clientName] = @(pid);
+    }
+    self.lastApplicationMenuDataByClient[clientName] = [menuData copy];
+    self.lastApplicationStateRefreshByClient[clientName] =
+      @([NSDate timeIntervalSinceReferenceDate]);
+    [self publishMenuAppsProperty];
+
+    /* If this client's app menu is currently displayed (windowless app shown
+       in the bar) and its menu changed, reload the visible menu so the user
+       sees the update immediately. */
+    AppMenuWidget *widget = self.appMenuWidget;
+    if (widget && widget.currentWindowId == 0 && widget.currentWindowPID != 0) {
+        pid_t widgetPid = widget.currentWindowPID;
+        if ((pid > 0 && widgetPid == pid)
+            || (oldClient && [oldClient isEqualToString:clientName])) {
+            [self.appMenuWidget loadApplicationMenu:menu forPID:widgetPid];
+        }
+    }
+}
+
+/* Remove an application-level menu for a client and update the menu bar if it
+   was being displayed. */
+- (void)removeApplicationMenuForClient:(NSString *)clientName
+{
+    if (!clientName) return;
+    BOOL hadMenu = ([self.menusByClient objectForKey:clientName] != nil);
+    [self.menusByClient removeObjectForKey:clientName];
+    [self.clientPidByClientName removeObjectForKey:clientName];
+    [self.lastApplicationMenuDataByClient removeObjectForKey:clientName];
+    [self.lastApplicationStateRefreshByClient removeObjectForKey:clientName];
+
+    if (!hadMenu) {
+        [self publishMenuAppsProperty];
+        return;
+    }
+    [self publishMenuAppsProperty];
+
+    AppMenuWidget *widget = self.appMenuWidget;
+    if (widget && widget.currentWindowId == 0 && widget.currentWindowPID != 0) {
+        pid_t pid = [self _pidFromClientName:clientName];
+        if (pid > 0 && widget.currentWindowPID == pid) {
+            /* The frontmost windowless app's menu disappeared (app quit or
+               unregistered).  Re-evaluate what to show. */
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [widget updateForActiveWindow];
+            });
+        }
+    }
+}
+
+- (oneway void)updateMenuForApplication:(bycopy NSDictionary *)menuData
+                             clientName:(bycopy NSString *)clientName
+{
+    /* Early throttle: drop rapid-fire duplicate pushes before any work. */
+    if (_shouldThrottleDO(&_lastApplicationMenuUpdateAccepted, DO_MENU_UPDATE_MIN_NS)) return;
+
+    @try {
+        if (!menuData || !clientName) return;
+
+        NSString *safeClientName = [(id)clientName isProxy] ?
+          [NSString stringWithString:(NSString *)clientName] : clientName;
+        if (!safeClientName || [safeClientName length] == 0) return;
+
+        NSDictionary *safeMenuData;
+        if ([(id)menuData isProxy]) {
+            NSData *data = [NSPropertyListSerialization
+                            dataWithPropertyList:menuData
+                            format:NSPropertyListBinaryFormat_v1_0
+                            options:0
+                            error:NULL];
+            if (!data) {
+                NSLog(@"GNUStepMenuImporter: Failed to serialize proxy app menuData for %@", clientName);
+                return;
+            }
+            safeMenuData = [NSPropertyListSerialization
+                            propertyListWithData:data
+                            options:NSPropertyListImmutable
+                            format:NULL
+                            error:NULL];
+        } else {
+            safeMenuData = menuData;
+        }
+        if (!safeMenuData) return;
+
+        NSDictionary *payload = @{ @"menuData": safeMenuData,
+                                   @"clientName": safeClientName };
+        if ([NSThread isMainThread]) {
+            [self processApplicationMenuUpdateWithPayload:payload];
+        } else {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self processApplicationMenuUpdateWithPayload:payload];
+            });
+        }
+    }
+    @catch (NSException *exception) {
+        NSLog(@"GNUStepMenuImporter: Exception in updateMenuForApplication: %@", exception);
+    }
+}
+
+- (void)processApplicationMenuUpdateWithPayload:(NSDictionary *)payload
+{
+    NSDictionary *menuData = payload[@"menuData"];
+    NSString *clientName = payload[@"clientName"];
+
+    NSDictionary *lastMenuData = [self.lastApplicationMenuDataByClient objectForKey:clientName];
+    if (lastMenuData && [lastMenuData isEqual:menuData]) {
+        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Skipping duplicate app menu for %@", clientName);
+        return;
+    }
+
+    NSMenu *menu = [self menuFromData:menuData
+                             windowId:0
+                           clientName:clientName
+                                path:@[]];
+    if (!menu) {
+        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Failed to build app menu for %@", clientName);
+        return;
+    }
+    [self storeApplicationMenu:menu menuData:menuData clientName:clientName];
+}
+
+- (oneway void)unregisterApplication:(bycopy NSString *)clientName
+{
+    @try {
+        if (!clientName) return;
+        NSString *safeClientName = [(id)clientName isProxy] ?
+          [NSString stringWithString:(NSString *)clientName] : clientName;
+        if (!safeClientName) return;
+        [self removeApplicationMenuForClient:safeClientName];
+    }
+    @catch (NSException *exception) {
+        NSLog(@"GNUStepMenuImporter: Exception in unregisterApplication: %@", exception);
+    }
+}
+
+- (oneway void)updateApplicationMenuEnabledStates:(bycopy NSDictionary *)menuData
+                                        clientName:(bycopy NSString *)clientName
+{
+    /* Early throttle: same 50ms gate as the window-level state path. */
+    if (_shouldThrottleDO(&_lastApplicationStateUpdateAccepted, DO_STATE_UPDATE_MIN_NS)) return;
+
+    @try {
+        if (!menuData || !clientName) return;
+        NSString *safeClientName = [(id)clientName isProxy] ?
+          [NSString stringWithString:(NSString *)clientName] : clientName;
+        if (!safeClientName) return;
+
+        NSDictionary *safeMenuData;
+        if ([(id)menuData isProxy]) {
+            NSData *data = [NSPropertyListSerialization
+                            dataWithPropertyList:menuData
+                            format:NSPropertyListBinaryFormat_v1_0
+                            options:0
+                            error:NULL];
+            if (!data) return;
+            safeMenuData = [NSPropertyListSerialization
+                            propertyListWithData:data
+                            options:NSPropertyListImmutable
+                            format:NULL
+                            error:NULL];
+        } else {
+            safeMenuData = menuData;
+        }
+        if (!safeMenuData) return;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSMenu *menu = [self.menusByClient objectForKey:safeClientName];
+            if (menu) {
+                [self applyEnabledStatesFromData:safeMenuData toMenu:menu depth:0];
+                self.lastApplicationStateRefreshByClient[safeClientName] =
+                  @([NSDate timeIntervalSinceReferenceDate]);
+                /* Mirror to the visible menu if this app is currently shown. */
+                AppMenuWidget *widget = self.appMenuWidget;
+                if (widget && widget.currentWindowId == 0 && widget.currentMenu
+                    && widget.currentWindowPID != 0
+                    && widget.currentWindowPID == [self _pidFromClientName:safeClientName]) {
+                    [self applyEnabledStatesFromData:safeMenuData
+                                              toMenu:widget.currentMenu
+                                               depth:0];
+                }
+            }
+        });
+    }
+    @catch (NSException *exception) {
+        NSLog(@"GNUStepMenuImporter: Exception in updateApplicationMenuEnabledStates: %@", exception);
+    }
+}
+
+/* Ask a client to re-push its application-level menu (startup recovery when
+   Menu.app started after a windowless app).  Uses only cached connections so
+   the main thread never blocks on a DO name lookup. */
+- (void)requestApplicationMenuUpdateForClient:(NSString *)clientName
+{
+    if (!clientName) return;
+    NSConnection *connection = [GNUStepMenuActionHandler existingConnectionForClient:clientName];
+    if (connection && [connection isValid]) {
+        @try {
+            id proxy = [connection rootProxy];
+            if (proxy) {
+                [proxy setProtocolForProxy:@protocol(GSGNUstepMenuClient)];
+                [(id)proxy requestApplicationMenuUpdate];
+            }
+        } @catch (NSException *e) {
+            NSDebugLog(@"GNUStepMenuImporter: Exception requesting app menu update from %@: %@", clientName, e);
+        }
+    }
+}
+
+/* MenuProtocolHandler / unified API for app-level menus. */
+
+- (BOOL)hasApplicationMenuForPID:(pid_t)pid
+{
+    if (pid <= 0) return NO;
+    for (NSString *clientName in [self.clientPidByClientName allKeys]) {
+        if ([[self.clientPidByClientName objectForKey:clientName] intValue] == (int)pid
+            && [self.menusByClient objectForKey:clientName]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+- (NSMenu *)getApplicationMenuForPID:(pid_t)pid
+{
+    if (pid <= 0) return nil;
+    for (NSString *clientName in [self.clientPidByClientName allKeys]) {
+        if ([[self.clientPidByClientName objectForKey:clientName] intValue] == (int)pid) {
+            return [self.menusByClient objectForKey:clientName];
+        }
+    }
+    return nil;
+}
+
+- (BOOL)refreshApplicationMenuStateForPID:(pid_t)pid
+{
+    if (pid <= 0) return NO;
+    for (NSString *clientName in [self.clientPidByClientName allKeys]) {
+        if ([[self.clientPidByClientName objectForKey:clientName] intValue] != (int)pid) {
+            continue;
+        }
+        NSMenu *menu = [self.menusByClient objectForKey:clientName];
+        if (!menu) return NO;
+        NSNumber *last = [self.lastApplicationStateRefreshByClient objectForKey:clientName];
+        if (last && ([NSDate timeIntervalSinceReferenceDate] - [last doubleValue]) < 2.0) {
+            return YES; /* states known current within TTL */
+        }
+        /* No cached connection means nothing fresh to pull; the client's own
+           pushes keep states current for windowless apps. */
+        NSConnection *connection = [GNUStepMenuActionHandler existingConnectionForClient:clientName];
+        if (connection && [connection isValid]) {
+            @try {
+                id proxy = [connection rootProxy];
+                if (proxy) {
+                    [proxy setProtocolForProxy:@protocol(GSGNUstepMenuClient)];
+                    id flat = [(id)proxy validateMenuStateForWindow:@(0)];
+                    if ([flat isKindOfClass:[NSArray class]]) {
+                        [self applyEnabledStatesFromFlatArray:flat toMenu:menu];
+                        self.lastApplicationStateRefreshByClient[clientName] =
+                          @([NSDate timeIntervalSinceReferenceDate]);
+                        return YES;
+                    }
+                }
+            } @catch (NSException *e) {
+                NSDebugLog(@"GNUStepMenuImporter: Exception refreshing app menu state for %@: %@", clientName, e);
+            }
+        }
+        return NO;
+    }
+    return NO;
 }
 
 #pragma mark - Menu State Refresh

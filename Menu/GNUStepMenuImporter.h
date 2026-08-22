@@ -31,4 +31,21 @@
 // instance that reused the X window ID.
 + (NSString *)currentClientNameForWindow:(unsigned long)windowId;
 
+// Number of windows that currently have a cached menu tree.  Used by the CPU
+// profiler to detect unbounded growth from windows that closed without
+// unregistering.  Must stay bounded thanks to reconcileMenusWithLiveWindows.
++ (NSUInteger)cachedMenuCount;
+
+/* Application-level (windowless-app) menu support.  These back the menu bar
+   for the frontmost app when no window owns a window-level menu. */
+- (BOOL)hasApplicationMenuForPID:(pid_t)pid;
+- (NSMenu *)getApplicationMenuForPID:(pid_t)pid;
+// Synchronously pull fresh enabled/state values for the app menu from the
+// client.  Returns YES on success; returns YES immediately when the states
+// were refreshed within the TTL (avoids a blocking DO round-trip).
+- (BOOL)refreshApplicationMenuStateForPID:(pid_t)pid;
+// Ask a client (by name) to re-push its application-level menu.  Only uses
+// cached connections so the main thread never blocks on a DO name lookup.
+- (void)requestApplicationMenuUpdateForClient:(NSString *)clientName;
+
 @end

@@ -24,6 +24,14 @@
 #import <GNUstepGUI/GSTheme.h>
 #import <dispatch/dispatch.h>
 
+#if !defined(__linux__)
+#import <sys/types.h>
+#import <sys/sysctl.h>
+#ifdef __FreeBSD__
+#import <sys/user.h>
+#endif
+#endif
+
 /* ── Tuning constants ────────────────────────────────────────────── */
 
 /* Coalescing delay for window focus changes.  Multiple rapid notifications
@@ -195,6 +203,13 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 - (void)startupDesktopMenuLoad:(NSTimer *)timer;
 - (void)closeOpenMenuTracking;
 - (void)mainMenuDidEndTracking:(NSNotification *)note;
+- (NSMenu *)reusableSystemMenu;
+- (NSMenu *)buildCachedSystemMenu;
+
+/* ── Application-level (windowless-app) menu support ──────────────── */
+- (BOOL)displayApplicationMenuForPID:(pid_t)pid;
+- (void)loadApplicationMenu:(NSMenu *)menu forPID:(pid_t)pid;
+- (NSString *)applicationNameForPID:(pid_t)pid;
 
 @end
 
@@ -327,14 +342,23 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     unsigned long windowId = self.pendingCoalesceWindowId;
 
     if (windowId == 0) {
-        /* No active window reported.  If we are showing an app's menu, keep
-         * it: the window manager can momentarily report 0 while the app still
-         * has focus (e.g. Chromium juggling its internal windows), and
-         * clearing to system-only here is what made every app's menu vanish a
-         * few seconds after it loaded - wiping its shortcuts with it.  Only go
-         * system-only when there really is nothing to show. */
-        if (self.currentMenu && self.currentWindowId != 0) {
-            NSDebugLLog(@"gwcomp", @"AppMenuWidget: No active window - keeping current menu (0x%lx)", self.currentWindowId);
+        /* No active window reported.  If the WM reports a frontmost
+         * application without a window (a windowless app selected via Alt-Tab
+         * or whose last window just closed), show its application-level menu.
+         */
+        pid_t activeAppPid = [MenuUtils getActiveApplicationPID];
+        if ([self displayApplicationMenuForPID:activeAppPid]) {
+            return;
+        }
+
+        /* Otherwise, if we are showing an app's menu, keep it: the window
+         * manager can momentarily report 0 while the app still has focus
+         * (e.g. Chromium juggling its internal windows), and clearing to
+         * system-only here is what made every app's menu vanish a few seconds
+         * after it loaded - wiping its shortcuts with it.  Only go system-only
+         * when there really is nothing to show. */
+        if (self.currentMenu && (self.currentWindowId != 0 || self.currentWindowPID != 0)) {
+            NSDebugLLog(@"gwcomp", @"AppMenuWidget: No active window - keeping current menu (0x%lx, pid %d)", self.currentWindowId, (int)self.currentWindowPID);
             return;
         }
         [self clearToSystemOnly];
@@ -431,6 +455,21 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         return;
     }
 
+    /* Windowless-app precedence.  When the WM falls back to focusing the
+       desktop after the frontmost app's last window closed (or the app was
+       selected via Alt-Tab with no window), _GERSHWIN_ACTIVE_APP points at
+       that app while the focused desktop window belongs to Workspace.  Show
+       the windowless app's application-level menu instead of the desktop
+       menu.  When the user clicks the desktop the WM sets _GERSHWIN_ACTIVE_APP
+       to Workspace's own PID, so an explicit click always wins. */
+    pid_t activeAppPid = [MenuUtils getActiveApplicationPID];
+    if (ctx.isDesktop && activeAppPid != 0 && ctx.pid != 0 && ctx.pid != activeAppPid
+        && [self.protocolManager hasApplicationMenuForPID:activeAppPid]
+        && [self displayApplicationMenuForPID:activeAppPid]) {
+        self.lastSwitchTime = [NSDate timeIntervalSinceReferenceDate];
+        return;
+    }
+
     /* Dialog/transient of the same app: keep the owner's menu. */
     if (ctx.isDialog && self.currentMenu && self.currentWindowId != 0) {
         if (ctx.pid != 0 && ctx.pid == self.currentWindowPID) {
@@ -474,6 +513,19 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     /* If the window has no registered menu yet, check if we're switching windows. */
     if (!ctx.hasRegisteredMenu) {
         NSDebugLLog(@"gwcomp", @"AppMenuWidget: Window 0x%lx has no menu yet (PID %d)", windowId, (int)ctx.pid);
+
+        /* No window menu registered.  If the app that owns the focused window
+           pushed an application-level menu, show it.  For the desktop window
+           we use the WM-reported frontmost application (the desktop itself has
+           no app menu, so this only hits when a windowless app is frontmost
+           and the windowless-app precedence check above could not run because
+           the desktop has no PID). */
+        pid_t appMenuPID = ctx.isDesktop ? [MenuUtils getActiveApplicationPID] : ctx.pid;
+        if (appMenuPID != 0
+            && [self.protocolManager hasApplicationMenuForPID:appMenuPID]
+            && [self displayApplicationMenuForPID:appMenuPID]) {
+            return;
+        }
 
         /* Desktop window with no menu — just show system-only immediately. */
         if (ctx.isDesktop) {
@@ -771,6 +823,115 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     MENU_PROFILE_END(loadMenuForWindow);
 }
 
+#pragma mark - Application-level menu display (windowless apps)
+
+/* Show the application-level menu of the given PID.  Returns NO when there is
+   no such menu, so callers can fall through to their normal handling. */
+- (BOOL)displayApplicationMenuForPID:(pid_t)pid
+{
+    if (pid <= 0) return NO;
+    NSMenu *menu = [self.protocolManager getApplicationMenuForPID:pid];
+    if (!menu || [self isPlaceholderMenu:menu]) return NO;
+    [self loadApplicationMenu:menu forPID:pid];
+    return YES;
+}
+
+/* Display the application-level menu of a windowless app.  Mirrors
+   loadMenu:forWindow: but keys everything off the PID and uses window id 0 so
+   the menu actions resolve through the GNUstep clientName path. */
+- (void)loadApplicationMenu:(NSMenu *)menu forPID:(pid_t)pid
+{
+    MENU_PROFILE_BEGIN(loadApplicationMenuForPID);
+    if (!menu || pid <= 0) {
+        MENU_PROFILE_END(loadApplicationMenuForPID);
+        return;
+    }
+
+    [self cancelMenuRetry];
+
+    /* Skip rebuild when we are already showing this app's menu with the same
+       structure - repeated FocusIn events for the same windowless app (e.g.
+       after its window closed) must not tear down and rebuild the view tree
+       on every event. */
+    if (self.currentWindowId == 0 && self.currentWindowPID == pid &&
+        self.currentMenu && self.menuView && ![self.menuView isHidden] &&
+        [self.menuView menu] == self.currentMenu &&
+        [self topLevelMenusMatch:self.currentMenu with:menu]) {
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: Skipping app-menu rebuild for PID %d (unchanged)", (int)pid);
+        MENU_PROFILE_END(loadApplicationMenuForPID);
+        return;
+    }
+
+    pid_t previousPID = self.currentWindowPID;
+    self.currentWindowId = 0;
+    self.currentWindowPID = pid;
+    self.lastDisplayedPID = pid;
+    self.currentApplicationName = [self applicationNameForPID:pid];
+    self.needsRedraw = YES;
+
+    if (previousPID != 0 && previousPID != pid) {
+        [[X11ShortcutManager sharedManager] unregisterNonDirectShortcuts];
+    }
+
+    @try {
+        [self setupMenuViewWithMenu:menu];
+    } @catch (NSException *exception) {
+        NSLog(@"AppMenuWidget: Exception in loadApplicationMenu: %@", exception);
+        [self clearToSystemOnly];
+        MENU_PROFILE_END(loadApplicationMenuForPID);
+        return;
+    }
+
+    /* Re-register shortcuts for this menu under window id 0 (the app-level
+       pseudo-window).  The GNUstep handler is the only one that can provide
+       an app-level menu, and it does not grab X11 shortcuts, so this is a
+       no-op for the shortcut manager. */
+    [self reregisterShortcutsForMenu:menu windowId:0];
+    MENU_PROFILE_END(loadApplicationMenuForPID);
+}
+
+/* Best-effort display name for the app behind the given PID.  GNUstep's
+   NSWorkspace connects to the Workspace app over Distributed Objects and
+   -launchedApplications through that proxy can crash or return non-dictionary
+   elements, so read the process name straight from the OS instead. */
+- (NSString *)applicationNameForPID:(pid_t)pid
+{
+    if (pid <= 0) return @"Unknown";
+
+#ifdef __linux__
+    char procPath[64];
+    snprintf(procPath, sizeof(procPath), "/proc/%d/comm", (int)pid);
+    FILE *fp = fopen(procPath, "r");
+    if (fp) {
+        char comm[256] = {0};
+        if (fgets(comm, sizeof(comm), fp)) {
+            fclose(fp);
+            char *nl = strchr(comm, '\n');
+            if (nl) *nl = '\0';
+            if (strlen(comm) > 0) return [NSString stringWithUTF8String:comm];
+        } else {
+            fclose(fp);
+        }
+    }
+    return @"Unknown";
+#else
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, (int)pid };
+    struct kinfo_proc kp;
+    size_t len = sizeof(kp);
+    if (sysctl(mib, 4, &kp, &len, NULL, 0) == 0 && len > 0) {
+#ifdef __FreeBSD__
+        const char *name = kp.ki_comm;
+#else
+        const char *name = kp.p_comm;
+#endif
+        if (name && strlen(name) > 0) {
+            return [NSString stringWithCString:name encoding:NSUTF8StringEncoding];
+        }
+    }
+    return @"Unknown";
+#endif
+}
+
 /* Close any open dropdown menu (attached submenu panel) attached to the
    current menu view, and clear the highlighted item.
 
@@ -820,6 +981,90 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     }
 }
 
+/* The system ⌘ submenu is structurally identical on every menu-bar rebuild
+   (Search, System Preferences + prefs-panes, power actions, and the dynamic
+   Applications list).  Build it once and reuse it: rebuilding it per switch
+   made every switch tear down and rebuild the same large tree, and releasing
+   the old tree was a multi-second 100%-CPU dealloc cascade through
+   NSMenu/NSMenuView/NSWindow (exacerbated by GNUstep's per-object
+   NSNotificationCenter observer sweeps and autorelease churn).  The widget's
+   tracking observer and delegate are (re)registered by the caller. */
+- (NSMenu *)reusableSystemMenu
+{
+    if (!self.cachedSystemMenu) {
+        /* Build the system menu once and cache it. */
+        [self buildCachedSystemMenu];
+    } else {
+        /* Each bar rebuild creates a fresh AppMenuView, but the cached system
+           menu keeps the NSMenuView representation from a previous bar
+           generation.  That stale representation carries a stale frame, which
+           makes GNUstep misposition the Applications launcher (and other
+           submenus) far from the dropdown.  Replace the representation with a
+           fresh one so GNUstep recomputes submenu geometry in the current
+           window context.  Cheap: a bare NSMenuView has no submenu views, so
+           no teardown cascade runs here. */
+        NSMenuView *freshRep = [[NSMenuView alloc] initWithFrame:NSZeroRect];
+        [self.cachedSystemMenu setMenuRepresentation:freshRep];
+    }
+    return self.cachedSystemMenu;
+}
+
+/* Build the system ⌘ submenu.  Called once from reusableSystemMenu. */
+- (NSMenu *)buildCachedSystemMenu
+{
+    NSMenu *sysMenu = [[NSMenu alloc] initWithTitle:@"System"];
+
+    NSMenuItem *searchItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Search...", nil)
+                                                        action:@selector(toggleSearch:)
+                                                 keyEquivalent:@" "];
+    [searchItem setKeyEquivalentModifierMask:NSCommandKeyMask];
+    [searchItem setTarget:[ActionSearchController sharedController]];
+    [sysMenu addItem:searchItem];
+    [sysMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenu *prefsSubmenu = [[NSMenu alloc] initWithTitle:NSLocalizedString(@"System Preferences", nil)];
+    self.systemPrefsSubmenu = prefsSubmenu;
+    self.systemPrefsSubmenuPopulated = NO;
+    /* Populate eagerly so the submenu is never empty: GNUstep's
+       auto-enabling greys out an item whose submenu has no items, which
+       would make "System Preferences" unclickable. */
+    [self populatePrefPanesSubmenu];
+    NSMenuItem *prefsItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"System Preferences", nil)
+                                                       action:@selector(openSystemPreferences:)
+                                                keyEquivalent:@""];
+    [prefsItem setTarget:self];
+    [sysMenu addItem:prefsItem];
+    [prefsItem setSubmenu:prefsSubmenu];
+    [sysMenu addItem:[NSMenuItem separatorItem]];
+
+    /* Power actions: shut down, restart and log out, ported from the
+     * Workspace main menu into the Command menu. */
+    NSMenuItem *restartItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Restart...", nil)
+                                                         action:@selector(restart:)
+                                                  keyEquivalent:@""];
+    [restartItem setTarget:self];
+    [sysMenu addItem:restartItem];
+
+    NSMenuItem *shutDownItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Shut Down...", nil)
+                                                          action:@selector(shutDown:)
+                                                   keyEquivalent:@""];
+    [shutDownItem setTarget:self];
+    [sysMenu addItem:shutDownItem];
+
+    NSMenuItem *logOutItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Log Out...", nil)
+                                                        action:@selector(logOut:)
+                                                 keyEquivalent:@""];
+    [logOutItem setTarget:self];
+    [sysMenu addItem:logOutItem];
+
+    self.systemMenuPopulatedFromCache = NO;
+    [sysMenu setDelegate:self];
+    [[ActionSearchController sharedController] setAppMenuWidget:self];
+
+    self.cachedSystemMenu = sysMenu;
+    return sysMenu;
+}
+
 - (void)setupMenuViewWithMenu:(NSMenu *)menu
 {
     MENU_PROFILE_BEGIN(setupMenuViewWithMenu);
@@ -864,67 +1109,33 @@ static int handleX11Error(Display *display, XErrorEvent *event)
             [menu removeItemAtIndex:idx];
         }];
 
-        /* Build the system ⌘ submenu. */
-        if (self.systemMenu) {
-            [[NSNotificationCenter defaultCenter] removeObserver:self
-                                                            name:NSMenuDidBeginTrackingNotification
-                                                          object:self.systemMenu];
-            [self.systemMenu setDelegate:nil];
+        /* Build the system ⌘ submenu once and reuse it across every rebuild.
+           Recreating it per switch made each switch tear down and rebuild the
+           same ~40-menu tree (System Preferences prefs-panes plus the dynamic
+           Applications list); releasing the old tree was a multi-second
+           100%-CPU dealloc cascade through NSMenu/NSMenuView/NSWindow. */
+        NSMenu *sysMenu = [self reusableSystemMenu];
+        /* The cached system menu may still be attached as the submenu of a
+           ⌘ item from a previous bar generation (that menu's ⌘ item is
+           removed from its menu but GNUstep keeps the item's submenu
+           relationship alive).  Re-attaching an attached menu raises
+           NSInvalidArgumentException ("submenu already has supermenu"),
+           which makes the whole load fail and the bar fall back to
+           system-only.  Detach the cached menu first. */
+        if ([sysMenu supermenu] != nil) {
+            [sysMenu setSupermenu:nil];
         }
-        NSMenu *sysMenu = [[NSMenu alloc] initWithTitle:@"System"];
-
-        NSMenuItem *searchItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Search...", nil)
-                                                            action:@selector(toggleSearch:)
-                                                     keyEquivalent:@" "];
-        [searchItem setKeyEquivalentModifierMask:NSCommandKeyMask];
-        [searchItem setTarget:[ActionSearchController sharedController]];
-        [sysMenu addItem:searchItem];
-        [sysMenu addItem:[NSMenuItem separatorItem]];
-
-        NSMenu *prefsSubmenu = [[NSMenu alloc] initWithTitle:NSLocalizedString(@"System Preferences", nil)];
-        self.systemPrefsSubmenu = prefsSubmenu;
-        self.systemPrefsSubmenuPopulated = NO;
-        /* Populate eagerly so the submenu is never empty: GNUstep's
-           auto-enabling greys out an item whose submenu has no items, which
-           would make "System Preferences" unclickable. */
-        [self populatePrefPanesSubmenu];
-        NSMenuItem *prefsItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"System Preferences", nil)
-                                                           action:@selector(openSystemPreferences:)
-                                                    keyEquivalent:@""];
-        [prefsItem setTarget:self];
-        [sysMenu addItem:prefsItem];
-        [prefsItem setSubmenu:prefsSubmenu];
-        [sysMenu addItem:[NSMenuItem separatorItem]];
-
-        /* Power actions: shut down, restart and log out, ported from the
-         * Workspace main menu into the Command menu. */
-        NSMenuItem *restartItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Restart...", nil)
-                                                             action:@selector(restart:)
-                                                      keyEquivalent:@""];
-        [restartItem setTarget:self];
-        [sysMenu addItem:restartItem];
-
-        NSMenuItem *shutDownItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Shut Down...", nil)
-                                                              action:@selector(shutDown:)
-                                                       keyEquivalent:@""];
-        [shutDownItem setTarget:self];
-        [sysMenu addItem:shutDownItem];
-
-        NSMenuItem *logOutItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"Log Out...", nil)
-                                                            action:@selector(logOut:)
-                                                     keyEquivalent:@""];
-        [logOutItem setTarget:self];
-        [sysMenu addItem:logOutItem];
-        NSLog(@"AppMenuWidget: System menu built with %ld items: %@", (long)[sysMenu numberOfItems], [sysMenu itemArray]);
-
         self.systemMenu = sysMenu;
-        self.systemMenuPopulatedFromCache = NO;
-        [sysMenu setDelegate:self];
+
+        /* Keep the widget observing the cached menu's tracking notification
+           exactly once (remove-then-add is idempotent). */
+        [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                        name:NSMenuDidBeginTrackingNotification
+                                                      object:sysMenu];
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(systemMenuDidBeginTracking:)
                                                      name:NSMenuDidBeginTrackingNotification
                                                    object:sysMenu];
-        [[ActionSearchController sharedController] setAppMenuWidget:self];
 
         NSMenuItem *sysItem = [[NSMenuItem alloc] initWithTitle:@"⌘" action:nil keyEquivalent:@""];
         [sysItem setSubmenu:sysMenu];
@@ -1215,7 +1426,17 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     (void)note;
     unsigned long windowId = self.currentWindowId;
 
-    if (windowId == 0) return;
+    if (windowId == 0) {
+        /* Application-level menu (windowless app): refresh enabled/checkmark
+           states on first open the same way the window path does.  The
+           refresh returns without a synchronous pull while the states are
+           still fresh (STATE_REFRESH_TTL), so this is cheap on repeat opens. */
+        pid_t pid = self.currentWindowPID;
+        if (pid != 0 && [self.protocolManager hasApplicationMenuForPID:pid]) {
+            [self.protocolManager refreshApplicationMenuStateForPID:pid];
+        }
+        return;
+    }
     if (![self.protocolManager hasMenuForWindow:windowId]) return;
 
     if ([self.protocolManager menuStatesAreFreshForWindow:windowId

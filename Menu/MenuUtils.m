@@ -679,6 +679,90 @@ static dispatch_once_t _sharedDisplayOnce;
     [self closeDisplay:display];
     return pid;
 }
+
+#pragma mark - Gershwin root-window active-application properties
+
++ (pid_t)getActiveApplicationPID
+{
+    Display *display = [self sharedDisplay];
+    if (!display) return 0;
+
+    Atom atom = XInternAtom(display, "_GERSHWIN_ACTIVE_APP", False);
+    if (atom == None) return 0;
+
+    Atom actualType;
+    int actualFormat;
+    unsigned long nitems, bytesAfter;
+    unsigned char *prop = NULL;
+    pid_t pid = 0;
+
+    if (XGetWindowProperty(display, DefaultRootWindow(display), atom,
+                           0, 1, False, XA_CARDINAL,
+                           &actualType, &actualFormat, &nitems, &bytesAfter,
+                           &prop) == Success && prop) {
+        if (nitems >= 1 && actualFormat == 32) {
+            unsigned int *value = (unsigned int *)prop;
+            pid = (pid_t)*value;
+        }
+        XFree(prop);
+    }
+    return pid;
+}
+
++ (NSArray *)getMenuApps
+{
+    Display *display = [self sharedDisplay];
+    if (!display) return @[];
+
+    Atom atom = XInternAtom(display, "_GERSHWIN_MENU_APPS", False);
+    if (atom == None) return @[];
+
+    Atom actualType;
+    int actualFormat;
+    unsigned long nitems, bytesAfter;
+    unsigned char *prop = NULL;
+    NSMutableArray *result = [NSMutableArray array];
+
+    if (XGetWindowProperty(display, DefaultRootWindow(display), atom,
+                           0, 4096, False, XA_CARDINAL,
+                           &actualType, &actualFormat, &nitems, &bytesAfter,
+                           &prop) == Success && prop) {
+        if (actualFormat == 32) {
+            // XGetWindowProperty returns format-32 data as an array of long
+            long *values = (long *)prop;
+            for (unsigned long i = 0; i < nitems; i++) {
+                [result addObject:@(values[i])];
+            }
+        }
+        XFree(prop);
+    }
+    return result;
+}
+
++ (void)setMenuApps:(NSArray *)pids
+{
+    Display *display = [self sharedDisplay];
+    if (!display) return;
+
+    Atom atom = XInternAtom(display, "_GERSHWIN_MENU_APPS", False);
+    if (atom == None) return;
+
+    NSUInteger count = [pids count];
+    long *values = NULL;
+    if (count > 0) {
+        // XChangeProperty with format 32 copies an array of long
+        values = (long *)calloc(count, sizeof(long));
+        if (!values) return;
+        for (NSUInteger i = 0; i < count; i++) {
+            id obj = [pids objectAtIndex:i];
+            values[i] = (long)[obj longValue];
+        }
+    }
+    XChangeProperty(display, DefaultRootWindow(display), atom, XA_CARDINAL, 32,
+                    PropModeReplace, (const unsigned char *)values, (int)count);
+    if (values) free(values);
+    XFlush(display);
+}
         
 + (NSString *)getWindowProperty:(unsigned long)windowId atomName:(NSString *)atomName
 {

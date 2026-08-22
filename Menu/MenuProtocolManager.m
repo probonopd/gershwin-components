@@ -302,6 +302,38 @@
     NSDebugLLog(@"gwcomp", @"MenuProtocolManager: No protocol handler found for window %lu menu activation", windowId);
 }
 
+#pragma mark - Application-level menus
+
+- (BOOL)hasApplicationMenuForPID:(pid_t)pid
+{
+    if (pid <= 0) return NO;
+    id<MenuProtocolHandler> handler = [self handlerForType:MenuProtocolTypeGNUstep];
+    if (handler && [handler respondsToSelector:@selector(hasApplicationMenuForPID:)]) {
+        return [handler hasApplicationMenuForPID:pid];
+    }
+    return NO;
+}
+
+- (NSMenu *)getApplicationMenuForPID:(pid_t)pid
+{
+    if (pid <= 0) return nil;
+    id<MenuProtocolHandler> handler = [self handlerForType:MenuProtocolTypeGNUstep];
+    if (handler && [handler respondsToSelector:@selector(getApplicationMenuForPID:)]) {
+        return [handler getApplicationMenuForPID:pid];
+    }
+    return nil;
+}
+
+- (BOOL)refreshApplicationMenuStateForPID:(pid_t)pid
+{
+    if (pid <= 0) return NO;
+    id<MenuProtocolHandler> handler = [self handlerForType:MenuProtocolTypeGNUstep];
+    if (handler && [handler respondsToSelector:@selector(refreshApplicationMenuStateForPID:)]) {
+        return [handler refreshApplicationMenuStateForPID:pid];
+    }
+    return NO;
+}
+
 - (void)scanForExistingMenuServices
 {
     static int scanCount = 0;

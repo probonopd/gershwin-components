@@ -40,6 +40,11 @@
 // current (pulled or pushed within the TTL).  Implemented only by
 // GNUStepMenuImporter; the click path uses it to skip the synchronous pull.
 - (BOOL)menuStatesAreFreshForWindow:(unsigned long)windowId withinTTL:(NSTimeInterval)ttl;
+// Application-level (windowless-app) menus.  Implemented only by
+// GNUStepMenuImporter; the other importers return NO/nil.
+- (BOOL)hasApplicationMenuForPID:(pid_t)pid;
+- (NSMenu *)getApplicationMenuForPID:(pid_t)pid;
+- (BOOL)refreshApplicationMenuStateForPID:(pid_t)pid;
 
 @end
 
@@ -105,5 +110,11 @@ typedef NS_ENUM(NSInteger, MenuProtocolType) {
 // Re-register the global shortcuts for the given window's menu by delegating
 // to the protocol handler that manages the window.
 - (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId;
+
+// Application-level (windowless-app) menu access.  Forwarded to the GNUstep
+// importer; the other protocol handlers do not implement app-level menus.
+- (BOOL)hasApplicationMenuForPID:(pid_t)pid;
+- (NSMenu *)getApplicationMenuForPID:(pid_t)pid;
+- (BOOL)refreshApplicationMenuStateForPID:(pid_t)pid;
 
 @end

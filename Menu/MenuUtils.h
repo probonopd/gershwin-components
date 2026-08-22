@@ -38,6 +38,17 @@
 + (BOOL)advertiseGlobalMenuSupport;
 + (void)removeGlobalMenuSupport;
 
+/* ── Gershwin root-window "active application" properties ──────────────
+   The WM maintains _GERSHWIN_ACTIVE_APP (Cardinal = PID of the frontmost
+   application) and clears _NET_ACTIVE_WINDOW when a windowless app is the
+   frontmost.  Menu.app reads the PID to decide which app menu to show.
+   Menu.app maintains _GERSHWIN_MENU_APPS (array of Cardinal PIDs of apps
+   that have an application-level menu); the WM's Alt-Tab reads it to list
+   windowless apps. */
++ (pid_t)getActiveApplicationPID;
++ (NSArray *)getMenuApps;
++ (void)setMenuApps:(NSArray *)pids;
+
 /* Merge the given atoms into the root window's _NET_SUPPORTED property.
  * _NET_SUPPORTED is owned by the window manager; this appends the global-menu
  * atoms without dropping the entries the WM advertised (e.g. the window
