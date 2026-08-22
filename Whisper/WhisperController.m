@@ -321,6 +321,13 @@ static void whisper_new_segment_cb(struct whisper_context *ctx,
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
+    // Register pasteboard types and the service provider FIRST so incoming
+    // DO service requests are never missed (GSServicesManager raises
+    // "service request not implemented" if the provider is missing).
+    [NSApp registerServicesMenuSendTypes:@[]
+                             returnTypes:@[NSStringPboardType]];
+    [NSApp setServicesProvider:self];
+
     [self createUI];
     [self createMenu];
 
@@ -2361,13 +2368,6 @@ static const unsigned long long modelMinSizes[] = {
 
 - (void)finishStartup
 {
-    // Register pasteboard types so GSServicesManager shows our
-    // "Dictate Text" service (it returns NSStringPboardType, no input)
-    [NSApp registerServicesMenuSendTypes:@[]
-                             returnTypes:@[NSStringPboardType]];
-    // Register the "Dictate Text" GNUstep service
-    [NSApp setServicesProvider:self];
-
     [mainWindow center];
     [mainWindow makeKeyAndOrderFront:self];
     [NSApp activateIgnoringOtherApps:YES];
@@ -2413,16 +2413,20 @@ static const unsigned long long modelMinSizes[] = {
 // Records speech until silence, transcribes it, returns text on pboard.
 - (void)dictate:(NSPasteboard *)pboard userData:(NSString *)userData error:(NSString **)error
 {
+    NSLog(@"dictate service invoked");
     if (!wdlopen_init()) {
+        NSLog(@"dictate: whisper library not available");
         if (error) *error = @"whisper.cpp library not available";
         return;
     }
     if (!whisperCtx) {
         NSString *mn = [[NSUserDefaults standardUserDefaults] stringForKey:@"LastModel"];
         NSString *mp  = mn ? [self modelPathForName:mn] : nil;
+        NSLog(@"dictate: loading model %@ from %@", mn, mp);
         if (mp && [[NSFileManager defaultManager] fileExistsAtPath:mp])
             [self loadModel:mp];
         if (!whisperCtx) {
+            NSLog(@"dictate: model load failed");
             if (error) *error = @"No model loaded";
             return;
         }
@@ -2430,8 +2434,10 @@ static const unsigned long long modelMinSizes[] = {
 
     // Capture on default device
     NSString *capDev = [self defaultCaptureDevice];
+    NSLog(@"dictate: capture device %@", capDev);
     void *cap = wcapture_start(16000, [capDev UTF8String]);
     if (!cap) {
+        NSLog(@"dictate: wcapture_start failed");
         if (error) *error = @"No microphone found";
         return;
     }
@@ -2468,6 +2474,8 @@ static const unsigned long long modelMinSizes[] = {
 
     WCaptureData *cd = wcapture_stop(cap);
     if (!cd || cd->n_samples == 0 || !heardSpeech) {
+        NSLog(@"dictate: capture yielded %d samples, heardSpeech=%d",
+              cd ? cd->n_samples : 0, heardSpeech);
         wcapture_free_data(cd);
         if (error) *error = heardSpeech ? @"Transcription failed" : @"No speech detected";
         return;
