@@ -1,5 +1,5 @@
 {
-    ApplicationDescription = "Speech-to-text transcription using Whisper";
+    ApplicationDescription = "Speech-to-text transcription";
     ApplicationIcon = Whisper;
     ApplicationName = Whisper;
     ApplicationRelease = "r0.1";

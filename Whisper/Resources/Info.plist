@@ -29,7 +29,7 @@
     <key>ApplicationName</key>
     <string>Whisper</string>
     <key>ApplicationDescription</key>
-    <string>Speech-to-text transcription using Whisper</string>
+    <string>Speech-to-text transcription</string>
     <key>ApplicationIcon</key>
     <string>Whisper</string>
     <key>ApplicationRelease</key>
