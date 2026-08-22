@@ -24,6 +24,28 @@
     <string>Copyright (c) 2026 Simon Peter. BSD-2-Clause License.</string>
     <key>NSMainNibFile</key>
     <string></string>
+    <key>NSServices</key>
+    <array>
+        <dict>
+            <key>NSMessage</key>
+            <string>dictate</string>
+            <key>NSPortName</key>
+            <string>Whisper</string>
+            <key>NSMenuItem</key>
+            <dict>
+                <key>default</key>
+                <string>Dictate Text</string>
+            </dict>
+            <key>NSSendTypes</key>
+            <array/>
+            <key>NSReturnTypes</key>
+            <array>
+                <string>NSStringPboardType</string>
+            </array>
+            <key>NSTimeout</key>
+            <integer>120000</integer>
+        </dict>
+    </array>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>ApplicationName</key>

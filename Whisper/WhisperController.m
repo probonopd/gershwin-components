@@ -2361,9 +2361,154 @@ static const unsigned long long modelMinSizes[] = {
 
 - (void)finishStartup
 {
+    // Register the "Dictate Text" GNUstep service
+    [NSApp setServicesProvider:self];
+
     [mainWindow center];
     [mainWindow makeKeyAndOrderFront:self];
     [NSApp activateIgnoringOtherApps:YES];
+}
+
+#pragma mark - GNUstep Service: Dictate Text
+
+// Returns the default capture device path (ALSA "plughw:N,M" or OSS "/dev/dspN")
+// or nil if no input backend is available.
+- (NSString *)defaultCaptureDevice
+{
+    id<SoundBackend> snd = nil;
+    NSString *devPath = nil;
+
+#if defined(__FreeBSD__) || defined(__DragonFly__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    OSSBackend *oss = [[OSSBackend alloc] init];
+    if ([oss isAvailable]) {
+        snd = oss;
+        AudioDevice *dev = [oss defaultInputDevice];
+        if (dev)
+            devPath = [NSString stringWithFormat:@"/dev/dsp%d", [dev cardIndex]];
+    } else {
+        [oss release]; oss = nil;
+    }
+#endif
+    if (!snd) {
+        ALSABackend *alsa = [[ALSABackend alloc] init];
+        if ([alsa isAvailable]) {
+            snd = alsa;
+            AudioDevice *dev = [alsa defaultInputDevice];
+            if (dev)
+                devPath = [NSString stringWithFormat:@"plughw:%d,%d",
+                                    [dev cardIndex], [dev deviceIndex]];
+        } else {
+            [alsa release]; alsa = nil;
+        }
+    }
+    [snd release];
+    return devPath;
+}
+
+// Service entry point. Called via DO from any application's Services menu.
+// Records speech until silence, transcribes it, returns text on pboard.
+- (void)dictate:(NSPasteboard *)pboard userData:(NSString *)userData error:(NSString **)error
+{
+    if (!wdlopen_init()) {
+        if (error) *error = @"whisper.cpp library not available";
+        return;
+    }
+    if (!whisperCtx) {
+        NSString *mn = [[NSUserDefaults standardUserDefaults] stringForKey:@"LastModel"];
+        NSString *mp  = mn ? [self modelPathForName:mn] : nil;
+        if (mp && [[NSFileManager defaultManager] fileExistsAtPath:mp])
+            [self loadModel:mp];
+        if (!whisperCtx) {
+            if (error) *error = @"No model loaded";
+            return;
+        }
+    }
+
+    // Capture on default device
+    NSString *capDev = [self defaultCaptureDevice];
+    void *cap = wcapture_start(16000, [capDev UTF8String]);
+    if (!cap) {
+        if (error) *error = @"No microphone found";
+        return;
+    }
+
+    // Record until silence-after-speech, no-speech timeout, or hard cap
+    NSDate *started = [NSDate date];
+    BOOL heardSpeech = NO;
+    int silentChecks = 0;
+    int lastN = 0;
+    static const float kSpeechThresh = 0.02f;
+
+    while (1) {
+        usleep(500000);   // check every half second
+
+        float *s = NULL;
+        int n = wcapture_snapshot(cap, &s);
+        if (n > lastN && s) {
+            float peak = 0.0f;
+            for (int i = lastN; i < n; i++) {
+                float a = s[i] < 0 ? -s[i] : s[i];
+                if (a > peak) peak = a;
+            }
+            free(s);
+            if (peak >= kSpeechThresh) { heardSpeech = YES; silentChecks = 0; }
+            else if (heardSpeech)      silentChecks++;
+        }
+        lastN = n;
+
+        NSTimeInterval elapsed = -[started timeIntervalSinceNow];
+        if (heardSpeech && silentChecks >= 4) break;         // ~2 s of silence
+        if (!heardSpeech && elapsed > 10.0) break;           // nothing said
+        if (elapsed > 60.0) break;                           // hard cap
+    }
+
+    WCaptureData *cd = wcapture_stop(cap);
+    if (!cd || cd->n_samples == 0 || !heardSpeech) {
+        wcapture_free_data(cd);
+        if (error) *error = heardSpeech ? @"Transcription failed" : @"No speech detected";
+        return;
+    }
+
+    // Transcribe synchronously (no streaming callbacks)
+    struct whisper_full_params wparams =
+        wdlopen_full_default_params(WHISPER_SAMPLING_GREEDY);
+    wparams.n_threads = currentThreads;
+    wparams.language = "en";
+    wparams.detect_language = false;
+    wparams.no_timestamps = true;
+    wparams.print_progress = false;
+    wparams.print_realtime = false;
+    wparams.print_special = false;
+    wparams.new_segment_callback = NULL;
+    wparams.progress_callback = NULL;
+
+    if (vocabularyPrompt)
+        wparams.initial_prompt = [vocabularyPrompt UTF8String];
+
+    int ret = wdlopen_full(whisperCtx, wparams, cd->samples, cd->n_samples);
+    wcapture_free_data(cd);
+    if (ret != 0) {
+        if (error) *error = @"Transcription failed";
+        return;
+    }
+
+    NSMutableString *text = [NSMutableString string];
+    int totalSegs = wdlopen_full_n_segments(whisperCtx);
+    for (int i = 0; i < totalSegs; i++) {
+        const char *st = wdlopen_full_get_segment_text(whisperCtx, i);
+        if (st) [text appendString:[NSString stringWithUTF8String:st]];
+    }
+    text = [[text stringByTrimmingCharactersInSet:
+             [NSCharacterSet whitespaceAndNewlineCharacterSet]] mutableCopy];
+
+    if ([text length] == 0) {
+        if (error) *error = @"No speech detected";
+        return;
+    }
+
+    // Return the transcribed text to the requesting application
+    [pboard declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+    [pboard setString:text forType:NSStringPboardType];
 }
 
 - (void)syncTypedText
