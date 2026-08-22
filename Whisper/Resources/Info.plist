@@ -43,7 +43,7 @@
                 <string>NSStringPboardType</string>
             </array>
             <key>NSTimeout</key>
-            <integer>120000</integer>
+            <string>120000</string>
         </dict>
     </array>
     <key>NSPrincipalClass</key>

@@ -5,7 +5,7 @@
     ApplicationRelease = "r0.1";
     ApplicationVersion = "v0.1";
     Authors = (
-        "Simon Peter"
+	"Simon Peter"
     );
     CFBundleDevelopmentRegion = English;
     CFBundleExecutable = Whisper;
@@ -19,72 +19,123 @@
     Copyright = "Copyright (c) 2026 Simon Peter";
     CopyrightDescription = "Released under the BSD 2-Clause License";
     FullVersionID = "1.0.0";
-    GSMainMarkupFile = "";
-    NOTE = "Automatically generated, do not edit!";
     NSAppVersion = "1.0";
     NSBuildVersion = 1;
     NSDocumentTypes = (
-        {
-            NSDocumentTypeName = "WAV Audio";
-            NSHandlerRank = Default;
-            NSHumanReadableName = "WAV Audio";
-            NSRoleMask = Viewer;
-            NSTypeExtensions = (wav);
-            NSTypeMIMETypes = ("audio/wav", "audio/x-wav");
-        },
-        {
-            NSDocumentTypeName = "MP3 Audio";
-            NSHandlerRank = Default;
-            NSHumanReadableName = "MP3 Audio";
-            NSRoleMask = Viewer;
-            NSTypeExtensions = (mp3);
-            NSTypeMIMETypes = ("audio/mpeg", "audio/mp3");
-        },
-        {
-            NSDocumentTypeName = "FLAC Audio";
-            NSHandlerRank = Default;
-            NSHumanReadableName = "FLAC Audio";
-            NSRoleMask = Viewer;
-            NSTypeExtensions = (flac);
-            NSTypeMIMETypes = ("audio/flac");
-        }
+	{
+	    NSDocumentTypeName = "WAV Audio";
+	    NSHandlerRank = Default;
+	    NSHumanReadableName = "WAV Audio";
+	    NSRoleMask = Viewer;
+	    NSTypeExtensions = (
+		wav
+	    );
+	    NSTypeMIMETypes = (
+		"audio/wav",
+		"audio/x-wav"
+	    );
+	},
+	{
+	    NSDocumentTypeName = "MP3 Audio";
+	    NSHandlerRank = Default;
+	    NSHumanReadableName = "MP3 Audio";
+	    NSRoleMask = Viewer;
+	    NSTypeExtensions = (
+		mp3
+	    );
+	    NSTypeMIMETypes = (
+		"audio/mpeg"
+	    );
+	},
+	{
+	    NSDocumentTypeName = "FLAC Audio";
+	    NSHandlerRank = Default;
+	    NSHumanReadableName = "FLAC Audio";
+	    NSRoleMask = Viewer;
+	    NSTypeExtensions = (
+		flac
+	    );
+	    NSTypeMIMETypes = (
+		"audio/flac"
+	    );
+	}
     );
-    NSExecutable = Whisper;
     NSHumanReadableCopyright = "Copyright (c) 2026 Simon Peter. BSD-2-Clause License.";
-    NSIcon = "Whisper.png";
     NSMainNibFile = "";
-    NSMainStoryboardFile = "";
     NSPrincipalClass = NSApplication;
+    NSServices = (
+	{
+	    NSMenuItem = {
+		default = "Dictate Text";
+	    };
+	    NSMessage = dictate;
+	    NSPortName = Whisper;
+	    NSReturnTypes = (
+		NSStringPboardType
+	    );
+	    NSSendTypes = (
+	    );
+	    NSTimeout = 120000;
+	}
+    );
     NSTypes = (
-        {
-            NSHumanReadableName = "WAV Audio";
-            NSUnixExtensions = (wav);
-            NSMIMETypes = ("audio/wav", "audio/x-wav");
-            NSRole = Viewer;
-        },
-        {
-            NSHumanReadableName = "MP3 Audio";
-            NSUnixExtensions = (mp3);
-            NSMIMETypes = ("audio/mpeg", "audio/mp3");
-            NSRole = Viewer;
-        },
-        {
-            NSHumanReadableName = "FLAC Audio";
-            NSUnixExtensions = (flac);
-            NSMIMETypes = ("audio/flac", "audio/x-flac");
-            NSRole = Viewer;
-        },
-        {
-            NSHumanReadableName = "OGG Audio";
-            NSUnixExtensions = (ogg, oga);
-            NSMIMETypes = ("audio/ogg", "application/ogg");
-            NSRole = Viewer;
-        },
-        {
-            NSHumanReadableName = "M4A Audio";
-            NSUnixExtensions = (m4a, m4b);
-            NSMIMETypes = ("audio/mp4", "audio/x-m4a");
-            NSRole = Viewer;
-        }
+	{
+	    NSHumanReadableName = "WAV Audio";
+	    NSMIMETypes = (
+		"audio/wav",
+		"audio/x-wav"
+	    );
+	    NSRole = Viewer;
+	    NSUnixExtensions = (
+		wav
+	    );
+	},
+	{
+	    NSHumanReadableName = "MP3 Audio";
+	    NSMIMETypes = (
+		"audio/mpeg",
+		"audio/x-mpeg",
+		"audio/mp3"
+	    );
+	    NSRole = Viewer;
+	    NSUnixExtensions = (
+		mp3
+	    );
+	},
+	{
+	    NSHumanReadableName = "FLAC Audio";
+	    NSMIMETypes = (
+		"audio/flac",
+		"audio/x-flac"
+	    );
+	    NSRole = Viewer;
+	    NSUnixExtensions = (
+		flac
+	    );
+	},
+	{
+	    NSHumanReadableName = "OGG Audio";
+	    NSMIMETypes = (
+		"audio/ogg",
+		"application/ogg"
+	    );
+	    NSRole = Viewer;
+	    NSUnixExtensions = (
+		ogg,
+		oga
+	    );
+	},
+	{
+	    NSHumanReadableName = "M4A Audio";
+	    NSMIMETypes = (
+		"audio/mp4",
+		"audio/x-m4a"
+	    );
+	    NSRole = Viewer;
+	    NSUnixExtensions = (
+		m4a,
+		m4b
+	    );
+	}
     );
 }
