@@ -34,6 +34,11 @@ typedef void (^GWPreflightOutputBlock)(NSString *line);
 - (instancetype)initWithSourceRoot:(NSString *)sourceRoot
                       makefilePath:(NSString *)makefilePath;
 
+// YES when the header ships with gnustep-make itself (its TestFramework,
+// e.g. Testing.h from ObjectTesting).  Such headers exist wherever
+// gnustep-make is installed and are never resolved to distro packages.
++ (BOOL)headerIsShippedWithGnustepMake:(NSString *)header;
+
 // Unsupported-technology names from Build.app's Blacklist.plist; blacklisted
 // headers are never resolved to packages.
 @property (copy, nullable) NSArray<NSString *> *blacklist;

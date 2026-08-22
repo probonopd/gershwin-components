@@ -183,6 +183,49 @@ typedef NS_ENUM(NSInteger, GWPreflightConsent) {
 
 #pragma mark - Resolution
 
+// Directories where gnustep-make may live.  $GNUSTEP_MAKEFILES wins when set;
+// the remaining paths cover the common layouts (/System Gershwin layout,
+// traditional /usr/GNUstep, and the Debian /usr/share/GNUstep layout).
++ (NSArray<NSString *> *)gnustepMakeDirectories
+{
+    NSMutableArray<NSString *> *dirs = [NSMutableArray array];
+    NSString *env = [[[NSProcessInfo processInfo] environment]
+        objectForKey:@"GNUSTEP_MAKEFILES"];
+    if ([env length] > 0) [dirs addObject:env];
+    [dirs addObjectsFromArray:@[
+        @"/System/Library/Makefiles",
+        @"/usr/GNUstep/System/Library/Makefiles",
+        @"/usr/local/GNUstep/System/Library/Makefiles",
+        @"/usr/share/GNUstep/Makefiles",
+        @"/usr/local/share/GNUstep/Makefiles",
+    ]];
+    return dirs;
+}
+
+// Headers shipped with gnustep-make's TestFramework (the ObjectTesting
+// unit-test framework used by many projects' test tools) live outside every
+// distro include prefix and appear in no distro package database; they are
+// present whenever gnustep-make is, so they must be treated as installed.
++ (BOOL)headerIsShippedWithGnustepMake:(NSString *)header
+{
+    static NSSet *shippedBasenames = nil;
+    if (!shippedBasenames) {
+        NSMutableSet *names = [NSMutableSet set];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        for (NSString *dir in [self gnustepMakeDirectories]) {
+            NSString *testFramework = [dir stringByAppendingPathComponent:
+                @"TestFramework"];
+            for (NSString *name in [fm contentsOfDirectoryAtPath:testFramework
+                                                           error:NULL]) {
+                if ([name hasSuffix:@".h"]) [names addObject:name];
+            }
+        }
+        shippedBasenames = [[names copy] retain]; // app-lifetime singleton
+    }
+
+    return [shippedBasenames containsObject:[header lastPathComponent]];
+}
+
 // Resolution order: a header is resolved from (1) the project's own git repo,
 // (2) the GNUstep / system installation, and only as a last resort (3) the
 // package manager.  Layer 1 is handled by collectLocalFilenames below (headers
@@ -208,6 +251,11 @@ typedef NS_ENUM(NSInteger, GWPreflightConsent) {
     // Anything already installed is fine; also covers AppKit/Foundation/objc
     // headers that shipped with the GNUstep installation.
     if ([db isHeaderInstalled:header distro:distro]) return NO;
+
+    // Headers that come with gnustep-make itself (ObjectTesting TestFramework)
+    // are outside every distro prefix and in no package database, but they are
+    // on disk wherever gnustep-make is - never resolve them to packages.
+    if ([[self class] headerIsShippedWithGnustepMake:header]) return NO;
 
     return YES;
 }
