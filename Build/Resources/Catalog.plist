@@ -238,6 +238,16 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>TheLounge</string>
+		<key>GitURL</key>
+		<string>https://github.com/probonopd/TheLounge</string>
+		<key>Description</key>
+		<string>Native desktop client for The Lounge IRC bouncer - no embedded browser</string>
+		<key>MakefilePath</key>
+		<string>TLNative/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>Thematic</string>
 		<key>GitURL</key>
 		<string>https://github.com/gnustep/apps-thematic</string>
