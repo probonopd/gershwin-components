@@ -2418,6 +2418,18 @@ static const CGFloat kSpace16 = 16.0;
                                                        @"Status: preflight aborted build")];
     }
     if (_progressBar) [_progressBar stopAnimation:nil];
+
+    // Surface the reason to the user instead of crashing mid-build.  The
+    // message already names the missing header(s) so they know what to install.
+    if (_window && preflightError) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:NSLocalizedString(@"Build cannot start",
+                                                @"Alert title: preflight abort")];
+        [alert setInformativeText:detail];
+        [alert setAlertStyle:NSWarningAlertStyle];
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
+        [alert runModal];
+    }
     return NO;
 }
 

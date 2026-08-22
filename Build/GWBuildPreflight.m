@@ -404,15 +404,29 @@ typedef NS_ENUM(NSInteger, GWPreflightConsent) {
             "Consider using an alternative technology.",
             [_blockedHeaders componentsJoinedByString:@", "]]];
     }
-    if ([packages count] == 0) {
-        if ([_unresolvedHeaders count] > 0) {
-            [self outputLine:[NSString stringWithFormat:
-                @"Preflight: %lu header(s) not found in the database (no package "
-                "to install; the build may still fail).",
-                (unsigned long)[_unresolvedHeaders count]]];
-        } else {
-            [self outputLine:@"Preflight: all headers available; nothing to install."];
+    // A header we cannot install is a hard stop: there is no point launching a
+    // build that will fail on it, and proceeding has crashed the app in the
+    // past.  Tell the user exactly which header is missing so they can install
+    // it first.
+    if ([_unresolvedHeaders count] > 0) {
+        NSString *missing = [_unresolvedHeaders componentsJoinedByString:@", "];
+        [self outputLine:[NSString stringWithFormat:
+            @"Preflight: %lu required header(s) are missing and have no "
+            "installable package: %@",
+            (unsigned long)[_unresolvedHeaders count], missing]];
+        if (error) {
+            *error = [NSError errorWithDomain:GWPackageManagerErrorDomain
+                                         code:GWPackageManagerErrorCommandFailed
+                                     userInfo:@{NSLocalizedDescriptionKey:
+                [NSString stringWithFormat:
+                    NSLocalizedString(@"The following header(s) are missing and must be installed before building: %@",
+                                      @"Preflight error: missing headers"),
+                    missing]}];
         }
+        return GWPreflightDecisionAbort;
+    }
+    if ([packages count] == 0) {
+        [self outputLine:@"Preflight: all headers available; nothing to install."];
         return GWPreflightDecisionProceed;
     }
 
