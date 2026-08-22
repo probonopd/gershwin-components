@@ -2375,6 +2375,15 @@ static const unsigned long long modelMinSizes[] = {
 
 #pragma mark - GNUstep Service: Dictate Text
 
+- (void)dictateLoadModel
+{
+    NSString *mn = [[NSUserDefaults standardUserDefaults] stringForKey:@"LastModel"];
+    NSString *mp  = mn ? [self modelPathForName:mn] : nil;
+    NSLog(@"dictate: loading model %@ from %@", mn, mp);
+    if (mp && [[NSFileManager defaultManager] fileExistsAtPath:mp])
+        [self loadModel:mp];
+}
+
 - (void)showListeningWindow
 {
     NSWindow *win = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 300, 60)
@@ -2446,11 +2455,10 @@ static const unsigned long long modelMinSizes[] = {
         return;
     }
     if (!whisperCtx) {
-        NSString *mn = [[NSUserDefaults standardUserDefaults] stringForKey:@"LastModel"];
-        NSString *mp  = mn ? [self modelPathForName:mn] : nil;
-        NSLog(@"dictate: loading model %@ from %@", mn, mp);
-        if (mp && [[NSFileManager defaultManager] fileExistsAtPath:mp])
-            [self loadModel:mp];
+        // Model loading touches the UI — must happen on the main thread
+        [self performSelectorOnMainThread:@selector(dictateLoadModel)
+                               withObject:nil
+                            waitUntilDone:YES];
         if (!whisperCtx) {
             NSLog(@"dictate: model load failed");
             if (error) *error = @"No model loaded";
@@ -2461,6 +2469,11 @@ static const unsigned long long modelMinSizes[] = {
     // Capture on default device
     NSString *capDev = [self defaultCaptureDevice];
     NSLog(@"dictate: capture device %@", capDev);
+    if (!capDev) {
+        NSLog(@"dictate: no capture device found");
+        if (error) *error = @"No microphone found";
+        return;
+    }
     void *cap = wcapture_start(16000, [capDev UTF8String]);
     if (!cap) {
         NSLog(@"dictate: wcapture_start failed");
@@ -2494,8 +2507,12 @@ static const unsigned long long modelMinSizes[] = {
                 if (a > peak) peak = a;
             }
             free(s);
+            NSLog(@"dictate: check n=%d new=%d peak=%.6f", n, n - lastN, peak);
             if (peak >= kSpeechThresh) { heardSpeech = YES; silentChecks = 0; }
             else if (heardSpeech)      silentChecks++;
+        }
+        else {
+            NSLog(@"dictate: check no new samples (n=%d lastN=%d)", n, lastN);
         }
         lastN = n;
 
