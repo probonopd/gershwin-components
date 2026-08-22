@@ -7,6 +7,7 @@
  */
 
 #import "ALSABackend.h"
+#import "WavScale.h"
 #import <AppKit/AppKit.h>
 #import <dispatch/dispatch.h>
 
@@ -1655,34 +1656,26 @@ static NSString *const kMicControl = @"Mic";
     NSString *device = defaultOutput ?
         [NSString stringWithFormat:@"plughw:%d", currentOutputCard] : @"default";
 
-    // --- Apply alert volume by temporarily scaling the output mixer ---
-    float savedVolume = -1.0;
-    NSString *mixerControl = nil;
-
-    if (cachedAlertVolume < 0.99 && defaultOutput) {
-        mixerControl = [self preferredMixerControlNameForDevice:defaultOutput isOutput:YES];
-        if (!mixerControl) mixerControl = kMasterControl;
-
-        NSString *output = [self runCommand:amixerPath
-                              withArguments:@[@"-c",
-                                [NSString stringWithFormat:@"%d", currentOutputCard],
-                                @"sget", mixerControl]];
-        if (output) {
-            savedVolume = [self parseVolumeFromMixerOutput:output];
-            float targetVol = savedVolume * cachedAlertVolume;
-            if (targetVol < 0.02) targetVol = 0.02;
-
-            int percent = (int)(targetVol * 100.0);
-            if (percent < 1) percent = 1;
-            NSString *value = [NSString stringWithFormat:@"%d%%", percent];
-            [self setMixerControl:mixerControl value:value card:currentOutputCard];
+    // --- Scale the sound file itself so only the alert plays quieter ---
+    NSString *playPath = sound.path;
+    NSString *tempPath = nil;
+    if (cachedAlertVolume < 0.99) {
+        NSData *wav = [NSData dataWithContentsOfFile:sound.path];
+        NSData *quiet = wav ? SoundScaleWavData(wav, cachedAlertVolume) : nil;
+        if (quiet) {
+            tempPath = [NSTemporaryDirectory()
+                        stringByAppendingPathComponent:
+                        [NSString stringWithFormat:@"gs-alert-%d.wav", getpid()]];
+            if ([quiet writeToFile:tempPath atomically:YES]) {
+                playPath = tempPath;
+            }
         }
     }
 
     // --- Play the sound (synchronously on the calling queue) ---
     NSTask *task = [[NSTask alloc] init];
     [task setLaunchPath:aplayPath];
-    [task setArguments:@[@"-D", device, @"-q", sound.path]];
+    [task setArguments:@[@"-D", device, @"-q", playPath]];
 
     BOOL success = YES;
     @try {
@@ -1694,11 +1687,8 @@ static NSString *const kMicControl = @"Mic";
     }
     [task release];
 
-    // --- Restore original volume ---
-    if (savedVolume >= 0 && mixerControl) {
-        int percent = (int)(savedVolume * 100.0);
-        NSString *value = [NSString stringWithFormat:@"%d%%", percent];
-        [self setMixerControl:mixerControl value:value card:currentOutputCard];
+    if (tempPath) {
+        [[NSFileManager defaultManager] removeItemAtPath:tempPath error:NULL];
     }
 
     if (!success) {

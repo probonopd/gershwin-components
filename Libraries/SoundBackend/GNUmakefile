@@ -7,6 +7,7 @@ VERSION = 1.0
 UNAME_S := $(shell uname -s)
 libSoundBackend_OBJC_FILES = \
 	../../Sound/SoundModels.m \
+	../../Sound/WavScale.m \
 	../../Sound/ALSABackend.m
 ifneq ($(UNAME_S),OpenBSD)
 libSoundBackend_OBJC_FILES += ../../Sound/OSSBackend.m
@@ -14,6 +15,7 @@ endif
 
 libSoundBackend_HEADER_FILES = \
 	../../Sound/SoundBackend.h \
+	../../Sound/WavScale.h \
 	../../Sound/ALSABackend.h \
 	../../Sound/OSSBackend.h
 
