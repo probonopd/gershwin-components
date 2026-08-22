@@ -2361,6 +2361,10 @@ static const unsigned long long modelMinSizes[] = {
 
 - (void)finishStartup
 {
+    // Register pasteboard types so GSServicesManager shows our
+    // "Dictate Text" service (it returns NSStringPboardType, no input)
+    [NSApp registerServicesMenuSendTypes:@[]
+                             returnTypes:@[NSStringPboardType]];
     // Register the "Dictate Text" GNUstep service
     [NSApp setServicesProvider:self];
 
