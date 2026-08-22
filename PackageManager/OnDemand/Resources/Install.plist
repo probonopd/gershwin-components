@@ -8,5 +8,18 @@
     </array>
     <key>postinstall_command</key>
     <string>/usr/bin/gimp</string>
+    <key>os_overrides</key>
+    <dict>
+        <key>freebsd</key>
+        <dict>
+            <key>postinstall_command</key>
+            <string>/usr/local/bin/gimp</string>
+        </dict>
+        <key>openbsd</key>
+        <dict>
+            <key>postinstall_command</key>
+            <string>/usr/local/bin/gimp</string>
+        </dict>
+    </dict>
 </dict>
 </plist>
