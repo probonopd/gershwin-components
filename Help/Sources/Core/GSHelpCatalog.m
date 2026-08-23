@@ -561,23 +561,27 @@
 + (NSArray<GSHelpCatalogItem *> *)developerDocItemsWithRoots:
     (NSArray<NSString *> *)roots
 {
-    /* Roots arrive most significant first.  Deduplication is by ABSOLUTE
-     * path because the sweep roots overlap (/Developer contains the
-     * narrower Sources root): identical rel paths from different roots
-     * are different files here. */
+    /* Roots arrive most significant first.  Two dedupe passes keep
+     * the sidebar honest: absolute paths collapse copies claimed by
+     * overlapping sweep roots (/Developer contains Sources), and
+     * relative paths collapse domain mirrors such as an identical
+     * /Local tree shadowing /System. */
     NSMutableArray<NSDictionary *> *collected = [NSMutableArray new];
-    NSMutableSet<NSString *> *seen = [NSMutableSet new];
+    NSMutableSet<NSString *> *seenAbs = [NSMutableSet new];
+    NSMutableSet<NSString *> *seenRel = [NSMutableSet new];
     for (NSString *root in roots)
       {
         NSMutableArray<NSDictionary *> *found = [NSMutableArray new];
         [self collectGSdocFilesInDir: root into: found];
         for (NSDictionary *entry in found)
           {
-            if ([seen containsObject: entry[@"abs"]])
+            if ([seenAbs containsObject: entry[@"abs"]]
+                    || [seenRel containsObject: entry[@"rel"]])
               {
                 continue;
               }
-            [seen addObject: entry[@"abs"]];
+            [seenAbs addObject: entry[@"abs"]];
+            [seenRel addObject: entry[@"rel"]];
             [collected addObject: entry];
           }
       }

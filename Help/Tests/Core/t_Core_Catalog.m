@@ -207,9 +207,8 @@ int main(void)
     NSArray *groups =
         [GSHelpCatalog developerDocItemsWithRoots: @[ r1, r2 ]];
     PASS([groups count] == 1
-             && [[groups[0] title] isEqualToString:
-                     @"Developer Documentation"],
-         "all gsdoc collected under one Developer Documentation group");
+             && [[groups[0] title] isEqualToString: @"Documentation"],
+         "all gsdoc collected under one Documentation group");
 
     NSArray *top = [groups[0] children];
     PASS([top count] == 3, "three top-level rows");

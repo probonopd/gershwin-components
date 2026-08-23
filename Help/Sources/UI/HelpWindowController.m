@@ -25,10 +25,6 @@
 #    import "GSManParser.h"
 #    define HELP_HAS_MAN 1
 #  endif
-#  if __has_include("GSGSDocParser.h")
-#    import "GSGSDocParser.h"
-#    define HELP_HAS_GSDOC 1
-#  endif
 #  if __has_include("GSTextParser.h")
 #    import "GSTextParser.h"
 #    define HELP_HAS_TEXT 1
@@ -370,9 +366,6 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
 #endif
 #ifdef HELP_HAS_MAN
         [registry registerParser: [GSManParser new]];
-#endif
-#ifdef HELP_HAS_GSDOC
-        [registry registerParser: [GSGSDocParser new]];
 #endif
 #ifdef HELP_HAS_TEXT
         [registry registerParser: [GSTextParser new]];

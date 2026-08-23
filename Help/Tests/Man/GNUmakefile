@@ -10,7 +10,7 @@ ADDITIONAL_OBJCFLAGS += -fobjc-runtime=gnustep-2.0
 ARCFLAGS = -fobjc-arc -fobjc-runtime=gnustep-2.0
 # gnustep-make looks up $<_FILE_FLAGS, so the variable name must be
 # the exact relative path used in *_OBJC_FILES.
-../../Sources/Parsers/GSManParser.m_FILE_FLAGS = $(ARCFLAGS)
+../../Sources/Parsers/GSManParser.m_FILE_FLAGS = $(ARCFLAGS) $(CODEC_DEFINES)
 ../../Sources/Core/GSHelpNode.m_FILE_FLAGS = $(ARCFLAGS)
 ../../Sources/Core/GSHelpDocument.m_FILE_FLAGS = $(ARCFLAGS)
 ../../Sources/Core/GSHelpURL.m_FILE_FLAGS = $(ARCFLAGS)
@@ -19,18 +19,27 @@ ADDITIONAL_CPPFLAGS += -I$(GNUSTEP_MAKEFILES)/TestFramework \
                        -I../../Sources/Core \
                        -I../../Sources/Parsers
 
-# Link only the decompression libraries whose headers exist; the parser
-# source gates its readers on the same headers via __has_include.
+# Link only decompression libraries that compile AND link with a real
+# symbol reference, and hand the parser the same GS_HAVE_* gates the
+# app build uses; without them the readers are compiled out and the
+# compressed-page fixtures would legitimately fail.
+help_probe = printf 'int main(void){%s;return 0;}\n' '$(3)' | $(CC) -x c - -include $(1).h -o /dev/null -l$(2) 2>/dev/null && echo yes
+
+CODEC_DEFINES =
 DECOMP_LIBS =
-ifeq ($(shell test -f /usr/include/zlib.h && echo yes),yes)
+ifneq ($(shell $(call help_probe,zlib,z,gzopen(0,0))),)
+CODEC_DEFINES += -DGS_HAVE_ZLIB=1
 DECOMP_LIBS += -lz
 endif
-ifeq ($(shell test -f /usr/include/bzlib.h && echo yes),yes)
+ifneq ($(shell $(call help_probe,bzlib,bz2,BZ2_bzDecompressInit(0,0,0))),)
+CODEC_DEFINES += -DGS_HAVE_BZ2=1
 DECOMP_LIBS += -lbz2
 endif
-ifeq ($(shell test -f /usr/include/lzma.h && echo yes),yes)
+ifneq ($(shell $(call help_probe,lzma,lzma,lzma_code(0,0))),)
+CODEC_DEFINES += -DGS_HAVE_LZMA=1
 DECOMP_LIBS += -llzma
 endif
+ADDITIONAL_OBJCFLAGS += $(CODEC_DEFINES)
 
 MAN_CORE_OBJS = ../../Sources/Core/GSHelpNode.m \
                 ../../Sources/Core/GSHelpDocument.m \
