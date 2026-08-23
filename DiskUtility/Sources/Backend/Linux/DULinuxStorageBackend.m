@@ -569,6 +569,21 @@
             destinationSize = ((DUPartition *)destination).sizeBytes;
         }
 
+        // Verification needs the byte count that will have crossed the
+        // wire; without it the checksum phase is impossible, not skipped.
+        unsigned long long sourceSize = 0;
+        if ([source isKindOfClass:[DUStorageDevice class]]) {
+            sourceSize = ((DUStorageDevice *)source).capacityBytes;
+        } else if ([source isKindOfClass:[DUPartition class]]) {
+            sourceSize = ((DUPartition *)source).sizeBytes;
+        } else if ([source isKindOfClass:[DUStorageVolume class]]) {
+            sourceSize = ((DUStorageVolume *)source).capacityBytes;
+        } else if ([source isKindOfClass:[DUDiskImage class]]) {
+            sourceSize = ((DUDiskImage *)source).sizeBytes;
+        }
+        BOOL verify =
+            ![options[@"skipChecksum"] boolValue] && sourceSize > 0;
+
         NSString *dd = [DUProcessRunner executablePathForName:@"dd"];
         if (dd == nil) {
             completion(DUErrorMake(DUErrorBackendUnavailable,
@@ -578,7 +593,11 @@
 
         progress(0.02, NSLocalizedString(@"Restoring from source...", nil));
         // dd writes the raw destination device; needs root. Streaming keeps
-        // status=progress lines feeding the progress callback.
+        // status=progress lines feeding the progress callback. With
+        // verification enabled the write owns 2-50% of the bar; the two
+        // checksum passes share the rest.
+        double writeScale = verify ? 0.48 : 0.96;
+        double writeBase = verify ? 0.02 : 0.02;
         NSError *streamError = nil;
         [[DUAuthorizationManager sharedManager]
             streamPrivileged:dd
@@ -592,7 +611,7 @@
                    unsigned long long copied = strtoull(line.UTF8String, NULL, 10);
                    if (copied > 0 && destinationSize > 0) {
                        double fraction = (double)copied / (double)destinationSize;
-                       progress(MIN(0.98, MAX(0.02, fraction)), line);
+                       progress(writeBase + MIN(1.0, MAX(0.0, fraction)) * writeScale, line);
                    }
                }
                 finishHandler:^(DUProcessResult *result) {
@@ -609,7 +628,78 @@
                         }]);
                         return;
                     }
-                    progress(1.0, NSLocalizedString(@"Restore completed successfully.", nil));
+                    if (!verify) {
+                        progress(1.0, NSLocalizedString(@"Restore completed successfully.", nil));
+                        completion(nil);
+                        return;
+                    }
+
+                    // Verify pass: hash what landed on the device and hash
+                    // the source; both must agree byte for byte.
+                    progress(0.5,
+                             NSLocalizedString(@"Verifying checksum...", nil));
+                    progress(0.5,
+                             NSLocalizedString(@"Re-reading written data...",
+                                               nil));
+                    NSString *writtenDigest =
+                        [DULinuxImageTool
+                            sha256HexForPath:destinationPath
+                                   sizeBytes:sourceSize
+                                    progress:^(double fraction) {
+                        progress(0.5 + fraction * 0.25,
+                                 NSLocalizedString(@"Re-reading written data...",
+                                                   nil));
+                    }
+                                       error:nil];
+                    if (writtenDigest == nil) {
+                        progress(1.0, NSLocalizedString(@"Verification failed.", nil));
+                        completion(DUErrorMake(
+                            DUErrorVerificationFailed,
+                            NSLocalizedString(@"The written data could not be "
+                                              @"read back for verification.",
+                                              nil)));
+                        return;
+                    }
+                    progress(0.75,
+                             NSLocalizedString(@"Hashing source...", nil));
+                    NSString *sourceDigest =
+                        [DULinuxImageTool
+                            sha256HexForPath:sourcePath
+                                   sizeBytes:sourceSize
+                                    progress:^(double fraction) {
+                        progress(0.75 + fraction * 0.25,
+                                 NSLocalizedString(@"Hashing source...", nil));
+                    }
+                                       error:nil];
+                    if (sourceDigest == nil) {
+                        progress(1.0, NSLocalizedString(@"Verification failed.", nil));
+                        completion(DUErrorMake(
+                            DUErrorVerificationFailed,
+                            NSLocalizedString(@"The source could not be read "
+                                              @"back for verification.",
+                                              nil)));
+                        return;
+                    }
+                    if (![writtenDigest isEqualToString:sourceDigest]) {
+                        progress(1.0, NSLocalizedString(@"Verification failed.", nil));
+                        completion([NSError errorWithDomain:DUStorageErrorDomain
+                                                       code:DUErrorVerificationFailed
+                                                   userInfo:@{
+                            NSLocalizedDescriptionKey :
+                                NSLocalizedString(@"Checksum mismatch: the "
+                                                  @"written data does not match "
+                                                  @"the source.",
+                                                  nil),
+                            kDUBackendDetailKey :
+                                [NSString stringWithFormat:
+                                              @"source=%@ written=%@",
+                                              sourceDigest, writtenDigest],
+                        }]);
+                        return;
+                    }
+                    progress(1.0,
+                             NSLocalizedString(@"Verified: checksums match.",
+                                               nil));
                     completion(nil);
                 }
                   error:&streamError];

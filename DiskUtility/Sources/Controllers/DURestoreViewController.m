@@ -8,6 +8,7 @@
 
 #import "AppearanceMetrics.h"
 #import "DUDiskImage.h"
+#import "DUStorageCapabilities.h"
 #import "DUStorageVolume.h"
 #import "DUErrors.h"
 #import "DUOperation.h"
@@ -222,12 +223,18 @@ static NSString * const kDefaultsConfirmDestructive =
 
 - (void)updateEnabledStates:(DUStorageCapabilities *)capabilities
 {
+    // The sidebar-selection capabilities are irrelevant here (they used to
+    // grey the button whenever a partition without canRestore was merely
+    // highlighted); what matters is the chosen pair: the source must be
+    // restorable and the two roles must differ by identity.
+    (void)capabilities;
     BOOL hasBoth = self.resolvedSource != nil &&
         self.resolvedDestination != nil;
-    BOOL distinct =
-        self.resolvedSource.identifier !=
-        self.resolvedDestination.identifier;
-    BOOL restorable = capabilities != nil ? capabilities.canRestore : YES;
+    BOOL distinct = hasBoth &&
+        ![self.resolvedSource.identifier
+             isEqualToString:self.resolvedDestination.identifier];
+    BOOL restorable = self.resolvedSource == nil ||
+        self.resolvedSource.capabilities.canRestore;
     _restoreButton.enabled = !self.operationRunning && hasBoth && distinct &&
         restorable;
 }
@@ -269,28 +276,31 @@ static NSString * const kDefaultsConfirmDestructive =
         item.representedObject = candidate.identifier;
         [picker.menu addItem:item];
     }
-    if (picker.itemArray.count == 0) {
+    if (picker.itemArray.count == 0 && forDestination) {
+        // No writable destination exists. Source mode continues so the
+        // "Image File..." route stays available on bare systems.
         return nil;
     }
 
     // Plain modal panel: GNUstep NSAlert lacks accessory views.
     NSPanel *panel = [[NSPanel alloc]
-        initWithContentRect:NSMakeRect(0, 0, 400, 110)
+        initWithContentRect:NSMakeRect(0, 0, 460, 110)
                       styleMask:NSTitledWindowMask
                         backing:NSBackingStoreBuffered
                           defer:NO];
     panel.title = forDestination
         ? NSLocalizedString(@"Choose Restore Destination", nil)
         : NSLocalizedString(@"Choose Restore Source", nil);
+    CGFloat panelWidth = NSWidth(panel.frame);
     NSView *content = panel.contentView;
     picker.frame =
         NSMakeRect(METRICS_CONTENT_SIDE_MARGIN,
                    METRICS_CONTENT_BOTTOM_MARGIN +
                        METRICS_BUTTON_HEIGHT + METRICS_SPACE_16,
-                   400 - 2 * METRICS_CONTENT_SIDE_MARGIN, 26);
+                   panelWidth - 2 * METRICS_CONTENT_SIDE_MARGIN, 26);
     [content addSubview:picker];
     NSButton *selectButton = [[NSButton alloc]
-        initWithFrame:NSMakeRect(400 - METRICS_CONTENT_SIDE_MARGIN -
+        initWithFrame:NSMakeRect(panelWidth - METRICS_CONTENT_SIDE_MARGIN -
                                      100,
                                  METRICS_CONTENT_BOTTOM_MARGIN, 100,
                                  METRICS_BUTTON_HEIGHT)];
@@ -308,15 +318,37 @@ static NSString * const kDefaultsConfirmDestructive =
     cancelButton.bezelStyle = NSRoundedBezelStyle;
     [content addSubview:cancelButton];
 
+    // Source mode gains a direct route to arbitrary image files; the
+    // destination must remain a model object with a device node.
+    NSButton *imageFileButton = nil;
+    if (!forDestination) {
+        imageFileButton = [[NSButton alloc]
+            initWithFrame:NSMakeRect(METRICS_CONTENT_SIDE_MARGIN,
+                                     METRICS_CONTENT_BOTTOM_MARGIN, 120,
+                                     METRICS_BUTTON_HEIGHT)];
+        [imageFileButton setTitle:NSLocalizedString(@"Image File...", nil)];
+        imageFileButton.bezelStyle = NSRoundedBezelStyle;
+        [imageFileButton sizeToFit];
+        [content addSubview:imageFileButton];
+    }
+
     ModalPickerContext context;
     context.picker = picker;
     context.done = NO;
+    context.filePath = nil;
     objc_setAssociatedObject(selectButton, "duCtx",
                              [NSValue valueWithPointer:&context],
                              OBJC_ASSOCIATION_RETAIN);
     objc_setAssociatedObject(cancelButton, "duCtx",
                              [NSValue valueWithPointer:&context],
                              OBJC_ASSOCIATION_RETAIN);
+    if (imageFileButton != nil) {
+        objc_setAssociatedObject(imageFileButton, "duCtx",
+                                 [NSValue valueWithPointer:&context],
+                                 OBJC_ASSOCIATION_RETAIN);
+        [imageFileButton setTarget:self];
+        [imageFileButton setAction:@selector(pickerImageFileClicked:)];
+    }
     [selectButton setTarget:self];
     [selectButton setAction:@selector(pickerSelected:)];
     [cancelButton setTarget:self];
@@ -329,8 +361,38 @@ static NSString * const kDefaultsConfirmDestructive =
     if (!context.done) {
         return nil;
     }
+    if (context.filePath.length > 0) {
+        return [self transientImageForPath:context.filePath];
+    }
     NSString *identifier = picker.selectedItem.representedObject;
     return [self.storageManager objectForIdentifier:identifier];
+}
+
+// Wraps an arbitrary image file as a restore-capable source. The object is
+// transient (never part of the model snapshot); the backend only needs its
+// backendPath to stream bytes from.
+- (DUDiskImage *)transientImageForPath:(NSString *)path
+{
+    NSDictionary *attributes =
+        [[NSFileManager defaultManager] attributesOfItemAtPath:path
+                                                          error:NULL];
+    if (attributes == nil) {
+        return nil;
+    }
+
+    DUDiskImage *image =
+        [[DUDiskImage alloc] initWithIdentifier:path];
+    image.displayName = path.lastPathComponent;
+    image.path = path;
+    image.backendPath = path;
+    image.sizeBytes = attributes.fileSize;
+    image.readOnly = YES;
+
+    DUStorageCapabilities *capabilities =
+        [DUStorageCapabilities capabilitiesWithAll:NO];
+    capabilities.canRestore = YES;
+    image.capabilities = capabilities;
+    return image;
 }
 
 - (void)chooseSource:(id)sender
@@ -361,6 +423,8 @@ static NSString * const kDefaultsConfirmDestructive =
 typedef struct {
     NSPopUpButton *picker;
     BOOL done;
+    // Set by the "Image File..." button: a file path outside the model.
+    NSString *filePath;
 } ModalPickerContext;
 
 - (void)pickerSelected:(id)sender
@@ -382,6 +446,35 @@ typedef struct {
         ModalPickerContext *context = (ModalPickerContext *)boxed.pointerValue;
         context->done = NO;
     }
+    [NSApp stopModal];
+}
+
+// Source mode only: pick an arbitrary image file from disk instead of an
+// object from the model snapshot. The path rides out of the modal session
+// in the context; pickObject wraps it in a transient DUDiskImage.
+- (void)pickerImageFileClicked:(id)sender
+{
+    (void)sender;
+    NSValue *boxed = objc_getAssociatedObject(sender, "duCtx");
+    if (boxed == nil) {
+        return;
+    }
+    ModalPickerContext *context = (ModalPickerContext *)boxed.pointerValue;
+
+    NSOpenPanel *openPanel = [NSOpenPanel openPanel];
+    openPanel.canChooseFiles = YES;
+    openPanel.canChooseDirectories = NO;
+    openPanel.allowsMultipleSelection = NO;
+    // No type filter: image files come with every extension there is
+    // (.img, .iso, .dmg, .gz, ...) and rejecting one would be wrong.
+    openPanel.directoryURL =
+        [NSURL fileURLWithPath:[@"~/Documents"
+            stringByExpandingTildeInPath]];
+    if ([openPanel runModal] != NSOKButton) {
+        return;
+    }
+    context->filePath = openPanel.URL.path;
+    context->done = YES;
     [NSApp stopModal];
 }
 

@@ -65,6 +65,28 @@
 // qemu-img conversion formats when it is installed.
 + (NSArray<NSDictionary *> *)imageCreationFormats;
 
-@end
+
 
 #endif /* defined(__linux__) */
+
+// ---- Verification helpers ------------------------------------------------
+
+// SHA-256 hex digest over the first sizeBytes of `path`. Regular files are
+// read directly; root-only nodes fall back to a privileged `cat` pipeline
+// (sudo -A askpass), mirroring how image creation reads devices. progress
+// reports 0..1 over exactly sizeBytes. Returns nil and sets *error when
+// the read fails or comes up short.
++ (NSString *)sha256HexForPath:(NSString *)path
+                     sizeBytes:(unsigned long long)sizeBytes
+                      progress:(void (^)(double fraction))progress
+                         error:(NSError **)error;
+
+// SHA-256 hex digest of a gzip file's DECOMPRESSED content, streamed
+// through gzip(1) so the digest covers payload bytes, not the container.
+// A corrupt archive surfaces as an error even if bytes were emitted.
++ (NSString *)sha256HexOfGzipFile:(NSString *)path
+                        sizeBytes:(unsigned long long)uncompressedBytes
+                         progress:(void (^)(double fraction))progress
+                            error:(NSError **)error;
+
+@end

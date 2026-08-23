@@ -76,6 +76,7 @@ DiskUtility_OBJC_FILES = \
 	Sources/Utilities/DUErrors.m \
 	Sources/Utilities/DUProcessRunner.m \
 	Sources/Utilities/DUParsing.m \
+	Sources/Utilities/DUSHA256.m \
 	Sources/Backend/DUStorageBackend.m \
 	Sources/Backend/DUMockStorageBackend.m \
 	Sources/Backend/DUBackendFactory.m \

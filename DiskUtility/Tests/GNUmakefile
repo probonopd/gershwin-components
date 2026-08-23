@@ -39,17 +39,19 @@ DUWave1TestSupport_OBJCFLAGS = \
     -fobjc-arc -fobjc-arc-exceptions -fobjc-runtime=gnustep-2.0 -fblocks \
     -Wall -Wextra
 
-TEST_TOOL_NAME = t_Parsing t_PartitionLayout t_Models t_MockBackend
+TEST_TOOL_NAME = t_Parsing t_PartitionLayout t_Models t_MockBackend t_SHA256
 
 t_Parsing_OBJC_FILES = TestParsing.m
 t_PartitionLayout_OBJC_FILES = TestPartitionLayout.m
 t_Models_OBJC_FILES = TestModels.m
 t_MockBackend_OBJC_FILES = TestMockBackend.m
+t_SHA256_OBJC_FILES = TestSHA256.m ../Sources/Utilities/DUSHA256.m
 
 t_Parsing_OBJCFLAGS = -fobjc-runtime=gnustep-2.0 -fblocks -Wall -Wextra
 t_PartitionLayout_OBJCFLAGS = -fobjc-runtime=gnustep-2.0 -fblocks -Wall -Wextra
 t_Models_OBJCFLAGS = -fobjc-runtime=gnustep-2.0 -fblocks -Wall -Wextra
 t_MockBackend_OBJCFLAGS = -fobjc-runtime=gnustep-2.0 -fblocks -Wall -Wextra
+t_SHA256_OBJCFLAGS = -fobjc-runtime=gnustep-2.0 -fblocks -Wall -Wextra
 
 # Static archive by explicit path would be hermetic, but see above; the
 # rpath keeps freshly linked binaries from picking up any installed copy.
