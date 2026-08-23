@@ -1,0 +1,15 @@
+{
+    ApplicationDescription = "Storage device manager";
+    ApplicationIcon = "DiskUtility.png";
+    ApplicationName = "Disk Utility";
+    ApplicationRelease = "1.0";
+    Authors = (
+        "Simon Peter"
+    );
+    Copyright = "Copyright (C) 2026";
+    FullVersionID = "1.0";
+    NSExecutable = DiskUtility;
+    NSIcon = "DiskUtility.png";
+    NSPrincipalClass = NSApplication;
+    NSRole = Application;
+}
