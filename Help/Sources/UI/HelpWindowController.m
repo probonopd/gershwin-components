@@ -7,6 +7,7 @@
 #import "HelpWindowController.h"
 
 #import "GSHelpRenderer.h"
+#import "GSGSdocParser.h"
 #import "GSHelpParserRegistry.h"
 #import "GSHelpHistory.h"
 #import "GSHelpManLocator.h"
@@ -113,11 +114,18 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
      * scanned documentation catalog. */
     GSHelpTOCItem *_documentGroup;
     NSMutableArray<GSHelpTOCItem *> *_catalogGroups;
+    NSString *_activeFilter;
+    NSArray<GSHelpTOCItem *> *_visibleTopLevel;
     GSHelpRenderer *_renderer;
     GSHelpHistory *_history;
     NSURL *_currentURL;
     GSHelpDocument *_currentDocument;
     BOOL _suppressSelection;
+}
+
+- (void)dealloc
+{
+  [[NSNotificationCenter defaultCenter] removeObserver: self];
 }
 
 #pragma mark Window construction
@@ -228,6 +236,16 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     [_outline setDelegate: self];
     [_outline setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
     [sidebarScroll setDocumentView: _outline];
+    /* GNUstep does not auto-grow the table's last column when the scroll
+     * view widens, leaving entry text clipped mid-scrollview; force the
+     * column to track the visible width instead. */
+    [_outline sizeLastColumnToFit];
+    sidebarScroll.postsFrameChangedNotifications = YES;
+    [[NSNotificationCenter defaultCenter]
+        addObserver: self
+           selector: @selector(sidebarFrameChanged:)
+               name: NSViewFrameDidChangeNotification
+             object: sidebarScroll];
     [sidebar addSubview: sidebarScroll];
 
     /* Document area fills the rest. */
@@ -344,6 +362,9 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     if (registry == nil)
       {
         registry = [GSHelpParserRegistry new];
+        /* gsdoc must register before the text fallback, which accepts
+         * every URL (SPEC 51). */
+        [registry registerParser: [GSGSdocParser new]];
 #ifdef HELP_HAS_MARKDOWN
         [registry registerParser: [GSMarkdownParser new]];
 #endif
@@ -483,7 +504,30 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
 }
 
 /* Top-level outline rows: open document first, then catalog. */
+/* Serves the filtered tree while a search query is active. */
 - (NSArray *)topLevelItems
+{
+    if (_activeFilter != nil)
+      {
+        if (_visibleTopLevel == nil)
+          {
+            NSMutableArray *items = [NSMutableArray new];
+            for (GSHelpTOCItem *item in [self fullTopLevelItems])
+              {
+                GSHelpTOCItem *kept =
+                    [self filteredItemForItem: item];
+                if (kept != nil)
+                  [items addObject: kept];
+              }
+            _visibleTopLevel = items;
+          }
+        return _visibleTopLevel;
+      }
+    return [self fullTopLevelItems];
+}
+
+/* The unfiltered sidebar root (the original -topLevelItems body). */
+- (NSArray *)fullTopLevelItems
 {
     NSMutableArray *items = [NSMutableArray new];
     if (_documentGroup != nil)
@@ -674,7 +718,60 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
 
 - (IBAction)searchAction:(id)sender
 {
-    /* Search index lands in M5. */
+    /* Filter the sidebar in place: an item stays visible when its own
+     * title matches or any descendant matches (so matching leaves keep
+     * their group hierarchy).  An empty query restores the full tree. */
+    NSString *query = [_searchField stringValue];
+    _activeFilter = query.length > 0 ? [query copy] : nil;
+    _visibleTopLevel = nil;
+
+    [_outline reloadData];
+    for (GSHelpTOCItem *item in [self topLevelItems])
+      {
+        [_outline expandItem: item expandChildren: YES];
+      }
+}
+
+/* Deep-copies `item` keeping only children whose title matches the active
+ * filter or that contain such a child. Returns nil when the whole subtree
+ * filters out. Group nodes survive purely on their children. */
+- (nullable GSHelpTOCItem *)filteredItemForItem:(GSHelpTOCItem *)item
+{
+    BOOL selfMatches = _activeFilter == nil ||
+        ([item title] != nil &&
+         [[item title] rangeOfString: _activeFilter
+                             options: NSCaseInsensitiveSearch]
+             .location != NSNotFound);
+    GSHelpTOCItem *copy = [GSHelpTOCItem new];
+    copy.title = [item title];
+    copy.entry = item.entry;
+    /* Leaves opened by URL (not catalog entries) carry their target here;
+     * dropping it made filtered-tree clicks silently load nothing. */
+    copy.url = item.url;
+    for (GSHelpTOCItem *child in item.children)
+      {
+        GSHelpTOCItem *kept = [self filteredItemForItem: child];
+        if (kept != nil)
+          {
+            [copy.children addObject: kept];
+          }
+        else if (selfMatches)
+          {
+            /* Leaf itself matched: keep its original subtree verbatim. */
+            [copy.children addObject: child];
+          }
+      }
+    if (copy.children.count > 0)
+      return copy;
+    return selfMatches ? copy : nil;
+}
+
+- (void)sidebarFrameChanged:(NSNotification *)notification
+{
+    (void)notification;
+    /* Keep the single column as wide as the visible clip area so entry
+     * titles are never truncated mid-scrollview. */
+    [_outline sizeLastColumnToFit];
 }
 
 #pragma mark NSOutlineView data source

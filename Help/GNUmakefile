@@ -7,6 +7,7 @@ Help_MAIN_MODEL_FILE =
 
 Help_OBJC_FILES = Sources/main.m \
                   Sources/AppController.m \
+                  Sources/Parsers/GSGSdocParser.m \
                   Sources/Core/GSHelpAppScanner.m \
                   Sources/Core/GSHelpCatalog.m \
                   Sources/Core/GSHelpDocument.m \
