@@ -41,14 +41,20 @@ ADDITIONAL_INCLUDE_DIRS += -ISources/Core -ISources/Parsers -ISources/Rendering 
 # ships no libbz2-dev/liblzma-dev and would fail to link).
 help_probe = echo 'int main(void){return 0;}' | $(CC) -x c - -include $(1).h -o /dev/null -l$(2) 2>/dev/null && echo yes
 
+# The codecs must go into ADDITIONAL_GUI_LIBS, not *_LDFLAGS: gnustep-make
+# puts LDFLAGS before the object files on the link line, and lld does not
+# pull members from static archives scanned before the objects that
+# reference them (OpenBSD ships bzip2/xz as .a only, so -lbz2/-llzma in
+# LDFLAGS silently resolve nothing). ALL_LIBS lands after the objects,
+# which is correct for static and shared libraries alike.
 ifneq ($(shell $(call help_probe,zlib,z)),)
-Help_LDFLAGS += -lz
+ADDITIONAL_GUI_LIBS += -lz
 endif
 ifneq ($(shell $(call help_probe,bzlib,bz2)),)
-Help_LDFLAGS += -lbz2
+ADDITIONAL_GUI_LIBS += -lbz2
 endif
 ifneq ($(shell $(call help_probe,lzma,lzma)),)
-Help_LDFLAGS += -llzma
+ADDITIONAL_GUI_LIBS += -llzma
 endif
 
 include $(GNUSTEP_MAKEFILES)/application.make
