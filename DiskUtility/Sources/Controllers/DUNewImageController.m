@@ -5,6 +5,7 @@
  */
 
 #import "DUNewImageController.h"
+#import "DUStorageDevice.h"
 
 #import "AppearanceMetrics.h"
 #import "DUErrors.h"
@@ -21,7 +22,9 @@
 @property (nonatomic, strong) DUOperationLogView *logView;
 
 @property (nonatomic, strong) NSPanel *panel;
-@property (nonatomic, strong) NSPopUpButton *sourcePopup;
+@property (nonatomic, strong) NSTextField *sourceField;
+/* The image source: always the outline's current selection. */
+@property (nonatomic, strong) DUStorageObject *sourceObject;
 @property (nonatomic, strong) NSTextField *pathField;
 @property (nonatomic, strong) NSButton *browseButton;
 @property (nonatomic, strong) NSPopUpButton *formatPopup;
@@ -85,15 +88,21 @@
                    80, METRICS_BUTTON_HEIGHT);
     [content addSubview:sourceLabel];
 
-    _sourcePopup = [[NSPopUpButton alloc]
+    /* Read-only reflection of the outline selection: the source is never
+     * chosen here (a candidate popup invited imaging the wrong disk). */
+    _sourceField = [[NSTextField alloc]
         initWithFrame:NSMakeRect(
                            METRICS_CONTENT_SIDE_MARGIN + 90,
                            height - METRICS_CONTENT_TOP_MARGIN -
                                METRICS_BUTTON_HEIGHT,
                            width - METRICS_CONTENT_SIDE_MARGIN - 90 -
                                METRICS_CONTENT_SIDE_MARGIN,
-                           METRICS_BUTTON_HEIGHT)];
-    [content addSubview:_sourcePopup];
+                           METRICS_TEXT_INPUT_FIELD_HEIGHT)];
+    _sourceField.editable = NO;
+    _sourceField.bezeled = YES;
+    [_sourceField setSelectable: NO];
+    _sourceField.font = METRICS_FONT_SYSTEM_REGULAR_11;
+    [content addSubview:_sourceField];
 
     // Destination row.
     CGFloat destY =
@@ -172,44 +181,6 @@
 
 // Eligible sources: whole devices and individual partitions/volumes that
 // report a byte size; optical media stays out (read-only oddities).
-- (void)fillSourcesPreferring:(DUStorageObject *)preferred
-{
-    [_sourcePopup removeAllItems];
-    NSMutableArray<DUStorageObject *> *candidates =
-        [NSMutableArray array];
-    for (DUStorageObject *root in self.storageManager.currentObjects) {
-        for (DUStorageObject *object in [root flattenObjects]) {
-            BOOL eligible =
-                object.type == DUStorageObjectTypeDevice ||
-                object.type == DUStorageObjectTypePartition;
-            if (eligible && object.backendPath.length > 0 &&
-                ![object.backendPath hasPrefix:@"~/"]) {
-                [candidates addObject:object];
-            }
-        }
-    }
-
-    NSInteger preferredIndex = NSNotFound;
-    for (NSUInteger i = 0; i < candidates.count; i++) {
-        DUStorageObject *object = candidates[i];
-        NSString *title = [NSString stringWithFormat:@"%@ (%@)",
-                                                     object.displayName ?: @"",
-                                                     object.backendPath];
-        [_sourcePopup addItemWithTitle:title];
-        NSMenuItem *item = (NSMenuItem *)[_sourcePopup itemAtIndex:i];
-        objc_setAssociatedObject(item, "duSource", object,
-                                 OBJC_ASSOCIATION_RETAIN);
-        if (preferred != nil &&
-            [object.identifier isEqualToString:preferred.identifier]) {
-            preferredIndex = (NSInteger)i;
-        }
-    }
-    if (_sourcePopup.itemArray.count > 0) {
-        [_sourcePopup selectItemAtIndex:
-                           preferredIndex != NSNotFound ? preferredIndex : 0];
-    }
-}
-
 - (void)fillFormats
 {
     [_formatPopup removeAllItems];
@@ -232,12 +203,26 @@
 
 #pragma mark - Public entry
 
-- (void)runForObject:(DUStorageObject *)object
+- (void)setSourceObject:(DUStorageObject *)object
+{
+    _sourceObject = object;
+    if (_sourceField != nil)
+      {
+        NSString *path = object.backendPath ?: @"";
+        _sourceField.stringValue =
+            [NSString stringWithFormat:@"%@ (%@)",
+                 object.displayName
+                     ?: NSLocalizedString(@"Nothing selected", nil),
+                 path];
+      }
+}
+
+- (void)openPanel
 {
     if (_panel == nil) {
         _panel = [self buildPanel];
     }
-    [self fillSourcesPreferring:object];
+    [self setSourceObject:_sourceObject];
     [self fillFormats];
 
     // Suggest a destination name from the selection.
@@ -267,8 +252,7 @@
 
 - (DUStorageObject *)selectedSource
 {
-    NSMenuItem *item = (NSMenuItem *)_sourcePopup.selectedItem;
-    return objc_getAssociatedObject(item, "duSource");
+    return _sourceObject;
 }
 
 #pragma mark - Actions

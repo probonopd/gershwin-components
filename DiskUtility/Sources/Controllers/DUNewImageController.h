@@ -16,10 +16,16 @@
 @interface DUNewImageController : NSObject
 
 - (instancetype)initWithStorageManager:(DUStorageManager *)manager
-                               logView:(DUOperationLogView *)logView
+                               logView:(nonnull DUOperationLogView * _Nonnull)logView
     NS_DESIGNATED_INITIALIZER;
 
-// Opens the dialog pre-selected to object (may be nil).
-- (void)runForObject:(DUStorageObject *)object;
+/* The image SOURCE always mirrors the outline's currently selected
+ * object; call this whenever the selection changes and before showing
+ * the panel. The source control in the panel is read-only by design -
+ * a popup of candidates invited imaging the wrong disk. */
+- (void)setSourceObject:(nullable DUStorageObject *)object;
+
+/* Shows the panel for the current source. */
+- (void)openPanel;
 
 @end

@@ -157,10 +157,19 @@ static NSString * const kColumnIdentifier = @"devices";
 - (DUStorageObject *)selectedObject
 {
     NSInteger row = self.outlineView.selectedRow;
-    if (row < 0 || row >= (NSInteger)self.visibleObjects.count) {
+    if (row < 0)
+      {
         return nil;
-    }
-    return self.visibleObjects[row];
+      }
+    /* -itemAtRow: is the authoritative mapping from visual row to model
+     * object; indexing visibleObjects by row number can diverge when
+     * items are collapsed or expanded. */
+    id item = [self.outlineView itemAtRow: row];
+    if (![item isKindOfClass:[DUStorageObject class]])
+      {
+        return nil;
+      }
+    return item;
 }
 
 #pragma mark - User intent
@@ -393,7 +402,7 @@ static NSString * const kColumnIdentifier = @"devices";
     [self.outlineView selectRowIndexes:[NSIndexSet indexSetWithIndex:row]
                   byExtendingSelection:NO];
 
-    DUStorageObject *object = self.visibleObjects[row];
+    DUStorageObject *object = [self.outlineView itemAtRow:row];
     DUStorageCapabilities *caps = object.capabilities;
 
     NSMenu *menu = [[NSMenu alloc] init];

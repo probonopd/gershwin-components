@@ -15,6 +15,7 @@
 #import "DUErrors.h"
 #import "DUFreeBSDDeviceDiscovery.h"
 #import "DUFreeBSDGEOMAdapter.h"
+#import "DUDiskImage.h"
 #import "DUOpticalMedia.h"
 #import "DUPartition.h"
 #import "DUPartitionPlan.h"
@@ -1658,6 +1659,298 @@ static const NSUInteger kMaxFATLabelLength = 11;
                           result:result];
     }
     return nil;
+}
+
+
+#pragma mark - Image creation
+
+// dd(1) progress lines lead with the running byte count; FreeBSD prints
+// "<n> bytes transferred as of <timestamp>" once status=progress is set
+// (FreeBSD 13+; older dd simply stays quiet and the bar moves at the
+// verification phases instead).
+- (NSArray<NSDictionary *> *)imageCreationFormats
+{
+    NSMutableArray *formats = [NSMutableArray new];
+    [formats addObject: @{ kDUFormatIdentifierKey : @"raw",
+                           kDUFormatDisplayNameKey :
+                               NSLocalizedString(@"Raw disk image (.img)",
+                                                 nil) }];
+    if ([DUFreeBSDToolCache haveTool: @"gzip"])
+      {
+        [formats addObject: @{ kDUFormatIdentifierKey : @"gz",
+                               kDUFormatDisplayNameKey :
+                                   NSLocalizedString(
+                                       @"Gzipped raw image (.img.gz)",
+                                       nil) }];
+      }
+    if ([DUFreeBSDToolCache haveTool: @"qemu-img"])
+      {
+        for (NSString *format in @[ @"qcow2", @"vhd", @"vdi" ])
+          {
+            [formats addObject: @{ kDUFormatIdentifierKey : format,
+                                   kDUFormatDisplayNameKey :
+                                       [NSString stringWithFormat:
+                                           NSLocalizedString(
+                                               @"QEMU %@ (via qemu-img)",
+                                               nil),
+                                           format.uppercaseString] }];
+          }
+      }
+    return formats;
+}
+
+// Resolves any imagerable object to its byte source and size.
+- (NSString *)imageSourceForObject:(DUStorageObject *)object
+                            bytes:(unsigned long long *)bytesOut
+{
+    DUStorageObject *source = object;
+    if ([source isKindOfClass:[DUStorageVolume class]])
+      {
+        source = source.parent ?: source;
+      }
+    NSString *path = source.backendPath;
+    unsigned long long bytes = 0;
+    if (path.length == 0)
+      {
+        return nil;
+      }
+    if ([source isKindOfClass:[DUStorageDevice class]])
+      {
+        bytes = ((DUStorageDevice *)source).capacityBytes;
+      }
+    else if ([source isKindOfClass:[DUPartition class]])
+      {
+        bytes = ((DUPartition *)source).sizeBytes;
+      }
+    else if ([source isKindOfClass:[DUStorageVolume class]])
+      {
+        bytes = ((DUStorageVolume *)source).capacityBytes;
+      }
+    else if ([source isKindOfClass:[DUDiskImage class]])
+      {
+        bytes = ((DUDiskImage *)source).sizeBytes;
+      }
+    if (bytes == 0)
+      {
+        return nil;
+      }
+    *bytesOut = bytes;
+    return path;
+}
+
+/* SHA-256 hex digest of the first sizeBytes of `path`, computed with the
+ * base-system sha256(1)/coreutils sha256sum(1) through the elevated
+ * streaming runner (device nodes are root-only). The digest is parsed
+ * from whichever output variant the installed tool produces. */
+- (NSString *)sha256HexForPath:(NSString *)path
+                     sizeBytes:(unsigned long long)sizeBytes
+                      progress:(void (^)(double))progress
+{
+    NSString *tool = [DUFreeBSDToolCache pathForTool: @"sha256"]
+        ?: [DUFreeBSDToolCache pathForTool: @"sha256sum"];
+    if (tool == nil || sizeBytes == 0)
+      {
+        return nil;
+      }
+    NSMutableArray *arguments =
+        [NSMutableArray arrayWithObject: path];
+    /* BSD sha256 defaults to labelled output; sha256sum needs no flag. */
+    if (![tool hasSuffix: @"sha256sum"])
+      {
+        [arguments insertObject: @"-q" atIndex: 0];
+      }
+
+    __block NSMutableString *digest = [NSMutableString string];
+    DUProcessResult *result = [self blockingStreamedRun: tool
+                                              arguments: arguments
+                                            lineHandler:^(NSString *line)
+      {
+        NSString *trimmed = [DUParsing trimmedString: line];
+        if ([trimmed length] >= 64)
+          {
+            [digest setString: [[trimmed substringToIndex: 64]
+                lowercaseString]];
+          }
+        if (progress != NULL)
+          {
+            progress(1.0);
+          }
+      }];
+    if (![self runSucceeded: result] || [digest length] != 64)
+      {
+        return nil;
+      }
+    return digest;
+}
+
+- (void)createImageFromObject:(DUStorageObject *)object
+                      options:(NSDictionary *)options
+                     progress:(void (^)(double, NSString *))progress
+                   completion:(void (^)(NSError *))completion
+{
+    [self spawnWork:^{
+      unsigned long long sourceBytes = 0;
+      NSString *sourcePath = [self imageSourceForObject: object
+                                                  bytes: &sourceBytes];
+      NSString *targetPath = options[@"path"];
+      NSString *format = options[@"format"];
+      if (sourcePath == nil || targetPath.length == 0 || format == nil)
+        {
+          completion(DUErrorMake(DUErrorInvalidArgument,
+              NSLocalizedString(@"Missing image parameters.", nil)));
+          return;
+        }
+      targetPath = [targetPath stringByExpandingTildeInPath];
+      if ([[NSFileManager defaultManager] fileExistsAtPath: targetPath])
+        {
+          completion(DUErrorMake(DUErrorInvalidArgument,
+              NSLocalizedString(@"The image file already exists.", nil)));
+          return;
+        }
+
+      BOOL compressed = [format isEqualToString: @"gz"];
+      BOOL convertAfter = ![format isEqualToString: @"raw"] && !compressed;
+      NSString *rawPath = convertAfter
+          ? [targetPath stringByAppendingPathExtension: @"tmp-raw"]
+          : targetPath;
+
+      NSString *dd = [DUFreeBSDToolCache pathForTool: @"dd"];
+      if (dd == nil)
+        {
+          completion(DUErrorMake(DUErrorUnsupportedOperation,
+              NSLocalizedString(@"The required tool dd is not installed.",
+                                nil)));
+          return;
+        }
+
+      progress(0.02,
+          NSLocalizedString(@"Copying device to image...", nil));
+      NSMutableArray *ddArguments = [NSMutableArray arrayWithObjects:
+          [@"if=" stringByAppendingString: sourcePath],
+          [@"of=" stringByAppendingString: rawPath],
+          @"bs=1m", nil];
+      /* FreeBSD dd understands status=progress since 13; unknown operands
+       * on older world builds surface as a normal tool failure. */
+      [ddArguments addObject: @"status=progress"];
+
+      __block double copiedFraction = 0.0;
+      DUProcessResult *result = [self blockingStreamedRun: dd
+                                                arguments: ddArguments
+                                              lineHandler:^(NSString *line)
+        {
+          unsigned long long copied = [self byteCountFromProgressLine: line];
+          if (copied > 0 && sourceBytes > 0)
+            {
+              copiedFraction = MIN(1.0, (double)copied /
+                  (double)sourceBytes);
+              if (progress != NULL)
+                progress(copiedFraction * 0.5, line);
+            }
+        }];
+      if (![self runSucceeded: result])
+        {
+          [[NSFileManager defaultManager] removeItemAtPath:
+              rawPath error: NULL];
+          completion([self toolFailure: DUErrorRestoreFailed
+                               message: NSLocalizedString(
+                                            @"Writing the image failed.",
+                                            nil)
+                                result: result]);
+          return;
+        }
+
+      /* Verify before declaring success: hash the source, then re-read
+       * the written file and compare digests. For gzip targets only the
+       * archive integrity can be checked cheaply (gzip -t); converted
+       * formats verify the raw intermediate before qemu-img runs. */
+      NSString *verifyTarget = convertAfter ? rawPath : targetPath;
+
+      progress(0.5, NSLocalizedString(@"Hashing the source...", nil));
+      NSString *sourceDigest =
+          [self sha256HexForPath: sourcePath
+                       sizeBytes: sourceBytes
+                        progress: ^(double fraction) {
+                            if (progress != NULL)
+                              progress(0.5 + fraction * 0.125,
+                                  NSLocalizedString(
+                                      @"Hashing the source...", nil));
+                          }];
+
+      NSString *writtenDigest = nil;
+      if (compressed)
+        {
+          progress(0.75,
+              NSLocalizedString(@"Verifying archive integrity...", nil));
+          NSString *gzip =
+              [DUFreeBSDToolCache pathForTool: @"gzip"];
+          DUProcessResult *test =
+              [self blockingStreamedRun: gzip
+                              arguments: @[ @"-t", verifyTarget ]
+                            lineHandler: nil];
+          if (![self runSucceeded: test])
+            {
+              writtenDigest = @"";
+            }
+          else
+            {
+              writtenDigest = sourceDigest;
+            }
+        }
+      else
+        {
+          progress(0.75,
+              NSLocalizedString(@"Re-reading written data...", nil));
+          writtenDigest =
+              [self sha256HexForPath: verifyTarget
+                           sizeBytes: sourceBytes
+                            progress: ^(double fraction) {
+                                if (progress != NULL)
+                                  progress(0.625 + fraction * 0.375,
+                                      NSLocalizedString(
+                                          @"Re-reading written data...",
+                                          nil));
+                            }];
+        }
+
+      if (writtenDigest == nil ||
+          ![writtenDigest isEqualToString: sourceDigest])
+        {
+          [[NSFileManager defaultManager] removeItemAtPath:
+              rawPath error: NULL];
+          completion(DUErrorMake(DUErrorVerificationFailed,
+              NSLocalizedString(@"Checksum mismatch: the written image "
+                                @"does not match the source device.",
+                                nil)));
+          return;
+        }
+
+      if (convertAfter)
+        {
+          progress(0.95, NSLocalizedString(@"Converting image...", nil));
+          NSString *qemuImg =
+              [DUFreeBSDToolCache pathForTool: @"qemu-img"];
+          DUProcessResult *conversion =
+              [self blockingStreamedRun: qemuImg
+                              arguments: @[ @"convert", @"-O", format,
+                                            rawPath, targetPath ]
+                            lineHandler: nil];
+          [[NSFileManager defaultManager] removeItemAtPath:
+              rawPath error: NULL];
+          if (![self runSucceeded: conversion])
+            {
+              completion([self toolFailure: DUErrorUnknown
+                                   message: NSLocalizedString(
+                                                @"Converting the image "
+                                                @"failed.", nil)
+                                    result: conversion]);
+              return;
+            }
+        }
+
+      progress(1.0,
+          NSLocalizedString(@"Image created successfully.", nil));
+      completion(nil);
+    }];
 }
 
 @end

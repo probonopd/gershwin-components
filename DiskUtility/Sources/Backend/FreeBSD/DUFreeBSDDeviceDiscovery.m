@@ -96,6 +96,12 @@
         if ([name hasPrefix:@"cd"]) {
             continue;
         }
+        /* eMMC boot windows (mmcsd0boot0/boot1) are raw 4 MiB slots for
+         * bootloaders - never sensible targets for GUI operations, and
+         * listing them invited imaging the wrong "disk". */
+        if ([name hasSuffix:@"boot0"] || [name hasSuffix:@"boot1"]) {
+            continue;
+        }
         DUStorageDevice *device = [self diskFromProvider:provider name:name];
         if (device == nil) {
             continue;
@@ -232,11 +238,14 @@
         [DUParsing boolFromToken:[DUParsing trimmedString:info[@"active"]]];
     partition.readOnly = device.readOnly;
 
-    NSString *label = partition.name;
+    /* Labelled partitions show their label; unlabelled ones fall back to
+     * the provider node (mmcsd0p2), which is unique and matches what the
+     * user sees in gpart/lsblk-style listings. */
+    NSString *label = partition.name.length > 0
+        ? partition.name : partName;
     partition.displayName =
         [NSString stringWithFormat:@"%@ (%@)",
-             label.length > 0 ? label
-                              : NSLocalizedString(@"Partition", nil),
+             label,
              [DUParsing humanReadableSizeFromBytes:sizeBytes]];
 
     // Swap has no user-visible filesystem; everything else mountable gets
@@ -283,6 +292,8 @@
         volume.capabilities.canUnmount =
             volume.mounted && [DUFreeBSDToolCache haveTool:@"umount"];
         volume.capabilities.canErase = [self canFormatFilesystem:fstype];
+        volume.capabilities.canCreateImage =
+            [DUFreeBSDToolCache haveTool:@"dd"];
 
         partition.volume = volume;
         [partition addChild:volume];
@@ -444,6 +455,8 @@
     BOOL canVerifyAny =
         [DUFreeBSDToolCache haveTool:@"fsck_ffs"] ||
         [DUFreeBSDToolCache haveTool:@"fsck_msdosfs"];
+    /* Imaging a disk is a plain byte-stream copy through dd. */
+    BOOL canCreateImage = [DUFreeBSDToolCache haveTool:@"dd"];
 
     for (DUStorageObject *root in roots) {
         if (![root isKindOfClass:[DUStorageDevice class]]) {
@@ -457,6 +470,7 @@
         device.capabilities.canErase = canFormatAny;
         device.capabilities.canRestore = canRestore;
         device.capabilities.canVerify = canVerifyAny;
+        device.capabilities.canCreateImage = canCreateImage;
         device.capabilities.canEject = NO;
     }
 }

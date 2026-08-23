@@ -76,6 +76,9 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
 
 // Current selection mirrored here so toolbar handlers can act on it.
 @property (nonatomic, weak) DUStorageObject *selectedObject;
+/* Strong identifier of the selection: survives catalog rescans that
+ * replace the (weakly held) selected object. */
+@property (nonatomic, strong) DUNewImageController *imagePanelController;
 @property (nonatomic, strong) NSWindow *infoWindow;
 @property (nonatomic, strong) DUInformationController *infoWindowController;
 @end
@@ -116,6 +119,12 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
     _browserController =
         [[DUDeviceBrowserController alloc] initWithStorageManager:manager];
     _browserController.delegate = self;
+
+    /* Created eagerly so the outline selection can always be mirrored to
+     * the New Image panel's read-only source field. */
+    _imagePanelController =
+        [[DUNewImageController alloc] initWithStorageManager:manager
+                                                     logView:_operationController.logView];
 
     _informationController = [[DUInformationController alloc] init];
 
@@ -485,14 +494,11 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
     }
 
     if ([token isEqualToString:@"newimage"]) {
-        static DUNewImageController *newImageController = nil;
-        if (newImageController == nil) {
-            newImageController =
-                [[DUNewImageController alloc]
-                    initWithStorageManager:self.storageManager
-                                   logView:_operationController.logView];
-        }
-        [newImageController runForObject:self.selectedObject];
+        /* Sync the source from the CURRENT outline selection right before
+         * opening: the panel's read-only field must always match what the
+         * user sees highlighted in the sidebar. */
+        [self.imagePanelController setSourceObject:self.selectedObject];
+        [self.imagePanelController openPanel];
         return;
     }
 
@@ -544,6 +550,7 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
 - (void)browserSelectionChanged:(DUStorageObject *)object
 {
     self.selectedObject = object;
+    [_imagePanelController setSourceObject:object];
     [_operationController refreshForObject:object
                               capabilities:object.capabilities];
     [_informationController setObject:object];
