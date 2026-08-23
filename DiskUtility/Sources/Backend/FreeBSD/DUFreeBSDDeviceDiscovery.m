@@ -439,6 +439,11 @@
         [DUFreeBSDToolCache haveTool:@"newfs"] ||
         [DUFreeBSDToolCache haveTool:@"newfs_msdos"];
     BOOL canRestore = [DUFreeBSDToolCache haveTool:@"dd"];
+    /* Whole-disk verify fans out over the disk's partitions, so it is
+     * available whenever any filesystem checker is installed. */
+    BOOL canVerifyAny =
+        [DUFreeBSDToolCache haveTool:@"fsck_ffs"] ||
+        [DUFreeBSDToolCache haveTool:@"fsck_msdosfs"];
 
     for (DUStorageObject *root in roots) {
         if (![root isKindOfClass:[DUStorageDevice class]]) {
@@ -451,6 +456,7 @@
         device.capabilities.canPartition = canPartition;
         device.capabilities.canErase = canFormatAny;
         device.capabilities.canRestore = canRestore;
+        device.capabilities.canVerify = canVerifyAny;
         device.capabilities.canEject = NO;
     }
 }

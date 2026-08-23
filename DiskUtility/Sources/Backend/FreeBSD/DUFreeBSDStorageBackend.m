@@ -430,12 +430,155 @@ static const NSUInteger kMaxFATLabelLength = 11;
     return nil;
 }
 
+#pragma mark - Whole-disk verify
+
+/* Verifies every verifiable partition of a disk sequentially. The overall
+ * fraction is (done + partitionFraction) / total so the bar sweeps once
+ * across all children; partitions without a checker are reported and
+ * skipped, and the first fsck failure fails the whole operation after all
+ * children ran. */
+- (void)verifyPartitionsOfDevice:(DUStorageDevice *)device
+                        progress:(void (^)(double progress,
+                                           NSString *message))progress
+                      completion:(void (^)(NSError *))completion
+{
+    NSMutableArray<DUPartition *> *verifiable = [NSMutableArray new];
+    NSMutableArray<DUPartition *> *skipped = [NSMutableArray new];
+    for (DUStorageObject *child in device.children) {
+        if (![child isKindOfClass:[DUPartition class]]) {
+            continue;
+        }
+        DUPartition *partition = (DUPartition *)child;
+        NSString *checker =
+            [self checkerNameForFilesystem:
+                      partition.filesystemType ?: @""];
+        if (partition.backendPath.length == 0 || checker == nil) {
+            [skipped addObject:partition];
+        } else {
+            [verifiable addObject:partition];
+        }
+    }
+
+    if (verifiable.count == 0 && skipped.count == 0) {
+        completion(DUErrorMake(
+            DUErrorUnsupportedOperation,
+            NSLocalizedString(@"This disk has no partitions to verify.",
+                              nil)));
+        return;
+    }
+
+    progress(0.0, [NSString stringWithFormat:
+        NSLocalizedString(@"Verifying %lu partitions on %@...", nil),
+        (unsigned long)verifiable.count,
+        device.displayName ?: @""]);
+
+    NSUInteger total = verifiable.count + skipped.count;
+    __block NSUInteger done = 0;
+    __block DUPartition *failedPartition = nil;
+    __block NSString *failureDetail = nil;
+
+    __block void (^next)(void) = ^void(void) {
+        if (done >= total) {
+            next = nil;  /* break the self-reference */
+            if (failedPartition == nil) {
+                progress(1.0, NSLocalizedString(
+                    @"All partitions verified clean.", nil));
+                completion(nil);
+            } else {
+                progress(1.0, NSLocalizedString(
+                    @"Verification found errors.", nil));
+                completion([NSError errorWithDomain: DUStorageErrorDomain
+                                               code: DUErrorVerificationFailed
+                                           userInfo: @{
+                    NSLocalizedDescriptionKey :
+                        [NSString stringWithFormat:
+                            NSLocalizedString(
+                                @"Partition %@ could not be verified "
+                                @"without errors.", nil),
+                            failedPartition.displayName ?: @""],
+                    DUFreeBSDBackendDetailKey : failureDetail ?: @"",
+                }]);
+            }
+            return;
+        }
+
+        NSUInteger index = done;
+        double base = (double)index / (double)total;
+        double span = 1.0 / (double)total;
+
+        if (index < skipped.count) {
+            DUPartition *partition = skipped[index];
+            done++;
+            progress(done / (double)total, [NSString stringWithFormat:
+                NSLocalizedString(@"[%lu/%lu] %@ has no verifiable "
+                                  @"filesystem - skipped.", nil),
+                (unsigned long)(index + 1), (unsigned long)total,
+                partition.displayName ?: @""]);
+            next();
+            return;
+        }
+
+        DUPartition *partition = verifiable[index - skipped.count];
+        NSString *prefix = [NSString stringWithFormat:@"[%lu/%lu] %@:",
+            (unsigned long)(index + 1), (unsigned long)total,
+            partition.displayName ?: @""];
+        NSString *checker =
+            [self checkerNameForFilesystem:partition.filesystemType ?: @""];
+        NSArray *readonlyArgs =
+            [self readonlyArgumentsForChecker:checker];
+        NSString *checkerPath =
+            [DUFreeBSDToolCache pathForTool:checker];
+
+        progress(base, [NSString stringWithFormat:
+            NSLocalizedString(@"%@ checking %@...", nil),
+            prefix, partition.filesystemType ?: @""]);
+
+        NSMutableArray *arguments =
+            [NSMutableArray arrayWithArray:readonlyArgs];
+        [arguments addObject:partition.backendPath];
+
+        __block NSUInteger lineCount = 0;
+        DUProcessResult *result = [self blockingStreamedRun:checkerPath
+                                                  arguments:arguments
+                                                lineHandler:^(NSString *line) {
+            NSString *text = [DUParsing trimmedString:line];
+            if (text.length == 0) return;
+            lineCount++;
+            if (lineCount <= 40 && progress != NULL) {
+                progress(base + span * 0.5,
+                         [NSString stringWithFormat:@"%@ %@", prefix, text]);
+            }
+        }];
+        done++;
+        if (![self runSucceeded:result]) {
+            failedPartition = failedPartition ?: partition;
+            failureDetail = result.standardError ?: @"";
+            progress(done / (double)total, [NSString stringWithFormat:
+                NSLocalizedString(@"%@ errors found.", nil), prefix]);
+        } else {
+            progress(done / (double)total, [NSString stringWithFormat:
+                NSLocalizedString(@"%@ clean.", nil), prefix]);
+        }
+        next();
+    };
+    next();
+}
+
 #pragma mark - Verify
 
 - (void)verifyObject:(DUStorageObject *)object
               progress:(void (^)(double progress, NSString *message))progress
             completion:(void (^)(NSError *error))completion
 {
+    /* A whole disk has no filesystem of its own; verifying it fans out
+     * over its partitions with the overall bar advancing per partition. */
+    if ([object isKindOfClass: [DUStorageDevice class]]) {
+        [self verifyPartitionsOfDevice: (DUStorageDevice *)object
+                              progress: progress
+                            completion: completion];
+        return;
+    }
+
     NSError *gate = [self gateForOperation:kDUOperationVerify
                                  onObject:object];
     if (gate == nil && object.backendPath.length == 0) {
