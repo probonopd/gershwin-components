@@ -396,6 +396,14 @@
             [library stringByAppendingPathComponent:
                           @"Documentation/Developer"]];
       }
+    /* Source trees document themselves with *.gsdoc next to the
+     * code they describe (libs-base/Tools/HTMLLinker.gsdoc and
+     * friends); the tree mirrors <project>/<subdir>/<file>. */
+    NSString *sourcesRoot = @"/Developer/Library/Sources";
+    if ([[NSFileManager defaultManager] fileExistsAtPath: sourcesRoot])
+      {
+        [developerRoots addObject: sourcesRoot];
+      }
     [items addObjectsFromArray:
                [self developerDocItemsWithRoots: developerRoots]];
     return items;
@@ -404,27 +412,72 @@
 #pragma mark GSdoc developer documentation
 
 /* Depth-first walk gathering every *.gsdoc below dir as
- * { @"rel": path relative to the scan root, @"abs": real path }. */
+ * { @"rel": path relative to the scan root, @"abs": real path }.
+ * Uses one streaming enumerator with prefetched types instead of
+ * per-entry stat calls: source trees hold tens of thousands of
+ * files and most of them are irrelevant. */
+/* Depth-first walk gathering every *.gsdoc below dir as
+ * { @"rel": path relative to the scan root, @"abs": real path }.
+ * Build trees, VCS metadata and build output are pruned; source
+ * trees hold tens of thousands of irrelevant files. */
 + (void)collectGSdocFilesInDir:(NSString *)dir
-                    relativeTo:(NSString *)relative
                           into:(NSMutableArray<NSDictionary *> *)result
 {
-    NSArray *entries = [[NSFileManager defaultManager]
-        contentsOfDirectoryAtPath: dir error: NULL];
-    entries = [entries sortedArrayUsingSelector: @selector(compare:)];
-    for (NSString *name in entries)
+    static NSFileManager *fm = nil;
+    if (fm == nil)
       {
-        NSString *path = [dir stringByAppendingPathComponent: name];
+        fm = [NSFileManager defaultManager];
+      }
+    NSString *rootPath = [dir stringByStandardizingPath];
+    [self collectGSdocInRoot: rootPath
+                    relative: @""
+                        into: result];
+}
+
++ (void)collectGSdocInRoot:(NSString *)rootPath
+                  relative:(NSString *)relative
+                      into:(NSMutableArray<NSDictionary *> *)result
+{
+    NSArray *entries =
+        [[NSFileManager defaultManager]
+            contentsOfDirectoryAtPath:
+                [rootPath stringByAppendingPathComponent: relative]
+                                  error: NULL];
+    if (entries == nil)
+      {
+        return;
+      }
+    for (NSString *name in
+             [entries sortedArrayUsingSelector: @selector(compare:)])
+      {
+        if ([name hasPrefix: @"."])
+          {
+            continue;
+          }
         NSString *rel = [relative length] > 0
             ? [relative stringByAppendingPathComponent: name] : name;
-        BOOL isDirectory = NO;
-        [[NSFileManager defaultManager] fileExistsAtPath: path
-                                              isDirectory: &isDirectory];
+        NSString *path =
+            [rootPath stringByAppendingPathComponent: rel];
+        NSDictionary *attributes =
+            [[NSFileManager defaultManager]
+                attributesOfItemAtPath: path error: NULL];
+        BOOL isDirectory =
+            [[attributes fileType]
+                isEqualToString: NSFileTypeDirectory];
         if (isDirectory)
           {
-            [self collectGSdocFilesInDir: path
-                              relativeTo: rel
-                                    into: result];
+            /* Bundles and build output do not carry references. */
+            if ([name isEqualToString: @"obj"]
+                    || [name hasSuffix: @".app"]
+                    || [name hasSuffix: @".bundle"]
+                    || [name hasSuffix: @".framework"]
+                    || [name hasSuffix: @".build"])
+              {
+                continue;
+              }
+            [self collectGSdocInRoot: rootPath
+                            relative: rel
+                                into: result];
           }
         else if ([name hasSuffix: @".gsdoc"])
           {
@@ -433,9 +486,6 @@
       }
 }
 
-/* Turns relative paths into one sorted level of sidebar rows: a
- * single component is a leaf, deeper paths group under their first
- * component and recurse with it stripped. */
 + (NSArray<GSHelpCatalogItem *> *)gsdocItemsForRelPaths:
     (NSArray<NSDictionary *> *)entries
 {
@@ -500,9 +550,7 @@
     for (NSString *root in roots)
       {
         NSMutableArray<NSDictionary *> *found = [NSMutableArray new];
-        [self collectGSdocFilesInDir: root
-                          relativeTo: @""
-                                into: found];
+        [self collectGSdocFilesInDir: root into: found];
         for (NSDictionary *entry in found)
           {
             if ([seen containsObject: entry[@"rel"]])
