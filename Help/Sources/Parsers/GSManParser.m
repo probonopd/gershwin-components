@@ -9,24 +9,21 @@
 #import "GSHelpNode.h"
 #import "GSHelpURL.h"
 
-/* Decompression support is optional at build time: the makefile links
- * only those libraries whose headers exist, and this source compiles in
- * exactly the matching readers via __has_include. A page compressed
- * with an unsupported codec surfaces as a parse error, never as silent
- * garbage output. */
-#if defined(__has_include)
-#  if __has_include(<zlib.h>)
-#    import <zlib.h>
-#    define GS_HAVE_ZLIB 1
-#  endif
-#  if __has_include(<bzlib.h>)
-#    import <bzlib.h>
-#    define GS_HAVE_BZ2 1
-#  endif
-#  if __has_include(<lzma.h>)
-#    import <lzma.h>
-#    define GS_HAVE_LZMA 1
-#  endif
+/* Decompression support is optional at build time: the makefile probes
+ * each codec with a real link test and passes GS_HAVE_* on the command
+ * line, so this source compiles in exactly the codecs that will be
+ * linked. Header-only detection is not enough - some systems expose
+ * bzlib.h/lzma.h without usable libraries (this broke the OpenBSD
+ * link). A page compressed with an unsupported codec surfaces as a
+ * parse error, never as silent garbage output. */
+#ifdef GS_HAVE_ZLIB
+#  import <zlib.h>
+#endif
+#ifdef GS_HAVE_BZ2
+#  import <bzlib.h>
+#endif
+#ifdef GS_HAVE_LZMA
+#  import <lzma.h>
 #endif
 
 NS_ASSUME_NONNULL_BEGIN

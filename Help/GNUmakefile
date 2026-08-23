@@ -47,14 +47,25 @@ help_probe = echo 'int main(void){return 0;}' | $(CC) -x c - -include $(1).h -o 
 # reference them (OpenBSD ships bzip2/xz as .a only, so -lbz2/-llzma in
 # LDFLAGS silently resolve nothing). ALL_LIBS lands after the objects,
 # which is correct for static and shared libraries alike.
-ifneq ($(shell $(call help_probe,zlib,z)),)
+#
+# The probes test compile AND link with a real symbol reference; a bare
+# header check is not enough (some systems expose bzlib.h/lzma.h without
+# usable libraries, which used to break the Help link on OpenBSD). The
+# same result is handed to the compiler via -DGS_HAVE_*, so the source
+# compiles in exactly the codecs that will be linked.
+help_probe = printf 'int main(void){%s;return 0;}\n' '$(3)' | $(CC) -x c - -include $(1).h -o /dev/null -l$(2) 2>/dev/null && echo yes
+
+ifneq ($(shell $(call help_probe,zlib,z,gzopen(0,0))),)
 ADDITIONAL_GUI_LIBS += -lz
+Help_OBJCFLAGS += -DGS_HAVE_ZLIB=1
 endif
-ifneq ($(shell $(call help_probe,bzlib,bz2)),)
+ifneq ($(shell $(call help_probe,bzlib,bz2,BZ2_bzDecompressInit(0,0,0))),)
 ADDITIONAL_GUI_LIBS += -lbz2
+Help_OBJCFLAGS += -DGS_HAVE_BZ2=1
 endif
-ifneq ($(shell $(call help_probe,lzma,lzma)),)
+ifneq ($(shell $(call help_probe,lzma,lzma,lzma_code(0,0))),)
 ADDITIONAL_GUI_LIBS += -llzma
+Help_OBJCFLAGS += -DGS_HAVE_LZMA=1
 endif
 
 include $(GNUSTEP_MAKEFILES)/application.make
