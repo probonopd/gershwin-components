@@ -47,6 +47,11 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSArray<GSHelpCatalogItem *> *)developerDocItemsWithRoots:
     (NSArray<NSString *> *)roots;
 
+/* "3" -> "Section 3: Library Functions", "1p" ->
+ * "Section 1p: User Commands (POSIX)"; unknown labels pass
+ * through as before. */
++ (NSString *)displayNameForManSection:(NSString *)section;
+
 /* Convenience for the live system: /System application roots plus
  * MANPATH/standard man trees via GSHelpManLocator. */
 + (NSArray<GSHelpCatalogItem *> *)systemCatalogItems;

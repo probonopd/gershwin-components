@@ -88,6 +88,50 @@
     };
 }
 
+/* Canonical man section names (man-pages(7)); a trailing p marks
+ * the POSIX variant of the base section. Unknown sections keep
+ * their raw label. */
++ (NSString *)displayNameForManSection:(NSString *)section
+{
+    static NSDictionary<NSString *, NSString *> *names = nil;
+    if (names == nil)
+      {
+        names = @{
+            @"1": @"User Commands",
+            @"2": @"System Calls",
+            @"3": @"Library Functions",
+            @"4": @"Special Files",
+            @"5": @"File Formats",
+            @"6": @"Games",
+            @"7": @"Miscellaneous",
+            @"8": @"System Administration",
+            @"9": @"Kernel Routines",
+        };
+      }
+    NSString *base = section;
+    NSString *suffix = @"";
+    if ([section length] > 1)
+      {
+        base = [section substringToIndex: 1];
+        NSString *rest = [section substringFromIndex: 1];
+        if ([rest isEqualToString: @"p"])
+          {
+            suffix = @" (POSIX)";
+          }
+        else if ([rest length] > 0)
+          {
+            suffix = [NSString stringWithFormat: @" (%@)", rest];
+          }
+      }
+    NSString *name = names[base];
+    if (name == nil)
+      {
+        return [@"Section " stringByAppendingString: section];
+      }
+    return [NSString stringWithFormat:
+                     @"Section %@: %@%@", section, name, suffix];
+}
+
 + (NSArray<GSHelpCatalogItem *> *)catalogItemsWithAppRoots:
                                      (NSArray<NSString *> *)appRoots
                                             manRoots:
@@ -256,7 +300,7 @@
           }
         [sectionItems addObject: [[GSHelpCatalogItem alloc]
             initWithTitle:
-                [@"Section " stringByAppendingString: section]
+                [self displayNameForManSection: section]
                       url: nil
                  children: pages]];
       }

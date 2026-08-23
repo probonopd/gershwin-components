@@ -128,6 +128,8 @@ int main(void)
     NSString *base = MakeBase();
     Touch([base stringByAppendingPathComponent: @"man1/ls.1"]);
     Touch([base stringByAppendingPathComponent: @"man1/gzip.1.gz"]);
+    Touch([base stringByAppendingPathComponent: @"man1p/nice.1p"]);
+    Touch([base stringByAppendingPathComponent: @"man2/pipe.2"]);
     Touch([base stringByAppendingPathComponent: @"man3/printf.3"]);
     Touch([base stringByAppendingPathComponent: @"man8/fsck.8"]);
 
@@ -138,16 +140,28 @@ int main(void)
              && [[groups[0] title] isEqualToString: @"Commands"],
          "man pages collected under one Commands group");
     NSArray *items = [groups[0] children];
-    PASS([items count] == 3, "three sections present");
-    PASS([[items[0] title] isEqualToString: @"Section 1"],
-         "sections ordered numerically");
+    PASS([items count] == 5, "five sections present");
+    PASS([[items[0] title] isEqualToString: @"Section 1: User Commands"],
+         "section 1 carries its canonical name");
+    PASS([[items[1] title]
+              isEqualToString: @"Section 1p: User Commands (POSIX)"],
+         "POSIX variant of section 1 annotated");
+    PASS([[items[2] title]
+              isEqualToString: @"Section 2: System Calls"],
+         "section 2 carries its canonical name");
+    PASS([[items[3] title]
+              isEqualToString: @"Section 3: Library Functions"],
+         "section 3 carries its canonical name");
+    PASS([[items[4] title]
+              isEqualToString: @"Section 8: System Administration"],
+         "section 8 carries its canonical name");
     PASS([[items[0] children] count] == 2,
          "both section-1 pages listed");
     PASS([[[items[0] children][0] title] isEqualToString: @"gzip(1)"],
          "compression suffix stripped from display title");
     NSURL *url = [[items[0] children][0] url];    PASS([[[url path] lastPathComponent] isEqualToString: @"gzip.1.gz"],
          "leaf URL points at the real compressed file");
-    PASS([[[items[2] children][0] title] isEqualToString: @"fsck(8)"],
+    PASS([[[items[4] children][0] title] isEqualToString: @"fsck(8)"],
          "section 8 pages listed");
 
     [fm removeFileAtPath: base handler: nil];
