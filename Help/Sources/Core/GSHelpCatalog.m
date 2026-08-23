@@ -404,6 +404,18 @@
       {
         [developerRoots addObject: sourcesRoot];
       }
+    /* Whole-tree sweeps for markdown documentation ship with sources and
+     * system components alike; appended last so the narrower roots keep
+     * their shorter, project-rooted relative paths. */
+    if ([[NSFileManager defaultManager] fileExistsAtPath:
+            @"/Developer"])
+      {
+        [developerRoots addObject: @"/Developer"];
+      }
+    if ([[NSFileManager defaultManager] fileExistsAtPath: @"/System"])
+      {
+        [developerRoots addObject: @"/System"];
+      }
     [items addObjectsFromArray:
                [self developerDocItemsWithRoots: developerRoots]];
     return items;
@@ -466,8 +478,13 @@
                 isEqualToString: NSFileTypeDirectory];
         if (isDirectory)
           {
-            /* Bundles and build output do not carry references. */
+            /* Bundles, build output and VCS/dependency metadata do not
+             * carry references. */
             if ([name isEqualToString: @"obj"]
+                    || [name isEqualToString: @".git"]
+                    || [name isEqualToString: @".svn"]
+                    || [name isEqualToString: @".hg"]
+                    || [name isEqualToString: @"node_modules"]
                     || [name hasSuffix: @".app"]
                     || [name hasSuffix: @".bundle"]
                     || [name hasSuffix: @".framework"]
@@ -479,7 +496,8 @@
                             relative: rel
                                 into: result];
           }
-        else if ([name hasSuffix: @".gsdoc"])
+        else if ([name hasSuffix: @".gsdoc"] ||
+                 [name hasSuffix: @".md"])
           {
             [result addObject: @{ @"rel": rel, @"abs": path }];
           }
@@ -543,8 +561,10 @@
 + (NSArray<GSHelpCatalogItem *> *)developerDocItemsWithRoots:
     (NSArray<NSString *> *)roots
 {
-    /* Roots arrive most significant first, so an identical relative
-     * path in several domains keeps its first copy. */
+    /* Roots arrive most significant first.  Deduplication is by ABSOLUTE
+     * path because the sweep roots overlap (/Developer contains the
+     * narrower Sources root): identical rel paths from different roots
+     * are different files here. */
     NSMutableArray<NSDictionary *> *collected = [NSMutableArray new];
     NSMutableSet<NSString *> *seen = [NSMutableSet new];
     for (NSString *root in roots)
@@ -553,11 +573,11 @@
         [self collectGSdocFilesInDir: root into: found];
         for (NSDictionary *entry in found)
           {
-            if ([seen containsObject: entry[@"rel"]])
+            if ([seen containsObject: entry[@"abs"]])
               {
                 continue;
               }
-            [seen addObject: entry[@"rel"]];
+            [seen addObject: entry[@"abs"]];
             [collected addObject: entry];
           }
       }
@@ -567,7 +587,7 @@
       }
 
     GSHelpCatalogItem *group = [[GSHelpCatalogItem alloc]
-        initWithTitle: @"Developer Documentation"
+        initWithTitle: @"Documentation"
                   url: nil
              children: [self gsdocItemsForRelPaths: collected]];
     return @[ group ];

@@ -5,6 +5,11 @@ include $(GNUSTEP_MAKEFILES)/common.make
 APP_NAME = Help
 Help_MAIN_MODEL_FILE =
 
+# Documentation viewer: lives next to Disk Utility in the utilities
+# folder, not with end-user applications.
+GNUSTEP_SYSTEM_APPS := $(GNUSTEP_SYSTEM_APPS)/Utilities
+GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
+
 Help_OBJC_FILES = Sources/main.m \
                   Sources/AppController.m \
                   Sources/Parsers/GSGSdocParser.m \
