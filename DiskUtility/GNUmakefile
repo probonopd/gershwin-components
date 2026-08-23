@@ -94,6 +94,7 @@ DiskUtility_OBJC_FILES = \
 	Sources/Backend/Linux/DULinuxImageTool.m \
 	Sources/Backend/FreeBSD/DUFreeBSDStorageBackend.m \
 	Sources/Backend/FreeBSD/DUFreeBSDDeviceDiscovery.m \
+	Sources/Backend/FreeBSD/DUFreeBSDGEOMAdapter.m \
 	Sources/Backend/OpenBSD/DUOpenBSDStorageBackend.m \
 	Sources/Backend/OpenBSD/DUOpenBSDDeviceDiscovery.m \
 	Sources/Backend/NetBSD/DUNetBSDStorageBackend.m \

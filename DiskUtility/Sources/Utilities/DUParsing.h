@@ -28,4 +28,9 @@
 // Trims surrounding whitespace; returns @"" for nil input.
 + (NSString *)trimmedString:(NSString *)text;
 
+// Case-insensitive substring test. GNUstep-base lacks
+// -localizedCaseInsensitiveContainsString:, so backends use this instead.
++ (BOOL)caseInsensitiveContains:(NSString *)haystack
+                          needle:(NSString *)needle;
+
 @end

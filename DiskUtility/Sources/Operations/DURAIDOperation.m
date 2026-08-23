@@ -152,9 +152,8 @@ static NSString *const RAIDLevelRaid10  = @"raid10";
         }
         [paths addObject:node];
     }
-    NSUInteger count = paths.count;
-
 #if defined(__linux__)
+    NSUInteger count = paths.count;
     // mdadm levels are numeric; /dev/md/<name> keeps the set addressable by
     // name without depending on a particular md minor number.
     NSString *mdLevel;
@@ -189,14 +188,10 @@ static NSString *const RAIDLevelRaid10  = @"raid10";
         _name,
     ] arrayByAddingObjectsFromArray:paths];
 
-#elif defined(__OpenBSD__) || defined(__NetBSD__)
+#else
     // raidctl wants a generated config file per set; that belongs in a real
     // backend wave, so report the gap honestly here.
-    (void)count;
-    return nil;
-
-#else
-    (void)count;
+    (void)paths;
     return nil;
 #endif
 }

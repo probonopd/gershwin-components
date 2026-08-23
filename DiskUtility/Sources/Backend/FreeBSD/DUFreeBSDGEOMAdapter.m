@@ -8,10 +8,13 @@
 
 #import "DUFreeBSDGEOMAdapter.h"
 
+#import "DUErrors.h"
 #import "DUFreeBSDDeviceDiscovery.h"
 #import "DUFreeBSDGEOMParser.h"
 #import "DUParsing.h"
 #import "DUProcessRunner.h"
+
+#import <sys/wait.h>
 
 NSString *const DUFreeBSDBackendDetailKey = @"DUBackendDetail";
 

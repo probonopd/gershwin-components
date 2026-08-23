@@ -133,4 +133,15 @@
                        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
++ (BOOL)caseInsensitiveContains:(NSString *)haystack
+                          needle:(NSString *)needle
+{
+    if (haystack.length == 0 || needle.length == 0) {
+        return NO;
+    }
+    return [haystack rangeOfString:needle
+                           options:NSCaseInsensitiveSearch].location
+           != NSNotFound;
+}
+
 @end

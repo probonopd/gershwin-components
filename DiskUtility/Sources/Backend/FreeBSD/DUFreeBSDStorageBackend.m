@@ -792,10 +792,10 @@ static const NSUInteger kMaxFATLabelLength = 11;
                           timeout:300.0
                             error:NULL];
             BOOL tableWasAbsent =
-                [destroy.standardError localizedCaseInsensitiveContainsString:
-                                           @"no such geom"] ||
-                [destroy.standardOutput localizedCaseInsensitiveContainsString:
-                                            @"no such geom"];
+                [DUParsing caseInsensitiveContains:destroy.standardError
+                                             needle:@"no such geom"] ||
+                [DUParsing caseInsensitiveContains:destroy.standardOutput
+                                             needle:@"no such geom"];
             if (![self runSucceeded:destroy] && !tableWasAbsent) {
                 if (completion != NULL) {
                     completion([self toolFailure:DUErrorEraseFailed
@@ -1202,8 +1202,8 @@ static const NSUInteger kMaxFATLabelLength = 11;
                       timeout:300.0
                         error:NULL];
         if (![self runSucceeded:result]) {
-            BOOL busy = [result.standardError
-                localizedCaseInsensitiveContainsString:@"busy"];
+            BOOL busy = [DUParsing caseInsensitiveContains:result.standardError
+                                                     needle:@"busy"];
             NSString *message = busy
                 ? NSLocalizedString(@"The volume is still in use.", nil)
                 : NSLocalizedString(@"Unmounting failed.", nil);
