@@ -64,7 +64,10 @@ dialect/reference for supported Markdown constructs (SPEC 12 isolation rule).
 - Inverted `GSHelpSearchIndex`, ranking per SPEC 41, sidebar Search mode.
 
 ### Deferred (not this pass)
-- GSdoc XML parser + API browser (Phase 3), bookmarks persistence, printing,
+- [x] GSdoc XML parser (Phase 3): prose + reconstructed API
+      declarations via NSXMLDocument; semantic API browser (SPEC 26
+      GSHelpAPIObject model) still open.
+- Bookmarks persistence, printing,
   zoom persistence, localization dirs, NSHelpManager registration.
 
 ## Execution order

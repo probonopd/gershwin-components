@@ -16,6 +16,7 @@ Help_OBJC_FILES = Sources/main.m \
                   Sources/Core/GSHelpURL.m \
                   Sources/Parsers/GSHelpFormatDetector.m \
                   Sources/Parsers/GSManParser.m \
+                  Sources/Parsers/GSGSDocParser.m \
                   Sources/Parsers/GSTextParser.m \
                   Sources/Rendering/GSHelpRenderer.m \
                   Sources/UI/HelpWindowController.m \
