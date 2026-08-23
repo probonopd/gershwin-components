@@ -1564,6 +1564,11 @@ static NSString *const kMicControl = @"Mic";
         for (NSString *file in files) {
             NSString *ext = [[file pathExtension] lowercaseString];
             if ([extensions containsObject:ext]) {
+                // "Glass" is reserved for progress bars reaching 100% and must
+                // never be selectable as an alert sound
+                if ([[file stringByDeletingPathExtension]
+                        isEqualToString:@"Glass"]) continue;
+
                 AlertSound *sound = [[AlertSound alloc] init];
                 sound.name = [file stringByDeletingPathExtension];
                 sound.displayName = sound.name;
