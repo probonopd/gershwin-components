@@ -34,13 +34,20 @@ Help_RESOURCE_FILES = Help.png Resources/Info-gnustep.plist
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fobjc-runtime=gnustep-2.0
 ADDITIONAL_INCLUDE_DIRS += -ISources/Core -ISources/Parsers -ISources/Rendering -ISources/UI -ISources/Navigation
 
-# GSManParser decompresses gz/bz2/xz pages directly (SPEC 20).
-ifeq ($(shell uname -s),Linux)
-Help_LDFLAGS += -lz -lbz2 -llzma
-else ifeq ($(shell uname -s),FreeBSD)
-Help_LDFLAGS += -lz -lbz2 -llzma
-else ifeq ($(shell uname -s),OpenBSD)
-Help_LDFLAGS += -lz -lbz2 -llzma
+# GSManParser decompresses gz/bz2/xz pages directly (SPEC 20) using
+# __has_include-guarded codec readers, so link exactly those codecs
+# whose dev files exist instead of assuming them (minimal Debian
+# ships no libbz2-dev/liblzma-dev and would fail to link).
+help_probe = echo 'int main(void){return 0;}' | $(CC) -x c - -include $(1).h -o /dev/null -l$(2) 2>/dev/null && echo yes
+
+ifneq ($(shell $(call help_probe,zlib,z)),)
+Help_LDFLAGS += -lz
+endif
+ifneq ($(shell $(call help_probe,bzlib,bz2)),)
+Help_LDFLAGS += -lbz2
+endif
+ifneq ($(shell $(call help_probe,lzma,lzma)),)
+Help_LDFLAGS += -llzma
 endif
 
 include $(GNUSTEP_MAKEFILES)/application.make
