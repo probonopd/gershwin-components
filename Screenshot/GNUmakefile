@@ -38,19 +38,21 @@ Resources/Info-gnustep.plist: Resources/Info.plist
 #
 Screenshot_HEADER_FILES = \
 	ScreenshotController.h \
-	ScreenshotCapture.h
+	ScreenshotCapture.h \
+	shadow_mask.h
 
 Screenshot_OBJC_FILES = \
 	ScreenshotController.m \
 	ScreenshotCapture.m
 
 Screenshot_C_FILES = \
-	x11_capture.c
+	x11_capture.c \
+	shadow_mask.c
 
 Screenshot_OBJC_FILES += Screenshot_main.m
 
 # Link with required libraries
-Screenshot_GUI_LIBS += -lX11
+Screenshot_GUI_LIBS += -lX11 -lXext
 
 -include GNUmakefile.preamble
 

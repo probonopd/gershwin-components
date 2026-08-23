@@ -26,16 +26,21 @@ typedef enum {
     NSButton *fullScreenButton;
     NSButton *saveButton;
     NSButton *copyButton;
+    NSButton *titleCheckButton;
+    NSButton *shadowCheckButton;
     NSTextField *delayField;
     NSProgressIndicator *progressIndicator;
     
     ScreenshotMode currentMode;
+    BOOL includeTitle;
+    BOOL includeShadow;
     NSString *lastSavedPath;
     NSImage *capturedImage;
     NSData *capturedImagePNG;
     
     NSTimer *countdownTimer;
     int delayCountdown;
+    NSWindow *prefsWindow;
 }
 
 // UI Properties
@@ -47,11 +52,15 @@ typedef enum {
 @property (retain) NSButton *saveButton;
 @property (retain) NSButton *copyButton;
 - (NSButton *)copyButton __attribute__((objc_method_family(none)));
+@property (retain) NSButton *titleCheckButton;
+@property (retain) NSButton *shadowCheckButton;
 @property (retain) NSTextField *delayField;
 @property (retain) NSProgressIndicator *progressIndicator;
+@property (retain) NSWindow *prefsWindow;
 
 // UI Creation
 - (void)createUI;
+- (void)showPreferences:(id)sender;
 
 // Application delegate methods
 - (void)applicationDidFinishLaunching:(NSNotification *)notification;
@@ -63,6 +72,8 @@ typedef enum {
 - (IBAction)takeAreaScreenshot:(id)sender;
 - (IBAction)takeFullScreenScreenshot:(id)sender;
 - (IBAction)saveScreenshot:(id)sender;
+- (IBAction)toggleIncludeTitle:(id)sender;
+- (IBAction)toggleIncludeShadow:(id)sender;
 
 // Utility methods
 - (void)updateStatus:(NSString *)status;
