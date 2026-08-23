@@ -177,6 +177,11 @@ static NSString *const kDefaultsConfirmDestructive =
     button.bezelStyle = NSRoundedBezelStyle;
     button.font = METRICS_FONT_SYSTEM_REGULAR_11;
     [button sizeToFit];
+    {
+        NSRect frame = button.frame;
+        frame.size.height = METRICS_BUTTON_SMALL_HEIGHT;
+        button.frame = frame;
+    }
     [button setTarget:self];
     [button setAction:action];
     return button;
@@ -187,6 +192,11 @@ static NSString *const kDefaultsConfirmDestructive =
     NSButton *button = [self buttonWithTitle:title action:action];
     button.font = METRICS_FONT_SYSTEM_BOLD_11;
     [button sizeToFit];
+    /* Re-clamp: sizeToFit after the bold-font swap can re-expand the frame
+     * past the small-button height (HIG small buttons are 17px). */
+    NSRect frame = button.frame;
+    frame.size.height = METRICS_BUTTON_SMALL_HEIGHT;
+    button.frame = frame;
     return button;
 }
 
@@ -207,7 +217,7 @@ static NSString *const kDefaultsConfirmDestructive =
 
     // Controls row above: +/- on the left, Options... on the right.
     CGFloat controlsRowY =
-        bottomRowY + METRICS_BUTTON_HEIGHT + METRICS_SPACE_16;
+        bottomRowY + METRICS_BUTTON_SMALL_HEIGHT + METRICS_SPACE_16;
     _addButton.frameOrigin = NSMakePoint(side, controlsRowY);
     _removeButton.frameOrigin =
         NSMakePoint(NSMaxX(_addButton.frame) + METRICS_BUTTON_HORIZ_INTERSPACE,
@@ -228,13 +238,21 @@ static NSString *const kDefaultsConfirmDestructive =
                                      NSHeight(_schemeTitle.frame)) / 2.0);
 
     // Middle band: map on the left, volume info column pinned right.
-    CGFloat bandTop = topRowY - METRICS_SPACE_16;
-    CGFloat bandBottom = controlsRowY + METRICS_BUTTON_HEIGHT +
-        METRICS_SPACE_16;
+    CGFloat controlsHeight = METRICS_BUTTON_SMALL_HEIGHT;
+    CGFloat bandBottom = controlsRowY + controlsHeight + METRICS_SPACE_8;
     CGFloat formLeft = width - side - kVolumeFormWidth;
-    _mapView.frame = NSMakeRect(side, bandBottom,
-                                formLeft - METRICS_SPACE_16 - side,
-                                bandTop - bandBottom);
+
+    /* The three form rows stack BOTTOM-UP starting one gap above the
+     * controls row, so they can structurally never sink into it (the old
+     * top-down math spilled its last row onto Options... in short panes).
+     * 12px row gaps keep all three rows inside the band at minimum window
+     * height. */
+    CGFloat formGap = METRICS_SPACE_12;
+    CGFloat formRowY[3];
+    formRowY[0] = bandBottom + METRICS_SPACE_8;                       // name
+    formRowY[1] = formRowY[0] + METRICS_TEXT_INPUT_FIELD_HEIGHT + formGap; // format
+    formRowY[2] = formRowY[1] + METRICS_BUTTON_HEIGHT + formGap;      // size
+
 
     CGFloat labelColumnWidth = MAX(MAX(NSWidth(_nameTitle.frame),
                                        NSWidth(_formatTitle.frame)),
@@ -245,30 +263,31 @@ static NSString *const kDefaultsConfirmDestructive =
     if (fieldValueWidth < 40.0) {
         fieldValueWidth = 40.0;
     }
-    CGFloat rowY = bandTop - METRICS_TEXT_INPUT_FIELD_HEIGHT;
-    _nameField.frame = NSMakeRect(formLeft + labelColumnWidth +
-                                      METRICS_SPACE_8, rowY,
+    CGFloat fieldX = formLeft + labelColumnWidth + METRICS_SPACE_8;
+
+    _nameField.frame = NSMakeRect(fieldX, formRowY[0],
                                   fieldValueWidth,
                                   METRICS_TEXT_INPUT_FIELD_HEIGHT);
     [_nameTitle setFrameOrigin:
-        NSMakePoint(formLeft, rowY + (METRICS_TEXT_INPUT_FIELD_HEIGHT -
-                                      NSHeight(_nameTitle.frame)) / 2.0)];
+        NSMakePoint(formLeft, formRowY[0] +
+            (METRICS_TEXT_INPUT_FIELD_HEIGHT -
+             NSHeight(_nameTitle.frame)) / 2.0)];
 
-    rowY -= METRICS_BUTTON_HEIGHT + METRICS_SPACE_16;
     _formatPopup.frame =
-        NSMakeRect(formLeft + labelColumnWidth + METRICS_SPACE_8, rowY,
-                   fieldValueWidth, METRICS_BUTTON_HEIGHT);
+        NSMakeRect(fieldX, formRowY[1],
+                   fieldValueWidth, METRICS_TEXT_INPUT_FIELD_HEIGHT);
     [_formatTitle setFrameOrigin:
-        NSMakePoint(formLeft, rowY + (METRICS_BUTTON_HEIGHT -
-                                      NSHeight(_formatTitle.frame)) / 2.0)];
+        NSMakePoint(formLeft, formRowY[1] +
+            (METRICS_TEXT_INPUT_FIELD_HEIGHT -
+             NSHeight(_formatTitle.frame)) / 2.0)];
 
-    rowY -= METRICS_TEXT_INPUT_FIELD_HEIGHT + METRICS_SPACE_16;
     _sizeValue.frame =
-        NSMakeRect(formLeft + labelColumnWidth + METRICS_SPACE_8, rowY,
+        NSMakeRect(fieldX, formRowY[2],
                    fieldValueWidth, METRICS_TEXT_INPUT_FIELD_HEIGHT);
     [_sizeTitle setFrameOrigin:
-        NSMakePoint(formLeft, rowY + (METRICS_TEXT_INPUT_FIELD_HEIGHT -
-                                      NSHeight(_sizeTitle.frame)) / 2.0)];
+        NSMakePoint(formLeft, formRowY[2] +
+            (METRICS_TEXT_INPUT_FIELD_HEIGHT -
+             NSHeight(_sizeTitle.frame)) / 2.0)];
 
     // Resize behavior: the map absorbs growth; rows pin to their window
     // edge (top row up, bottom rows down, form column rides with the top).

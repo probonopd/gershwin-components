@@ -113,6 +113,16 @@ static NSString * const kTabIdentifierRestore = @"restore";
 {
     NSTabViewItem *item = [[NSTabViewItem alloc] initWithIdentifier:identifier];
     item.label = label;
+
+    // Tab-content sizing trap: panes are built against placeholder frames;
+    // sizing them to the real content rect BEFORE installation lets their
+    // top-down row math land correctly, and DUPaneView keeps them correct
+    // across later resizes.
+    NSRect contentRect = [self.tabView contentRect];
+    view.frame = NSMakeRect(0, 0, contentRect.size.width,
+                            contentRect.size.height);
+    view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+
     item.view = view;
     [_tabView addTabViewItem:item];
 }

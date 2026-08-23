@@ -13,6 +13,7 @@
 #import "DUErrors.h"
 #import "DUOperation.h"
 #import "DUOperationLogView.h"
+#import "DUPaneView.h"
 #import "DUOperationManager.h"
 #import "DUNotifications.h"
 #import "DUPartition.h"
@@ -62,7 +63,12 @@ static NSString * const kDefaultsConfirmDestructive =
     _logView = logView;
 
     CGFloat width = 400.0;
-    _view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, 200)];
+    // DUPaneView re-runs the layout whenever the tab view resizes us.
+    DUPaneView *pane = [[DUPaneView alloc]
+        initWithFrame:NSMakeRect(0, 0, width, 200)];
+    pane.layoutOwner = self;
+    pane.layoutSelector = @selector(relayout);
+    _view = pane;
     _view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 
     _sourceLabel = [self label:NSLocalizedString(@"Source:", nil)];
@@ -141,6 +147,11 @@ static NSString * const kDefaultsConfirmDestructive =
     button.bezelStyle = NSRoundedBezelStyle;
     button.font = METRICS_FONT_SYSTEM_REGULAR_11;
     [button sizeToFit];
+    {
+        NSRect frame = button.frame;
+        frame.size.height = METRICS_BUTTON_SMALL_HEIGHT;
+        button.frame = frame;
+    }
     [button setTarget:self];
     [button setAction:action];
     return button;
@@ -159,22 +170,21 @@ static NSString * const kDefaultsConfirmDestructive =
     [_restoreButton setFrameOrigin:
         NSMakePoint(width - side - NSWidth(_restoreButton.frame), restoreY)];
 
-    // Checkbox row above it.
-    CGFloat checkY = restoreY + METRICS_BUTTON_HEIGHT + rowGap;
-    [_eraseDestinationCheck setFrameOrigin:
-        NSMakePoint(side,
-                    checkY + METRICS_RADIO_BUTTON_LINE_SPACING -
-                        NSHeight(_eraseDestinationCheck.frame))];
+    // Checkbox pair stacked 20px baseline-to-baseline (HIG radio/checkbox
+    // line spacing); no height subtraction or the 18px frames overlap.
+    CGFloat checkY = restoreY + METRICS_BUTTON_SMALL_HEIGHT + rowGap;
     [_skipChecksumCheck setFrameOrigin:NSMakePoint(side, checkY)];
+    [_eraseDestinationCheck setFrameOrigin:
+        NSMakePoint(side, checkY + METRICS_RADIO_BUTTON_LINE_SPACING)];
 
     // Destination and source rows above that; fields stretch on resize.
-    CGFloat destinationY = checkY + METRICS_RADIO_BUTTON_LINE_SPACING +
-        rowGap;
+    CGFloat destinationY = checkY +
+        2 * METRICS_RADIO_BUTTON_LINE_SPACING + rowGap;
     CGFloat fieldWidth = contentWidth - chooseWidth - METRICS_SPACE_8;
     [_destinationChooseButton setFrameOrigin:
         NSMakePoint(width - side - chooseWidth, destinationY)];
     _destinationField.frame =
-        NSMakeRect(side + 110, destinationY, fieldWidth - 110,
+        NSMakeRect(side + 90, destinationY, fieldWidth - 90,
                    METRICS_TEXT_INPUT_FIELD_HEIGHT);
     _destinationField.autoresizingMask = NSViewWidthSizable;
     [_destinationLabel setFrameOrigin:
@@ -188,7 +198,7 @@ static NSString * const kDefaultsConfirmDestructive =
     [_sourceChooseButton setFrameOrigin:
         NSMakePoint(width - side - chooseWidth, sourceY)];
     _sourceField.frame =
-        NSMakeRect(side + 110, sourceY, fieldWidth - 110,
+        NSMakeRect(side + 90, sourceY, fieldWidth - 90,
                    METRICS_TEXT_INPUT_FIELD_HEIGHT);
     _sourceField.autoresizingMask = NSViewWidthSizable;
     [_sourceLabel setFrameOrigin:
@@ -237,6 +247,12 @@ static NSString * const kDefaultsConfirmDestructive =
         self.resolvedSource.capabilities.canRestore;
     _restoreButton.enabled = !self.operationRunning && hasBoth && distinct &&
         restorable;
+}
+
+- (void)relayout
+{
+    [self layoutForWidth:NSWidth(self.view.frame)
+                  height:NSHeight(self.view.frame)];
 }
 
 #pragma mark - Choosers

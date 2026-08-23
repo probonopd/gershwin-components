@@ -12,6 +12,7 @@
 #import "DUErrors.h"
 #import "DUOperation.h"
 #import "DUOperationLogView.h"
+#import "DUPaneView.h"
 #import "DUOperationManager.h"
 #import "DUEraseOperation.h"
 #import "DUParsing.h"
@@ -57,8 +58,13 @@ static NSString * const kDefaultsConfirmDestructive =
     _storageManager = manager;
     _logView = logView;
 
+    // DUPaneView re-runs the layout whenever the tab view resizes us.
     CGFloat width = 400.0;
-    _view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, 180)];
+    DUPaneView *pane = [[DUPaneView alloc]
+        initWithFrame:NSMakeRect(0, 0, width, 180)];
+    pane.layoutOwner = self;
+    pane.layoutSelector = @selector(relayout);
+    _view = pane;
     _view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 
     _nameLabel = [self label:NSLocalizedString(@"Name:", nil)];
@@ -78,6 +84,12 @@ static NSString * const kDefaultsConfirmDestructive =
     _securityOptionsButton.bezelStyle = NSRoundedBezelStyle;
     _securityOptionsButton.font = METRICS_FONT_SYSTEM_REGULAR_11;
     [_securityOptionsButton sizeToFit];
+    {
+        NSRect frame = _securityOptionsButton.frame;
+        frame.size.height = METRICS_BUTTON_SMALL_HEIGHT;
+        _securityOptionsButton.frame = frame;
+    }
+
     [_securityOptionsButton setTarget:self];
     [_securityOptionsButton setAction:@selector(showSecurityOptions:)];
 
@@ -86,6 +98,12 @@ static NSString * const kDefaultsConfirmDestructive =
     _eraseButton.bezelStyle = NSRoundedBezelStyle;
     _eraseButton.font = METRICS_FONT_SYSTEM_REGULAR_11;
     [_eraseButton sizeToFit];
+    {
+        NSRect frame = _eraseButton.frame;
+        frame.size.height = METRICS_BUTTON_SMALL_HEIGHT;
+        _eraseButton.frame = frame;
+    }
+
     [_eraseButton setTarget:self];
     [_eraseButton setAction:@selector(eraseClicked:)];
     _eraseButton.keyEquivalent = @"\r";
@@ -158,10 +176,10 @@ static NSString * const kDefaultsConfirmDestructive =
     [_eraseButton setFrameOrigin:
         NSMakePoint(width - side - NSWidth(_eraseButton.frame), eraseY)];
 
-    CGFloat securityY = eraseY + METRICS_BUTTON_HEIGHT + rowGap;
+    CGFloat securityY = eraseY + METRICS_BUTTON_SMALL_HEIGHT + rowGap;
     [_securityOptionsButton setFrameOrigin:NSMakePoint(side, securityY)];
 
-    CGFloat formatY = securityY + METRICS_BUTTON_HEIGHT + rowGap;
+    CGFloat formatY = securityY + METRICS_BUTTON_SMALL_HEIGHT + rowGap;
     _formatPopup.frame =
         NSMakeRect(side + 90, formatY, contentWidth - 90,
                    METRICS_BUTTON_HEIGHT);
@@ -177,6 +195,12 @@ static NSString * const kDefaultsConfirmDestructive =
     [_nameLabel setFrameOrigin:
         NSMakePoint(side, nameY + (METRICS_TEXT_INPUT_FIELD_HEIGHT -
                                    NSHeight(_nameLabel.frame)) / 2.0)];
+}
+
+- (void)relayout
+{
+    [self layoutForWidth:NSWidth(self.view.frame)
+                  height:NSHeight(self.view.frame)];
 }
 
 #pragma mark - Selection state

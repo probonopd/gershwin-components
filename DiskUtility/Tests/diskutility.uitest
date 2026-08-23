@@ -1,0 +1,50 @@
+#!/usr/bin/env run_uitest
+# Disk Utility smoke: the app must launch, show its main window with the
+# operation tabs and toolbar, expose the standard menus, and quit with the
+# standard Cmd+Q shortcut.
+#
+# Leaves the computer as it was found: the app is quit at the end.
+#
+# Run with: run_uitest DiskUtility/Tests/diskutility.uitest
+# (headless/isolated sessions only - never against a logged-in desktop)
+
+launch application "DiskUtility"
+wait until window "Disk Utility" timeout 15s
+assert window "Disk Utility"
+
+# Toolbar (capability-gated buttons appear for the auto-selected device).
+assert button "Verify"
+assert button "Info"
+assert button "New Image"
+
+# Operation tabs expose their panes once a device is selected.
+assert button "Show details"
+assert button "Verify Disk"
+
+# Standard menus with Gershwin shortcuts.
+assert menu item "Disk Utility/About Disk Utility" exists
+assert menu item "Disk Utility/Hide Disk Utility" shortcut "Cmd+H"
+assert menu item "Disk Utility/Quit Disk Utility" shortcut "Cmd+Q"
+assert menu item "Edit/Copy" shortcut "Cmd+C"
+
+# Every operation tab must switch and expose its pane controls (DriveUI
+# select_tab drives the NSTabView in-process; header clicks are unreliable).
+select tab "First Aid"
+assert button "Verify Disk"
+select tab "Erase"
+assert button "Erase"
+assert button "Security Options..."
+select tab "Partition"
+wait until button "Apply" timeout 5s
+select tab "RAID"
+select tab "Restore"
+assert button "Choose..."
+assert button "Restore"
+select tab "First Aid"
+assert button "Verify Disk"
+
+activate application "DiskUtility"
+press "Alt+Q"
+wait until not exists window "Disk Utility" timeout 5s
+assert not exists application "DiskUtility"
+log "Disk Utility starts, shows tabs, exposes menus and quits"

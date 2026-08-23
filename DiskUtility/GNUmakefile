@@ -48,6 +48,7 @@ DiskUtility_OBJC_FILES = \
 	Sources/Views/DUDiskMapView.m \
 	Sources/Views/DUOperationLogView.m \
 	Sources/Views/DUIcons.m \
+	Sources/Views/DUPaneView.m \
 	Sources/Models/DUStorageObject.m \
 	Sources/Models/DUStorageDevice.m \
 	Sources/Models/DUPartition.m \

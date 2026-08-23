@@ -206,8 +206,12 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
                                                  stripY,
                                                  NSWidth(content.frame),
                                                  kOperationStripHeight)];
+    // Bottom-anchored on purpose (MaxYMargin = flexible top margin in the
+    // y-up system): strip, info footer and status line form a fixed stack
+    // above the window bottom. A MinYMargin here would let resize deltas
+    // push them into the tab area.
     strip.autoresizingMask =
-        NSViewWidthSizable | NSViewMinYMargin;
+        NSViewWidthSizable | NSViewMaxYMargin;
 
     NSProgressIndicator *bar = [[NSProgressIndicator alloc]
         initWithFrame:NSMakeRect(METRICS_CONTENT_SIDE_MARGIN,
@@ -268,25 +272,26 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
                                                  NSWidth(content.frame),
                                                  kInfoPanelHeight)];
     infoArea.autoresizingMask =
-        NSViewWidthSizable | NSViewMaxYMargin | NSViewMinYMargin;
+        NSViewWidthSizable | NSViewMaxYMargin;
     [self embedSubview:_informationController.view inContainer:infoArea];
 
     // Bottom-edge result line: the outcome of the last operation lives here
-    // after the progress strip folds away.
+    // after the progress strip folds away. 17px inside the 20px band so it
+    // can never touch either separator.
     NSTextField *completionLabel = [[NSTextField alloc]
         initWithFrame:NSMakeRect(METRICS_CONTENT_SIDE_MARGIN,
                                  (kStatusLineHeight -
-                                  METRICS_TEXT_INPUT_FIELD_HEIGHT) / 2.0,
+                                  METRICS_BUTTON_SMALL_HEIGHT) / 2.0,
                                  NSWidth(content.frame) -
                                      2 * METRICS_CONTENT_SIDE_MARGIN,
-                                 METRICS_TEXT_INPUT_FIELD_HEIGHT)];
+                                 METRICS_BUTTON_SMALL_HEIGHT)];
     completionLabel.editable = NO;
     completionLabel.bezeled = NO;
     completionLabel.drawsBackground = NO;
     completionLabel.font = METRICS_FONT_SYSTEM_REGULAR_11;
     completionLabel.stringValue = @"";
     completionLabel.autoresizingMask =
-        NSViewWidthSizable | NSViewMaxYMargin | NSViewMinYMargin;
+        NSViewWidthSizable | NSViewMaxYMargin;
     self.completionLabel = completionLabel;
 
     // Thin separators between regions (SPEC sections 5 and 22).
@@ -305,8 +310,9 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
                                                 NSWidth(content.frame),
                                                 kSeparatorThickness)];
     horizontalSeparator.boxType = NSBoxSeparator;
+    // Sits directly on top of the info footer: bottom-anchored with it.
     horizontalSeparator.autoresizingMask =
-        NSViewWidthSizable | NSViewMinYMargin;
+        NSViewWidthSizable | NSViewMaxYMargin;
 
     NSBox *toolbarSeparator =
         [[NSBox alloc] initWithFrame:NSMakeRect(

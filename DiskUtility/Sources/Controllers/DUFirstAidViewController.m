@@ -10,6 +10,7 @@
 #import "DUErrors.h"
 #import "DUOperation.h"
 #import "DUOperationLogView.h"
+#import "DUPaneView.h"
 #import "DUStorageCapabilities.h"
 #import "DUStorageManager.h"
 #import "DUStorageObject.h"
@@ -51,8 +52,13 @@ static NSString * const kDefaultsConfirmDestructive =
     _storageManager = manager;
     _logView = logView;
 
+    // DUPaneView re-runs the layout whenever the tab view resizes us.
     CGFloat width = 400.0;
-    _view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, 260)];
+    DUPaneView *pane = [[DUPaneView alloc]
+        initWithFrame:NSMakeRect(0, 0, width, 260)];
+    pane.layoutOwner = self;
+    pane.layoutSelector = @selector(relayout);
+    _view = pane;
     _view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 
     // Built manually: GNUstep NSTextField lacks the modern wrapping-label
@@ -92,6 +98,11 @@ static NSString * const kDefaultsConfirmDestructive =
     [_clearHistoryButton setTarget:self];
     [_clearHistoryButton setAction:@selector(clearHistory:)];
     [_clearHistoryButton sizeToFit];
+    {
+        NSRect frame = _clearHistoryButton.frame;
+        frame.size.height = METRICS_BUTTON_SMALL_HEIGHT;
+        _clearHistoryButton.frame = frame;
+    }
 
     _verifyPermissionsButton =
         [self buttonWithTitle:NSLocalizedString(@"Verify Permissions", nil)
@@ -134,6 +145,11 @@ static NSString * const kDefaultsConfirmDestructive =
     button.bezelStyle = NSRoundedBezelStyle;
     button.font = METRICS_FONT_SYSTEM_REGULAR_11;
     [button sizeToFit];
+    {
+        NSRect frame = button.frame;
+        frame.size.height = METRICS_BUTTON_SMALL_HEIGHT;
+        button.frame = frame;
+    }
     [button setTarget:self];
     [button setAction:action];
     return button;
@@ -153,45 +169,57 @@ static NSString * const kDefaultsConfirmDestructive =
     [_repairPermissionsButton setFrameOrigin:NSMakePoint(x, rowY)];
     [_verifyPermissionsButton setFrameOrigin:
         NSMakePoint(x,
-                    rowY + METRICS_BUTTON_HEIGHT +
+                    rowY + METRICS_BUTTON_SMALL_HEIGHT +
                         METRICS_BUTTON_VERT_INTERSPACE)];
 
     CGFloat repairX = width - side -
         NSWidth(_repairDiskButton.frame);
-    [_repairDiskButton setFrameOrigin:NSMakePoint(repairX, rowY + METRICS_BUTTON_HEIGHT + METRICS_BUTTON_VERT_INTERSPACE)];
+    [_repairDiskButton setFrameOrigin:NSMakePoint(repairX, rowY + METRICS_BUTTON_SMALL_HEIGHT + METRICS_BUTTON_VERT_INTERSPACE)];
     CGFloat verifyX = repairX - NSWidth(_verifyDiskButton.frame) -
         METRICS_BUTTON_HORIZ_INTERSPACE;
     [_verifyDiskButton setFrameOrigin:NSMakePoint(verifyX, rowY + METRICS_BUTTON_HEIGHT + METRICS_BUTTON_VERT_INTERSPACE)];
 
-    // Log fills the middle; hidden entirely when details are off.
+    // Log fills the middle; hidden entirely when details are off or when
+    // the pane is too short to hold instructions + details row + log
+    // without overlap (ARCHITECTURE.md section 31: degrade, never collide).
     BOOL showDetails = self.showDetailsCheck.state == NSOnState;
+    // The bottom cluster stacks TWO button rows (permissions pair left,
+    // disk pair right): 17 + 12 + 17 before any breathing room.
     CGFloat logBottom =
-        rowY + METRICS_BUTTON_HEIGHT + METRICS_BUTTON_VERT_INTERSPACE +
-        METRICS_SPACE_16;
-    CGFloat logTop = height - METRICS_CONTENT_TOP_MARGIN;
-    CGFloat availableHeight = MAX(40.0, logTop - logBottom);
-    if (!showDetails) {
-        availableHeight = 0.0;
-        _logView.scrollView.hidden = YES;
-    } else {
+        rowY + 2 * METRICS_BUTTON_SMALL_HEIGHT +
+        METRICS_BUTTON_VERT_INTERSPACE + METRICS_SPACE_16;
+
+    // Instructions pinned to the top of the pane (SPEC section 10); the
+    // details row and buttons stay anchored at the bottom.
+    CGFloat instructionsHeight = NSHeight(_instructions.frame);
+    CGFloat instructionsY = height - METRICS_CONTENT_TOP_MARGIN -
+        instructionsHeight;
+    _instructions.frame = NSMakeRect(
+        x, instructionsY, contentWidth, instructionsHeight);
+
+    // Room between the button cluster and the instruction block must hold
+    // an 8px gap, the 18px details row and an 8px gap before any log.
+    CGFloat availableSpace = instructionsY - METRICS_SPACE_8 - logBottom;
+    BOOL logVisible = showDetails && availableSpace >=
+        (METRICS_RADIO_BUTTON_LINE_SPACING + 2 * METRICS_SPACE_8 + 24);
+    CGFloat availableHeight = 0.0;
+    if (logVisible) {
+        availableHeight = availableSpace -
+            (METRICS_RADIO_BUTTON_LINE_SPACING + 2 * METRICS_SPACE_8);
         _logView.scrollView.hidden = NO;
+    } else {
+        _logView.scrollView.hidden = YES;
     }
     _logView.scrollView.frame =
         NSMakeRect(x, logBottom, contentWidth, availableHeight);
 
-    // Instructions pinned to the top of the pane (SPEC section 10); the
-    // details row and buttons stay anchored at the bottom.
-    _instructions.frame = NSMakeRect(
-        x,
-        height - METRICS_CONTENT_TOP_MARGIN - NSHeight(_instructions.frame),
-        contentWidth,
-        NSHeight(_instructions.frame));
-
-    // Details row directly above the log area.
+    // Details row directly above the log area (or just above the buttons
+    // when the log is hidden).
     CGFloat detailsY =
-        showDetails
+        logVisible
             ? logBottom + availableHeight + METRICS_SPACE_8
-            : logBottom + METRICS_SPACE_8;
+            : MIN(logBottom + METRICS_SPACE_8,
+                  instructionsY - METRICS_RADIO_BUTTON_LINE_SPACING);
     [_showDetailsCheck sizeToFit];
     [_showDetailsCheck setFrameOrigin:NSMakePoint(x, detailsY)];
     [_clearHistoryButton setFrameOrigin:
