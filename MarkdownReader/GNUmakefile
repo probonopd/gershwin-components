@@ -9,8 +9,6 @@ MarkdownReader_OBJC_FILES = main.m AppController.m \
 
 MarkdownReader_HEADER_FILES = AppController.h
 
-MarkdownReader_RESOURCE_FILES = Resources/Info-gnustep.plist
-
 ADDITIONAL_INCLUDE_DIRS += -I../MarkdownTextConverter
 
 include $(GNUSTEP_MAKEFILES)/application.make

@@ -33,7 +33,7 @@
 	<key>URL</key>
 	<string>https://github.com/gershwin-desktop/gershwin-components</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright (c) 2026 Simon Peter. All rights reserved.</string>
+	<string>Copyright (c) 2026 Simon Peter</string>
 	<key>CopyrightDescription</key>
 	<string>Released under the BSD 2-Clause License</string>
 </dict>

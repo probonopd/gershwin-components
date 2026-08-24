@@ -14,7 +14,6 @@ LoginWindow_OBJC_FILES = \
     KeyboardManager.m
 
 LoginWindow_RESOURCE_FILES = \
-    Info.plist \
     Resources/English.lproj \
     Resources/German.lproj \
     Resources/French.lproj \

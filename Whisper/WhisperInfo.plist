@@ -9,10 +9,12 @@
     <key>CFBundleIconFile</key>
     <string>Whisper</string>
     <key>CFBundleIdentifier</key>
-    <string>org.gershwin.Whisper</string>
+    <string>io.github.gershwin-desktop.Whisper</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
+    <string>Whisper</string>
+    <key>CFBundleDisplayName</key>
     <string>Whisper</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
@@ -21,7 +23,7 @@
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright (c) 2026 Simon Peter. BSD-2-Clause License.</string>
+    <string>Copyright (c) 2026 Simon Peter</string>
     <key>NSMainNibFile</key>
     <string></string>
     <key>NSPrincipalClass</key>
@@ -50,6 +52,8 @@
     <string>Copyright (c) 2026 Simon Peter</string>
     <key>CopyrightDescription</key>
     <string>Released under the BSD 2-Clause License</string>
+    <key>URL</key>
+    <string>https://github.com/gershwin-desktop/gershwin-components</string>
     <key>NSDocumentTypes</key>
     <array>
         <dict>

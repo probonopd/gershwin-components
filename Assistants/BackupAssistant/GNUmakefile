@@ -25,9 +25,6 @@ BackupAssistant_RESOURCE_FILES = \
 	Resources/backup_watermark.png \
 	Resources/en.lproj/Localizable.strings
 
-# Info.plist
-BackupAssistant_INFOPLIST_FILE = BackupAssistantInfo.plist
-
 # Required frameworks and libraries - use GNUstep naming
 BackupAssistant_GUI_LIBS += -lgnustep-gui -lgnustep-base
 

@@ -3,29 +3,45 @@
 <plist version="0.9">
 <dict>
 	<key>CFBundleName</key>
-	<string>Menu</string>
+	<string>Build</string>
 	<key>CFBundleDisplayName</key>
-	<string>Menu</string>
+	<string>Build</string>
 	<key>ApplicationName</key>
-	<string>Menu</string>
+	<string>Build</string>
 	<key>ApplicationDescription</key>
-	<string>Configure the Gershwin desktop menu bar</string>
+	<string>Graphical frontend for building software projects</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.gershwin-desktop.Menu.prefpane</string>
+	<string>io.github.gershwin-desktop.Build</string>
 	<key>CFBundleExecutable</key>
-	<string>Menu</string>
+	<string>Build</string>
 	<key>CFBundleVersion</key>
 	<string>1.0</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundlePackageType</key>
-	<string>BNDL</string>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>Build.png</string>
 	<key>NSPrincipalClass</key>
-	<string>MenuPrefPane</string>
-	<key>NSPrefPaneIconFile</key>
-	<string>Menu.png</string>
-	<key>NSPrefPaneIconLabel</key>
-	<string>Menu</string>
+	<string>BuildApplication</string>
+	<key>NSTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Makefile</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>NSUnixExtensions</key>
+			<array>
+				<string>GNUmakefile</string>
+				<string>gnumakefile</string>
+				<string>GNUmakefile.in</string>
+				<string>gnumakefile.in</string>
+				<string>Makefile</string>
+				<string>makefile</string>
+			</array>
+		</dict>
+	</array>
 	<key>Authors</key>
 	<array>
 		<string>Simon Peter</string>

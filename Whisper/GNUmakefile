@@ -57,8 +57,6 @@ Whisper_APPLICATION_ICON = Whisper.png
 # Resource files
 #
 Whisper_RESOURCE_FILES = \
-	Resources/Info.plist \
-	Resources/Info-gnustep.plist \
 	Resources/Whisper.png \
 	Resources/build-whisper.sh
 

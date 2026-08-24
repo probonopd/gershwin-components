@@ -1,9 +1,40 @@
-{
-    CFBundleIdentifier = "io.github.gershwin-desktop.color.prefpane";
-    NOTE = "Automatically generated, do not edit!";
-    NSExecutable = Color;
-    NSMainNibFile = "";
-    NSPrefPaneIconFile = "Color.png";
-    NSPrefPaneIconLabel = "Color";
-    NSPrincipalClass = ColorPrefPane;
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+	<key>CFBundleName</key>
+	<string>Color</string>
+	<key>CFBundleDisplayName</key>
+	<string>Color</string>
+	<key>ApplicationName</key>
+	<string>Color</string>
+	<key>ApplicationDescription</key>
+	<string>Manage display color profiles and calibration</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.Color.prefpane</string>
+	<key>CFBundleExecutable</key>
+	<string>Color</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>NSPrincipalClass</key>
+	<string>ColorPrefPane</string>
+	<key>NSPrefPaneIconFile</key>
+	<string>Color.png</string>
+	<key>NSPrefPaneIconLabel</key>
+	<string>Color</string>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
+</dict>
+</plist>

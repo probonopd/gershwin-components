@@ -3,29 +3,25 @@
 <plist version="0.9">
 <dict>
 	<key>CFBundleName</key>
-	<string>Menu</string>
+	<string>SudoAskPass</string>
 	<key>CFBundleDisplayName</key>
-	<string>Menu</string>
+	<string>SudoAskPass</string>
 	<key>ApplicationName</key>
-	<string>Menu</string>
+	<string>SudoAskPass</string>
 	<key>ApplicationDescription</key>
-	<string>Configure the Gershwin desktop menu bar</string>
+	<string>Password prompt helper for sudo and privilege escalation</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.gershwin-desktop.Menu.prefpane</string>
+	<string>io.github.gershwin-desktop.SudoAskPass</string>
 	<key>CFBundleExecutable</key>
-	<string>Menu</string>
+	<string>SudoAskPass</string>
 	<key>CFBundleVersion</key>
 	<string>1.0</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundlePackageType</key>
-	<string>BNDL</string>
+	<string>APPL</string>
 	<key>NSPrincipalClass</key>
-	<string>MenuPrefPane</string>
-	<key>NSPrefPaneIconFile</key>
-	<string>Menu.png</string>
-	<key>NSPrefPaneIconLabel</key>
-	<string>Menu</string>
+	<string>NSApplication</string>
 	<key>Authors</key>
 	<array>
 		<string>Simon Peter</string>

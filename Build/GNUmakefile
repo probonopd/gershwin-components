@@ -38,8 +38,7 @@ Build_RESOURCE_FILES = \
 	Resources/Blacklist.plist \
 	Resources/GNUstep.info.plist \
 	Resources/English.lproj \
-	Resources/German.lproj \
-	Info-gnustep.plist
+	Resources/German.lproj
 
 include $(GNUSTEP_MAKEFILES)/application.make
 

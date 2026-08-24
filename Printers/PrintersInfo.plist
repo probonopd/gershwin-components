@@ -1,9 +1,40 @@
-{
-    CFBundleIdentifier = "org.gershwin.printers.prefpane";
-    NOTE = "Automatically generated";
-    NSExecutable = Printers;
-    NSMainNibFile = "";
-    NSPrefPaneIconFile = "Printers.png";
-    NSPrefPaneIconLabel = "Printers";
-    NSPrincipalClass = PrintersPane;
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+	<key>CFBundleName</key>
+	<string>Printers</string>
+	<key>CFBundleDisplayName</key>
+	<string>Printers</string>
+	<key>ApplicationName</key>
+	<string>Printers</string>
+	<key>ApplicationDescription</key>
+	<string>Add and manage printers and print jobs</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.Printers.prefpane</string>
+	<key>CFBundleExecutable</key>
+	<string>Printers</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>NSPrincipalClass</key>
+	<string>PrintersPane</string>
+	<key>NSPrefPaneIconFile</key>
+	<string>Printers.png</string>
+	<key>NSPrefPaneIconLabel</key>
+	<string>Printers</string>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
+</dict>
+</plist>

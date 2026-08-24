@@ -3,29 +3,25 @@
 <plist version="0.9">
 <dict>
 	<key>CFBundleName</key>
-	<string>Menu</string>
+	<string>ItemFlowDemo</string>
 	<key>CFBundleDisplayName</key>
-	<string>Menu</string>
+	<string>ItemFlow Demo</string>
 	<key>ApplicationName</key>
-	<string>Menu</string>
+	<string>ItemFlow Demo</string>
 	<key>ApplicationDescription</key>
-	<string>Configure the Gershwin desktop menu bar</string>
+	<string>Demo app for the ItemFlow framework</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.gershwin-desktop.Menu.prefpane</string>
+	<string>io.github.gershwin-desktop.ItemFlowDemo</string>
 	<key>CFBundleExecutable</key>
-	<string>Menu</string>
+	<string>ItemFlowDemo</string>
 	<key>CFBundleVersion</key>
-	<string>1.0</string>
+	<string>0.1</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>0.1</string>
 	<key>CFBundlePackageType</key>
-	<string>BNDL</string>
+	<string>APPL</string>
 	<key>NSPrincipalClass</key>
-	<string>MenuPrefPane</string>
-	<key>NSPrefPaneIconFile</key>
-	<string>Menu.png</string>
-	<key>NSPrefPaneIconLabel</key>
-	<string>Menu</string>
+	<string>NSApplication</string>
 	<key>Authors</key>
 	<array>
 		<string>Simon Peter</string>

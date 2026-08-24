@@ -9,7 +9,7 @@ ifeq ($(HAVE_LCMS2),yes)
 
 BUNDLE_NAME = Color
 Color_OBJC_FILES = ColorPrefPane.m DisplayManager.m ProfileParser.m ProfileApplier.m
-Color_RESOURCE_FILES = ColorInfo.plist Color.png
+Color_RESOURCE_FILES = Color.png
 Color_BUNDLE_LIBS = -lPreferencePanes -lXrandr -lX11 -llcms2
 Color_PRINCIPAL_CLASS = ColorPrefPane
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles

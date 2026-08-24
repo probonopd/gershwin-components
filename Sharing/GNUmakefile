@@ -8,7 +8,7 @@ Sharing_OBJC_FILES = \
 	SharingController.m \
 	GSServiceDiscoveryManager.m
 
-Sharing_RESOURCE_FILES = Sharing.png SharingInfo.plist
+Sharing_RESOURCE_FILES = Sharing.png
 Sharing_BUNDLE_LIBS = -lPreferencePanes
 Sharing_PRINCIPAL_CLASS = SharingPane
 

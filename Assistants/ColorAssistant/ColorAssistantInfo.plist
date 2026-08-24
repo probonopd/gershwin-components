@@ -1,15 +1,38 @@
-{
-    CFBundleDevelopmentRegion = English;
-    CFBundleDisplayName = "Display Calibrator Assistant";
-    CFBundleExecutable = ColorAssistant;
-    CFBundleIdentifier = "io.github.gershwin-desktop.color.assistant";
-    CFBundleInfoDictionaryVersion = "1.0";
-    CFBundleName = "ColorAssistant";
-    CFBundlePackageType = APPL;
-    CFBundleShortVersionString = "1.0";
-    CFBundleSignature = "????";
-    CFBundleVersion = "1";
-    NSHumanReadableCopyright = "Copyright (c) 2026 Simon Peter";
-    NSMainNibFile = "";
-    NSPrincipalClass = NSApplication;
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+	<key>CFBundleName</key>
+	<string>Color Assistant</string>
+	<key>CFBundleDisplayName</key>
+	<string>Display Calibrator Assistant</string>
+	<key>ApplicationName</key>
+	<string>Color Assistant</string>
+	<key>ApplicationDescription</key>
+	<string>Calibrate your display colors step by step</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.ColorAssistant</string>
+	<key>CFBundleExecutable</key>
+	<string>ColorAssistant</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>Color.png</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
+</dict>
+</plist>

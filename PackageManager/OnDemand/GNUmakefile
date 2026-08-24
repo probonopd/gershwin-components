@@ -13,9 +13,9 @@ OnDemand_OBJC_FILES = \
   main.m \
   OnDemandController.m
 
-# Resource files (plists)
+# Resource files (plists); the app Info.plist is merged by gnustep-make
 OnDemand_RESOURCE_FILES = \
-  Resources/Info.plist Resources/Install.plist
+  Resources/Install.plist
 
 # ARC throughout
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fobjc-arc-exceptions
@@ -36,13 +36,10 @@ ADDITIONAL_LDFLAGS += -ldispatch
 include $(GNUSTEP_MAKEFILES)/application.make
 
 # Manual copy of resource files into built app
-$(APP_NAME).app/Resources/Info.plist: Resources/Info.plist
-	mkdir -p $(@D) && cp $< $@
-
 $(APP_NAME).app/Resources/Install.plist: Resources/Install.plist
 	mkdir -p $(@D) && cp $< $@
 
-all:: $(APP_NAME).app/Resources/Info.plist $(APP_NAME).app/Resources/Install.plist
+all:: $(APP_NAME).app/Resources/Install.plist
 
 # Do not invoke sudo unconditionally. Image builds and CI run as root, and a
 # stock FreeBSD/OpenBSD install has no sudo at all, so this failed with

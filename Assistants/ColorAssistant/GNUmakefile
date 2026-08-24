@@ -7,7 +7,6 @@ GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
 
 APP_NAME = ColorAssistant
 ColorAssistant_APPLICATION_ICON = Color.png
-ColorAssistant_INFOPLIST_FILE = ColorAssistantInfo.plist
 
 ColorAssistant_OBJC_FILES = \
 	ColorAssistant.m \

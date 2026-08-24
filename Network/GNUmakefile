@@ -7,7 +7,7 @@ Network_OBJC_FILES = \
 	NetworkPane.m \
 	NetworkController.m
 
-Network_RESOURCE_FILES = Network.png NetworkInfo.plist
+Network_RESOURCE_FILES = Network.png
 Network_BUNDLE_LIBS = -lPreferencePanes -lNetworkBackend -lcurl
 ADDITIONAL_OBJCFLAGS += -I/System/Library/Headers/NetworkBackend -I../Libraries/NetworkBackend
 Network_PRINCIPAL_CLASS = NetworkPane

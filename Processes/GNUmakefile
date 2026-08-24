@@ -24,7 +24,6 @@ Processes_RESOURCE_FILES = Resources/Processes.png
 
 Processes_MAIN_MODEL_FILE =
 
-Processes_INFO_PLIST = ProcessesInfo.plist
 
 Processes_APPLICATION_ICON = Processes.icns
 

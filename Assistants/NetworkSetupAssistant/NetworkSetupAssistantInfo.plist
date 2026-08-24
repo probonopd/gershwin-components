@@ -3,29 +3,25 @@
 <plist version="0.9">
 <dict>
 	<key>CFBundleName</key>
-	<string>Menu</string>
+	<string>WLAN Setup Assistant</string>
 	<key>CFBundleDisplayName</key>
-	<string>Menu</string>
+	<string>WLAN Setup Assistant</string>
 	<key>ApplicationName</key>
-	<string>Menu</string>
+	<string>WLAN Setup Assistant</string>
 	<key>ApplicationDescription</key>
-	<string>Configure the Gershwin desktop menu bar</string>
+	<string>Set up WLAN and network connections step by step</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.gershwin-desktop.Menu.prefpane</string>
+	<string>io.github.gershwin-desktop.NetworkSetupAssistant</string>
 	<key>CFBundleExecutable</key>
-	<string>Menu</string>
+	<string>NetworkSetupAssistant</string>
 	<key>CFBundleVersion</key>
 	<string>1.0</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundlePackageType</key>
-	<string>BNDL</string>
+	<string>APPL</string>
 	<key>NSPrincipalClass</key>
-	<string>MenuPrefPane</string>
-	<key>NSPrefPaneIconFile</key>
-	<string>Menu.png</string>
-	<key>NSPrefPaneIconLabel</key>
-	<string>Menu</string>
+	<string>NSApplication</string>
 	<key>Authors</key>
 	<array>
 		<string>Simon Peter</string>

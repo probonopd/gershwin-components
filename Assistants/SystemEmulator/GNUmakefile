@@ -22,7 +22,6 @@ PACKAGE_NAME = SystemEmulator
 SystemEmulator_APPLICATION_ICON = SystemEmulator.png
 
 SystemEmulator_RESOURCE_FILES = \
-Resources/Info-gnustep.plist \
 Resources/SystemEmulator.png
 
 SystemEmulator_HEADER_FILES = \

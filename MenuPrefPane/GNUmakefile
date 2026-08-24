@@ -4,7 +4,7 @@ GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = Menu
 Menu_OBJC_FILES = MenuPrefPane.m MenuControllerPrefPane.m
-Menu_RESOURCE_FILES = MenuInfo.plist Menu.png
+Menu_RESOURCE_FILES = Menu.png
 Menu_BUNDLE_LIBS = -lPreferencePanes
 Menu_PRINCIPAL_CLASS = MenuPrefPane
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles

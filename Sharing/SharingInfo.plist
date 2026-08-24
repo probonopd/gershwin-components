@@ -1,15 +1,42 @@
-{
-    CFBundleDevelopmentRegion = "English";
-    CFBundleExecutable = "Sharing";
-    CFBundleIdentifier = "org.gershwin.preference.sharing";
-    CFBundleInfoDictionaryVersion = "6.0";
-    CFBundleName = "Sharing";
-    CFBundlePackageType = "BNDL";
-    CFBundleShortVersionString = "1.0";
-    CFBundleSignature = "????";
-    CFBundleVersion = "1.0";
-    NSPrefPaneIconFile = "Sharing.png";
-    NSPrefPaneIconLabel = "Sharing";
-    NSPrincipalClass = "SharingPane";
-    NSPrefPaneCategory = "Network";
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+	<key>CFBundleName</key>
+	<string>Sharing</string>
+	<key>CFBundleDisplayName</key>
+	<string>Sharing</string>
+	<key>ApplicationName</key>
+	<string>Sharing</string>
+	<key>ApplicationDescription</key>
+	<string>Share files, media and remote access with other computers</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.Sharing.prefpane</string>
+	<key>CFBundleExecutable</key>
+	<string>Sharing</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>NSPrincipalClass</key>
+	<string>SharingPane</string>
+	<key>NSPrefPaneIconFile</key>
+	<string>Sharing.png</string>
+	<key>NSPrefPaneIconLabel</key>
+	<string>Sharing</string>
+	<key>NSPrefPaneCategory</key>
+	<string>Network</string>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
+</dict>
+</plist>

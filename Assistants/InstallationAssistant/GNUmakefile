@@ -7,7 +7,6 @@ GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
 # Application configuration
 APP_NAME = InstallationAssistant
 InstallationAssistant_APPLICATION_ICON = InstallationAssistant.png
-InstallationAssistant_INFOPLIST_FILE = InstallationAssistantInfo.plist
 
 # Source files
 InstallationAssistant_OBJC_FILES = InstallationAssistant.m InstallationSteps.m

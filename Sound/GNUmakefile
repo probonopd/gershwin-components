@@ -7,7 +7,7 @@ Sound_OBJC_FILES = \
 	SoundPane.m \
 	SoundController.m
 
-Sound_RESOURCE_FILES = Sound.png SoundInfo.plist
+Sound_RESOURCE_FILES = Sound.png
 Sound_BUNDLE_LIBS = -lPreferencePanes -lSoundBackend
 ADDITIONAL_OBJCFLAGS += -I/System/Library/Headers/SoundBackend
 Sound_PRINCIPAL_CLASS = SoundPane

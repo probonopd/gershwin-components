@@ -101,7 +101,6 @@ Menu_HEADER_FILES = \
 # Resources
 Menu_RESOURCE_FILES = \
 	Menu.png \
-	Info.plist \
 	Resources/Icons/battery.png \
 	Resources/Icons/battery-medium.png \
 	Resources/Icons/battery-low.png \

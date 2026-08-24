@@ -1,9 +1,40 @@
-{
-    CFBundleIdentifier = "org.gnustep.sound.prefpane";
-    NOTE = "Automatically generated, do not edit!";
-    NSExecutable = Sound;
-    NSMainNibFile = "";
-    NSPrefPaneIconFile = "Sound.png";
-    NSPrefPaneIconLabel = "Sound";
-    NSPrincipalClass = SoundPane;
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+	<key>CFBundleName</key>
+	<string>Sound</string>
+	<key>CFBundleDisplayName</key>
+	<string>Sound</string>
+	<key>ApplicationName</key>
+	<string>Sound</string>
+	<key>ApplicationDescription</key>
+	<string>Choose output and input sound devices and volume</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.Sound.prefpane</string>
+	<key>CFBundleExecutable</key>
+	<string>Sound</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>NSPrincipalClass</key>
+	<string>SoundPane</string>
+	<key>NSPrefPaneIconFile</key>
+	<string>Sound.png</string>
+	<key>NSPrefPaneIconLabel</key>
+	<string>Sound</string>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
+</dict>
+</plist>

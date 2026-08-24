@@ -6,7 +6,6 @@ BUNDLE_EXTENSION = .gsmenuextra
 
 Battery_PRINCIPAL_CLASS = BatteryExtra
 Battery_OBJC_FILES = BatteryExtra.m
-Battery_RESOURCE_FILES = Info.plist
 
 ADDITIONAL_OBJCFLAGS += -I../..
 

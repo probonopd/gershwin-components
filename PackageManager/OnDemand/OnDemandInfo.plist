@@ -1,24 +1,82 @@
-{
-    NSTypes = (
-        {
-            NSUnixExtensions = ( deb );
-            NSTypeName = "Debian Package";
-            NSRole = Editor;
-        },
-        {
-            NSUnixExtensions = ( txz, tbz );
-            NSTypeName = "FreeBSD Package";
-            NSRole = Editor;
-        },
-        {
-            NSUnixExtensions = ( tgz );
-            NSTypeName = "OpenBSD Package";
-            NSRole = Editor;
-        },
-        {
-            NSUnixExtensions = ( "pkg.tar.zst", "pkg.tar.xz", "pkg.tar.gz" );
-            NSTypeName = "Arch Linux Package";
-            NSRole = Editor;
-        }
-    );
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+	<key>CFBundleName</key>
+	<string>OnDemand</string>
+	<key>CFBundleDisplayName</key>
+	<string>OnDemand</string>
+	<key>ApplicationName</key>
+	<string>OnDemand</string>
+	<key>ApplicationDescription</key>
+	<string>On-demand package installer and launcher</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.OnDemand</string>
+	<key>CFBundleExecutable</key>
+	<string>OnDemand</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Debian Package</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>deb</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>FreeBSD Package</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>txz</string>
+				<string>tbz</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>OpenBSD Package</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>tgz</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Arch Linux Package</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>pkg.tar.zst</string>
+				<string>pkg.tar.xz</string>
+				<string>pkg.tar.gz</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+		</dict>
+	</array>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
+</dict>
+</plist>

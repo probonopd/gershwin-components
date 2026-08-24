@@ -5,7 +5,7 @@ Mouse_OBJCFLAGS += -Wall -Wextra -Werror -O2
 
 BUNDLE_NAME = Mouse
 Mouse_OBJC_FILES = MousePane.m MouseController.m
-Mouse_RESOURCE_FILES = Mouse.png MouseInfo.plist
+Mouse_RESOURCE_FILES = Mouse.png
 Mouse_BUNDLE_LIBS = -lPreferencePanes
 Mouse_PRINCIPAL_CLASS = MousePane
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles

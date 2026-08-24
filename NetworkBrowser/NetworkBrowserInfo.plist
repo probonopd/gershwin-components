@@ -3,29 +3,34 @@
 <plist version="0.9">
 <dict>
 	<key>CFBundleName</key>
-	<string>Menu</string>
+	<string>NetworkBrowser</string>
 	<key>CFBundleDisplayName</key>
-	<string>Menu</string>
+	<string>NetworkBrowser</string>
 	<key>ApplicationName</key>
-	<string>Menu</string>
+	<string>NetworkBrowser</string>
 	<key>ApplicationDescription</key>
-	<string>Configure the Gershwin desktop menu bar</string>
+	<string>Browse network services shared on the local network</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.gershwin-desktop.Menu.prefpane</string>
+	<string>io.github.gershwin-desktop.NetworkBrowser</string>
 	<key>CFBundleExecutable</key>
-	<string>Menu</string>
+	<string>NetworkBrowser</string>
 	<key>CFBundleVersion</key>
-	<string>1.0</string>
+	<string>0.1</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>0.1</string>
 	<key>CFBundlePackageType</key>
-	<string>BNDL</string>
+	<string>APPL</string>
 	<key>NSPrincipalClass</key>
-	<string>MenuPrefPane</string>
-	<key>NSPrefPaneIconFile</key>
-	<string>Menu.png</string>
-	<key>NSPrefPaneIconLabel</key>
-	<string>Menu</string>
+	<string>NSApplication</string>
+	<key>NSTypes</key>
+	<array>
+		<dict>
+			<key>NSHumanReadableName</key>
+			<string>Network Service</string>
+			<key>NSRole</key>
+			<string>Viewer</string>
+		</dict>
+	</array>
 	<key>Authors</key>
 	<array>
 		<string>Simon Peter</string>

@@ -9,9 +9,9 @@
 	<key>ApplicationName</key>
 	<string>Menu</string>
 	<key>ApplicationDescription</key>
-	<string>Configure the Gershwin desktop menu bar</string>
+	<string>Desktop menu bar with status items for Gershwin</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.gershwin-desktop.Menu.prefpane</string>
+	<string>io.github.gershwin-desktop.Menu</string>
 	<key>CFBundleExecutable</key>
 	<string>Menu</string>
 	<key>CFBundleVersion</key>
@@ -19,13 +19,13 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundlePackageType</key>
-	<string>BNDL</string>
-	<key>NSPrincipalClass</key>
-	<string>MenuPrefPane</string>
-	<key>NSPrefPaneIconFile</key>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
 	<string>Menu.png</string>
-	<key>NSPrefPaneIconLabel</key>
-	<string>Menu</string>
+	<key>NSPrincipalClass</key>
+	<string>MenuApplication</string>
+	<key>LSUIElement</key>
+	<true/>
 	<key>Authors</key>
 	<array>
 		<string>Simon Peter</string>

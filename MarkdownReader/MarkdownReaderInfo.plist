@@ -3,29 +3,43 @@
 <plist version="0.9">
 <dict>
 	<key>CFBundleName</key>
-	<string>Menu</string>
+	<string>MarkdownReader</string>
 	<key>CFBundleDisplayName</key>
-	<string>Menu</string>
+	<string>MarkdownReader</string>
 	<key>ApplicationName</key>
-	<string>Menu</string>
+	<string>MarkdownReader</string>
 	<key>ApplicationDescription</key>
-	<string>Configure the Gershwin desktop menu bar</string>
+	<string>Read Markdown documents with rich rendering</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.gershwin-desktop.Menu.prefpane</string>
+	<string>io.github.gershwin-desktop.MarkdownReader</string>
 	<key>CFBundleExecutable</key>
-	<string>Menu</string>
+	<string>MarkdownReader</string>
 	<key>CFBundleVersion</key>
-	<string>1.0</string>
+	<string>0.1</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>0.1</string>
 	<key>CFBundlePackageType</key>
-	<string>BNDL</string>
+	<string>APPL</string>
 	<key>NSPrincipalClass</key>
-	<string>MenuPrefPane</string>
-	<key>NSPrefPaneIconFile</key>
-	<string>Menu.png</string>
-	<key>NSPrefPaneIconLabel</key>
-	<string>Menu</string>
+	<string>NSApplication</string>
+	<key>NSTypes</key>
+	<array>
+		<dict>
+			<key>NSHumanReadableName</key>
+			<string>Markdown Document</string>
+			<key>NSMIMETypes</key>
+			<array>
+				<string>text/markdown</string>
+			</array>
+			<key>NSRole</key>
+			<string>Viewer</string>
+			<key>NSUnixExtensions</key>
+			<array>
+				<string>md</string>
+				<string>markdown</string>
+			</array>
+		</dict>
+	</array>
 	<key>Authors</key>
 	<array>
 		<string>Simon Peter</string>
