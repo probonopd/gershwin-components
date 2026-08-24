@@ -17,7 +17,8 @@ PackageManager_OBJC_FILES = \
   GWOpenBSDBackend.m \
   GWHeaderDatabase.m \
   GWPackageManager.m \
-  GWSudoHelper.m
+  GWSudoHelper.m \
+  GWAppImageDownloader.m
 
 PackageManager_HEADER_FILES = \
   GWSystemCommandExecutor.h \
@@ -30,7 +31,8 @@ PackageManager_HEADER_FILES = \
   GWOpenBSDBackend.h \
   GWHeaderDatabase.h \
   GWPackageManager.h \
-  GWSudoHelper.h
+  GWSudoHelper.h \
+  GWAppImageDownloader.h
 
 PackageManager_HEADER_FILES_INSTALL_DIR = PackageManager
 

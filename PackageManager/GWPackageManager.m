@@ -14,6 +14,7 @@
 #import "GWPackageManagerBackend.h"
 #import "GWOSDetector.h"
 #import "GWPackageInstallSpec.h"
+#import "GWAppImageDownloader.h"
 
 // Backend imports — included at compile time; only the relevant one is used
 #import "GWDebBackend.h"
@@ -384,10 +385,36 @@ static GWPackageManager *sharedManager = nil;
   return YES;
 }
 
+#pragma mark - AppImage download
+
+- (BOOL)downloadAppImageFromURL:(NSString *)url
+                         appName:(NSString *)appName
+                        progress:(nullable id<GWInstallProgressHandler>)progress
+                           error:(NSError **)error
+{
+  GWAppImageDownloader *downloader = [[GWAppImageDownloader alloc] init];
+  return [downloader downloadAppImageFromURL:url
+                                     appName:appName
+                                    progress:progress
+                                       error:error];
+}
+
+- (BOOL)downloadAppImageFromGitHubRepo:(NSString *)repo
+                                appName:(NSString *)appName
+                               progress:(nullable id<GWInstallProgressHandler>)progress
+                                  error:(NSError **)error
+{
+  GWAppImageDownloader *downloader = [[GWAppImageDownloader alloc] init];
+  return [downloader downloadAppImageFromGitHubRepo:repo
+                                            appName:appName
+                                           progress:progress
+                                              error:error];
+}
+
 #pragma mark - User-Friendly Error Messages
 
 + (NSString *)friendlyErrorMessageForError:(NSError *)error
-                                   appName:(NSString *)appName
+                                    appName:(NSString *)appName
 {
   NSString *name = [appName length] > 0 ? appName : @"This application";
 

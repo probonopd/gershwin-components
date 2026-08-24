@@ -16,6 +16,7 @@
 
 #import "OnDemandController.h"
 #import <PackageManager/GWSystemCommandExecutor.h>
+#import <PackageManager/GWAppImageDownloader.h>
 
 #pragma mark - Constants (derived from AppearanceMetrics.h)
 
@@ -129,6 +130,13 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
   double _downloadedBytes;
   CGFloat _lastFetchPct;
   NSUInteger _completedFetchFiles;
+
+  // AppImage install state (Linux only).
+  BOOL _isAppImageInstall;
+  NSString *_appImageURL;          // resolved direct URL for the current arch
+  NSString *_appImageGitHubRepo;   // "owner/repo" GitHub source, if any
+  NSString *_launchCommand;        // command to run after install (wrapper or postCommand)
+  NSArray<NSString *> *_launchArgs;
 }
 
 - (instancetype)init
@@ -201,8 +209,29 @@ static const CGFloat kSpace16 = 16.0;              // METRICS_SPACE_16
   _appName = [[appPath lastPathComponent] stringByDeletingPathExtension];
   if ([_appName length] == 0)
     _appName = @"Application";
-  NSLog(@"OnDemand [OK] setupFromPlist: app=%@ packages=%@ command=%@",
-        _appName, [_spec packages], [_spec postCommand]);
+
+  // AppImage install (Linux only): the spec may carry a direct per-arch URL or
+  // a GitHub repo; either way we launch the installed wrapper afterwards.
+  _isAppImageInstall = [_spec isAppImage];
+  _appImageURL = [_spec appImageDirectURL];
+  _appImageGitHubRepo = [_spec appImageGitHubRepo];
+
+  // Determine what to run after install: for an AppImage we launch the wrapper
+  // bundle we install into ~/Library/Applications; otherwise the plist's
+  // post-install command (if any).
+  if (_isAppImageInstall)
+    {
+      _launchCommand = [GWAppImageDownloader launcherPathForAppName:_appName];
+      _launchArgs = @[];
+    }
+  else
+    {
+      _launchCommand = [_spec postCommand];
+      _launchArgs = [_spec postCommandArguments];
+    }
+
+  NSLog(@"OnDemand [OK] setupFromPlist: app=%@ packages=%@ command=%@ appimage=%@ github=%@",
+        _appName, [_spec packages], [_spec postCommand], _appImageURL, _appImageGitHubRepo);
 
   return YES;
 }
@@ -978,14 +1007,23 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
 
 - (BOOL)commandIsAvailable
 {
+  if (_isAppImageInstall)
+    {
+      // An already-installed AppImage is launched via its wrapper bundle in
+      // ~/Library/Applications.
+      BOOL exists = [[NSFileManager defaultManager] isExecutableFileAtPath:_launchCommand];
+      NSLog(@"OnDemand -> commandIsAvailable: appimage wrapper %@ -> %s",
+            _launchCommand, exists ? "YES" : "NO");
+      return exists;
+    }
   NSString *command = [_spec postCommand];
   return command ? [self _commandExists:command] : NO;
 }
 
 - (BOOL)launchAndExit
 {
-  NSString *command = [_spec postCommand];
-  NSArray *args = [_spec postCommandArguments];
+  NSString *command = _launchCommand;
+  NSArray *args = _launchArgs;
   NSLog(@"OnDemand -> launchAndExit: %@ %@", command,
         [args count] > 0 ? [args componentsJoinedByString:@" "] : @"");
   int status = [self _executeCommand:command arguments:args];
@@ -1015,8 +1053,8 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
 {
   [_progressBar setDoubleValue:1.0];
   [_window setTitle:[NSString stringWithFormat:@"Downloading %@", _appName]];
-  NSString *command = [_spec postCommand];
-  NSArray *commandArgs = [_spec postCommandArguments];
+  NSString *command = _launchCommand;
+  NSArray *commandArgs = _launchArgs;
 
   // Close the progress window before launching the app
   [_window orderOut:nil];
@@ -1037,8 +1075,64 @@ static NSString *_packageNameFromFile(NSString *path, NSString *fmt)
     }
 }
 
+- (void)_performAppImageInstallAndLaunch
+{
+  NSLog(@"OnDemand -> performInstallAndLaunch: AppImage path (url=%@ repo=%@)",
+        _appImageURL, _appImageGitHubRepo);
+  [_statusField setStringValue:@"Downloading…"];
+
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    NSError *error = nil;
+    BOOL success = NO;
+    if (_appImageURL)
+      {
+        success = [_pm downloadAppImageFromURL:_appImageURL
+                                       appName:_appName
+                                      progress:self
+                                         error:&error];
+      }
+    else if (_appImageGitHubRepo)
+      {
+        success = [_pm downloadAppImageFromGitHubRepo:_appImageGitHubRepo
+                                              appName:_appName
+                                             progress:self
+                                                error:&error];
+      }
+    else
+      {
+        // Architecture not listed in the direct map and no GitHub repo given.
+        error = [NSError errorWithDomain:GWPackageManagerErrorDomain
+                                     code:GWPackageManagerErrorCommandFailed
+                                 userInfo:@{
+                                   NSLocalizedDescriptionKey:
+                                     [NSString stringWithFormat:
+                                       @"%@ has no AppImage for this system architecture.",
+                                       _appName],
+                                 }];
+      }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (!success)
+        {
+          NSString *msg = [GWPackageManager friendlyErrorMessageForError:error
+                                                                 appName:_appName];
+          [self _showInstallError:msg];
+          return;
+        }
+      NSLog(@"OnDemand [OK] [Step 1/2] AppImage install succeeded");
+      [self _launchAfterInstall];
+    });
+  });
+}
+
 - (void)performInstallAndLaunch
 {
+  if (_isAppImageInstall)
+    {
+      [self _performAppImageInstallAndLaunch];
+      return;
+    }
+
   NSString *command = [_spec postCommand];
   NSArray *packages = [_spec packages];
   NSArray *localFiles = [_spec localFilePaths];

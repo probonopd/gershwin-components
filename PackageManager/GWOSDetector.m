@@ -236,4 +236,39 @@ static NSCharacterSet *_whitespaceSet(void)
   return nil;
 }
 
++ (NSString *)currentArchitecture
+{
+  // AppImages are architecture-specific binaries; we normalize the machine
+  // architecture to the two tuples our plist schema understands so a
+  // publisher can address x86_64 and aarch64 independently.
+  NSString *machine = nil;
+  @try
+    {
+      NSTask *t = [[NSTask alloc] init];
+      [t setLaunchPath:@"uname"];
+      [t setArguments:@[@"-m"]];
+      NSPipe *outPipe = [NSPipe pipe];
+      [t setStandardOutput:outPipe];
+      [t launch];
+      [t waitUntilExit];
+      NSData *data = [[outPipe fileHandleForReading] readDataToEndOfFile];
+      machine = [[NSString alloc] initWithData:data
+                                      encoding:NSUTF8StringEncoding];
+      machine = [machine stringByTrimmingCharactersInSet:
+                 [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    }
+  @catch (NSException *e)
+    {
+      NSLog(@"GWOSDetector <- currentArchitecture: uname failed: %@", e);
+    }
+
+  NSString *m = [machine lowercaseString];
+  if ([m isEqualToString:@"x86_64"] || [m isEqualToString:@"amd64"])
+    return @"x86_64";
+  if ([m isEqualToString:@"aarch64"] || [m isEqualToString:@"arm64"])
+    return @"aarch64";
+
+  return machine ? machine : @"unknown";
+}
+
 @end
