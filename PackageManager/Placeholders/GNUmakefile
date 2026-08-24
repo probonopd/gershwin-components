@@ -62,6 +62,7 @@ $(eval $(call make-category,Developer,Developer,Zeal))
 $(eval $(call make-category,Graphics,Graphics,Blender GIMP Inkscape Krita Scribus Skanlite))
 $(eval $(call make-category,Internet,Internet,Chromium Firefox Thunderbird Transmission))
 $(eval $(call make-category,Office,Office,LibreOffice))
+$(eval $(call make-category,Utilities,Utilities,TMOG_Task_Manager))
 $(eval $(call make-category,Video,Video,OBS_Studio Shotcut))
 
 # --- Install definitions ---
@@ -71,10 +72,11 @@ $(eval $(call make-install,Developer,Developer,Zeal))
 $(eval $(call make-install,Graphics,Graphics,Blender GIMP Inkscape Krita Scribus Skanlite))
 $(eval $(call make-install,Internet,Internet,Chromium Firefox Thunderbird Transmission))
 $(eval $(call make-install,Office,Office,LibreOffice))
+$(eval $(call make-install,Utilities,Utilities,TMOG_Task_Manager))
 $(eval $(call make-install,Video,Video,OBS_Studio Shotcut))
 
 # --- Aggregate targets ---
-CATS = 3D_Printing Audio Developer Graphics Internet Office Video
+CATS = 3D_Printing Audio Developer Graphics Internet Office Utilities Video
 
 .PHONY: all
 all: $(CATS)
