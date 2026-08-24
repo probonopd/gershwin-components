@@ -12,6 +12,11 @@
  * shuts all of them down cleanly when the session manager sends
  * SIGTERM/SIGINT (e.g. on logout).
  *
+ * An app that burns more than 95% CPU for over ten seconds straight is
+ * treated as runaway: the supervisor kills it and the normal restart
+ * logic brings a fresh copy up, so one stuck app cannot pin a core and
+ * freeze the whole desktop.
+ *
  * Usage:  gershwin-session AppName1 [AppName2 ...]
  * Example: gershwin-session Workspace Menu WindowManager
  *
@@ -30,6 +35,21 @@
 #include <signal.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdio.h>
+#include <time.h>
+
+/* A supervised app counts as runaway when its CPU time grows faster than
+ * CPU_RUNAWAY_RATE cores continuously for longer than CPU_RUNAWAY_SECONDS.
+ */
+#define CPU_RUNAWAY_RATE    0.95
+#define CPU_RUNAWAY_SECONDS 10.0
+
+/* Per-app watchdog state, one entry per supervised app (same order). */
+typedef struct {
+  double lastCpu;   /* cumulative CPU seconds at last sample, -1 = unknown */
+  double lastAt;    /* monotonic time of that sample */
+  double highSince; /* when the current >limit streak started, 0 = none */
+} CpuWatch;
 
 static volatile sig_atomic_t keepRunning = 1;
 static volatile sig_atomic_t autoRestart = 1;
@@ -107,20 +127,157 @@ static NSTask *launchApp(NSString *name)
 static void terminateApp(NSTask *task)
 {
   if (task == nil || ![task isRunning]) return;
-  [task terminate]; /* SIGTERM */
+  pid_t pid = [task processIdentifier];
+  if (pid <= 0) return;
+
+  /* Regular kill (SIGTERM) first, so the app can shut down cleanly. */
+  kill(pid, SIGTERM);
   for (int i = 0; i < 20 && [task isRunning]; i++)
     {
       [NSThread sleepForTimeInterval: 0.05]; /* up to ~1s */
     }
+
+  /* If a plain kill did not do it, force it with SIGKILL (kill -9) so we
+   * never leak a half-shut-down app into the next session. */
   if ([task isRunning])
     {
-      pid_t pid = [task processIdentifier];
       NSLog(@"App did not exit after SIGTERM; SIGKILLing pid %d.",
-	(int)pid);
-      if (pid > 0) kill(pid, SIGKILL);
+	    (int)pid);
+      kill(pid, SIGKILL);
       for (int i = 0; i < 20 && [task isRunning]; i++)
         {
           [NSThread sleepForTimeInterval: 0.05];
+        }
+    }
+}
+
+static double monotonicSeconds(void)
+{
+  struct timespec ts;
+
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
+
+/* Parse a ps TIME/cputime value.  The column layout differs between
+ * Linux ("[[dd-]hh:]mm:ss") and the BSDs ("mmm:ss.hh"), so parse colon
+ * separated fields from the right as seconds/minutes/hours and accept an
+ * optional fractional part on the last field.
+ */
+static double parsePsTime(char *s)
+{
+  double mult[] = { 1.0, 60.0, 3600.0, 86400.0 };
+  double fields[5] = { 0 };
+  double days = 0.0;
+  char *dash = strchr(s, '-');
+  char *tok;
+  int nf = 0;
+  double secs = 0.0;
+  int i;
+
+  if (dash != NULL)
+    {
+      *dash = '\0';
+      days = atof(s);
+      s = dash + 1;
+    }
+  while ((tok = strsep(&s, ":")) != NULL && nf < 5)
+    {
+      fields[nf++] = atof(tok);
+    }
+  for (i = 0; i < nf; i++)
+    {
+      secs += fields[nf - 1 - i] * mult[i];
+    }
+  return days * 86400.0 + secs;
+}
+
+/* Cumulative CPU seconds used by pid, or -1 if it cannot be determined.
+ * We go through ps rather than /proc so this works identically on Linux,
+ * FreeBSD and OpenBSD.
+ */
+static double cpuSecondsForPid(pid_t pid)
+{
+  char cmd[64];
+  char line[256];
+  FILE *fp;
+  double secs = -1.0;
+
+  snprintf(cmd, sizeof(cmd), "ps -o cputime= -p %d", (int)pid);
+  fp = popen(cmd, "r");
+  if (fp == NULL) return -1.0;
+  if (fgets(line, sizeof(line), fp) != NULL)
+    {
+      secs = parsePsTime(line);
+    }
+  pclose(fp);
+  return secs;
+}
+
+/* Kill any supervised app that has been above the CPU limit for over
+ * CPU_RUNAWAY_SECONDS straight; killing hands it to the normal restart
+ * logic, which brings a fresh copy up.  Samples once per second: shorter
+ * windows would fork ps four times as often for no better decision.
+ */
+static void watchForRunawayApps(NSArray *apps, NSMutableDictionary *tasks,
+  CpuWatch *watches)
+{
+  static double nextSampleAt = 0;
+  double now = monotonicSeconds();
+  NSUInteger i;
+
+  if (now < nextSampleAt) return;
+  nextSampleAt = now + 1.0;
+
+  for (i = 0; i < [apps count]; i++)
+    {
+      NSString *name = [apps objectAtIndex: i];
+      NSTask *task = [tasks objectForKey: name];
+      CpuWatch *w = &watches[i];
+      pid_t pid;
+      double cpu, dt, rate;
+
+      if (task == nil || ![task isRunning])
+        {
+          w->lastCpu = -1.0;
+          w->highSince = 0.0;
+          continue;
+        }
+
+      pid = [task processIdentifier];
+      cpu = cpuSecondsForPid(pid);
+      if (cpu < 0.0 || w->lastCpu < 0.0)
+        {
+          w->lastCpu = cpu;
+          w->lastAt = now;
+          continue;
+        }
+
+      dt = now - w->lastAt;
+      rate = dt > 0.0 ? (cpu - w->lastCpu) / dt : 0.0;
+      w->lastCpu = cpu;
+      w->lastAt = now;
+
+      if (rate > CPU_RUNAWAY_RATE)
+        {
+          if (w->highSince == 0.0)
+            {
+              w->highSince = now;
+            }
+          else if (now - w->highSince >= CPU_RUNAWAY_SECONDS)
+            {
+              NSLog(@"%@ (pid %d) has been using more than %.0f%% CPU"
+                @" for over %.0f seconds; restarting it.",
+                name, (int)pid, CPU_RUNAWAY_RATE * 100,
+                CPU_RUNAWAY_SECONDS);
+              terminateApp(task);
+              w->lastCpu = -1.0;
+              w->highSince = 0.0;
+            }
+        }
+      else
+        {
+          w->highSince = 0.0;
         }
     }
 }
@@ -129,6 +286,7 @@ int main(int argc, const char *argv[])
 {
   NSMutableArray *apps = [NSMutableArray array];
   NSMutableDictionary *tasks = [NSMutableDictionary dictionary];
+  CpuWatch *watches;
   NSString *sessionPid;
   int lastAutoRestart = -1;
 
@@ -147,6 +305,12 @@ int main(int argc, const char *argv[])
   for (int i = 1; i < argc; i++)
     {
       [apps addObject: [NSString stringWithUTF8String: argv[i]]];
+    }
+  watches = calloc([apps count], sizeof(CpuWatch));
+  if (watches == NULL)
+    {
+      fprintf(stderr, "%s: out of memory\n", argv[0]);
+      return 1;
     }
 
   /* Make our own pid discoverable by the supervised apps so they can tell
@@ -192,6 +356,8 @@ int main(int argc, const char *argv[])
 		    [tasks setObject: task forKey: name];
 		}
 	    }
+
+	  watchForRunawayApps(apps, tasks, watches);
 
 	  if (keepRunning)
 	    [NSThread sleepForTimeInterval: 0.25];
