@@ -181,12 +181,23 @@
 
     if (changed) {
         // One coarse signal keeps controllers simple; they re-read the
-        // snapshot instead of tracking incremental deltas.
-        [[NSNotificationCenter defaultCenter]
-            postNotificationName:DUStorageTopologyDidChangeNotification
-                          object:self];
+        // snapshot instead of tracking incremental deltas. Observers drive
+        // AppKit while callers refresh from worker threads (device monitor,
+        // operation completion), so delivery must happen on the main
+        // thread or the UI corrupts sporadically.
+        [self performSelectorOnMainThread:@selector(postTopologyDidChange)
+                               withObject:nil
+                            waitUntilDone:NO];
     }
     return YES;
+}
+
+// Main-thread continuation of refreshWithError:; observers touch views.
+- (void)postTopologyDidChange
+{
+    [[NSNotificationCenter defaultCenter]
+        postNotificationName:DUStorageTopologyDidChangeNotification
+                      object:self];
 }
 
 // --- Busy locks ----------------------------------------------------------

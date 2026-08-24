@@ -19,6 +19,30 @@
 // Unknown-value placeholder per ARCHITECTURE.md section 13.
 static NSString * const kUnknownValue = @"-";
 
+// The info grid is re-rendered in place on every selection/topology
+// update. Without an opaque background each render would draw its labels
+// over the pixels of the previous one, so text would accumulate into a
+// smudged, ever-bolder mess.
+@interface DUInfoAreaView : NSView
+@end
+
+@implementation DUInfoAreaView
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    [[NSColor controlBackgroundColor] setFill];
+    NSRectFill(self.bounds);
+}
+
+@end
+
+@interface DUInfoTextField : NSTextField
+@end
+
+@implementation DUInfoTextField
+@end
+
 @interface DUInformationController ()
 @property (nonatomic, strong, readwrite) NSView *view;
 @property (nonatomic, strong) NSImageView *iconView;
@@ -34,7 +58,7 @@ static NSString * const kUnknownValue = @"-";
         return nil;
     }
     _fieldViews = [NSMutableArray array];
-    _view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 700, 120)];
+    _view = [[DUInfoAreaView alloc] initWithFrame:NSMakeRect(0, 0, 700, 120)];
     _view.autoresizingMask =
         NSViewWidthSizable | NSViewHeightSizable;
     return self;
@@ -44,6 +68,9 @@ static NSString * const kUnknownValue = @"-";
 
 - (void)setObject:(DUStorageObject *)object
 {
+    // Erase the whole area, including the frames of the subviews we are
+    // about to remove: their old pixels must not survive the re-render.
+    [_view setNeedsDisplay:YES];
     for (NSView *subview in _view.subviews) {
         [subview removeFromSuperview];
     }
@@ -304,6 +331,12 @@ static NSString * const kUnknownValue = @"-";
         ? MIN(heightCapacity,
               (totalRows + 1) / 2)
         : heightCapacity;
+    // Every row must fit into the columns we actually have: a grid taller
+    // than heightCapacity squeezes toward the bottom margin instead of
+    // spilling into a column that would sit outside the window.
+    if (rowsPerColumn * columnCount < totalRows) {
+        rowsPerColumn = (totalRows + columnCount - 1) / columnCount;
+    }
 
     NSImage *icon = [DUIcons iconNamed:iconName];
     if (icon != nil) {
@@ -338,10 +371,15 @@ static NSString * const kUnknownValue = @"-";
 
 - (NSTextField *)textLabel:(NSString *)text bold:(BOOL)bold
 {
-    NSTextField *label = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    NSTextField *label = [[DUInfoTextField alloc] initWithFrame:NSZeroRect];
     label.editable = NO;
     label.bezeled = NO;
-    label.drawsBackground = NO;
+    /* Opaque on purpose: the area view behind us never participates in
+     * partial redraws, so a transparent field would stack its glyphs onto
+     * whatever pixels survived from earlier renders (observed as
+     * double-struck values after operations). */
+    label.drawsBackground = YES;
+    label.backgroundColor = [NSColor controlBackgroundColor];
     label.stringValue = text.length > 0 ? text : kUnknownValue;
     label.font = bold ? METRICS_FONT_SYSTEM_BOLD_11
                       : METRICS_FONT_SYSTEM_REGULAR_11;

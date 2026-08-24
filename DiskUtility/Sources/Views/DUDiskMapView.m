@@ -373,23 +373,32 @@ static const unsigned long long kMinimumDragSizeBytes = 1024ull * 1024ull;
     }
     DUPartition *partition = sorted[_pendingResizeIndex];
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-    NSRect rect =
-        [self rectForPartitionAtIndex:_pendingResizeIndex inSortedArray:sorted];
 
-    double scale = (double)NSWidth([self plotArea])
+    /* Pointer position as an absolute byte offset on the disk; the new
+     * size is that offset minus the partition start, clamped to the space
+     * available to its right. Both clamps must work in SIZE space: the
+     * old code compared the size against the absolute end offset (never
+     * clamping) and re-subtracted the tile origin from an already
+     * tile-relative value (collapsing every drag to the minimum size). */
+    NSRect plot = [self plotArea];
+    double scale = (double)NSWidth(plot)
         / (double)self.layout.capacityBytes;
-    unsigned long long bytesAtPointer =
-        (scale > 0.0)
-            ? (unsigned long long)(((double)(point.x - NSMinX(rect)) / scale))
-            : partition.sizeBytes;
-
-    unsigned long long maxBytes =
-        partition.offsetBytes + partition.sizeBytes
+    unsigned long long maxSizeBytes =
+        partition.sizeBytes
         + [self.layout freeBytesAfterPartition:partition];
-    unsigned long long wanted = bytesAtPointer - MIN(bytesAtPointer,
-                                                     partition.offsetBytes);
+    unsigned long long wanted = 0;
+    if (scale > 0.0) {
+        double pointerBytes =
+            ((double)point.x - NSMinX(plot)) / scale;
+        double tileBytes = pointerBytes
+            - (double)partition.offsetBytes;
+        if (tileBytes > 0.0) {
+            wanted = (unsigned long long)tileBytes;
+        }
+    }
     _pendingResizeBytes =
-        MAX(MIN(wanted, maxBytes), MIN(kMinimumDragSizeBytes, maxBytes));
+        MAX(MIN(wanted, maxSizeBytes),
+            MIN(kMinimumDragSizeBytes, maxSizeBytes));
     [self setNeedsDisplay:YES];
 }
 
@@ -417,8 +426,8 @@ static const unsigned long long kMinimumDragSizeBytes = 1024ull * 1024ull;
     }
     NSError *error = nil;
     if ([self.layout resizePartition:partition
-                         toSizeBytes:bytes
-                               error:&error]) {
+                          toSizeBytes:bytes
+                                error:&error]) {
         if ([self.delegate respondsToSelector:
                 @selector(mapViewDidChangeLayout:)]) {
             [self.delegate mapViewDidChangeLayout:self];

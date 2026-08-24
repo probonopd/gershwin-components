@@ -17,7 +17,6 @@
             // off; storage operations are not a place for silent defaults.
             @"DUConfirmDestructiveOperations" : @YES,
             @"DURefreshInterval" : @10,
-            @"DUForceMockBackend" : @NO,
         }];
 }
 

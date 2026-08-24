@@ -12,6 +12,7 @@
 #import "DUDiskMapView.h"
 #import "DUErrors.h"
 #import "DUOperationLogView.h"
+#import "DUPaneView.h"
 #import "DUParsing.h"
 #import "DUPartition.h"
 #import "DUPartitionLayout.h"
@@ -90,9 +91,14 @@ static NSString *const kDefaultsConfirmDestructive =
     _logView = logView;
     _selectedIndex = -1;
 
+    // DUPaneView re-runs the layout whenever the tab view resizes us.
     CGFloat width = 400.0;
     CGFloat height = 300.0;
-    _view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+    DUPaneView *pane = [[DUPaneView alloc]
+        initWithFrame:NSMakeRect(0, 0, width, height)];
+    pane.layoutOwner = self;
+    pane.layoutSelector = @selector(relayout);
+    _view = pane;
     _view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 
     // Top row: volume scheme selector (partition count options, SPEC
@@ -240,16 +246,38 @@ static NSString *const kDefaultsConfirmDestructive =
     // Middle band: map on the left, volume info column pinned right.
     CGFloat controlsHeight = METRICS_BUTTON_SMALL_HEIGHT;
     CGFloat bandBottom = controlsRowY + controlsHeight + METRICS_SPACE_8;
+    CGFloat bandTop = topRowY - METRICS_SPACE_8;
     CGFloat formLeft = width - side - kVolumeFormWidth;
 
-    /* The three form rows stack BOTTOM-UP starting one gap above the
-     * controls row, so they can structurally never sink into it (the old
-     * top-down math spilled its last row onto Options... in short panes).
-     * 12px row gaps keep all three rows inside the band at minimum window
-     * height. */
+    // The map fills the whole band between the scheme row and the
+    // +/- controls row; the info column keeps a 16px gutter to its right.
+    CGFloat mapWidth = formLeft - METRICS_SPACE_16 - side;
+    if (mapWidth < 80.0) {
+        mapWidth = 80.0;
+    }
+    CGFloat bandHeight = bandTop - bandBottom;
+    if (bandHeight < 40.0) {
+        bandHeight = 40.0;
+    }
+    _mapView.frame = NSMakeRect(side, bandBottom, mapWidth, bandHeight);
+
+    /* The three form rows stack BOTTOM-UP, vertically centered against the
+     * map. In tight panes the 12px row gaps compress (2px floor) so the
+     * top row can never ride up into the scheme popup - the rows themselves
+     * always fit because the form column is beside the map, not inside the
+     * band's height budget. */
     CGFloat formGap = METRICS_SPACE_12;
+    CGFloat fixedFormRows = METRICS_TEXT_INPUT_FIELD_HEIGHT +
+        METRICS_BUTTON_HEIGHT + METRICS_TEXT_INPUT_FIELD_HEIGHT;
+    CGFloat formSpace = bandHeight - METRICS_SPACE_8;
+    if (fixedFormRows + 2 * formGap > formSpace) {
+        formGap = MAX(2.0, (formSpace - fixedFormRows) / 2.0);
+    }
+    CGFloat formBlockHeight = fixedFormRows + 2 * formGap;
+    CGFloat formBottom = bandBottom +
+        MAX((bandHeight - formBlockHeight) / 2.0, 0.0);
     CGFloat formRowY[3];
-    formRowY[0] = bandBottom + METRICS_SPACE_8;                       // name
+    formRowY[0] = formBottom;                                         // name
     formRowY[1] = formRowY[0] + METRICS_TEXT_INPUT_FIELD_HEIGHT + formGap; // format
     formRowY[2] = formRowY[1] + METRICS_BUTTON_HEIGHT + formGap;      // size
 
@@ -258,8 +286,7 @@ static NSString *const kDefaultsConfirmDestructive =
                                        NSWidth(_formatTitle.frame)),
                                    NSWidth(_sizeTitle.frame));
     CGFloat fieldValueWidth =
-        NSMaxX(_mapView.frame) + METRICS_SPACE_16 + kVolumeFormWidth -
-        formLeft - labelColumnWidth - METRICS_SPACE_8;
+        kVolumeFormWidth - labelColumnWidth - METRICS_SPACE_8;
     if (fieldValueWidth < 40.0) {
         fieldValueWidth = 40.0;
     }
@@ -275,7 +302,7 @@ static NSString *const kDefaultsConfirmDestructive =
 
     _formatPopup.frame =
         NSMakeRect(fieldX, formRowY[1],
-                   fieldValueWidth, METRICS_TEXT_INPUT_FIELD_HEIGHT);
+                   fieldValueWidth, METRICS_BUTTON_HEIGHT);
     [_formatTitle setFrameOrigin:
         NSMakePoint(formLeft, formRowY[1] +
             (METRICS_TEXT_INPUT_FIELD_HEIGHT -
@@ -322,10 +349,21 @@ static NSString *const kDefaultsConfirmDestructive =
     }
     _currentCapabilities = capabilities;
 
-    if (object != nil &&
-        object.type == DUStorageObjectTypeDevice &&
-        ((DUStorageDevice *)object).capacityBytes > 0) {
-        _device = (DUStorageDevice *)object;
+    // Same disk still selected and edits pending: keep the working plan
+    // (fan-outs from unrelated rescans must not wipe it) and just adopt
+    // the fresh model object so a later apply targets the live catalog.
+    DUStorageDevice *device = (object != nil &&
+        object.type == DUStorageObjectTypeDevice)
+        ? (DUStorageDevice *)object : nil;
+    if (_layout != nil && _layout.hasPendingChanges && device != nil &&
+            _device != nil &&
+            [device.identifier isEqualToString:_device.identifier]) {
+        _device = device;
+        return;
+    }
+
+    if (device != nil && device.capacityBytes > 0) {
+        _device = device;
         _committedPartitions = [self partitionChildrenOfDevice:_device];
         _committedScheme =
             [DUPartitionTableParser normalizeSchemeToken:
@@ -441,7 +479,21 @@ static NSString *const kDefaultsConfirmDestructive =
 {
     BOOL hasDevice = _device != nil && _layout != nil;
 
+    if (hasDevice) {
+        /* The map auto-selects the first tile in setLayout: but does not
+         * notify the delegate, so mirror that choice here to keep the info
+         * form live right after a refresh. */
+        if (_selectedIndex < 0 ||
+            _selectedIndex >= (NSInteger)_layout.partitions.count) {
+            _selectedIndex =
+                _layout.partitions.count > 0 ? 0 : -1;
+        }
+    } else {
+        _selectedIndex = -1;
+    }
+
     [_mapView setLayout:hasDevice ? _layout : nil];
+    [_mapView setSelectedPartitionIndex:_selectedIndex];
 
     [self rebuildSchemePopup];
     [self syncInfoForm];
@@ -519,17 +571,21 @@ static NSString *const kDefaultsConfirmDestructive =
 
 // Count options are rebuilt dynamically under the active scheme limit;
 // feasibility is probed on a scratch copy so menu entries never offer a
-// count the layout could not materialize (SPEC sections 15/18).
+// count the layout could not materialize (SPEC sections 15/18). The
+// offered range is capped to keep the popup menu usable; higher counts
+// remain reachable through repeated "+".
 - (void)rebuildSchemePopup
 {
     [_schemePopup removeAllItems];
     if (_layout == nil) {
         return;
     }
+    const NSUInteger kMaximumOfferedCount = 16;
     NSUInteger currentCount = _layout.partitions.count;
     NSUInteger feasibleCount = [self maximumFeasiblePartitionCount];
-    NSUInteger itemCount =
-        currentCount > feasibleCount ? currentCount : feasibleCount;
+    NSUInteger capped =
+        MIN(feasibleCount, kMaximumOfferedCount);
+    NSUInteger itemCount = MAX(currentCount, capped);
     for (NSUInteger n = 1; n <= itemCount; n++) {
         NSString *title =
             n == 1
@@ -636,6 +692,20 @@ static NSString *const kDefaultsConfirmDestructive =
 
 #pragma mark - Actions
 
+// Format choice on the selected partition; recorded as a pending change
+// like renames and resizes (SPEC section 17).
+- (void)formatChanged:(id)sender
+{
+    (void)sender;
+    DUPartition *selected = [self selectedPartition];
+    NSString *identifier = _formatPopup.selectedItem.representedObject;
+    if (selected == nil || identifier.length == 0 || _layout == nil) {
+        return;
+    }
+    [_layout setFormat:identifier forPartition:selected];
+    [self updateEnabledStates];
+}
+
 // The popup selects a target partition count; shrinking removes from the
 // end, growing splits the largest remaining gap (classic Disk Utility
 // behavior adapted to the map-based editor).
@@ -672,16 +742,19 @@ static NSString *const kDefaultsConfirmDestructive =
                     detail:nil];
             break;
         }
+        NSSet<NSString *> *knownIdentifiers = [NSSet setWithArray:
+            [_layout.partitions valueForKey:@"identifier"]];
         NSError *error = nil;
         if (![_layout addPartitionWithSize:wanted
-                                      name:nil
+                                      name:[self nextDefaultPartitionName]
                                      error:&error]) {
             [self showError:NSLocalizedString(
                                 @"Could not add a partition.", nil)
                     detail:error.localizedDescription];
             break;
         }
-        [self applyDefaultFormatToLastAddedPartition];
+        [self applyDefaultFormatToAddedPartitionExcluding:
+            knownIdentifiers];
     }
 
     [self syncAllViews];
@@ -711,33 +784,46 @@ static NSString *const kDefaultsConfirmDestructive =
     return largest;
 }
 
-// New partitions get the first format the backend offers.
-- (void)applyDefaultFormatToLastAddedPartition
+// The just-added partition gets the format currently chosen in the
+// popup; it is identified by identifier diff because the layout assigns
+// its own identifiers and keeps partitions sorted by offset.
+- (void)applyDefaultFormatToAddedPartitionExcluding:
+    (NSSet<NSString *> *)knownIdentifiers
 {
-    NSString *defaultIdentifier = _formatPopup.itemArray.count > 0
-        ? _formatPopup.lastItem.representedObject
-        : nil;
+    NSString *defaultIdentifier = _formatPopup.selectedItem.representedObject;
     if (defaultIdentifier.length == 0) {
         return;
     }
-    NSArray<DUPartition *> *sorted = _layout.partitions;
-    if (sorted.count == 0) {
-        return;
+    DUPartition *added =
+        [self addedPartitionInLayout:_layout excluding:knownIdentifiers];
+    if (added != nil) {
+        [_layout setFormat:defaultIdentifier forPartition:added];
     }
-    // The new partition occupies the largest gap, which the layout keeps
-    // sorted; identify it by having been unnamed until now is unreliable,
-    // so pick the entry matching the gap the add filled: the last one
-    // added is the one whose identifier is newest. Simplest robust route:
-    // the layout sorts by offset and adds fill the largest gap first.
-    // After a single add the previously known set differs by one entry.
-    DUPartition *candidate = sorted[sorted.count - 1];
-    for (DUPartition *partition in sorted) {
-        if (partition.name.length == 0) {
-            candidate = partition;
-            break;
+}
+
+// Default name for a new partition: "Partition n" numbered by position
+// (count + 1), bumped past any name already in use so repeated
+// add/remove cycles never produce duplicates. The Name field stays
+// editable for a real label.
+- (NSString *)nextDefaultPartitionName
+{
+    NSUInteger number = _layout.partitions.count + 1;
+    for (;;) {
+        NSString *candidate = [NSString stringWithFormat:
+            NSLocalizedString(@"Partition %lu", nil),
+            (unsigned long)number];
+        BOOL taken = NO;
+        for (DUPartition *partition in _layout.partitions) {
+            if ([partition.name isEqualToString:candidate]) {
+                taken = YES;
+                break;
+            }
         }
+        if (!taken) {
+            return candidate;
+        }
+        number++;
     }
-    [_layout setFormat:defaultIdentifier forPartition:candidate];
 }
 
 - (void)addClicked:(id)sender
@@ -760,16 +846,18 @@ static NSString *const kDefaultsConfirmDestructive =
                 detail:nil];
         return;
     }
+    NSSet<NSString *> *knownIdentifiers = [NSSet setWithArray:
+        [_layout.partitions valueForKey:@"identifier"]];
     NSError *error = nil;
     if (![_layout addPartitionWithSize:gapBytes
-                                  name:nil
+                                  name:[self nextDefaultPartitionName]
                                  error:&error]) {
         [self showError:NSLocalizedString(@"Could not add a partition.",
                                           nil)
                 detail:error.localizedDescription];
         return;
     }
-    [self applyDefaultFormatToLastAddedPartition];
+    [self applyDefaultFormatToAddedPartitionExcluding:knownIdentifiers];
     _selectedIndex = (NSInteger)_layout.partitions.count - 1;
     [self syncAllViews];
 }
@@ -1107,6 +1195,12 @@ static NSString *const kDefaultsConfirmDestructive =
 }
 
 #pragma mark - Alerts
+
+- (void)relayout
+{
+    [self applyFramesForWidth:NSWidth(self.view.frame)
+                       height:NSHeight(self.view.frame)];
+}
 
 - (void)showError:(NSString *)message detail:(NSString *)detail
 {

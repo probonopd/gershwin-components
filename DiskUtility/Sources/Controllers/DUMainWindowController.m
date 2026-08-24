@@ -15,7 +15,6 @@
 #import "DUIcons.h"
 #import "DUInformationController.h"
 #import "DUOperationController.h"
-#import "DUPartitionViewController.h"
 #import "DUPreferencesController.h"
 #import "DUNewImageController.h"
 #import "DUNotifications.h"
@@ -54,7 +53,6 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
 @property (nonatomic, strong) DUStorageManager *storageManager;
 @property (nonatomic, strong) DUDeviceBrowserController *browserController;
 @property (nonatomic, strong) DUOperationController *operationController;
-@property (nonatomic, strong) DUPartitionViewController *partitionPane;
 @property (nonatomic, strong) DUInformationController *informationController;
 
 @property (nonatomic, strong) NSArray<NSButton *> *toolbarButtons;
@@ -83,6 +81,22 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
 @property (nonatomic, strong) DUInformationController *infoWindowController;
 @end
 
+// Opaque window background: the plain NSView content view draws nothing,
+// so any region whose view gets hidden or removed (operation strip folding
+// away, tab swaps) keeps stale pixels forever - text doubled over text.
+// Drawing the background here lets every damage rect heal on its own.
+@interface DUContentView : NSView
+@end
+
+@implementation DUContentView
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    [[NSColor controlBackgroundColor] setFill];
+    NSRectFill(self.bounds);
+}
+@end
+
 @implementation DUMainWindowController
 
 - (instancetype)initWithStorageManager:(DUStorageManager *)manager
@@ -108,13 +122,6 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
 
     _operationController =
         [[DUOperationController alloc] initWithStorageManager:manager];
-
-    // The partition pane is created here and handed to the operation area;
-    // RAID is intentionally unavailable for now and keeps its placeholder.
-    _partitionPane =
-        [[DUPartitionViewController alloc] initWithStorageManager:manager
-                                                          logView:_operationController.logView];
-    [_operationController setPartitionPane:_partitionPane.view];
 
     _browserController =
         [[DUDeviceBrowserController alloc] initWithStorageManager:manager];
@@ -169,7 +176,12 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
 
 - (void)buildLayoutInWindow:(NSWindow *)window
 {
-    NSView *content = window.contentView;
+    NSView *oldContent = window.contentView;
+    DUContentView *content = [[DUContentView alloc]
+        initWithFrame:[oldContent frame]];
+    content.autoresizingMask =
+        NSViewWidthSizable | NSViewHeightSizable;
+    window.contentView = content;
     CGFloat height = NSHeight(content.frame);
 
     // Toolbar strip pinned under the titlebar; every pane sits below it.
@@ -421,13 +433,13 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
         [self.storageManager verifyObject:object
                                onProgress:nil
                              onCompletion:^(NSError *error) {
-            if (error != nil && error.code != DUErrorCancelled) {
-                NSRunAlertPanel(
-                    NSLocalizedString(@"Verify", nil),
-                    error.localizedDescription
-                        ?: NSLocalizedString(@"Verification failed.", nil),
-                    NSLocalizedString(@"OK", nil), nil, nil);
-            }
+            // Backends invoke completions on worker threads; alerts are
+            // pure AppKit and must run on the main thread. nil passes
+            // through performSelectorOnMainThread unchanged.
+            [self performSelectorOnMainThread:
+                @selector(verifyFinishedWithError:)
+                                   withObject:error
+                                waitUntilDone:NO];
         }
                                 error:NULL];
         return;
@@ -438,23 +450,14 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
         BOOL mounting = [token isEqualToString:@"mount"];
         void (^done)(NSError *, NSString *) =
             ^(NSError *error, NSString *mountPoint) {
-            if (error != nil) {
-                NSRunAlertPanel(
-                    mounting ? NSLocalizedString(@"Mount", nil)
-                             : NSLocalizedString(@"Unmount", nil),
-                    error.localizedDescription
-                        ?: NSLocalizedString(@"The operation failed.", nil),
-                    NSLocalizedString(@"OK", nil), nil, nil);
-                return;
-            }
-            // Model refresh picks up the new mount state asynchronously.
-            NSThread *worker = [[NSThread alloc]
-                initWithBlock:^{
-                @autoreleasepool {
-                    [self.storageManager refreshWithError:NULL];
-                }
-            }];
-            [worker start];
+            NSDictionary *result = @{
+                @"error" : error ?: [NSNull null],
+                @"mounting" : @(mounting),
+            };
+            [self performSelectorOnMainThread:
+                @selector(mountFinishedWithResult:)
+                                   withObject:result
+                                waitUntilDone:NO];
             (void)mountPoint;
         };
         if (mounting) {
@@ -471,13 +474,10 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
     if ([token isEqualToString:@"eject"]) {
         [self.storageManager.backend ejectObject:object
                                       completion:^(NSError *error) {
-            if (error != nil) {
-                NSRunAlertPanel(
-                    NSLocalizedString(@"Eject", nil),
-                    error.localizedDescription
-                        ?: NSLocalizedString(@"Could not eject.", nil),
-                    NSLocalizedString(@"OK", nil), nil, nil);
-            }
+            [self performSelectorOnMainThread:
+                @selector(ejectFinishedWithError:)
+                                   withObject:error
+                                waitUntilDone:NO];
         }];
         return;
     }
@@ -584,6 +584,59 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
     }
 }
 
+#pragma mark - Command completions (main thread only)
+
+// Backend completions arrive on worker threads; the blocks marshal here so
+// alerts and model refreshes never touch AppKit off the main thread.
+- (void)verifyFinishedWithError:(NSError *)error
+{
+    if (error != nil && error.code != DUErrorCancelled) {
+        NSRunAlertPanel(
+            NSLocalizedString(@"Verify", nil),
+            error.localizedDescription
+                ?: NSLocalizedString(@"Verification failed.", nil),
+            NSLocalizedString(@"OK", nil), nil, nil);
+    }
+}
+
+- (void)ejectFinishedWithError:(NSError *)error
+{
+    if (error != nil && error.code != DUErrorCancelled) {
+        NSRunAlertPanel(
+            NSLocalizedString(@"Eject", nil),
+            error.localizedDescription
+                ?: NSLocalizedString(@"Could not eject.", nil),
+            NSLocalizedString(@"OK", nil), nil, nil);
+    }
+}
+
+- (void)mountFinishedWithResult:(NSDictionary *)result
+{
+    NSError *error = result[@"error"] == [NSNull null]
+        ? nil : result[@"error"];
+    BOOL mounting = [result[@"mounting"] boolValue];
+    if (error != nil) {
+        NSRunAlertPanel(
+            mounting ? NSLocalizedString(@"Mount", nil)
+                     : NSLocalizedString(@"Unmount", nil),
+            error.localizedDescription
+                ?: NSLocalizedString(@"The operation failed.", nil),
+            NSLocalizedString(@"OK", nil), nil, nil);
+        return;
+    }
+    // Model refresh picks up the new mount state asynchronously; the
+    // topology notification comes back on the main thread.
+    DUStorageManager *manager = self.storageManager;
+    NSThread *worker = [[NSThread alloc]
+        initWithBlock:^{
+        @autoreleasepool {
+            [manager refreshWithError:NULL];
+        }
+    }];
+    worker.name = @"DU-Mount-Refresh";
+    [worker start];
+}
+
 #pragma mark - Notifications
 
 - (void)topologyDidChange:(NSNotification *)note
@@ -636,6 +689,12 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
     self.operationStrip.hidden = YES;
     self.operationBar.doubleValue = 0.0;
     self.operationStatus.stringValue = @"";
+    /* Hiding a view whose band no other view covers can leave stale
+     * pixels, and a damage scheduled from a timer callback is only
+     * flushed with the next X11 event - which may never come. Draw
+     * synchronously instead. */
+    [[self.window contentView] setNeedsDisplay:YES];
+    [self.window display];
 }
 
 // Live tool output: every progress callback carries the latest tool line

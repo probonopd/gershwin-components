@@ -177,7 +177,11 @@ static NSString * const kDefaultsConfirmDestructive =
     [_repairDiskButton setFrameOrigin:NSMakePoint(repairX, rowY + METRICS_BUTTON_SMALL_HEIGHT + METRICS_BUTTON_VERT_INTERSPACE)];
     CGFloat verifyX = repairX - NSWidth(_verifyDiskButton.frame) -
         METRICS_BUTTON_HORIZ_INTERSPACE;
-    [_verifyDiskButton setFrameOrigin:NSMakePoint(verifyX, rowY + METRICS_BUTTON_HEIGHT + METRICS_BUTTON_VERT_INTERSPACE)];
+    // Same row as Repair Disk, so the same (small) button height applies.
+    [_verifyDiskButton setFrameOrigin:
+        NSMakePoint(verifyX,
+                    rowY + METRICS_BUTTON_SMALL_HEIGHT +
+                        METRICS_BUTTON_VERT_INTERSPACE)];
 
     // Log fills the middle; hidden entirely when details are off or when
     // the pane is too short to hold instructions + details row + log

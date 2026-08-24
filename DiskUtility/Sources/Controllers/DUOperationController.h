@@ -25,17 +25,13 @@
 // Re-evaluates tab and control availability for a new selection. A nil
 // object disables every tab.
 - (void)refreshForObject:(DUStorageObject *)object
-            capabilities:(DUStorageCapabilities *)capabilities;
+             capabilities:(DUStorageCapabilities *)capabilities;
 
 // The visible first aid / erase / restore panes, so the window controller
 // can fan out selection changes without knowing the tab layout.
 - (id)firstAidPane;
 - (id)erasePane;
 - (id)restorePane;
-
-// Replacement hooks for the partition/RAID panes delivered by later waves.
-- (void)setPartitionPane:(NSView *)view;
-- (void)setRAIDPane:(NSView *)view;
 
 // Global busy state: disables action controls in all panes while any
 // storage operation is running.

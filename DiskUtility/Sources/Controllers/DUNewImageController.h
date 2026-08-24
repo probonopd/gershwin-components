@@ -15,8 +15,10 @@
 // progress in the shared operation log.
 @interface DUNewImageController : NSObject
 
+NS_ASSUME_NONNULL_BEGIN
+
 - (instancetype)initWithStorageManager:(DUStorageManager *)manager
-                               logView:(nonnull DUOperationLogView * _Nonnull)logView
+                               logView:(DUOperationLogView *)logView
     NS_DESIGNATED_INITIALIZER;
 
 /* The image SOURCE always mirrors the outline's currently selected
@@ -27,5 +29,7 @@
 
 /* Shows the panel for the current source. */
 - (void)openPanel;
+
+NS_ASSUME_NONNULL_END
 
 @end

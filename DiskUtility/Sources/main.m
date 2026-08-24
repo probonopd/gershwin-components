@@ -108,14 +108,8 @@ int main(int argc, const char *argv[])
             setenv("LD_LIBRARY_PATH", newLd.UTF8String, 1);
         }
 
-        // First pass applies modifier flags regardless of position; the
-        // second pass dispatches on the mode switch.
-        for (int i = 1; i < argc; i++) {
-            if (strcmp(argv[i], "--mock") == 0) {
-                [[NSUserDefaults standardUserDefaults]
-                    setBool:YES forKey:@"DUForceMockBackend"];
-            }
-        }
+        // --mock is resolved per-process by DUBackendFactory from the
+        // argument vector; no persistent default is written.
         for (int i = 1; i < argc; i++) {
             if (strcmp(argv[i], "--list") == 0) {
                 return RunListMode();
