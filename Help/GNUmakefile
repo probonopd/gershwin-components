@@ -35,7 +35,7 @@ endif
 
 # Named after the app so NSApp picks it up as the application icon;
 # the plist fills author/copyright/version in the About panel.
-Help_RESOURCE_FILES = Help.png Resources/Info-gnustep.plist
+Help_RESOURCE_FILES = Help.png
 
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fobjc-runtime=gnustep-2.0
 ADDITIONAL_INCLUDE_DIRS += -ISources/Core -ISources/Parsers -ISources/Rendering -ISources/UI -ISources/Navigation
