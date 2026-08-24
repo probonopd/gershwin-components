@@ -26,7 +26,7 @@ Stickies_HEADER_FILES = \
 	StickyNoteColors.h
 
 Stickies_RESOURCE_FILES = \
-	Info.plist
+	Stickies.png
 
 ADDITIONAL_GUI_LIBS += -ldispatch
 
