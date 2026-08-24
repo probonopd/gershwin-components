@@ -74,9 +74,13 @@
 #endif
 }
 
-+ (id<DUStorageBackend>)backendWithError:(NSError **)error
++ (id<DUStorageBackend>)backendForArguments:(NSArray *)arguments
+                                     error:(NSError **)error
 {
-    if ([NSUserDefaults.standardUserDefaults boolForKey:@"DUForceMockBackend"]) {
+    // --mock must stay per-process: an earlier build wrote it to the
+    // persistent defaults, which made every later launch silently run the
+    // mock backend.
+    if ([arguments indexOfObject:@"--mock"] != NSNotFound) {
         return [[DUMockStorageBackend alloc] init];
     }
 
@@ -100,6 +104,13 @@
                                  nil));
     }
     return [DUMockStorageBackend degradedBackend];
+}
+
++ (id<DUStorageBackend>)backendWithError:(NSError **)error
+{
+    return [self backendForArguments:
+                    [NSProcessInfo processInfo].arguments
+                                      error:error];
 }
 
 @end

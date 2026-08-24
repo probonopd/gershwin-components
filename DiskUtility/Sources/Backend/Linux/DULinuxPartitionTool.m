@@ -181,7 +181,7 @@ static const unsigned long long kFirstUsableByte = 1024ull * 1024;
     @synchronized (self) {
         if (tokens == nil) {
             tokens = @[ @"ext2", @"ext3", @"ext4", @"fat16", @"fat32",
-                        @"ntfs", @"xfs", @"btrfs", @"hfs+", @"swap" ];
+                        @"ntfs", @"xfs", @"hfs+", @"swap" ];
         }
         return tokens;
     }

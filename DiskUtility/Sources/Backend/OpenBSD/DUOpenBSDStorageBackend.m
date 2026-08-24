@@ -253,12 +253,16 @@ static const NSTimeInterval kToolTimeoutSeconds = 300.0;
         if (text.length == 0) {
             continue;
         }
+        // The byte count leads the dd line ("<n> bytes transferred ..."),
+        // so only a " bytes" marker behind a leading number carries one;
+        // parse the digits before the marker, never behind it.
         NSRange suffix = [text rangeOfString:@" bytes"];
-        if (suffix.location != 0) {
+        if (suffix.location == NSNotFound || suffix.location == 0) {
             continue;
         }
         unsigned long long bytes =
-            [DUParsing unsignedLongLongFromString:text];
+            [DUParsing unsignedLongLongFromString:
+                           [text substringToIndex:suffix.location]];
         if (bytes > 0) {
             return bytes;
         }
@@ -475,35 +479,45 @@ static const NSTimeInterval kToolTimeoutSeconds = 300.0;
             return node;
         }
     }
-    // Whole-disk work must also catch mounted partitions whose names extend
-    // the disk node ("sd0" vs mounted "sd0a"); letter suffixes are exactly
-    // that pattern here.
+    // Whole-disk work must also catch mounted partitions whose nodes extend
+    // the disk name by exactly one letter ("/dev/sd0" vs mounted "sd0a").
+    // Disk names end in digits, so the stem is the name itself for disks
+    // ("sd0") and the name minus its letter for partitions ("sd0a");
+    // scanning stem + one letter keeps sibling units out ("sd0" must not
+    // match a mounted "sd1a").
     for (NSString *node in nodes) {
         NSString *base = node.lastPathComponent;
         if (base.length == 0) {
             continue;
         }
-        NSRange lastLetter =
-            [base rangeOfCharacterFromSet:
-                       [NSCharacterSet lowercaseLetterCharacterSet]
-                       options:NSBackwardsSearch];
-        if (lastLetter.location == NSNotFound ||
-            lastLetter.location != base.length - 1) {
-            continue;
-        }
-        NSString *stem = [base substringToIndex:lastLetter.location];
+        NSCharacterSet *letters =
+            [NSCharacterSet lowercaseLetterCharacterSet];
+        NSString *stem =
+            [letters characterIsMember:
+                         [base characterAtIndex:base.length - 1]]
+            ? [base substringToIndex:base.length - 1]
+            : base;
         if (stem.length == 0) {
             continue;
         }
-        for (NSString *mountedNode in table) {
-            if ([mountedNode.lastPathComponent hasPrefix:stem] &&
-                ![mountedNode.lastPathComponent isEqualToString:base]) {
+        // Partition letters run a..p; only those spell a real child node.
+        for (unichar letter = 'a'; letter <= 'p'; letter++) {
+            NSString *childName =
+                [stem stringByAppendingFormat:@"%C", letter];
+            if ([childName isEqualToString:base]) {
+                continue;
+            }
+            if (table[childName] != nil) {
+                // Bare-name table key: report the object's own node so the
+                // busy message stays a usable path.
+                return node;
+            }
+            NSString *childPath =
+                [@"/dev/" stringByAppendingString:childName];
+            if (table[childPath] != nil) {
                 // Report the concrete mounted child ("/dev/sd0a"), not the
                 // whole-disk alias, so the busy message names the volume.
-                return table[mountedNode] != nil &&
-                       [mountedNode hasPrefix:@"/dev/"]
-                    ? mountedNode
-                    : node;
+                return childPath;
             }
         }
     }
@@ -809,12 +823,14 @@ static const NSTimeInterval kToolTimeoutSeconds = 300.0;
                                            @"device...",
                                            nil));
             }
+            // No status=progress: OpenBSD dd accepts only noxfer/none for
+            // that operand and rejects unknown values before writing; the
+            // completion summary line carries the byte total instead.
             NSMutableArray<NSString *> *ddArguments =
                 [NSMutableArray arrayWithArray:@[
                     @"if=/dev/zero",
                     [NSString stringWithFormat:@"of=%@", rawNode],
                     @"bs=1M",
-                    @"status=progress",
                 ]];
             DUProcessResult *wipe = [self
                 blockingStreamedRun:ddPath
@@ -1461,9 +1477,12 @@ static const NSTimeInterval kToolTimeoutSeconds = 300.0;
         }
 
         NSError *runError = nil;
+        // eject is mt(1) offline and operates on the raw device; bare unit
+        // nodes ("/dev/cd0", "/dev/sd0") do not exist in /dev, so the whole-
+        // disk letter and the "r" prefix must be spelled out for it.
         DUProcessResult *result = [DUAuthorizationManager.sharedManager
             runPrivileged:ejectPath
-                     args:@[ devicePath ]
+                     args:@[ [self rawNodeForPath:devicePath] ]
                   timeout:kToolTimeoutSeconds
                     error:&runError];
         if (![self runSucceeded:result]) {
@@ -1571,12 +1590,13 @@ static const NSTimeInterval kToolTimeoutSeconds = 300.0;
         if (progress != NULL) {
             progress(0.0, NSLocalizedString(@"Copying...", nil));
         }
+        // No status=progress: OpenBSD dd accepts only noxfer/none for that
+        // operand and rejects unknown values before writing anything.
         NSMutableArray<NSString *> *arguments =
             [NSMutableArray arrayWithArray:@[
                 [NSString stringWithFormat:@"if=%@", sourceNode],
                 [NSString stringWithFormat:@"of=%@", destinationNode],
                 @"bs=1M",
-                @"status=progress",
             ]];
 
         // The streamed lines carry running byte counts; compare them with

@@ -21,7 +21,8 @@
 + (BOOL)conversionAvailable;
 
 // Best-effort format identifier for an image file: qemu-img probing when
-// available, file-extension mapping otherwise. Returns nil for unknown
+// available, in-process libarchive content identification next, and a
+// file-extension mapping as the final fallback. Returns nil for unknown
 // shapes; callers render that as "raw" only where a raw file is certain.
 + (NSString *)probeFormatForImageAtPath:(NSString *)path;
 

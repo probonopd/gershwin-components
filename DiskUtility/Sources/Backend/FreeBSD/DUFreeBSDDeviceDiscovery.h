@@ -22,6 +22,11 @@
 
 + (BOOL)haveTool:(NSString *)toolName;
 
+// YES when at least one of the named tools resolves; nil-safe on empty
+// input. Capabilities that accept alternative tools probe through this so
+// every advertised flag still rests on a runtime-verified binary.
++ (BOOL)haveAnyTool:(NSArray<NSString *> *)toolNames;
+
 @end
 
 // Builds the storage object tree from FreeBSD geom(8) output:

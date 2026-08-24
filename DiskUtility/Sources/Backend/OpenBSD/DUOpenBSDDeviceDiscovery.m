@@ -170,8 +170,8 @@ static NSString * const kWholeDiskLetter = @"c";
 
 #pragma mark - Name sources
 
-// `sysctl -n hw.disknames` prints the kernel's current disk inventory as
-// space-separated names, which is authoritative even for hot-plugged units.
+// `sysctl -n hw.disknames` prints the kernel's current disk inventory, which
+// is authoritative even for hot-plugged units.
 - (NSArray<NSString *> *)diskNamesFromSysctl
 {
     NSString *sysctlPath = [DUOpenBSDToolCache pathForTool:@"sysctl"];
@@ -186,12 +186,19 @@ static NSString * const kWholeDiskLetter = @"c";
         result.terminationStatus != 0 || result.standardOutput.length == 0) {
         return @[];
     }
+    // hw.disknames is ONE comma-separated line whose entries carry an
+    // optional DUID tail ("sd0:17f0a3b400000001,cd0:,wd0:"); splitting on
+    // commas too and cutting at the colon leaves the bare unit names.
+    NSMutableCharacterSet *separators =
+        [[NSCharacterSet whitespaceAndNewlineCharacterSet] mutableCopy];
+    [separators addCharactersInString:@","];
     NSMutableArray<NSString *> *names = [NSMutableArray array];
     for (NSString *token in [result.standardOutput
-             componentsSeparatedByCharactersInSet:
-                 [NSCharacterSet whitespaceAndNewlineCharacterSet]]) {
-        NSString *name = [DUParsing trimmedString:token];
-        if (name.length > 0) {
+             componentsSeparatedByCharactersInSet:separators]) {
+        NSString *name =
+            [[token componentsSeparatedByString:@":"] firstObject];
+        name = [DUParsing trimmedString:name];
+        if (name.length > 0 && ![names containsObject:name]) {
             [names addObject:name];
         }
     }

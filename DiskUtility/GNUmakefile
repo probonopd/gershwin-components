@@ -21,6 +21,7 @@ ADDITIONAL_INCLUDE_DIRS = \
 	-ISources/Services \
 	-ISources/Operations \
 	-ISources/Backend \
+	-ISources/Backend/Libraries \
 	-ISources/Backend/Parsers \
 	-ISources/Backend/Linux \
 	-ISources/Backend/FreeBSD \
@@ -30,6 +31,41 @@ ADDITIONAL_INCLUDE_DIRS = \
 	-I.
 
 ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -fobjc-arc-exceptions -Wno-unused-parameter
+
+# Direct-link libraries approved by LIBRARIES.md sections 1-2 and 25.
+# Availability is probed once here; the wrappers in
+# Sources/Backend/Libraries degrade to explicit unavailable stubs when a
+# library is missing, so lean systems still build the full app.
+HAVE_LIBBLKID := $(shell test -f /usr/include/blkid/blkid.h && echo yes)
+HAVE_LIBMOUNT := $(shell test -f /usr/include/libmount/libmount.h && echo yes)
+HAVE_LIBEXT2FS := $(shell test -f /usr/include/ext2fs/ext2fs.h && echo yes)
+HAVE_LIBFDISK := $(shell test -f /usr/include/libfdisk/libfdisk.h && echo yes)
+# pkg-config module ships as libarchive.pc, not archive.pc
+HAVE_LIBARCHIVE := $(shell pkg-config --exists libarchive 2>/dev/null && echo yes)
+
+ifneq ($(HAVE_LIBBLKID),)
+HAVE_LIBBLKID_FLAG := -DHAVE_LIBBLKID
+LIBS_FOR_APPROVED_LIBRARIES += -lblkid
+endif
+ifneq ($(HAVE_LIBMOUNT),)
+HAVE_LIBMOUNT_FLAG := -DHAVE_LIBMOUNT
+LIBS_FOR_APPROVED_LIBRARIES += -lmount
+endif
+ifneq ($(HAVE_LIBEXT2FS),)
+HAVE_LIBEXT2FS_FLAG := -DHAVE_LIBEXT2FS
+LIBS_FOR_APPROVED_LIBRARIES += -lext2fs -lcom_err
+endif
+ifneq ($(HAVE_LIBFDISK),)
+HAVE_LIBFDISK_FLAG := -DHAVE_LIBFDISK
+LIBS_FOR_APPROVED_LIBRARIES += -lfdisk
+endif
+ifneq ($(HAVE_LIBARCHIVE),)
+HAVE_LIBARCHIVE_FLAG := -DHAVE_LIBARCHIVE
+LIBS_FOR_APPROVED_LIBRARIES += -larchive
+endif
+
+# The Sources/Backend/Libraries wrappers below compile unconditionally;
+# their HAVE_LIB* guards decide between real code and unavailable stubs.
 
 DiskUtility_OBJC_FILES = \
 	Sources/main.m \
@@ -81,6 +117,11 @@ DiskUtility_OBJC_FILES = \
 	Sources/Backend/DUStorageBackend.m \
 	Sources/Backend/DUMockStorageBackend.m \
 	Sources/Backend/DUBackendFactory.m \
+	Sources/Backend/Libraries/DUBlkidLibrary.m \
+	Sources/Backend/Libraries/DUMountLibrary.m \
+	Sources/Backend/Libraries/DUExt2Library.m \
+	Sources/Backend/Libraries/DUArchiveLibrary.m \
+	Sources/Backend/Libraries/DUFdiskLibrary.m \
 	Sources/Backend/Parsers/DULsblkParser.m \
 	Sources/Backend/Parsers/DUBlkidParser.m \
 	Sources/Backend/Parsers/DUFreeBSDGEOMParser.m \
@@ -102,6 +143,7 @@ DiskUtility_OBJC_FILES = \
 
 DiskUtility_RESOURCE_FILES = \
 	Resources/DiskUtility.png \
+	Resources/English.lproj \
 	Resources/Icons/verify.png \
 	Resources/Icons/info.png \
 	Resources/Icons/burn.png \
@@ -120,11 +162,15 @@ DiskUtility_RESOURCE_FILES = \
 
 DiskUtility_MAIN_MODEL_FILE =
 
-DiskUtility_INFO_PLIST = Resources/DiskUtilityInfo.plist
 
 DiskUtility_APPLICATION_ICON = DiskUtility.png
 
 DiskUtility_LDFLAGS = -lgnustep-base -lgnustep-gui -Wl,-rpath,/System/Library/Libraries
+
+# Applied here (after the LDFLAGS definition above) so a plain assignment
+# cannot wipe the conditional additions; guards live in the wrapper sources.
+ADDITIONAL_OBJCFLAGS += $(HAVE_LIBBLKID_FLAG) $(HAVE_LIBMOUNT_FLAG) $(HAVE_LIBEXT2FS_FLAG) $(HAVE_LIBFDISK_FLAG) $(HAVE_LIBARCHIVE_FLAG)
+DiskUtility_LDFLAGS += $(LIBS_FOR_APPROVED_LIBRARIES)
 
 include $(GNUSTEP_MAKEFILES)/application.make
 

@@ -1,0 +1,33 @@
+# disklabel(8) output for a FAT-formatted USB stick (sd0) - input for
+# DUNetBKSDisklabelParser / DUNetBSDDeviceDiscovery.
+#
+# Exercises the amd64/i386 letter conventions: d is the whole-disk pseudo
+# entry (offset 0, spans the full capacity, unused) that discovery hides,
+# c mirrors it for a disk with no NetBSD slice and stays visible as a raw
+# partition without a volume, and MBR partition 1 surfaces as e with a
+# MSDOS fstype. The "flags: removable" line and empty label field are
+# typical of removable media.
+# /dev/rsd0d:
+type: SCSI
+disk: USB Flash
+label:
+flags: removable
+bytes/sector: 512
+sectors/track: 32
+tracks/cylinder: 255
+sectors/cylinder: 8160
+cylinders: 14805
+total sectors: 120840192
+rpm: 3600
+interleave: 1
+trackskew: 0
+cylinderskew: 0
+headswitch: 0		# microseconds
+track-to-track seek: 0	# microseconds
+drivedata: 0
+
+3 partitions:
+#        size    offset     fstype [fsize bsize cpg/sgs]
+  c: 120840192        0     unused      0     0
+  d: 120840192        0     unused      0     0
+  e: 120839168       32      MSDOS

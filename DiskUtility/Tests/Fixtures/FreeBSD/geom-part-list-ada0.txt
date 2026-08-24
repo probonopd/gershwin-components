@@ -1,0 +1,60 @@
+Geom name: ada0
+modified: false
+state: OK
+fwsectors: 63
+fwheads: 16
+scheme: GPT
+lasterror: 0
+providers:
+1. Name: ada0p1
+   Mediasize: 536870912 (512M)
+   Sectorsize: 512
+   Stripesize: 0
+   Stripeoffset: 17408
+   Mode: r0w0e0
+   efimedia: HD(1,GPT,d6c0cb26-0b2f-11e4-9d81-0025905151bc)
+   rawuuid: d6c0cb26-0b2f-11e4-9d81-0025905151bc
+   rawtype: c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+   label: efiboot0
+   len: 536870912
+   offset: 17408
+   type: efi
+   index: 1
+   end: 1048609
+   start: 34
+2. Name: ada0p2
+   Mediasize: 150319855360 (140G)
+   Sectorsize: 512
+   Stripesize: 0
+   Stripeoffset: 536888320
+   Mode: r1w1e2
+   efimedia: HD(2,GPT,d6c0cb27-0b2f-11e4-9d81-0025905151bc)
+   rawuuid: d6c0cb27-0b2f-11e4-9d81-0025905151bc
+   rawtype: 516e7cb6-6ecf-11d6-8ff8-00022d09712b
+   label: root0
+   len: 150319855360
+   offset: 536888320
+   type: freebsd-ufs
+   index: 2
+   end: 294649889
+   start: 1048610
+3. Name: ada0p3
+   Mediasize: 8589934592 (8.0G)
+   Sectorsize: 512
+   Stripesize: 0
+   Stripeoffset: 150860743680
+   Mode: r0w0e0
+   efimedia: HD(3,GPT,d6c0cb28-0b2f-11e4-9d81-0025905151bc)
+   rawuuid: d6c0cb28-0b2f-11e4-9d81-0025905151bc
+   rawtype: 516e7cb5-6ecf-11d6-8ff8-00022d09712b
+   label: swap0
+   len: 8589934592
+   offset: 150860743680
+   type: freebsd-swap
+   index: 3
+   end: 311427105
+   start: 294649890
+consumers:
+1. Name: ada0
+   Mediasize: 160041885696 (149G)
+   Slicesize: 0

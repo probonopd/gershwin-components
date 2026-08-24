@@ -10,9 +10,13 @@
 
 #import <sys/statvfs.h>
 
+#import "DUBlkidLibrary.h"
 #import "DUBlkidParser.h"
 #import "DUErrors.h"
+#import "DUFdiskLibrary.h"
 #import "DULsblkParser.h"
+#import "DUExt2Library.h"
+#import "DUMountLibrary.h"
 #import "DUOpticalMedia.h"
 #import "DUParsing.h"
 #import "DUPartition.h"
@@ -75,6 +79,14 @@ extern NSString * const kLsblkKeyFstype;
 @property (nonatomic, strong) NSArray<NSDictionary *> *orderedRows;
 // Device path -> blkid dictionary from one global probe.
 @property (nonatomic, strong) NSDictionary<NSString *, NSDictionary *> *blkidByPath;
+// Device path -> in-process libblkid superblock probe; entries exist only
+// for nodes whose probe recognized a filesystem.
+@property (nonatomic, strong) NSDictionary<NSString *, NSDictionary *> *probedByPath;
+// Mount device -> mount point from the libmount table snapshot.
+@property (nonatomic, strong) NSDictionary<NSString *, NSString *> *mountPointsByDevice;
+// Whole-disk path -> libfdisk table inspection; entries exist only for
+// disks whose tables the library recognized.
+@property (nonatomic, strong) NSDictionary<NSString *, NSDictionary *> *fdiskInspectionByPath;
 @end
 
 @implementation DULinuxDeviceDiscovery
@@ -84,6 +96,9 @@ extern NSString * const kLsblkKeyFstype;
     self.rowsByName = [NSMutableDictionary dictionary];
     self.orderedRows = @[];
     self.blkidByPath = @{};
+    self.probedByPath = @{};
+    self.mountPointsByDevice = @{};
+    self.fdiskInspectionByPath = @{};
 
     if (![self loadRowsViaLsblk] && ![self loadRowsViaSysfs]) {
         if (error != NULL) {
@@ -96,6 +111,9 @@ extern NSString * const kLsblkKeyFstype;
     }
 
     [self loadBlkidMap];
+    [self loadInProcessProbes];
+    [self loadMountTable];
+    [self loadFdiskInspections];
     return [self buildTree];
 }
 
@@ -298,12 +316,126 @@ extern NSString * const kLsblkKeyFstype;
     self.blkidByPath = map;
 }
 
+// Preferred per-node probing through libblkid (LIBRARIES.md section 6.1):
+// one in-process probe per leaf device instead of a spawned blkid(8). The
+// command snapshot stays loaded as fallback and still supplies the table/
+// partition tokens (pttype/parttype) the library interface does not carry.
+// Discovery already runs on a background thread; probes stay sequential
+// per node exactly like the previous global command pass.
+- (void)loadInProcessProbes
+{
+    if (![DUBlkidLibrary isAvailable]) {
+        // Not compiled in: every node answers from the command path below.
+        return;
+    }
+    NSMutableDictionary<NSString *, NSDictionary *> *probes =
+        [NSMutableDictionary dictionary];
+    for (NSDictionary *row in self.orderedRows) {
+        NSString *path = row[kLsblkKeyPath];
+        if (path.length == 0 || probes[path] != nil) {
+            continue;
+        }
+        NSDictionary *result = [DUBlkidLibrary probeDevicePath:path];
+        // A node without a recognized superblock keeps its command-path
+        // entry unchanged instead of being overwritten with nothing.
+        if ([DUParsing trimmedString:result[kDUBlkidFstype]].length > 0) {
+            probes[path] = result;
+        }
+    }
+    self.probedByPath = probes;
+}
+
+// Kernel mount table snapshot via libmount (LIBRARIES.md section 6.3);
+// lsblk's MOUNTPOINT column remains the fallback when the library is not
+// compiled in or cannot read the table.
+- (void)loadMountTable
+{
+    if (![DUMountLibrary isAvailable]) {
+        return;
+    }
+    NSArray<NSDictionary *> *mounts = [DUMountLibrary listMounts];
+    if (mounts == nil) {
+        return;
+    }
+    NSMutableDictionary<NSString *, NSString *> *byDevice =
+        [NSMutableDictionary dictionary];
+    for (NSDictionary *entry in mounts) {
+        NSString *device = [DUParsing trimmedString:entry[kDUMountDevice]];
+        NSString *mountPoint = [DUParsing trimmedString:entry[kDUMountPoint]];
+        if (device.length > 0 && mountPoint.length > 0 &&
+            byDevice[device] == nil) {
+            byDevice[device] = mountPoint;
+        }
+    }
+    self.mountPointsByDevice = byDevice;
+}
+
+// Whole-disk partition-table inspection via libfdisk (LIBRARIES.md
+// section 6.2): the library reads the table directly, ahead of the blkid
+// command snapshot's PTTYPE token (library-before-command preference).
+// One read-only probe per whole disk; a nil or missing result simply
+// leaves the previous sources in charge.
+- (void)loadFdiskInspections
+{
+    if (![DUFdiskLibrary isAvailable]) {
+        // Not compiled in: scheme and geometry answer from lsblk/blkid.
+        return;
+    }
+    NSMutableDictionary<NSString *, NSDictionary *> *inspections =
+        [NSMutableDictionary dictionary];
+    for (NSDictionary *row in self.orderedRows) {
+        if (![row[kLsblkKeyType] isEqualToString:@"disk"]) {
+            continue;
+        }
+        NSString *path = row[kLsblkKeyPath];
+        if (path.length == 0 || inspections[path] != nil) {
+            continue;
+        }
+        NSDictionary *inspection = [DUFdiskLibrary inspectPath:path];
+        if (inspection != nil) {
+            inspections[path] = inspection;
+        }
+    }
+    self.fdiskInspectionByPath = inspections;
+}
+
 - (NSDictionary *)blkidEntryForPath:(NSString *)path
 {
-    return path.length > 0 ? self.blkidByPath[path] : nil;
+    if (path.length == 0) {
+        return nil;
+    }
+    NSDictionary *probed = self.probedByPath[path];
+    if (probed == nil) {
+        // Wrapper unavailable or silent for this node: command output only.
+        return self.blkidByPath[path];
+    }
+    // In-process result wins; command-only fields are kept so consumers
+    // see one merged dictionary shaped exactly like before.
+    NSMutableDictionary *merged = [NSMutableDictionary
+        dictionaryWithDictionary:self.blkidByPath[path] ?: @{}];
+    merged[kBkidKeyType] = probed[kDUBlkidFstype];
+    if (probed[kDUBlkidUuid] != nil) {
+        merged[kBkidKeyUuid] = probed[kDUBlkidUuid];
+    }
+    if (probed[kDUBlkidLabel] != nil) {
+        merged[kBkidKeyLabel] = probed[kDUBlkidLabel];
+    }
+    return merged;
 }
 
 #pragma mark - Tree construction
+
+// Mount point of a partition node: libmount's table first (preferred per
+// LIBRARIES.md section 6.3), lsblk's MOUNTPOINT column as the fallback
+// when the library is absent or lists nothing for this node.
+- (NSString *)mountPointForRow:(NSDictionary *)row
+{
+    NSString *fromTable = self.mountPointsByDevice[row[kLsblkKeyPath]];
+    if (fromTable.length > 0) {
+        return fromTable;
+    }
+    return [DUParsing trimmedString:row[kLsblkKeyMountPoint]];
+}
 
 - (NSArray<DUStorageObject *> *)buildTree
 {
@@ -366,17 +498,24 @@ extern NSString * const kLsblkKeyFstype;
     return device;
 }
 
-// Whole-disk probing via blkid reports the table type (PTTYPE); normalize
-// it to the application vocabulary. Missing blkid simply leaves the scheme
-// unknown instead of inventing one.
+// Whole-disk table scheme: libfdisk inspection first (LIBRARIES.md
+// preference order - library before command), blkid's PTTYPE snapshot as
+// the fallback. Missing sources leave the scheme unknown instead of
+// inventing one.
 - (NSString *)partitionSchemeForDeviceRow:(NSDictionary *)row
 {
-    NSDictionary *entry = [self blkidEntryForPath:row[kLsblkKeyPath]];
-    NSString *ptType = entry[@"pttype"];
-    if (ptType.length == 0) {
+    NSDictionary *inspection =
+        self.fdiskInspectionByPath[row[kLsblkKeyPath]];
+    NSString *scheme =
+        [DUParsing trimmedString:inspection[kDUFdiskScheme]];
+    if (scheme.length == 0) {
+        NSDictionary *entry = [self blkidEntryForPath:row[kLsblkKeyPath]];
+        scheme = [DUParsing trimmedString:entry[@"pttype"]];
+    }
+    if (scheme.length == 0) {
         return nil;
     }
-    return [DUPartitionTableParser normalizeSchemeToken:ptType];
+    return [DUPartitionTableParser normalizeSchemeToken:scheme];
 }
 
 - (DUStorageDevice *)opticalDriveFromRow:(NSDictionary *)row
@@ -438,6 +577,19 @@ extern NSString * const kLsblkKeyFstype;
         stringByReplacingOccurrencesOfString:@"linux-disk-"
                                   withString:@""];
 
+    // Per-partition geometry from the libfdisk inspection, keyed by
+    // partition number; rows without a matching entry keep their
+    // lsblk/sysfs values.
+    NSDictionary *inspection = self.fdiskInspectionByPath[device.devicePath];
+    NSMutableDictionary<NSNumber *, NSDictionary *> *inspectedByNumber =
+        [NSMutableDictionary dictionary];
+    for (NSDictionary *entry in inspection[kDUFdiskPartitions]) {
+        NSNumber *number = entry[kDUFdiskIndex];
+        if ([number isKindOfClass:[NSNumber class]]) {
+            inspectedByNumber[number] = entry;
+        }
+    }
+
     NSInteger index = 0;
     for (NSDictionary *row in self.orderedRows) {
         if (![row[kLsblkKeyType] isEqualToString:@"part"] ||
@@ -461,6 +613,35 @@ extern NSString * const kLsblkKeyFstype;
         partition.backendPath = row[kLsblkKeyPath] ?: partName;
         partition.index = index++;
         partition.sizeBytes = partSize;
+
+        // Refine geometry/type/label from the libfdisk table where it saw
+        // this partition (library-before-command preference); lsblk does
+        // not report offsets at all and its SIZE is kernel-derived.
+        NSDictionary *tableEntry =
+            inspectedByNumber[[self partitionNumberFromNodeName:partName]];
+        if (tableEntry != nil) {
+            unsigned long long startBytes =
+                [tableEntry[kDUFdiskStartBytes] unsignedLongLongValue];
+            unsigned long long entrySizeBytes =
+                [tableEntry[kDUFdiskSizeBytes] unsignedLongLongValue];
+            if (startBytes > 0) {
+                partition.offsetBytes = startBytes;
+            }
+            if (entrySizeBytes > 0) {
+                partition.sizeBytes = entrySizeBytes;
+            }
+            NSString *type = [DUParsing
+                trimmedString:tableEntry[kDUFdiskType]];
+            if (type.length > 0) {
+                partition.partitionType = type;
+            }
+            NSString *name = [DUParsing
+                trimmedString:tableEntry[kDUFdiskName]];
+            if (name.length > 0) {
+                partition.name = name;
+            }
+        }
+
         partition.filesystemType =
             [DUParsing trimmedString:row[kLsblkKeyFstype]];
         partition.partitionType =
@@ -475,8 +656,7 @@ extern NSString * const kLsblkKeyFstype;
                                                  partName]];
             volume.filesystemType = fstype;
             volume.capacityBytes = partSize;
-            NSString *mountPoint =
-                [DUParsing trimmedString:row[kLsblkKeyMountPoint]];
+            NSString *mountPoint = [self mountPointForRow:row];
             if (mountPoint.length > 0) {
                 // statvfs fills the usage fields only while the filesystem
                 // is actually mounted; otherwise they stay unknown.
@@ -491,6 +671,30 @@ extern NSString * const kLsblkKeyFstype;
                         (unsigned long long)stats.f_bavail
                         * (unsigned long long)stats.f_frsize;
                     volume.usedBytes = volume.capacityBytes - volume.availableBytes;
+                }
+            }
+            // Unmounted ext volumes have no mount point for statvfs to
+            // look at; libext2fs reads their usage straight from the
+            // superblock instead (LIBRARIES.md section 7.1). Other
+            // unmounted filesystems keep unknown usage rather than a
+            // guess from the partition size alone.
+            BOOL isExtFilesystemType = [fstype isEqualToString:@"ext2"] ||
+                [fstype isEqualToString:@"ext3"] ||
+                [fstype isEqualToString:@"ext4"];
+            if (!volume.mounted && isExtFilesystemType &&
+                [DUExt2Library isAvailable]) {
+                NSDictionary *superblockStats =
+                    [DUExt2Library statsForPath:volume.backendPath];
+                NSNumber *total = superblockStats[kDUExt2TotalBytes];
+                NSNumber *free = superblockStats[kDUExt2FreeBytes];
+                if ([total isKindOfClass:[NSNumber class]] &&
+                    [free isKindOfClass:[NSNumber class]]) {
+                    unsigned long long totalBytes = total.unsignedLongLongValue;
+                    unsigned long long freeBytes = free.unsignedLongLongValue;
+                    volume.capacityBytes = totalBytes;
+                    volume.availableBytes = freeBytes;
+                    volume.usedBytes =
+                        totalBytes > freeBytes ? totalBytes - freeBytes : 0;
                 }
             }
             NSDictionary *entry =
@@ -554,6 +758,25 @@ extern NSString * const kLsblkKeyFstype;
 - (BOOL)boolValue:(NSNumber *)value
 {
     return value.boolValue;
+}
+
+// Trailing partition number of a kernel node name ("sda1" -> 1,
+// "nvme0n1p3" -> 3); nil when the name carries no numeric suffix, which
+// would make matching against table entries unreliable.
+- (NSNumber *)partitionNumberFromNodeName:(NSString *)nodeName
+{
+    NSUInteger location = nodeName.length;
+    while (location > 0) {
+        unichar character = [nodeName characterAtIndex:location - 1];
+        if (character < '0' || character > '9') {
+            break;
+        }
+        location--;
+    }
+    if (location == nodeName.length) {
+        return nil;
+    }
+    return @([nodeName substringFromIndex:location].integerValue);
 }
 
 // Device/drive-level capabilities depend on which helper tools are present;

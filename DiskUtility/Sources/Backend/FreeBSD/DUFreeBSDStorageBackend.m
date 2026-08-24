@@ -33,6 +33,31 @@
 static const NSUInteger kMaxUFSLabelLength = 15;
 static const NSUInteger kMaxFATLabelLength = 11;
 
+// Disk nodes end in digits ("ada0", "da0", "nvme0n1"); partition and slice
+// names carry a letter after the digit run ("ada0p2", "ada0s1a"). Testing
+// for that letter-after-digits shape is what tells a whole disk apart from
+// its children - every real FreeBSD disk name contains a digit, so a
+// "contains a digit" test would classify nothing as a disk.
+static BOOL IsWholeDiskNodeName(NSString *name)
+{
+    NSUInteger stemEnd = name.length;
+    NSCharacterSet *digits = [NSCharacterSet decimalDigitCharacterSet];
+    while (stemEnd > 0 &&
+           [digits characterIsMember:[name characterAtIndex:stemEnd - 1]]) {
+        stemEnd--;
+    }
+    if (stemEnd == 0 || stemEnd == name.length) {
+        return NO;
+    }
+    NSCharacterSet *letters = [NSCharacterSet letterCharacterSet];
+    for (NSUInteger i = 0; i < stemEnd; i++) {
+        if (![letters characterIsMember:[name characterAtIndex:i]]) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
 @implementation DUFreeBSDStorageBackend
 
 #pragma mark - Discovery and capability reporting
@@ -63,7 +88,12 @@ static const NSUInteger kMaxFATLabelLength = 11;
         [DUFreeBSDToolCache haveTool:@"gmirror"] ||
         [DUFreeBSDToolCache haveTool:@"gstripe"] ||
         [DUFreeBSDToolCache haveTool:@"gconcat"];
-    report.imageCreate = [DUFreeBSDToolCache haveTool:@"dd"];
+    // Image creation ends in a mandatory SHA-256 comparison of source and
+    // written bytes; advertising it without a hasher would turn every copy
+    // into a guaranteed late checksum failure.
+    report.imageCreate =
+        [DUFreeBSDToolCache haveTool:@"dd"] &&
+        [DUFreeBSDToolCache haveAnyTool:@[ @"sha256", @"sha256sum" ]];
     report.imageConvert = NO;
     report.imageResize = NO;
     report.burn = NO;
@@ -244,12 +274,16 @@ static const NSUInteger kMaxFATLabelLength = 11;
         if (text.length == 0) {
             continue;
         }
+        // The byte count leads the dd line ("<n> bytes transferred ..."),
+        // so only a " bytes" marker behind a leading number carries one;
+        // parse the digits before the marker, never behind it.
         NSRange suffix = [text rangeOfString:@" bytes"];
-        if (suffix.location != 0) {
+        if (suffix.location == NSNotFound || suffix.location == 0) {
             continue;
         }
         unsigned long long bytes =
-            [DUParsing unsignedLongLongFromString:text];
+            [DUParsing unsignedLongLongFromString:
+                           [text substringToIndex:suffix.location]];
         if (bytes > 0) {
             return bytes;
         }
@@ -326,27 +360,56 @@ static const NSUInteger kMaxFATLabelLength = 11;
     return nil;
 }
 
-// gpart add -t payload for a requested filesystem identifier; nil when no
-// honest mapping exists (callers reject rather than guess).
+// gpart add -t payload for a requested filesystem identifier under the
+// given normalized scheme ("gpt", "mbr", "bsd"). gpart(8) translates its
+// symbolic names per scheme: the FAT family is "fat32"/"fat16" on MBR but
+// "ms-basic-data" on GPT, and the freebsd-* names only exist for GPT and
+// BSD labels - handing them to MBR makes gpart reject the partition after
+// the table was already created. "!fat32" is valid in neither scheme.
+// nil when no honest mapping exists (callers reject rather than guess).
 - (NSString *)gpartTypeForFilesystem:(NSString *)fstype
+                               scheme:(NSString *)scheme
 {
-    NSDictionary<NSString *, NSString *> *table = @{
-        @"ext2" : @"linux-data",
-        @"ext3" : @"linux-data",
-        @"ext4" : @"linux-data",
-        @"linux" : @"linux-data",
-        @"linux-data" : @"linux-data",
-        @"ufs" : @"freebsd-ufs",
-        @"freebsd-ufs" : @"freebsd-ufs",
-        @"vfat" : @"!fat32",
-        @"fat" : @"!fat32",
-        @"fat16" : @"!fat32",
-        @"fat32" : @"!fat32",
-        @"msdosfs" : @"!fat32",
-        @"efi" : @"efi",
-        @"swap" : @"freebsd-swap",
-    };
-    return table[fstype.lowercaseString];
+    NSString *type = fstype.lowercaseString;
+    if (type.length == 0) {
+        return nil;
+    }
+    NSString *normalizedScheme =
+        [DUPartitionTableParser normalizeSchemeToken:scheme] ?: @"";
+    BOOL isGPT = [normalizedScheme isEqualToString:@"gpt"];
+    BOOL isMBR = [normalizedScheme isEqualToString:@"mbr"];
+    BOOL isBSD = [normalizedScheme isEqualToString:@"bsd"];
+
+    if ([type isEqualToString:@"ufs"] ||
+        [type isEqualToString:@"freebsd-ufs"]) {
+        // UFS data partitions live on GPT or inside a BSD-labelled slice;
+        // bare MBR has no standalone UFS partition type.
+        return isGPT || isBSD ? @"freebsd-ufs" : nil;
+    }
+    if ([type isEqualToString:@"swap"]) {
+        return isGPT || isBSD ? @"freebsd-swap" : nil;
+    }
+    if ([type isEqualToString:@"fat32"] ||
+        [type isEqualToString:@"fat16"] ||
+        [type isEqualToString:@"vfat"] ||
+        [type isEqualToString:@"fat"] ||
+        [type isEqualToString:@"msdosfs"]) {
+        if (isMBR) {
+            return [type isEqualToString:@"fat16"] ? @"fat16" : @"fat32";
+        }
+        return isGPT ? @"ms-basic-data" : nil;
+    }
+    if ([type isEqualToString:@"efi"]) {
+        return isGPT || isMBR ? @"efi" : nil;
+    }
+    if ([type isEqualToString:@"ext2"] ||
+        [type isEqualToString:@"ext3"] ||
+        [type isEqualToString:@"ext4"] ||
+        [type isEqualToString:@"linux"] ||
+        [type isEqualToString:@"linux-data"]) {
+        return isGPT || isMBR ? @"linux-data" : nil;
+    }
+    return nil;
 }
 
 // Filesystem relevant to verify/repair/erase for any object kind.
@@ -412,13 +475,7 @@ static const NSUInteger kMaxFATLabelLength = 11;
     // names extend the disk node; partition nodes are matched exactly above.
     for (NSString *node in nodes) {
         NSString *base = node.lastPathComponent;
-        if (base.length == 0) {
-            continue;
-        }
-        NSRange firstDigit =
-            [base rangeOfCharacterFromSet:
-                       [NSCharacterSet decimalDigitCharacterSet]];
-        if (firstDigit.location != NSNotFound) {
+        if (!IsWholeDiskNodeName(base)) {
             continue;
         }
         for (NSString *mountedNode in table) {
@@ -1055,7 +1112,8 @@ static const NSUInteger kMaxFATLabelLength = 11;
                     [DUFreeBSDGEOMAdapter filesystemTokenForPartitionType:
                                               entry.partitionType] ?: @"";
             }
-            NSString *type = [self gpartTypeForFilesystem:requested];
+            NSString *type =
+                [self gpartTypeForFilesystem:requested scheme:scheme];
             if (type == nil) {
                 gate = DUErrorMake(
                     DUErrorInvalidArgument,
@@ -1645,7 +1703,7 @@ static const NSUInteger kMaxFATLabelLength = 11;
     [arguments addObject:setName];
     [arguments addObjectsFromArray:memberNodes];
 
-    // glabel labels the member devices; needs root.
+    // gmirror/gstripe/gconcat write metadata onto every member; needs root.
     DUProcessResult *result =
         [[DUAuthorizationManager sharedManager]
             runPrivileged:toolPath
@@ -1671,10 +1729,16 @@ static const NSUInteger kMaxFATLabelLength = 11;
 - (NSArray<NSDictionary *> *)imageCreationFormats
 {
     NSMutableArray *formats = [NSMutableArray new];
-    [formats addObject: @{ kDUFormatIdentifierKey : @"raw",
-                           kDUFormatDisplayNameKey :
-                               NSLocalizedString(@"Raw disk image (.img)",
-                                                 nil) }];
+    /* The raw copy is only offered when its mandatory post-copy SHA-256
+     * verification can actually run; otherwise the format would fail for
+     * every user of a hasher-less system. */
+    if ([DUFreeBSDToolCache haveAnyTool: @[ @"sha256", @"sha256sum" ]])
+      {
+        [formats addObject: @{ kDUFormatIdentifierKey : @"raw",
+                               kDUFormatDisplayNameKey :
+                                   NSLocalizedString(@"Raw disk image (.img)",
+                                                     nil) }];
+      }
     if ([DUFreeBSDToolCache haveTool: @"gzip"])
       {
         [formats addObject: @{ kDUFormatIdentifierKey : @"gz",
@@ -1788,6 +1852,21 @@ static const NSUInteger kMaxFATLabelLength = 11;
                      progress:(void (^)(double, NSString *))progress
                    completion:(void (^)(NSError *))completion
 {
+    /* Verification after the copy is mandatory: the flow hashes the source
+     * and the written bytes and fails on any mismatch. Without a SHA-256
+     * tool that ending is certain, so refuse before writing gigabytes. */
+    if (![DUFreeBSDToolCache haveAnyTool: @[ @"sha256", @"sha256sum" ]])
+      {
+        if (completion != NULL)
+          {
+            completion(DUErrorMake(DUErrorUnsupportedOperation,
+                NSLocalizedString(@"No SHA-256 tool (sha256 or sha256sum) "
+                                  @"is installed, so the image cannot be "
+                                  @"verified after writing.", nil)));
+          }
+        return;
+      }
+
     [self spawnWork:^{
       unsigned long long sourceBytes = 0;
       NSString *sourcePath = [self imageSourceForObject: object

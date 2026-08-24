@@ -11,7 +11,7 @@ if [ -f /System/Library/Makefiles/GNUstep.sh ]; then
     . /System/Library/Makefiles/GNUstep.sh
 fi
 
-TOOLS="t_Parsing t_PartitionLayout t_Models t_MockBackend t_SHA256"
+TOOLS="t_Parsing t_PartitionLayout t_Models t_MockBackend t_SHA256 t_Libraries"
 
 gmake || exit 2
 

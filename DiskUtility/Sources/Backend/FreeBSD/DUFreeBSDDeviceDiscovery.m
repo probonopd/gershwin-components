@@ -56,9 +56,41 @@
     return [self pathForTool:toolName] != nil;
 }
 
++ (BOOL)haveAnyTool:(NSArray<NSString *> *)toolNames
+{
+    for (NSString *toolName in toolNames) {
+        if ([self pathForTool:toolName] != nil) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
 @end
 
 #pragma mark - Discovery
+
+// "ada0s1" extends "ada0" with s+digits; "ada0p2" and "ada0s1a" do not.
+// Only slice-shaped children carry another partition table worth querying
+// with `geom part list`, so this bounds the descent to BSD-label nesting.
+static BOOL IsSliceShapedChildName(NSString *childName, NSString *parentName)
+{
+    if (childName.length <= parentName.length ||
+        ![childName hasPrefix:parentName]) {
+        return NO;
+    }
+    NSString *suffix = [childName substringFromIndex:parentName.length];
+    if ([suffix characterAtIndex:0] != 's' || suffix.length < 2) {
+        return NO;
+    }
+    NSCharacterSet *digits = [NSCharacterSet decimalDigitCharacterSet];
+    for (NSUInteger i = 1; i < suffix.length; i++) {
+        if (![digits characterIsMember:[suffix characterAtIndex:i]]) {
+            return NO;
+        }
+    }
+    return YES;
+}
 
 @interface DUFreeBSDDeviceDiscovery ()
 // One mount(8) snapshot per discovery run; every tree builder reads it.
@@ -195,22 +227,52 @@
         }
     }
 
+    [self attachProviders:providers toParent:device parentName:diskName];
+}
+
+// Attaches one level of partition children, then descends into MBR slices
+// ("ada0s1") so BSD-label partitions ("ada0s1a") surface instead of hiding
+// behind an opaque freebsd slice. The slice-shape test keeps GPT children
+// leaf-shaped, so no extra geom runs are made on GPT disks.
+- (void)attachProviders:(NSArray<NSDictionary<NSString *, id> *> *)providers
+               toParent:(DUStorageObject *)parent
+             parentName:(NSString *)parentName
+{
     for (NSDictionary *provider in providers) {
         NSString *partName = [DUParsing trimmedString:provider[@"name"]];
-        if (partName.length == 0 || [partName isEqualToString:diskName] ||
-            ![partName hasPrefix:diskName]) {
+        if (partName.length == 0 ||
+            [partName isEqualToString:parentName] ||
+            ![partName hasPrefix:parentName]) {
             continue;
         }
-        [self attachPartitionWithInfo:provider
-                                   name:partName
-                                 toDisk:device];
+        DUPartition *partition = [self attachPartitionWithInfo:provider
+                                                          name:partName
+                                                      toParent:parent];
+        if (partition == nil ||
+            !IsSliceShapedChildName(partName, parentName)) {
+            continue;
+        }
+        // A slice without a label exits nonzero with an empty table; the
+        // adapter answers nil and this loop simply runs zero times.
+        NSArray<NSDictionary<NSString *, id> *> *nested =
+            [DUFreeBSDGEOMAdapter listClass:@"part" name:partName error:NULL];
+        [self attachProviders:nested toParent:partition parentName:partName];
     }
 }
 
-- (void)attachPartitionWithInfo:(NSDictionary *)info
-                           name:(NSString *)partName
-                         toDisk:(DUStorageDevice *)device
+// Builds one partition node plus its volume child. Returns the partition so
+// the caller can decide whether its subtree hosts another partition table.
+- (DUPartition *)attachPartitionWithInfo:(NSDictionary *)info
+                                    name:(NSString *)partName
+                                toParent:(DUStorageObject *)parent
 {
+    BOOL readOnly = NO;
+    if ([parent isKindOfClass:[DUStorageDevice class]]) {
+        readOnly = ((DUStorageDevice *)parent).readOnly;
+    } else if ([parent isKindOfClass:[DUPartition class]]) {
+        readOnly = ((DUPartition *)parent).readOnly;
+    }
+
     unsigned long long sizeBytes =
         [DUFreeBSDGEOMAdapter bytesFromGeomSizeToken:
                                   [DUParsing trimmedString:info[@"len"]]];
@@ -236,7 +298,7 @@
     partition.name = [DUParsing trimmedString:info[@"label"]];
     partition.bootable =
         [DUParsing boolFromToken:[DUParsing trimmedString:info[@"active"]]];
-    partition.readOnly = device.readOnly;
+    partition.readOnly = readOnly;
 
     /* Labelled partitions show their label; unlabelled ones fall back to
      * the provider node (mmcsd0p2), which is unique and matches what the
@@ -256,9 +318,13 @@
             initWithIdentifier:[@"freebsd-vol-" stringByAppendingString:partName]];
         volume.filesystemType = fstype;
         volume.capacityBytes = sizeBytes;
-        volume.readOnly = device.readOnly;
+        volume.readOnly = readOnly;
 
         NSString *node = [@"/dev/" stringByAppendingString:partName];
+        // Operations on a selected volume resolve its device node from
+        // here; without it mount/verify would reject the volume despite
+        // the capability flags advertising them.
+        volume.backendPath = node;
         NSDictionary *mountEntry = self.mountTable[node];
         NSString *mountPoint =
             [DUParsing trimmedString:mountEntry[@"mountPoint"]];
@@ -292,14 +358,19 @@
         volume.capabilities.canUnmount =
             volume.mounted && [DUFreeBSDToolCache haveTool:@"umount"];
         volume.capabilities.canErase = [self canFormatFilesystem:fstype];
+        // Image creation ends in a mandatory SHA-256 comparison of source
+        // and written bytes; without a hasher that ending is guaranteed,
+        // so the flag stays off instead of promising a doomed copy.
         volume.capabilities.canCreateImage =
-            [DUFreeBSDToolCache haveTool:@"dd"];
+            [DUFreeBSDToolCache haveTool:@"dd"] &&
+            [DUFreeBSDToolCache haveAnyTool:@[ @"sha256", @"sha256sum" ]];
 
         partition.volume = volume;
         [partition addChild:volume];
     }
 
-    [device addChild:partition];
+    [parent addChild:partition];
+    return partition;
 }
 
 #pragma mark - Optical drives
@@ -453,10 +524,15 @@
     /* Whole-disk verify fans out over the disk's partitions, so it is
      * available whenever any filesystem checker is installed. */
     BOOL canVerifyAny =
-        [DUFreeBSDToolCache haveTool:@"fsck_ffs"] ||
-        [DUFreeBSDToolCache haveTool:@"fsck_msdosfs"];
-    /* Imaging a disk is a plain byte-stream copy through dd. */
-    BOOL canCreateImage = [DUFreeBSDToolCache haveTool:@"dd"];
+        [DUFreeBSDToolCache haveAnyTool:@[ @"fsck_ffs", @"fsck_msdosfs" ]];
+    /* Whole-disk erase destroys the table with gpart before reformatting,
+     * so advertising erase without gpart would only buy a late error. */
+    BOOL canEraseWholeDisk = canFormatAny && canPartition;
+    /* Imaging a disk is a plain byte-stream copy through dd whose result
+     * is then SHA-256-verified; both pieces must be installed. */
+    BOOL canCreateImage =
+        [DUFreeBSDToolCache haveTool:@"dd"] &&
+        [DUFreeBSDToolCache haveAnyTool:@[ @"sha256", @"sha256sum" ]];
 
     for (DUStorageObject *root in roots) {
         if (![root isKindOfClass:[DUStorageDevice class]]) {
@@ -467,7 +543,7 @@
             continue;
         }
         device.capabilities.canPartition = canPartition;
-        device.capabilities.canErase = canFormatAny;
+        device.capabilities.canErase = canEraseWholeDisk;
         device.capabilities.canRestore = canRestore;
         device.capabilities.canVerify = canVerifyAny;
         device.capabilities.canCreateImage = canCreateImage;

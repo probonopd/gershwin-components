@@ -260,7 +260,7 @@ static NSError *RunStreamedTool(NSString *toolName,
 + (NSArray<NSString *> *)formattableFilesystemTypes
 {
     return @[ @"ext2", @"ext3", @"ext4", @"vfat", @"exfat", @"ntfs",
-              @"xfs", @"btrfs", @"f2fs", @"swap" ];
+              @"xfs", @"f2fs", @"swap" ];
 }
 
 // The -F/-f/-I/-Q flags keep mkfs non-interactive: our process runner never
@@ -276,7 +276,6 @@ static NSError *RunStreamedTool(NSString *toolName,
            @"exfat" : @[ @"mkfs.exfat" ],
            @"ntfs" : @[ @"mkfs.ntfs", @"-Q" ],
            @"xfs" : @[ @"mkfs.xfs", @"-f" ],
-           @"btrfs" : @[ @"mkfs.btrfs", @"-f" ],
            @"f2fs" : @[ @"mkfs.f2fs" ],
            @"swap" : @[ @"mkswap" ] };
     NSArray<NSString *> *base = table[fstype];
@@ -293,7 +292,6 @@ static NSError *RunStreamedTool(NSString *toolName,
            @"exfat" : @"-n",
            @"ntfs" : @"--label",
            @"xfs" : @"-L",
-           @"btrfs" : @"-L",
            @"f2fs" : @"-l",
            @"swap" : @"-L" };
     NSMutableArray<NSString *> *arguments = [base mutableCopy];
@@ -313,7 +311,6 @@ static NSError *RunStreamedTool(NSString *toolName,
            @"exfat" : @"fsck.exfat",
            @"ntfs" : @"fsck.ntfs",
            @"xfs" : @"fsck.xfs",
-           @"btrfs" : @"fsck.btrfs",
            @"f2fs" : @"fsck.f2fs" };
     return table[fstype];
 }
@@ -343,7 +340,6 @@ static NSError *RunStreamedTool(NSString *toolName,
            @"ext4" : @"resize2fs",
            @"xfs" : @"xfs_growfs",
            @"ntfs" : @"ntfsresize",
-           @"btrfs" : @"btrfs",
            @"f2fs" : @"resize.f2fs" };
     return table[fstype];
 }

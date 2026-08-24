@@ -133,17 +133,18 @@ int main(void)
         PASS(![degraded supportsOperation:kDUOperationErase forObject:sysVol],
              "degraded rejects ops");
 
-        // factory honors DUForceMockBackend and never returns nil on this Linux box
-        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"DUForceMockBackend"];
+        // factory honors a per-process --mock argument and never returns nil
+        // on this Linux box (the forcing must not touch persistent defaults)
         NSError *ferr = nil;
-        id<DUStorageBackend> forced = [DUBackendFactory backendWithError:&ferr];
+        id<DUStorageBackend> forced =
+            [DUBackendFactory backendForArguments:@[ @"DiskUtility", @"--mock" ]
+                                            error:&ferr];
         PASS(forced != nil && ferr == nil, "forced mock, no error");
-        [[NSUserDefaults standardUserDefaults] removePersistentDomainForName:[[NSProcessInfo processInfo] processName]];
-        // NSUserDefaults may be backed by a process domain; also clear global default
-        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"DUForceMockBackend"];
+        PASS([forced isKindOfClass:[DUMockStorageBackend class]],
+             "forced --mock yields the mock backend");
 
         id<DUStorageBackend> chosen = [DUBackendFactory backendWithError:&ferr];
-        PASS(chosen != nil, "factory never returns nil (wave-3 classes absent -> mock)");
+        PASS(chosen != nil, "factory never returns nil");
     }
     // PASS()/FAIL() from Testing.h already produced the tally.
     return 0;

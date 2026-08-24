@@ -1,0 +1,25 @@
+# /dev/rwd0c:
+type: ESDI
+disk: wd0
+label: Gershwin data
+duid: 5e1a8f9200000002
+flags:
+bytes/sector: 512
+sectors/track: 63
+tracks/cylinder: 16
+sectors/cylinder: 1008
+cylinders: 16383
+total sectors: 16514064
+boundstart: 63
+boundend: 16434479
+drivedata: 0
+
+16 partitions:
+#                size           offset  fstype [fsize bsize   cpg]
+  a:          2104515             63  4.2BSD     2048 16384    1 # /
+  b:           838656          2104578    swap
+  c:         16514064                0    unused
+  d:         13570886          2943234  4.2BSD     2048 16384    1 # /home
+  e:          1048576          40962     ext2fs
+  i:          4194304         14580224   MSDOS
+  j:                  *                  *   unknown

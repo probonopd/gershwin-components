@@ -1,0 +1,35 @@
+Geom name: mmcsd0
+Providers:
+1. Name: mmcsd0
+   Mediasize: 31272734720 (29.1G)
+   Sectorsize: 512
+   Stripesize: 4096
+   Stripeoffset: 0
+   Mode: r1w1e3
+   descr: SC128 SD card
+   ident: 0x0a5e44d1
+   rotationrate: 0
+
+Geom name: mmcsd0boot0
+Providers:
+1. Name: mmcsd0boot0
+   Mediasize: 4194304 (4.0M)
+   Sectorsize: 512
+   Stripesize: 4096
+   Stripeoffset: 0
+   Mode: r0w0e0
+   descr: eMMC Boot Partition
+   ident: 0x0a5e44d1
+   rotationrate: 0
+
+Geom name: mmcsd0boot1
+Providers:
+1. Name: mmcsd0boot1
+   Mediasize: 4194304 (4.0M)
+   Sectorsize: 512
+   Stripesize: 4096
+   Stripeoffset: 0
+   Mode: r0w0e0
+   descr: eMMC Boot Partition
+   ident: 0x0a5e44d1
+   rotationrate: 0

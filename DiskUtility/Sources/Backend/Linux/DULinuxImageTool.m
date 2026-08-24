@@ -20,6 +20,7 @@
 
 #import <sys/wait.h>
 
+#import "DUArchiveLibrary.h"
 #import "DUErrors.h"
 #import "DULinuxFilesystemTool.h"
 #import "DUParsing.h"
@@ -48,6 +49,23 @@
         }
     }
 
+    // Content identification through libarchive (LIBRARIES.md section 12)
+    // recognizes image contents no qemu-img build or file extension
+    // reveals (ISO9660 dumps, tar/zip archives); the extension map below
+    // stays as the fallback when the library is absent or silent.
+    if ([DUArchiveLibrary isAvailable]) {
+        NSDictionary<NSString *, id> *identified =
+            [DUArchiveLibrary identifyPath:path];
+        NSString *formatName =
+            [identified[kDUArchiveFormat] isKindOfClass:[NSString class]]
+                ? identified[kDUArchiveFormat]
+                : nil;
+        NSString *format = [self normalizedArchiveFormat:formatName];
+        if (format.length > 0) {
+            return format;
+        }
+    }
+
     // Extension map for systems without qemu-img; honest nil when nothing
     // is known instead of pretending every file is raw.
     NSString *extension = [path.pathExtension lowercaseString];
@@ -64,6 +82,41 @@
            @"vhd" : @"vpc",
            @"vpc" : @"vpc" };
     return table[extension];
+}
+
+// libarchive's verbose format names ("ISO9660", "pax restricted",
+// "7-Zip") reduced to the short tokens the rest of the app compares
+// against; unknown names keep their first word lowercased.
++ (NSString *)normalizedArchiveFormat:(NSString *)formatName
+{
+    if (formatName.length == 0) {
+        return nil;
+    }
+    NSString *lowercase = formatName.lowercaseString;
+    // "7-Zip" also contains "zip", so it must be tested first.
+    if ([lowercase containsString:@"7-zip"] ||
+        [lowercase containsString:@"7zip"]) {
+        return @"7zip";
+    }
+    if ([lowercase containsString:@"iso"]) {
+        return @"iso9660";
+    }
+    if ([lowercase containsString:@"zip"]) {
+        return @"zip";
+    }
+    if ([lowercase containsString:@"tar"]) {
+        return @"tar";
+    }
+    if ([lowercase containsString:@"cpio"]) {
+        return @"cpio";
+    }
+    for (NSString *word in [formatName componentsSeparatedByCharactersInSet:
+                                [NSCharacterSet whitespaceCharacterSet]]) {
+        if (word.length > 0) {
+            return word.lowercaseString;
+        }
+    }
+    return nil;
 }
 
 + (NSDictionary<NSString *, id> *)infoForImageAtPath:(NSString *)path

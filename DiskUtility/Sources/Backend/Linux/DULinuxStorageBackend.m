@@ -10,13 +10,17 @@
 
 #import <sys/statvfs.h>
 
+#import "DUArchiveLibrary.h"
+#import "DUBlkidLibrary.h"
 #import "DUDiskImage.h"
+#import "DUExt2Library.h"
 #import "DUOpticalMedia.h"
 #import "DUErrors.h"
 #import "DULinuxDeviceDiscovery.h"
 #import "DULinuxFilesystemTool.h"
 #import "DULinuxImageTool.h"
 #import "DULinuxPartitionTool.h"
+#import "DUMountLibrary.h"
 #import "DUOperation.h"
 #import "DUParsing.h"
 #import "DUPartition.h"
@@ -101,6 +105,13 @@
         @"Disk image mounting" : @"no",
         @"Disk image conversion" :
             [DULinuxImageTool conversionAvailable] ? @"partial" : @"no",
+        // Diagnostics for the optional direct-link libraries (LIBRARIES.md
+        // sections 6.1, 6.3, 7.1 and 12); "no" means the command-line and
+        // magic-byte fallbacks are in effect, never a broken install.
+        @"libblkid probing" : [DUBlkidLibrary isAvailable] ? @"yes" : @"no",
+        @"libmount mounts" : [DUMountLibrary isAvailable] ? @"yes" : @"no",
+        @"libext2fs stats" : [DUExt2Library isAvailable] ? @"yes" : @"no",
+        @"libarchive identify" : [DUArchiveLibrary isAvailable] ? @"yes" : @"no",
     };
 }
 
@@ -534,8 +545,6 @@
             return;
         }
 
-        NSString *udisksctl =
-            [DUProcessRunner executablePathForName:@"udisksctl"];
         NSString *fstype = @"";
         if ([object isKindOfClass:[DUStorageVolume class]]) {
             fstype = ((DUStorageVolume *)object).filesystemType ?: @"";
@@ -543,22 +552,18 @@
             fstype = ((DUPartition *)object).filesystemType ?: @"";
         }
 
+        // mount(8) writes kernel state and needs root; the backend talks to
+        // OS facilities directly, with no UDisks layer in between
+        // (LIBRARIES.md section 0).
         NSError *runError = nil;
-        DUProcessResult *result = nil;
-        if (udisksctl != nil) {
-            // udisks talks to the system service and needs no elevation.
-            result = [DUProcessRunner runExecutable:udisksctl
-                                          arguments:@[ @"mount", @"-b", devicePath ]
-                                              error:&runError];
-        } else {
-            result = [[DUAuthorizationManager sharedManager]
+        DUProcessResult *result =
+            [[DUAuthorizationManager sharedManager]
                 runPrivileged:[DUProcessRunner executablePathForName:@"mount"]
                          args:(fstype.length > 0
                                    ? @[ @"-t", fstype, devicePath, directory ]
                                    : @[ devicePath, directory ])
                       timeout:300.0
                         error:&runError];
-        }
         if (result == nil || !result.exitedNormally ||
             result.terminationStatus != 0) {
             NSString *detail =
@@ -569,7 +574,7 @@
             completion([NSError errorWithDomain:DUStorageErrorDomain
                                            code:busy ? DUErrorDeviceBusy
                                                      : DUErrorMountError
-                                       userInfo:@{
+                                      userInfo:@{
                 NSLocalizedDescriptionKey :
                     NSLocalizedString(@"The volume could not be mounted.", nil),
                 kDUBackendDetailKey : detail ?: @"",
@@ -578,21 +583,7 @@
             return;
         }
 
-        // Prefer the location reported by the tool output over our guess.
-        NSString *reportedMount = nil;
-        NSRange mountedRange =
-            [result.standardOutput rangeOfString:@"mounted at "];
-        if (mountedRange.location != NSNotFound) {
-            reportedMount =
-                [[result.standardOutput substringFromIndex:NSMaxRange(mountedRange)]
-                    stringByTrimmingCharactersInSet:
-                        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-            // udisksctl quotes the path when it contains spaces.
-            reportedMount = [reportedMount
-                stringByReplacingOccurrencesOfString:@"'"
-                                  withString:@""];
-        }
-        completion(nil, reportedMount.length > 0 ? reportedMount : directory);
+        completion(nil, directory);
     });
 }
 
@@ -607,21 +598,15 @@
         if (target.length == 0) {
             target = object.backendPath;
         }
-        NSString *udisksctl =
-            [DUProcessRunner executablePathForName:@"udisksctl"];
+        // umount(8) needs root; there is no UDisks layer in between
+        // (LIBRARIES.md section 0).
         NSError *runError = nil;
-        DUProcessResult *result = nil;
-        if (udisksctl != nil) {
-            result = [DUProcessRunner runExecutable:udisksctl
-                                          arguments:@[ @"unmount", @"-b", target ]
-                                              error:&runError];
-        } else {
-            result = [[DUAuthorizationManager sharedManager]
+        DUProcessResult *result =
+            [[DUAuthorizationManager sharedManager]
                 runPrivileged:[DUProcessRunner executablePathForName:@"umount"]
                            args:@[ target ]
                         timeout:300.0
                           error:&runError];
-        }
         if (result == nil || !result.exitedNormally ||
             result.terminationStatus != 0) {
             NSString *detail =
