@@ -900,7 +900,9 @@ static void runTest(NSString *name, BOOL (^block)(void))
   NSString *plistPath = [tmpDir stringByAppendingPathComponent:@"install-plist-test.plist"];
   NSDictionary *plist = @{
     @"packages": @[@"sl"],
-    @"postinstall_command": @"/bin/true",
+    // Resolved via PATH by the /bin/sh -c wrapper; /bin/true does not
+    // exist on all supported systems (e.g. NextBSD has only /usr/bin/true).
+    @"postinstall_command": @"true",
     @"os_overrides": @{},
   };
   [plist writeToFile:plistPath atomically:YES];
