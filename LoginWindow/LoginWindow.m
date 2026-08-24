@@ -987,8 +987,8 @@ static NSDictionary *parseStringsFile(NSString *path)
         } else {
             // Add new Gershwin entry
             [sessions addObject:@"Gershwin"];
-            [execs addObject:@"/System/Library/Scripts/Gershwin-X11"];
-            NSDebugLLog(@"gwcomp", @"[DEBUG] Added Gershwin session: /System/Library/Scripts/Gershwin-X11");
+            [execs addObject:@"/System/Library/Scripts/Gershwin.sh"];
+            NSDebugLLog(@"gwcomp", @"[DEBUG] Added Gershwin session: /System/Library/Scripts/Gershwin.sh");
         }
     }
     
@@ -1699,7 +1699,7 @@ static NSDictionary *parseStringsFile(NSString *path)
         
         if (!sessionToExecute || [sessionToExecute length] == 0) {
             NSDebugLLog(@"gwcomp", @"[DEBUG] No session selected, using default: GWorkspace");
-            sessionToExecute = @"/System/Applications/GWorkspace.app/GWorkspace";
+            sessionToExecute = @"/System/Applications/Workspace.app/Workspace";
         }
         
         NSDebugLLog(@"gwcomp", @"[DEBUG] Final session to execute: '%@'", sessionToExecute);
@@ -1718,7 +1718,7 @@ static NSDictionary *parseStringsFile(NSString *path)
             } else {
                 NSDebugLLog(@"gwcomp", @"[DEBUG] Session executable not found: %@", mainExecutable);
                 // Try fallback
-                sessionToExecute = @"/System/Applications/GWorkspace.app/GWorkspace";
+                sessionToExecute = @"/System/Applications/Workspace.app/Workspace";
                 NSDebugLLog(@"gwcomp", @"[DEBUG] Using fallback session: %@", sessionToExecute);
             }
         } else {
