@@ -8,6 +8,14 @@
 #import "GSHelpDocument.h"
 #import "GSHelpNode.h"
 
+@interface GSMarkdownParser ()
+/* Emits the anchor + heading pair (and records firstH1) used by every
+ * heading form (ATX, '=' delimited, Setext underline). */
+- (void)gsmdEmitHeading:(NSString *)plain
+                  level:(NSUInteger)level
+                   into:(GSHelpNode *)container;
+@end
+
 #pragma mark - Small string helpers
 
 static NSString *GSMDTrim(NSString *s)
@@ -262,6 +270,138 @@ static NSUInteger GSMDHeadingLevel(NSString *trimmed,
     return i;
 }
 
+/* '=' delimited headline: "= Text =", "== Text ==", ... A leading run of
+ * '=' gives the level (clamped to 4); an optional trailing '=' run is
+ * stripped. Only '=' is used so it never collides with '-' list items.
+ * Returns the level or 0 when the line is not this form. */
+static NSUInteger GSMDDelimitedEqualsHeadingLevel(NSString *trimmed,
+                                                  NSString **contentOut)
+{
+    NSUInteger len = [trimmed length];
+    if (len == 0 || [trimmed characterAtIndex:0] != '=')
+      {
+        return 0;
+      }
+    NSUInteger n = 0;
+    while (n < len && [trimmed characterAtIndex:n] == '=')
+      {
+        n++;
+      }
+    if (n < 1 || n > 4)
+      {
+        return 0;
+      }
+    /* A space must follow the opening '=' run before the text. */
+    if (n < len)
+      {
+        unichar c = [trimmed characterAtIndex:n];
+        if (c != ' ' && c != '\t')
+          {
+            return 0;
+          }
+      }
+    NSString *content = GSMDTrim([trimmed substringFromIndex:n]);
+    /* Optional trailing '=' run, preceded by whitespace. */
+    NSUInteger t = [content length];
+    while (t > 0 && [content characterAtIndex:t - 1] == '=')
+      {
+        t--;
+      }
+    if (t < [content length])
+      {
+        if (t == 0)
+          {
+            return 0;
+          }
+        unichar before = [content characterAtIndex:t - 1];
+        if (before != ' ' && before != '\t')
+          {
+            return 0;
+          }
+        content = GSMDTrim([content substringToIndex:t - 1]);
+      }
+    if ([content length] == 0)
+      {
+        return 0;
+      }
+    *contentOut = content;
+    return n;
+}
+
+/* Setext underline: a line made entirely of '=' (level 1) or '-' (level 2),
+ * at least two characters. The heading text is the line above it. */
+static BOOL GSMDIsSetextUnderline(NSString *trimmed, NSUInteger *levelOut)
+{
+    NSUInteger len = [trimmed length];
+    if (len < 2)
+      {
+        return NO;
+      }
+    unichar c = [trimmed characterAtIndex:0];
+    if (c != '=' && c != '-')
+      {
+        return NO;
+      }
+    for (NSUInteger k = 1; k < len; k++)
+      {
+        if ([trimmed characterAtIndex:k] != c)
+          {
+            return NO;
+          }
+      }
+    *levelOut = (c == '=') ? 1 : 2;
+    return YES;
+}
+
+/* Builds a GSHelpImage from a minimal <img> tag by pulling out the
+ * src/alt/title attributes (the only ones the renderer uses). Returns
+ * nil when there is no usable src, so a malformed tag is simply
+ * skipped rather than rendered. */
+static GSHelpImage *GSMDImageFromHTMLTag(NSString *tag)
+{
+    NSRegularExpression *attrRe =
+        [[NSRegularExpression alloc]
+            initWithPattern: @"([a-zA-Z][a-zA-Z0-9_-]*)\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s>/]+)"
+                    options: 0
+                      error: NULL];
+    if (attrRe == nil)
+      {
+        return nil;
+      }
+    NSMutableDictionary<NSString *, NSString *> *attrs =
+        [NSMutableDictionary new];
+    NSArray *matches = [attrRe matchesInString: tag
+                                       options: 0
+                                         range: NSMakeRange(0, [tag length])];
+    for (NSTextCheckingResult *m in matches)
+      {
+        NSString *key = [tag substringWithRange: [m rangeAtIndex: 1]];
+        NSString *val = [tag substringWithRange: [m rangeAtIndex: 2]];
+        /* Strip a single layer of surrounding quotes, if present. */
+        if ([val length] >= 2)
+          {
+            unichar first = [val characterAtIndex: 0];
+            unichar last = [val characterAtIndex: [val length] - 1];
+            if ((first == '"' && last == '"')
+                || (first == '\'' && last == '\''))
+              {
+                val = [val substringWithRange:
+                    NSMakeRange(1, [val length] - 2)];
+              }
+          }
+        attrs[[key lowercaseString]] = val;
+      }
+    NSString *src = attrs[@"src"];
+    if ([src length] == 0)
+      {
+        return nil;
+      }
+    GSHelpImage *img = [GSHelpImage new];
+    img.path = src;
+    img.altText = attrs[@"alt"] ?: attrs[@"title"];
+    return img;
+}
+
 #pragma mark - Inline scanning
 
 static NSString *GSMDDecodeEntity(NSString *ent)
@@ -389,6 +529,53 @@ static void GSMDScanInline(NSString *s,
       {
         unichar c = [s characterAtIndex:i];
 
+        if (c == '<')
+          {
+            /* Minimal inline-HTML support: an <img> tag becomes an
+             * image; any other tag is dropped so raw HTML never leaks
+             * into the rendered text. A '<' that is not the start of a
+             * tag stays literal. */
+            if (i + 1 < len)
+              {
+                unichar nc = [s characterAtIndex: i + 1];
+                /* A real tag starts with a letter, or with '/', '!',
+                 * '?' (closing tags, comments, declarations). */
+                BOOL isTag = (nc < 128
+                              && (isalpha((int)nc)
+                                  || nc == '/'
+                                  || nc == '!'
+                                  || nc == '?'));
+                if (isTag)
+                  {
+                    NSRange close = [s rangeOfString: @">"
+                                          options: 0
+                                            range: NSMakeRange(i + 1,
+                                                               len - i - 1)];
+                    if (close.location != NSNotFound)
+                      {
+                        NSString *tag = [s substringWithRange:
+                            NSMakeRange(i + 1, close.location - i - 1)];
+                        GSMDFlushPending(&pending, base, out);
+                        if ([tag hasPrefix: @"img"]
+                              || [tag hasPrefix: @"IMG"])
+                          {
+                            GSHelpImage *img =
+                                GSMDImageFromHTMLTag(tag);
+                            if (img != nil)
+                              {
+                                [out addObject: img];
+                              }
+                          }
+                        i = close.location + 1;
+                        continue;
+                      }
+                  }
+              }
+            [pending appendFormat: @"%C", c];
+            i++;
+            continue;
+          }
+
         if (c == '\\' && i + 1 < len)
           {
             /* Backslash escapes only punctuation; anything else
@@ -471,6 +658,7 @@ static void GSMDScanInline(NSString *s,
                             bracketClose.location + 2,
                             parenClose.location
                                 - bracketClose.location - 2)];
+                    target = GSMDTrim(target);
                     GSMDFlushPending(&pending, base, out);
                     GSHelpLink *link = [GSHelpLink new];
                     link.target = target;
@@ -800,7 +988,9 @@ static NSString *GSMDAnchorName(NSString *text)
         [[url lastPathComponent] stringByDeletingPathExtension];
     NSString *title =
         self.firstH1 ?: ([fallback length] > 0 ? fallback : nil);
-    doc.title = title;
+    /* Document names such as COPYING/README normalise to title case
+     * (SPEC: consistent with man section headings). */
+    doc.title = GSHelpTitleCased(title);
     root.title = title;
     doc.rootNode = root;
     return doc;
@@ -833,6 +1023,27 @@ static NSString *GSMDAnchorName(NSString *text)
         [container appendNode:par];
       }
     *paraRef = nil;
+}
+
+- (void)gsmdEmitHeading:(NSString *)plain
+                  level:(NSUInteger)level
+                   into:(GSHelpNode *)container
+{
+    NSString *name = GSMDAnchorName(plain);
+    if ([name length] > 0)
+      {
+        GSHelpAnchor *anchor = [GSHelpAnchor new];
+        anchor.name = name;
+        [container appendNode:anchor];
+      }
+    GSHelpHeading *heading = [GSHelpHeading new];
+    heading.level = level;
+    heading.text = plain;
+    [container appendNode:heading];
+    if (level == 1 && self.firstH1 == nil)
+      {
+        self.firstH1 = plain;
+      }
 }
 
 /* Core block loop. Recursion happens only for blockquotes, which
@@ -893,24 +1104,40 @@ static NSString *GSMDAnchorName(NSString *text)
         if (level > 0)
           {
             GSMD_FLUSH();
-            NSString *plain = GSMDPlainTextOf(content);
-            NSString *name = GSMDAnchorName(plain);
-            if ([name length] > 0)
-              {
-                GSHelpAnchor *anchor = [GSHelpAnchor new];
-                anchor.name = name;
-                [container appendNode:anchor];
-              }
-            GSHelpHeading *heading = [GSHelpHeading new];
-            heading.level = level;
-            heading.text = plain;
-            [container appendNode:heading];
-            if (level == 1 && self.firstH1 == nil)
-              {
-                self.firstH1 = plain;
-              }
+            [self gsmdEmitHeading: GSMDPlainTextOf(content)
+                            level: level
+                             into: container];
             i++;
             continue;
+          }
+
+        /* "= Text =", "== Text ==" style headline. */
+        level = GSMDDelimitedEqualsHeadingLevel(trimmed, &content);
+        if (level > 0)
+          {
+            GSMD_FLUSH();
+            [self gsmdEmitHeading: GSMDPlainTextOf(content)
+                            level: level
+                             into: container];
+            i++;
+            continue;
+          }
+
+        /* Setext underline headline: this text line is followed by a line
+         * of '=' (level 1) or '-' (level 2). */
+        if (i + 1 < count)
+          {
+            NSUInteger slevel = 0;
+            if (GSMDIsSetextUnderline(
+                    GSMDTrim(lines[i + 1]), &slevel))
+              {
+                GSMD_FLUSH();
+                [self gsmdEmitHeading: GSMDPlainTextOf(trimmed)
+                                level: slevel
+                                 into: container];
+                i += 2;
+                continue;
+              }
           }
 
         if (GSMDIsRule(trimmed))
