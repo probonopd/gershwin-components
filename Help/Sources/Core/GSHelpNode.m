@@ -5,6 +5,63 @@
 
 #import "GSHelpNode.h"
 
+#pragma mark - Case normalization
+
+NSString *GSHelpTitleCased(NSString *string)
+{
+    if (string == nil)
+      {
+        return nil;
+      }
+    /* Only transform strings whose letters are all uppercase, so mixed
+     * headings like "Getting Started" or "API" are left untouched. */
+    BOOL hasLetter = NO;
+    BOOL allUpper = YES;
+    for (NSUInteger i = 0; i < [string length]; i++)
+      {
+        unichar c = [string characterAtIndex: i];
+        if (c > 127)
+          {
+            continue;
+          }
+        if (isalpha((int)c))
+          {
+            hasLetter = YES;
+            if (islower((int)c))
+              {
+                allUpper = NO;
+                break;
+              }
+          }
+      }
+    if (!hasLetter || !allUpper)
+      {
+        return string;
+      }
+
+    /* Title case: capitalise the first letter of every
+     * whitespace-separated word, lowercase the rest. */
+    NSArray<NSString *> *words =
+        [string componentsSeparatedByCharactersInSet:
+            [NSCharacterSet whitespaceCharacterSet]];
+    NSMutableArray<NSString *> *out =
+        [NSMutableArray arrayWithCapacity: [words count]];
+    for (NSString *word in words)
+      {
+        if ([word length] == 0)
+          {
+            [out addObject: word];
+            continue;
+          }
+        NSString *first = [word substringToIndex: 1];
+        NSString *rest = [word substringFromIndex: 1];
+        [out addObject:
+            [[first uppercaseString]
+                stringByAppendingString: [rest lowercaseString]]];
+      }
+    return [out componentsJoinedByString: @" "];
+}
+
 @implementation GSHelpNode
 {
     NSMutableArray<GSHelpNode *> *_children;

@@ -504,6 +504,39 @@
       }
 }
 
+/* Like index.html for a directory: if a folder holds a README
+ * (case-insensitive, .md or .markdown), that file becomes the folder's
+ * own page and is removed from the child list so it does not show up as
+ * a second "README" entry. Returns the URL and pulls the entry out of
+ * `entries` so the caller can hand the slimmed list to its children. */
++ (NSURL *)extractReadmeURLFromEntries:(NSMutableArray<NSDictionary *> *)entries
+{
+    for (NSUInteger i = 0; i < [entries count]; i++)
+      {
+        /* Like index.html, a directory's README only counts when it
+         * sits directly inside that directory: its rel path must be a
+         * single component. A README nested in a subdirectory belongs
+         * to that subdirectory, not to this folder. */
+        NSString *rel = entries[i][@"rel"];
+        if ([[rel pathComponents] count] != 1)
+          {
+            continue;
+          }
+        NSString *name = [entries[i][@"abs"] lastPathComponent];
+        NSString *base = [[name stringByDeletingPathExtension] lowercaseString];
+        NSString *ext = [[name pathExtension] lowercaseString];
+        if ([base isEqualToString: @"readme"]
+              && ([ext isEqualToString: @"md"]
+                    || [ext isEqualToString: @"markdown"]))
+          {
+            NSURL *url = [NSURL fileURLWithPath: entries[i][@"abs"]];
+            [entries removeObjectAtIndex: i];
+            return url;
+          }
+      }
+    return nil;
+}
+
 + (NSArray<GSHelpCatalogItem *> *)gsdocItemsForRelPaths:
     (NSArray<NSDictionary *> *)entries
 {
@@ -544,18 +577,21 @@
     for (NSString *groupName in [groupNames sortedArrayUsingSelector:
                                           @selector(compare:)])
       {
+        NSMutableArray<NSDictionary *> *groupEntries = groups[groupName];
+        /* Promote a directory's README to the headline (see
+         * -extractReadmeURLFromEntries:); the child list is slimmed. */
+        NSURL *readme = [self extractReadmeURLFromEntries: groupEntries];
         [items addObject: [[GSHelpCatalogItem alloc]
             initWithTitle: groupName
-                      url: nil
-                 children: [self gsdocItemsForRelPaths:
-                                     groups[groupName]]]];
+                      url: readme
+                 children: [self gsdocItemsForRelPaths: groupEntries]]];
       }
 
     return [items sortedArrayUsingComparator:
-                   ^NSComparisonResult(GSHelpCatalogItem *a,
-                                       GSHelpCatalogItem *b) {
-                     return [[a title] compare: [b title]];
-                   }];
+                    ^NSComparisonResult(GSHelpCatalogItem *a,
+                                        GSHelpCatalogItem *b) {
+                      return [[a title] compare: [b title]];
+                    }];
 }
 
 + (NSArray<GSHelpCatalogItem *> *)developerDocItemsWithRoots:

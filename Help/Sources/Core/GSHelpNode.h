@@ -7,6 +7,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/* Normalizes an ALL-UPPERCASE label (man section names like "NAME",
+ * document names like "COPYING") to title case ("Name", "Copying").
+ * Mixed-case strings are returned unchanged so real headings such as
+ * "Getting Started" survive. */
+NSString *GSHelpTitleCased(NSString *string);
+
 /* Base class of the normalized document model (SPEC 8). Nodes form a
  * tree; every node knows its parent weakly and owns its children. */
 @interface GSHelpNode : NSObject
