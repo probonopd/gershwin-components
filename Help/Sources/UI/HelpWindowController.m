@@ -67,13 +67,49 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
 
 #pragma mark - Key equivalent view
 
+@class HelpWindowController;
+
+@interface HelpWindowController ()
+- (void)relayoutForSize:(NSSize)size;
+@end
+
 /* No Find menu item exists, so the content view swallows Cmd+F
  * itself and focuses the search field. */
+/* Root content view drives a full relayout on every size change:
+ * the window manager may resize the window after buildWindow laid
+ * the subviews out for the requested frame, and delta-based
+ * autoresizing masks cannot recover from that initial mismatch. */
 @interface GSHelpContentView : NSView
 @property (nonatomic, weak) NSSearchField *searchField;
+@property (nonatomic, weak) HelpWindowController *owner;
 @end
 
 @implementation GSHelpContentView
+
+/* GNUstep's -setFrame: applies the rect directly without going
+ * through -setFrameSize:, so both entry points must be hooked to
+ * catch every resize path (window resize, superview resize, direct
+ * setFrame:). Redundant calls are harmless - relayout is idempotent. */
+- (void)setFrame:(NSRect)newFrame
+{
+    [super setFrame: newFrame];
+    [_owner relayoutForSize: newFrame.size];
+}
+
+- (void)setFrameSize:(NSSize)newSize
+{
+    [super setFrameSize: newSize];
+    [_owner relayoutForSize: newSize];
+}
+
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window] != nil && _owner != nil)
+      {
+        [_owner relayoutForSize: [self bounds].size];
+      }
+}
 
 - (BOOL)performKeyEquivalent:(NSEvent *)event
 {
@@ -101,9 +137,15 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
 @implementation HelpWindowController
 {
     NSWindow *_window;
+    GSHelpContentView *_content;
+    NSView *_toolbar;
     NSButton *_backButton;
     NSButton *_forwardButton;
     NSSearchField *_searchField;
+    NSView *_sidebar;
+    NSTextField *_caption;
+    NSScrollView *_sidebarScroll;
+    NSScrollView *_documentScroll;
     NSOutlineView *_outline;
     NSTextView *_textView;
     /* Top-level sidebar groups: the open document's TOC plus the
@@ -154,15 +196,15 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
 
     GSHelpContentView *content =
         [[GSHelpContentView alloc] initWithFrame: frame];
+    content.owner = self;
     [_window setContentView: content];
+    _content = content;
     CGFloat height = frame.size.height;
 
     /* Toolbar row across the top. */
-    NSRect toolbarFrame = NSMakeRect(0, height - kToolbarHeight,
-                                     frame.size.width, kToolbarHeight);
-    NSView *toolbar = [[NSView alloc] initWithFrame: toolbarFrame];
-    toolbar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
-    [content addSubview: toolbar];
+    _toolbar = [[NSView alloc] initWithFrame:
+        NSMakeRect(0, height - kToolbarHeight, frame.size.width, kToolbarHeight)];
+    [content addSubview: _toolbar];
 
     _backButton = [self toolbarButtonWithTitle: @"Back"];
     _forwardButton = [self toolbarButtonWithTitle: @"Forward"];
@@ -178,8 +220,8 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
         NSMakeRect(NSMaxX([_backButton frame]) + 8.0,
                    (kToolbarHeight - kButtonHeight) / 2.0,
                    kButtonWidth, kButtonHeight)];
-    [toolbar addSubview: _backButton];
-    [toolbar addSubview: _forwardButton];
+    [_toolbar addSubview: _backButton];
+    [_toolbar addSubview: _forwardButton];
 
     _searchField = [[NSSearchField alloc] initWithFrame:
         NSMakeRect(2 * kToolbarPad + 2 * kButtonWidth,
@@ -189,35 +231,31 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     [[_searchField cell] setPlaceholderString: @"Search Documentation"];
     [_searchField setTarget: self];
     [_searchField setAction: @selector(searchAction:)];
-    _searchField.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
-    [toolbar addSubview: _searchField];
+    [_toolbar addSubview: _searchField];
 
     /* Sidebar with CONTENTS caption over the outline view. */
-    NSRect sidebarFrame = NSMakeRect(0, 0, kSidebarWidth,
-                                     height - kToolbarHeight);
-    NSView *sidebar = [[NSView alloc] initWithFrame: sidebarFrame];
-    sidebar.autoresizingMask = NSViewHeightSizable;
-    [content addSubview: sidebar];
+    _sidebar = [[NSView alloc] initWithFrame:
+        NSMakeRect(0, 0, kSidebarWidth, height - kToolbarHeight)];
+    [content addSubview: _sidebar];
 
-    NSTextField *caption = [[NSTextField alloc] initWithFrame:
-        NSMakeRect(kToolbarPad, sidebarFrame.size.height - kSidebarCaptionHeight,
+    _caption = [[NSTextField alloc] initWithFrame:
+        NSMakeRect(kToolbarPad,
+                   height - kToolbarHeight - kSidebarCaptionHeight,
                    kSidebarWidth - 2 * kToolbarPad, 16)];
-    [caption setStringValue: @"CONTENTS"];
-    [caption setBezeled: NO];
-    [caption setBordered: NO];
-    [caption setEditable: NO];
-    [caption setSelectable: NO];
-    [caption setDrawsBackground: NO];
-    [caption setFont: [NSFont boldSystemFontOfSize: 11]];
-    caption.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
-    [sidebar addSubview: caption];
+    [_caption setStringValue: @"CONTENTS"];
+    [_caption setBezeled: NO];
+    [_caption setBordered: NO];
+    [_caption setEditable: NO];
+    [_caption setSelectable: NO];
+    [_caption setDrawsBackground: NO];
+    [_caption setFont: [NSFont boldSystemFontOfSize: 11]];
+    [_sidebar addSubview: _caption];
 
-    NSScrollView *sidebarScroll = [[NSScrollView alloc] initWithFrame:
+    _sidebarScroll = [[NSScrollView alloc] initWithFrame:
         NSMakeRect(0, 0, kSidebarWidth,
-                   sidebarFrame.size.height - kSidebarCaptionHeight)];
-    sidebarScroll.autoresizingMask = NSViewHeightSizable | NSViewWidthSizable;
-    [sidebarScroll setBorderType: NSBezelBorder];
-    [sidebarScroll setHasVerticalScroller: YES];
+                   height - kToolbarHeight - kSidebarCaptionHeight)];
+    [_sidebarScroll setBorderType: NSBezelBorder];
+    [_sidebarScroll setHasVerticalScroller: YES];
 
     _outline = [[NSOutlineView alloc] initWithFrame:
         NSMakeRect(0, 0, kSidebarWidth, 100)];
@@ -231,34 +269,32 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     [_outline setDataSource: self];
     [_outline setDelegate: self];
     [_outline setAutoresizingMask: NSViewWidthSizable | NSViewHeightSizable];
-    [sidebarScroll setDocumentView: _outline];
+    [_sidebarScroll setDocumentView: _outline];
     /* GNUstep does not auto-grow the table's last column when the scroll
      * view widens, leaving entry text clipped mid-scrollview; force the
      * column to track the visible width instead. */
     [_outline sizeLastColumnToFit];
-    sidebarScroll.postsFrameChangedNotifications = YES;
+    _sidebarScroll.postsFrameChangedNotifications = YES;
     [[NSNotificationCenter defaultCenter]
         addObserver: self
            selector: @selector(sidebarFrameChanged:)
                name: NSViewFrameDidChangeNotification
-             object: sidebarScroll];
-    [sidebar addSubview: sidebarScroll];
+             object: _sidebarScroll];
+    [_sidebar addSubview: _sidebarScroll];
 
     /* Document area fills the rest. */
-    NSScrollView *documentScroll = [[NSScrollView alloc] initWithFrame:
+    _documentScroll = [[NSScrollView alloc] initWithFrame:
         NSMakeRect(kSidebarWidth + 1, 0,
                    frame.size.width - kSidebarWidth - 1,
                    height - kToolbarHeight)];
-    documentScroll.autoresizingMask =
-        NSViewWidthSizable | NSViewHeightSizable;
-    [documentScroll setHasVerticalScroller: YES];
-    [documentScroll setBorderType: NSNoBorder];
+    [_documentScroll setHasVerticalScroller: YES];
+    [_documentScroll setBorderType: NSNoBorder];
 
     /* The view builds and retains its own text network; a hand-built
      * storage would not be retained by the view under ARC and die
      * with the local reference. */
     _textView = [[NSTextView alloc] initWithFrame:
-        NSMakeRect(0, 0, documentScroll.frame.size.width - 24, 100)];
+        NSMakeRect(0, 0, _documentScroll.frame.size.width - 24, 100)];
     /* Editing stays off but selection/copy remain available (SPEC 48). */
     [_textView setEditable: NO];
     [_textView setSelectable: YES];
@@ -267,19 +303,21 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     [_textView setHorizontallyResizable: NO];
     NSTextContainer *container = [_textView textContainer];
     [container setContainerSize:
-        NSMakeSize(documentScroll.frame.size.width - 24, FLT_MAX)];
+        NSMakeSize(_documentScroll.frame.size.width - 24, FLT_MAX)];
     [container setWidthTracksTextView: YES];
     [_textView setAutoresizingMask: NSViewWidthSizable];
     [_textView setTextContainerInset: NSMakeSize(12, 12)];
-    [_textView setBackgroundColor: [NSColor windowBackgroundColor]];
+    /* Reading pane is white so the document text reads like paper; code
+     * blocks are shaded with the window background colour instead. */
+    [_textView setBackgroundColor: [NSColor whiteColor]];
     [_textView setDrawsBackground: YES];
     [_textView setDelegate: self];
     [_textView setLinkTextAttributes: @{
         NSForegroundColorAttributeName: [NSColor blueColor],
         NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle),
     }];
-    [documentScroll setDocumentView: _textView];
-    [content addSubview: documentScroll];
+    [_documentScroll setDocumentView: _textView];
+    [content addSubview: _documentScroll];
 
     /* Keyboard access basics: tab cycle through all controls. */
     [_backButton setNextKeyView: _forwardButton];
@@ -289,6 +327,47 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     [_textView setNextKeyView: _backButton];
     [_window setInitialFirstResponder: _searchField];
     content.searchField = _searchField;
+}
+
+/* Single source of truth for the pane layout, driven by the content
+ * view on every size change (see GSHelpContentView above): frames are
+ * recomputed from the real bounds, so a window manager that shows the
+ * window at a different size than requested still lands consistent. */
+- (void)relayoutForSize:(NSSize)size
+{
+    if (_toolbar == nil)
+      {
+        return;
+      }
+
+    CGFloat width = size.width;
+    CGFloat height = size.height;
+
+    [_toolbar setFrame:
+        NSMakeRect(0, height - kToolbarHeight, width, kToolbarHeight)];
+    [_backButton setFrame:
+        NSMakeRect(kToolbarPad, (kToolbarHeight - kButtonHeight) / 2.0,
+                   kButtonWidth, kButtonHeight)];
+    [_forwardButton setFrame:
+        NSMakeRect(NSMaxX([_backButton frame]) + 8.0,
+                   (kToolbarHeight - kButtonHeight) / 2.0,
+                   kButtonWidth, kButtonHeight)];
+    [_searchField setFrame:
+        NSMakeRect(2 * kToolbarPad + 2 * kButtonWidth,
+                   (kToolbarHeight - kFieldHeight) / 2.0,
+                   width - (3 * kToolbarPad + 2 * kButtonWidth),
+                   kFieldHeight)];
+
+    CGFloat bodyHeight = height - kToolbarHeight;
+    [_sidebar setFrame: NSMakeRect(0, 0, kSidebarWidth, bodyHeight)];
+    [_caption setFrame:
+        NSMakeRect(kToolbarPad, bodyHeight - kSidebarCaptionHeight,
+                   kSidebarWidth - 2 * kToolbarPad, 16)];
+    [_sidebarScroll setFrame:
+        NSMakeRect(0, 0, kSidebarWidth, bodyHeight - kSidebarCaptionHeight)];
+    [_documentScroll setFrame:
+        NSMakeRect(kSidebarWidth + 1, 0,
+                   width - kSidebarWidth - 1, bodyHeight)];
 }
 
 - (NSButton *)toolbarButtonWithTitle:(NSString *)title
@@ -378,6 +457,12 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
 {
     _renderer = [GSHelpRenderer new];
     _currentDocument = document;
+    /* Remote images swap in after the initial layout; re-grow the view
+     * when one arrives so the picture is not clipped. */
+    __weak typeof(self) weakSelf = self;
+    _renderer.imageDidLoad = ^{
+        [weakSelf relayoutDocument];
+    };
     NSAttributedString *rendered =
         [_renderer renderedStringForDocument: document];
 
@@ -406,6 +491,29 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     [_outline reloadData];
     [self expandAllTOCItems];
     _suppressSelection = NO;
+}
+
+/* Re-measure the text after a late change (e.g. a remote image swapping
+ * in) and grow the vertically resizable view so nothing is clipped. */
+- (void)relayoutDocument
+{
+    if (_textView == nil)
+      {
+        return;
+      }
+    NSTextContainer *container = [_textView textContainer];
+    NSLayoutManager *lm = [_textView layoutManager];
+    [lm invalidateLayoutForCharacterRange:
+           NSMakeRange(0, [[_textView textStorage] length])
+                                 isSoft: NO
+                    actualCharacterRange: NULL];
+    [lm ensureLayoutForTextContainer: container];
+    NSSize used = [lm usedRectForTextContainer: container].size;
+    NSSize inset = [_textView textContainerInset];
+    NSRect frame = [_textView frame];
+    frame.size.height = used.height + 2 * inset.height;
+    [_textView setFrame: frame];
+    [_textView setNeedsDisplay: YES];
 }
 
 /* Wraps the open document's TOC under a "Contents" group so the
@@ -817,7 +925,14 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
       }
 
     GSHelpTOCItem *item = [_outline itemAtRow: row];
-    /* Catalog leaf: open the document. */
+    if (item == nil)
+      {
+        return;
+      }
+
+    /* Catalog leaf: open the document. The load rebuilds the outline
+     * and clears the selection, so re-reveal and re-select the item
+     * afterwards so it stays chosen and on screen. */
     if ([item entry] == nil && [item url] != nil)
       {
         NSString *path = [[item url] path];
@@ -829,6 +944,7 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
           {
             [self displayURL: [item url] push: YES];
           }
+        [self revealAndSelectItem: item];
         return;
       }
     if ([item entry] == nil)
@@ -842,6 +958,58 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
       {
         [_textView scrollRangeToVisible: range];
       }
+}
+
+/* Re-establishes selection on an item displaced by an outline reload
+ * (e.g. after opening a catalog document): expands its ancestor path
+ * so it is visible, then selects and scrolls it into view. */
+- (void)revealAndSelectItem:(GSHelpTOCItem *)item
+{
+    if (item == nil)
+      {
+        return;
+      }
+    NSMutableArray<GSHelpTOCItem *> *path = [NSMutableArray new];
+    if (![self findItem: item
+             inChildren: [self fullTopLevelItems]
+                   path: path])
+      {
+        return;
+      }
+    for (GSHelpTOCItem *ancestor in path)
+      {
+        [_outline expandItem: ancestor];
+      }
+    NSInteger row = [_outline rowForItem: item];
+    if (row >= 0)
+      {
+        _suppressSelection = YES;
+        [_outline selectRowIndexes:
+            [NSIndexSet indexSetWithIndex: row]
+                       byExtendingSelection: NO];
+        _suppressSelection = NO;
+        [_outline scrollRowToVisible: row];
+      }
+}
+
+- (BOOL)findItem:(GSHelpTOCItem *)target
+       inChildren:(NSArray<GSHelpTOCItem *> *)children
+             path:(NSMutableArray<GSHelpTOCItem *> *)path
+{
+    for (GSHelpTOCItem *child in children)
+      {
+        if (child == target)
+          {
+            [path addObject: child];
+            return YES;
+          }
+        if ([self findItem: target inChildren: child.children path: path])
+          {
+            [path insertObject: child atIndex: 0];
+            return YES;
+          }
+      }
+    return NO;
 }
 
 #pragma mark Link clicks
@@ -872,7 +1040,7 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
 
     NSURL *url = nil;
     if ([GSHelpURL isHelpURL:
-                       [NSURL URLWithString: target]]
+                        [NSURL URLWithString: target]]
         || [target hasPrefix: @"help://"])
       {
         url = [NSURL URLWithString: target];
@@ -885,6 +1053,14 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     if (url == nil)
       {
         return NO;
+      }
+    /* Relative targets (e.g. a sibling "bar.md") must be resolved
+     * against the current document before navigation; otherwise the
+     * parser registry sees a scheme-less URL and finds no parser. */
+    url = [url absoluteURL];
+    if ([[url scheme] isEqualToString: @"file"])
+      {
+        url = [url URLByStandardizingPath];
       }
     return [self resolveInternalURL: url];
 }
