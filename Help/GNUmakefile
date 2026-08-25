@@ -38,7 +38,7 @@ endif
 Help_RESOURCE_FILES = Help.png
 
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fobjc-runtime=gnustep-2.0
-ADDITIONAL_INCLUDE_DIRS += -ISources/Core -ISources/Parsers -ISources/Rendering -ISources/UI -ISources/Navigation
+ADDITIONAL_INCLUDE_DIRS += -ISources/Core -ISources/Parsers -ISources/Rendering -ISources/UI -ISources/Navigation $(shell curl-config --cflags 2>/dev/null)
 
 # GSManParser decompresses gz/bz2/xz pages directly (SPEC 20) using
 # __has_include-guarded codec readers, so link exactly those codecs
@@ -71,6 +71,15 @@ endif
 ifneq ($(shell $(call help_probe,lzma,lzma,lzma_code(0,0))),)
 ADDITIONAL_GUI_LIBS += -llzma
 Help_OBJCFLAGS += -DGS_HAVE_LZMA=1
+endif
+# libcurl follows HTTP redirects (GitHub user-attachments 302 to blob
+# storage); GNUstep's NSData/NSURLConnection do not, so remote images
+# would stay as blank placeholders without it. The header lives at
+# <curl/curl.h> under the multiarch include dir, so probe with the full
+# include path rather than the bare -include curl.h form.
+ifneq ($(shell printf '#include <curl/curl.h>\nint main(void){curl_easy_init();return 0;}\n' | $(CC) -x c - $(shell curl-config --cflags 2>/dev/null) -o /dev/null -lcurl 2>/dev/null && echo yes),)
+ADDITIONAL_GUI_LIBS += -lcurl
+Help_OBJCFLAGS += -DGS_HAVE_CURL=1
 endif
 
 include $(GNUSTEP_MAKEFILES)/application.make
