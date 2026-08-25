@@ -42,8 +42,6 @@ static const CGFloat kOperationStripHeight = 32.0;
 // One-line result readout along the very bottom edge ("Image created
 // successfully.", tool errors, ...) that outlives the progress strip.
 static const CGFloat kStatusLineHeight = 20.0;
-// How long the finished bar stays visible before the strip folds away.
-static const NSTimeInterval kStripGraceSeconds = 1.0;
 
 // Defaults key per ARCHITECTURE.md section 67/68.
 static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
@@ -653,8 +651,20 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
 {
     // Any active operation freezes action controls everywhere (ARCHITECTURE.md
     // section 33 device locking is enforced deeper; this is presentation only).
-    BOOL busy =
-        self.storageManager.operationManager.activeOperations.count > 0;
+    /* Observer order versus the manager's own DidFinish bookkeeping is
+     * unspecified: when this observer runs first the count still contains
+     * the operation that just ended, so a plain count check would freeze
+     * the strip forever. Ignore operations already in a terminal state. */
+    BOOL busy = NO;
+    for (DUOperation *operation in
+            self.storageManager.operationManager.activeOperations) {
+        if (operation.state != DUOperationStateCancelled &&
+            operation.state != DUOperationStateCompleted &&
+            operation.state != DUOperationStateFailed) {
+            busy = YES;
+            break;
+        }
+    }
     [_operationController setControlsEnabled:!busy];
 
     if (busy) {
@@ -670,16 +680,14 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
         return;
     }
 
-    // Terminal: Stop dies immediately (nothing left to cancel), the bar
-    // gets a one-second curtain call, then the whole strip folds away.
+    // Terminal: Stop dies immediately (nothing left to cancel). The strip
+    // folds straight away: a hide timer scheduled from inside a marshaled
+    // notification lands in whatever run-loop mode is current there and
+    // can then never fire, freezing the strip on screen.
     self.stopButton.hidden = YES;
     [self.stripHideTimer invalidate];
-    self.stripHideTimer =
-        [NSTimer scheduledTimerWithTimeInterval:kStripGraceSeconds
-                                         target:self
-                                       selector:@selector(hideOperationStrip)
-                                       userInfo:nil
-                                        repeats:NO];
+    self.stripHideTimer = nil;
+    [self hideOperationStrip];
 }
 
 - (void)hideOperationStrip

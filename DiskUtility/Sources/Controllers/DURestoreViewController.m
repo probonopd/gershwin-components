@@ -45,6 +45,9 @@ static NSString * const kDefaultsConfirmDestructive =
 // Resolved objects behind the text fields; the fields hold display strings.
 @property (nonatomic, strong) DUStorageObject *resolvedSource;
 @property (nonatomic, strong) DUStorageObject *resolvedDestination;
+// YES once the user picked a destination explicitly; the selection
+// convenience preselect then stops overriding it.
+@property (nonatomic, assign) BOOL destinationChosenByUser;
 @property (nonatomic, assign) BOOL operationRunning;
 @end
 
@@ -215,10 +218,11 @@ static NSString * const kDefaultsConfirmDestructive =
             capabilities:(DUStorageCapabilities *)capabilities
 {
     self.currentObject = object;
-    // Preselect the current selection as a convenience when it can act as
-    // a restore target; both roles remain user-changeable.
+    // Preselect the current selection as a convenience while the user has
+    // not picked a destination explicitly; both roles remain
+    // user-changeable afterwards.
     if (object != nil && object.capabilities.canErase &&
-        self.resolvedDestination == nil) {
+        !self.destinationChosenByUser) {
         self.resolvedDestination = object;
         _destinationField.stringValue = object.displayName ?: @"";
     }
@@ -431,6 +435,7 @@ static NSString * const kDefaultsConfirmDestructive =
         return;
     }
     self.resolvedDestination = picked;
+    self.destinationChosenByUser = YES;
     _destinationField.stringValue = picked.displayName ?: @"";
     [self updateEnabledStates:nil];
 }

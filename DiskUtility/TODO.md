@@ -202,3 +202,31 @@ four independent causes:
 - [x] Headless verification: tab cycles before/during/after a mock verify
       - panes, operation strip, info footer all render clean; strip folds
       away without ghosts; 246 assertions green; zero warnings.
+
+## P8 - Full UI qualification (all selections x all tabs)
+
+Safe pass over the whole UI in the headless session (mock backend; no
+Apply/Erase/Repair/Restore clicks): 6 selections (internal, external,
+optical, disk image, mirror set, volume child) x 5 tabs plus toolbar,
+dialogs and resize. Two findings, both fixed:
+
+- [x] Restore pane pinned its destination to the first selection forever
+      (stale "Internal Disk" shown while Mirror Set was selected).
+      Destination now follows the selection until the user picks one
+      explicitly via Choose... (destinationChosenByUser flag).
+- [x] Operation strip froze on screen after completion, intermittently.
+      Two stacked causes: (a) GNUstep notification observer order is
+      unspecified - when the window controller's observer ran before the
+      manager's bookkeeping, the activeOperations count still contained
+      the just-finished operation and the busy check froze the strip;
+      the busy check now ignores operations in terminal states.
+      (b) The 1s strip-hide timer was scheduled from inside a marshaled
+      notification, landing in a run-loop mode that then never runs;
+      the strip now folds synchronously.
+- [x] Verified clean: per-selection tab availability (placeholders for
+      RAID on devices, Erase/Partition on optical/image, Partition on
+      RAID sets), volume-child selection shows the parent disk map,
+      Restore destination tracking, verify strip lifecycle with tab
+      switches interleaved, Show details toggle, disabled states
+      (Apply/Revert/Restore/Repair until applicable), 246 assertions
+      green, zero warnings.
