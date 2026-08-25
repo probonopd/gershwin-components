@@ -31,6 +31,11 @@ NS_ASSUME_NONNULL_BEGIN
  * document view to the selected entry. */
 - (NSRange)rangeOfHeadingText:(nullable NSString *)text;
 
+/* Called on the main thread after a remote image finishes loading (or
+ * fails), so the owning view can re-layout and grow to fit. Set by the
+ * controller before rendering; nil when no live view is attached. */
+@property (nonatomic, copy, nullable) void (^imageDidLoad)(void);
+
 @end
 
 NS_ASSUME_NONNULL_END
