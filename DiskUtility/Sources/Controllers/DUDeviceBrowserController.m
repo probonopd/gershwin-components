@@ -60,6 +60,10 @@ static NSString * const kColumnIdentifier = @"devices";
     _outlineView.autoresizesOutlineColumn = YES;
     [_outlineView setAction:@selector(outlineClicked:)];
     [_outlineView setTarget:self];
+    // Accept file drops from the Workspace so image files can be added to the
+    // list by dropping them onto the left pane.
+    [_outlineView registerForDraggedTypes:@[ NSFilenamesPboardType,
+                                             NSURLPboardType ]];
 
     _scrollView = [[NSScrollView alloc]
         initWithFrame:NSMakeRect(0, 0, 190, 300)];
@@ -134,6 +138,13 @@ static NSString * const kColumnIdentifier = @"devices";
         [work removeLastObject];
         DUStorageObject *object = entry[0];
         NSInteger depth = [entry[1] integerValue];
+        // Show Only Volumes collapses the tree to leaf volumes; whole disks
+        // and partitions are skipped so the outline reads as a flat volume
+        // list (View > Show Only Volumes).
+        if (self.showOnlyVolumes &&
+            object.type != DUStorageObjectTypeVolume) {
+            continue;
+        }
         [rows addObject:object];
         [depths addObject:@(depth)];
         for (DUStorageObject *child in object.children) {
@@ -541,30 +552,89 @@ namesOfPromisedFilesDroppedAtDestination:(NSURL *)dropDestination
 }
 
 - (NSDragOperation)outlineView:(NSOutlineView *)outlineView
-                  validateDrop:(id<NSDraggingInfo>)info
-                   proposedItem:(id)item
-             proposedChildIndex:(NSInteger)index
+                   validateDrop:(id<NSDraggingInfo>)info
+                    proposedItem:(id)item
+              proposedChildIndex:(NSInteger)index
 {
-    // No drop targets anywhere in the browser.
     (void)outlineView;
-    (void)info;
     (void)item;
     (void)index;
-    return NSDragOperationNone;
+    // Only file drops that contain at least one disk-image file are accepted;
+    // everything else is refused so the pane does not advertise a drop it
+    // cannot honor.
+    NSArray<NSURL *> *urls =
+        [self imageFileURLsFromPasteboard:[info draggingPasteboard]];
+    return urls.count > 0 ? NSDragOperationCopy : NSDragOperationNone;
 }
 
 - (BOOL)outlineView:(NSOutlineView *)outlineView
-           acceptDrop:(id<NSDraggingInfo>)info
-                 item:(id)item
-             childIndex:(NSInteger)index
+            acceptDrop:(id<NSDraggingInfo>)info
+                  item:(id)item
+              childIndex:(NSInteger)index
 {
-    // Drag-and-drop reordering is not offered anywhere, so drops are
-    // refused rather than silently accepted.
     (void)outlineView;
-    (void)info;
     (void)item;
     (void)index;
-    return NO;
+    NSArray<NSURL *> *urls =
+        [self imageFileURLsFromPasteboard:[info draggingPasteboard]];
+    if (urls.count == 0) {
+        return NO;
+    }
+    if ([self.delegate
+            respondsToSelector:@selector(browserDidDropImageFiles:)]) {
+        [self.delegate browserDidDropImageFiles:urls];
+    }
+    return YES;
+}
+
+#pragma mark - Image-file drop helpers
+
++ (NSSet<NSString *> *)diskImagePathExtensions
+{
+    // Extensions we treat as mountable disk images.  Kept broad so the common
+    // raw and virtualization formats are accepted when dropped from Workspace.
+    static NSSet<NSString *> *extensions = nil;
+    if (extensions == nil) {
+        extensions = [NSSet
+            setWithObjects:@"img", @"dmg", @"iso", @"raw", @"qcow",
+                           @"qcow2", @"vdi", @"vmdk", @"vhd", @"vhdx",
+                           @"hdd", @"cdr", @"toast", @"sparseimage", @"bin",
+                           @"cue", @"nrg", nil];
+    }
+    return extensions;
+}
+
+- (NSArray<NSURL *> *)imageFileURLsFromPasteboard:(NSPasteboard *)pasteboard
+{
+    NSMutableArray<NSURL *> *urls = [NSMutableArray array];
+    // The Workspace file-manager drag carries absolute paths under
+    // NSFilenamesPboardType (and sometimes NSURLPboardType); read whichever
+    // is present.
+    NSArray *entries = [pasteboard propertyListForType:NSFilenamesPboardType];
+    if (entries == nil) {
+        entries = [pasteboard propertyListForType:NSURLPboardType];
+    }
+    for (id entry in entries) {
+        NSURL *url = nil;
+        if ([entry isKindOfClass:[NSString class]]) {
+            if ([(NSString *)entry rangeOfString:@"://"].location !=
+                NSNotFound) {
+                url = [NSURL URLWithString:entry];
+            } else {
+                url = [NSURL fileURLWithPath:entry];
+            }
+        } else if ([entry isKindOfClass:[NSURL class]]) {
+            url = entry;
+        }
+        if (url == nil || ![url isFileURL]) {
+            continue;
+        }
+        NSString *ext = [[url pathExtension] lowercaseString];
+        if ([[[self class] diskImagePathExtensions] containsObject:ext]) {
+            [urls addObject:url];
+        }
+    }
+    return urls;
 }
 
 - (BOOL)outlineView:(NSOutlineView *)outlineView

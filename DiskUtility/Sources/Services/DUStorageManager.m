@@ -9,6 +9,9 @@
 #import "DUErrors.h"
 #import "DUNotifications.h"
 #import "DUCreateImageOperation.h"
+#import "DUConvertImageOperation.h"
+#import "DUResizeImageOperation.h"
+#import "DUBurnOperation.h"
 #import "DUOperation.h"
 #import "DUOperationManager.h"
 #import "DUStorageBackend.h"
@@ -419,6 +422,161 @@
     }
 
     return operation;
+}
+
+// Shared tail of the image-operation starters: register bookkeeping, start
+// the operation, unwind on failure. The lock on resourceIdentifier must
+// already be held.
+- (DUOperation *)startImageOperation:(DUOperation *)operation
+                    resourceIdentifier:(NSString *)resourceIdentifier
+                             onProgress:(void (^)(double, NSString *))progress
+                           onCompletion:(void (^)(NSError *))completion
+                                  error:(NSError **)error
+{
+    [_lock lock];
+    _operationLocks[operation.identifier] = resourceIdentifier;
+    if (progress != nil || completion != nil) {
+        DUCallbackPair *pair = [[DUCallbackPair alloc] init];
+        pair.progress = progress;
+        pair.completion = completion;
+        _operationCallbacks[operation.identifier] = pair;
+    }
+    [_lock unlock];
+
+    NSError *localError = nil;
+    if (![_operationManager startOperation:operation error:&localError]) {
+        [_lock lock];
+        [_operationLocks removeObjectForKey:operation.identifier];
+        [_operationCallbacks removeObjectForKey:operation.identifier];
+        [_lock unlock];
+        [self releaseLock:resourceIdentifier];
+        if (error != nil) {
+            *error = localError;
+        }
+        return nil;
+    }
+
+    return operation;
+}
+
+// Backend-verb availability gate shared by the image starters.
+- (BOOL)imageVerbAvailable:(SEL)verb
+                   message:(NSString *)message
+                     error:(NSError **)error
+{
+    if ([_backend respondsToSelector:verb]) {
+        return YES;
+    }
+    if (error != nil) {
+        *error = DUErrorMake(DUErrorUnsupportedOperation, message);
+    }
+    return NO;
+}
+
+- (DUOperation *)convertImage:(DUStorageObject *)image
+                       options:(NSDictionary *)options
+                    onProgress:(void (^)(double, NSString *))progress
+                  onCompletion:(void (^)(NSError *))completion
+                         error:(NSError **)error
+{
+    NSParameterAssert(image != nil);
+
+    if (![self imageVerbAvailable:@selector(convertImage:options:
+                                                  progress:completion:)
+                          message:NSLocalizedString(@"This backend cannot convert ", nil)
+                            error:error]) {
+        return nil;
+    }
+
+    NSError *localError = nil;
+    if (![self acquireLock:image.identifier error:&localError]) {
+        if (error != nil) {
+            *error = localError;
+        }
+        return nil;
+    }
+
+    DUConvertImageOperation *operation =
+        [[DUConvertImageOperation alloc] initWithBackend:_backend
+                                                  object:image
+                                                 options:options];
+    return [self startImageOperation:operation
+                   resourceIdentifier:image.identifier
+                           onProgress:progress
+                         onCompletion:completion
+                                error:error];
+}
+
+- (DUOperation *)resizeImage:(DUStorageObject *)image
+                      options:(NSDictionary *)options
+                   onProgress:(void (^)(double, NSString *))progress
+                 onCompletion:(void (^)(NSError *))completion
+                        error:(NSError **)error
+{
+    NSParameterAssert(image != nil);
+
+    if (![self imageVerbAvailable:@selector(resizeImage:options:
+                                                  progress:completion:)
+                          message:NSLocalizedString(@"This backend cannot resize ", nil)
+                            error:error]) {
+        return nil;
+    }
+
+    NSError *localError = nil;
+    if (![self acquireLock:image.identifier error:&localError]) {
+        if (error != nil) {
+            *error = localError;
+        }
+        return nil;
+    }
+
+    DUResizeImageOperation *operation =
+        [[DUResizeImageOperation alloc] initWithBackend:_backend
+                                                 object:image
+                                                options:options];
+    return [self startImageOperation:operation
+                   resourceIdentifier:image.identifier
+                           onProgress:progress
+                         onCompletion:completion
+                                error:error];
+}
+
+- (DUOperation *)burnImage:(DUStorageObject *)image
+                 toObject:(DUStorageObject *)opticalDrive
+               onProgress:(void (^)(double, NSString *))progress
+             onCompletion:(void (^)(NSError *))completion
+                    error:(NSError **)error
+{
+    NSParameterAssert(image != nil);
+    NSParameterAssert(opticalDrive != nil);
+
+    if (![self imageVerbAvailable:@selector(burnImage:toObject:progress:
+                                                      completion:)
+                          message:NSLocalizedString(
+                                      @"This backend cannot burn discs.",
+                                      nil)
+                            error:error]) {
+        return nil;
+    }
+
+    // The drive is the exclusive resource; the image is only read.
+    NSError *localError = nil;
+    if (![self acquireLock:opticalDrive.identifier error:&localError]) {
+        if (error != nil) {
+            *error = localError;
+        }
+        return nil;
+    }
+
+    DUBurnOperation *operation =
+        [[DUBurnOperation alloc] initWithBackend:_backend
+                                           image:image
+                                    opticalDrive:opticalDrive];
+    return [self startImageOperation:operation
+                   resourceIdentifier:opticalDrive.identifier
+                           onProgress:progress
+                         onCompletion:completion
+                                error:error];
 }
 
 - (NSArray<NSDictionary *> *)imageCreationFormats

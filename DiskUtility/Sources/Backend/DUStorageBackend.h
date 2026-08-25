@@ -106,4 +106,67 @@ extern NSString *const kDUEraseMethodZerosKey;    // e.g. "zeros"
 // qemu-img formats when that tool is installed. Absent => none.
 - (NSArray<NSDictionary *> *)imageCreationFormats;
 
+// Create an empty disk image file of the requested format and size.
+// "raw" truncates a sparse file; other formats go through qemu-img create.
+// Absent method => the backend cannot create blank images; the menu gates
+// the item on respondsToSelector.
+- (void)createBlankImageAtPath:(NSString *)path
+                           size:(unsigned long long)bytes
+                         format:(NSString *)format
+                       progress:(void (^)(double progress,
+                                          NSString *message))progress
+                     completion:(void (^)(NSError *error))completion;
+
+// Build a disk image whose filesystem carries the contents of a folder: the
+// backend creates a blank image, formats and mounts it, copies the folder
+// tree in and unmounts. Absent method => the backend cannot image folders;
+// the menu gates the item on respondsToSelector.
+- (void)createImageFromFolder:(NSString *)folderPath
+                  destination:(NSString *)path
+                  filesystem:(NSString *)filesystem
+                    progress:(void (^)(double progress,
+                                       NSString *message))progress
+                  completion:(void (^)(NSError *error))completion;
+
+// Convert a disk-image file into another format (LIBRARIES.md section 3:
+// qemu-img out of process). Options:
+//   @"path"   destination file; must not exist yet
+//   @"format" target identifier from -imageCreationFormats
+// Absent method => the backend cannot convert; UI gates on
+// canConvertImage which backends set only when they implement this.
+- (void)convertImage:(DUStorageObject *)image
+             options:(NSDictionary *)options
+            progress:(void (^)(double progress, NSString *message))progress
+          completion:(void (^)(NSError *error))completion;
+
+// Resize a disk-image file by a signed byte delta. Options:
+//   @"deltaBytes" NSNumber (long long, may be negative)
+// Absent method => cannot resize; UI gates on canResizeImage.
+- (void)resizeImage:(DUStorageObject *)image
+             options:(NSDictionary *)options
+            progress:(void (^)(double progress, NSString *message))progress
+          completion:(void (^)(NSError *error))completion;
+
+// Burn an image file onto the optical disc in drive. Absent method =>
+// cannot burn; UI gates on canBurn which backends set only when a burning
+// tool is installed and the drive has writable media.
+- (void)burnImage:(DUStorageObject *)image
+         toObject:(DUStorageObject *)opticalDrive
+         progress:(void (^)(double progress, NSString *message))progress
+        completion:(void (^)(NSError *error))completion;
+
+// Mount a disk-image file the user opened from disk (File > Open Disk Image),
+// attaching it through the platform's loop/vnode device and returning the
+// mount point. Absent method => the backend cannot open image files; the menu
+// gates the item on respondsToSelector.
+- (void)mountFileImageAtPath:(NSString *)path
+                  completion:(void (^)(NSError *error,
+                                       NSString *mountPoint))completion;
+
+// The command-line tools this backend relies on, used by the startup
+// availability check (DUApplicationDelegate) to warn the user about missing
+// helpers before the app runs with reduced functionality. Absent method =>
+// no tool check for this backend.
+- (NSArray<NSString *> *)expectedToolNames;
+
 @end

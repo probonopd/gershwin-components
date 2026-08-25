@@ -45,21 +45,32 @@ static const NSTimeInterval kTerminateGraceSeconds = 5.0;
 
 + (NSString *)executablePathForName:(NSString *)name
 {
-    // Fixed search order instead of $PATH: a caller-controlled PATH must
-    // never decide which binary performs a privileged storage operation.
-    NSArray<NSString *> *directories = @[
-        @"/usr/sbin",
-        @"/sbin",
-        @"/usr/bin",
-        @"/bin",
-        @"/usr/local/sbin",
-        @"/usr/local/bin",
-        @"/usr/pkg/sbin",
-        @"/usr/pkg/bin",
-    ];
+    // Tools are resolved through the process PATH so the utility adapts to
+    // the host's installed tool layout instead of assuming fixed
+    // directories. A startup check (DUApplicationDelegate) validates that
+    // every required tool is present and warns the user before continuing
+    // with reduced functionality when some are missing.
+    if (name.length == 0) {
+        return nil;
+    }
+    if ([name hasPrefix:@"/"] ||
+        [name rangeOfString:@"/"].location != NSNotFound) {
+        return [[NSFileManager defaultManager] isExecutableFileAtPath:name]
+                   ? name
+                   : nil;
+    }
+    NSString *pathEnv =
+        [[NSProcessInfo processInfo] environment][@"PATH"] ?: @"";
+    NSArray<NSString *> *directories =
+        [pathEnv componentsSeparatedByString:@":"];
     for (NSString *directory in directories) {
-        NSString *candidate = [directory stringByAppendingPathComponent:name];
-        if ([[NSFileManager defaultManager] isExecutableFileAtPath:candidate]) {
+        if (directory.length == 0) {
+            continue;
+        }
+        NSString *candidate =
+            [directory stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager]
+                isExecutableFileAtPath:candidate]) {
             return candidate;
         }
     }

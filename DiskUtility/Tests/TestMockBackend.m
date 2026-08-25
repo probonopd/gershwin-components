@@ -122,6 +122,46 @@ int main(void)
         [(DUMockStorageBackend *)backend restoreHierarchy];
         PASS(((DUMockStorageBackend *)backend).rootObjects.count == 5, "refresh restores hierarchy");
 
+        // image convert (mock simulates qemu-img); restoreHierarchy rebuilt
+        // the roots, so re-fetch the fresh image object first
+        DUDiskImage *image =
+            (DUDiskImage *)((DUMockStorageBackend *)backend).rootObjects[3];
+        PASS([image isKindOfClass:[DUDiskImage class]], "image root present");
+        done = 0;
+        [backend convertImage:image options:@{ @"path" : @"~/x.qcow2",
+                                               @"format" : @"qcow2" }
+                     progress:^(double p, NSString *m) { (void)p; (void)m; }
+                   completion:^(NSError *e) {
+            PASS(e == nil, "convert succeeds");
+            done = 1;
+        }];
+        while (!done) { [NSThread sleepForTimeInterval:0.01]; }
+        PASS([image.format isEqualToString:@"qcow2"], "convert applies format");
+        PASS(image.compressed, "converted image marked compressed");
+
+        // image resize grows by the delta
+        unsigned long long sizeBefore = image.sizeBytes;
+        done = 0;
+        [backend resizeImage:image options:@{ @"deltaBytes" : @(1073741824LL) }
+                    progress:^(double p, NSString *m) { (void)p; (void)m; }
+                  completion:^(NSError *e) {
+            PASS(e == nil, "resize succeeds");
+            done = 1;
+        }];
+        while (!done) { [NSThread sleepForTimeInterval:0.01]; }
+        PASS(image.sizeBytes == sizeBefore + 1073741824ULL, "resize applies delta");
+
+        // burn image onto the optical drive
+        DUStorageDevice *burnDrive = roots[2];
+        done = 0;
+        [backend burnImage:image toObject:burnDrive
+                  progress:^(double p, NSString *m) { (void)p; (void)m; }
+                completion:^(NSError *e) {
+            PASS(e == nil, "burn succeeds");
+            done = 1;
+        }];
+        while (!done) { [NSThread sleepForTimeInterval:0.01]; }
+
         // degraded backend
         id<DUStorageBackend> degraded = [DUMockStorageBackend degradedBackend];
         NSError *derr = nil;

@@ -71,6 +71,12 @@ Resolved through `+executablePathForName:` and cached per name
 | `qemu-img` | image inspect/convert/resize | raw/gz imaging still works |
 | `gzip` | .img.gz streams | gz format off |
 | `cat` | privileged read of root-only block nodes | checksum/imaging needs privileges |
+| `xorriso`, `growisofs`, `wodim`, `cdrecord` | optical burning (first present wins) | Burn off for optical drives |
+
+Image conversion (`qemu-img convert`) and resizing (`qemu-img resize`)
+are offered on registered disk images whenever qemu-img exists; burning
+runs the probed cdrecord-family tool against the drive node through the
+privileged pipeline (LIBRARIES.md sections 3 and 1.3).
 
 ### 2.3 Partitioning
 
@@ -187,7 +193,9 @@ tools so diagnostics show honest answers:
 | `gzip` | .img.gz image format | gz format not offered |
 | `qemu-img` | qcow2/vhd/vdi image formats | not offered |
 
-Image conversion and resizing report "no"; optical burning reports "no".
+Convert and resize run through `qemu-img` on registered images; burning is
+offered when a cdrecord-family tool (xorriso, growisofs, wodim, cdrecord)
+is installed and runs against the drive node with privilege escalation.
 
 ### 3.3 Operations
 

@@ -195,6 +195,8 @@ static BOOL IsSliceShapedChildName(NSString *childName, NSString *parentName)
         device.connectionIsInternal = YES;
     }
     device.readOnly = NO;
+    device.smartStatus =
+        [DUStorageDevice querySmartStatusForPath:device.backendPath];
     device.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
     return device;
 }
@@ -443,6 +445,11 @@ static BOOL IsSliceShapedChildName(NSString *childName, NSString *parentName)
     }
     drive.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
     drive.capabilities.canEject = [self canEject];
+    // Burning needs a cdrecord-family tool (run out of process per
+    // LIBRARIES.md section 26); without one the toolbar Burn stays disabled.
+    drive.capabilities.canBurn =
+        [DUFreeBSDToolCache haveAnyTool:@[ @"cdrecord", @"wodim",
+                                            @"xorriso", @"growisofs" ]];
     return drive;
 }
 
@@ -478,6 +485,7 @@ static BOOL IsSliceShapedChildName(NSString *childName, NSString *parentName)
     media.capabilities.canUnmount =
         mounted && [DUFreeBSDToolCache haveTool:@"umount"];
     media.capabilities.canEject = [self canEject];
+    media.capabilities.canBurn = drive.capabilities.canBurn;
     [drive addChild:media];
 }
 

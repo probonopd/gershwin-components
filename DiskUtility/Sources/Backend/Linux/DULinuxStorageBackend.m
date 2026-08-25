@@ -35,6 +35,17 @@
 
 @implementation DULinuxStorageBackend
 
+- (NSArray<NSString *> *)expectedToolNames
+{
+    return @[
+        @"lsblk", @"blkid", @"mount", @"umount", @"e2fsck", @"mke2fs",
+        @"resize2fs", @"tune2fs", @"mkfs.ext4", @"fsck.fat", @"mkfs.fat",
+        @"fatlabel", @"mkfs.exfat", @"fsck.exfat", @"wipefs", @"dd",
+        @"mdadm", @"qemu-img", @"xorriso", @"growisofs", @"wodim",
+        @"cdrecord", @"cat", @"gzip", @"parted", @"sfdisk", @"partprobe"
+    ];
+}
+
 #pragma mark - Discovery
 
 - (NSArray<DUStorageObject *> *)discoverStorageObjects:(NSError **)error
@@ -913,6 +924,366 @@
     });
 }
 
+#pragma mark - Blank and folder image creation
+
+- (void)createBlankImageAtPath:(NSString *)path
+                           size:(unsigned long long)bytes
+                         format:(NSString *)format
+                       progress:(void (^)(double, NSString *))progress
+                     completion:(void (^)(NSError *))completion
+{
+    dispatch_worker(^{
+        progress(0.0, NSLocalizedString(@"Creating blank image...", nil));
+        NSError *error = nil;
+        if ([format isEqualToString:@"raw"]) {
+            error = [DULinuxImageTool createImageFileAtPath:path
+                                                sizeBytes:bytes];
+        } else {
+            NSString *qemu =
+                [DUProcessRunner executablePathForName:@"qemu-img"];
+            if (qemu == nil) {
+                completion(DUErrorMake(
+                    DUErrorBackendUnavailable,
+                    NSLocalizedString(@"qemu-img is required to create "
+                                       @"this image format.",
+                                      nil)));
+                return;
+            }
+            NSError *runError = nil;
+            DUProcessResult *result = [[DUAuthorizationManager sharedManager]
+                runPrivileged:qemu
+                         args:@[
+                             @"create", @"-f", format, path,
+                             [NSString stringWithFormat:@"%llu", bytes]
+                         ]
+                       timeout:300.0
+                         error:&runError];
+            if (result == nil || !result.exitedNormally ||
+                result.terminationStatus != 0) {
+                NSString *detail = result.standardError.length > 0
+                                       ? result.standardError
+                                       : runError.localizedDescription;
+                error = DUErrorMake(
+                    DUErrorFilesystemError,
+                    NSLocalizedString(@"The blank image could not be "
+                                       @"created.",
+                                      nil));
+                (void)detail;
+            }
+        }
+        if (error == nil) {
+            progress(1.0, NSLocalizedString(@"Blank image created.", nil));
+        }
+        completion(error);
+    });
+}
+
+// Recursively sums the regular-file bytes under a folder so the image can be
+// sized to hold it plus a safety margin.
+- (unsigned long long)folderSizeAtPath:(NSString *)folder
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    unsigned long long total = 0;
+    NSDirectoryEnumerator *enumerator =
+        [fm enumeratorAtPath:folder];
+    for (NSString *entry in enumerator) {
+        NSString *full =
+            [folder stringByAppendingPathComponent:entry];
+        NSDictionary *attrs =
+            [fm attributesOfItemAtPath:full error:nil];
+        if ([[attrs fileType] isEqualToString:NSFileTypeRegular]) {
+            total += [attrs fileSize];
+        }
+    }
+    return total;
+}
+
+// mkfs on a raw image file (not a mounted device) lays down the filesystem
+// the copied folder will live on.
+- (NSError *)formatImageFile:(NSString *)path
+                  filesystem:(NSString *)filesystem
+{
+    NSString *mkfs =
+        [DUProcessRunner executablePathForName:
+                             [NSString stringWithFormat:@"mkfs.%@",
+                                                        filesystem]];
+    if (mkfs == nil) {
+        return DUErrorMake(
+            DUErrorBackendUnavailable,
+            NSLocalizedString(
+                @"The filesystem formatting tool for this image is "
+                @"missing.",
+                nil));
+    }
+    NSError *runError = nil;
+    DUProcessResult *result = [[DUAuthorizationManager sharedManager]
+        runPrivileged:mkfs
+                 args:@[ path ]
+               timeout:300.0
+                 error:&runError];
+    if (result == nil || !result.exitedNormally ||
+        result.terminationStatus != 0) {
+        return DUErrorMake(DUErrorFilesystemError,
+                           NSLocalizedString(
+                               @"The image filesystem could not be "
+                               @"formatted.",
+                               nil));
+    }
+    return nil;
+}
+
+// Loop-mounts a raw image file to a private directory so its contents can be
+// populated. The mount point is returned on success, nil on failure.
+- (NSString *)mountFileImage:(NSString *)path
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *dir = [NSString
+        stringWithFormat:@"/tmp/du_img_%@",
+                         [[NSProcessInfo processInfo]
+                             globallyUniqueString]];
+    if (![fm createDirectoryAtPath:dir
+            withIntermediateDirectories:YES
+                             attributes:nil
+                                  error:nil]) {
+        return nil;
+    }
+    NSError *runError = nil;
+    DUProcessResult *result = [[DUAuthorizationManager sharedManager]
+        runPrivileged:[DUProcessRunner executablePathForName:@"mount"]
+                 args:@[ @"-o", @"loop", path, dir ]
+               timeout:300.0
+                 error:&runError];
+    if (result == nil || !result.exitedNormally ||
+        result.terminationStatus != 0) {
+        [fm removeItemAtPath:dir error:nil];
+        return nil;
+    }
+    return dir;
+}
+
+- (void)unmountFileImage:(NSString *)mountPoint
+{
+    [[DUAuthorizationManager sharedManager]
+        runPrivileged:[DUProcessRunner executablePathForName:@"umount"]
+                 args:@[ mountPoint ]
+               timeout:300.0
+                 error:nil];
+    [[NSFileManager defaultManager] removeItemAtPath:mountPoint
+                                                error:nil];
+}
+
+- (void)createImageFromFolder:(NSString *)folderPath
+                  destination:(NSString *)path
+                  filesystem:(NSString *)filesystem
+                    progress:(void (^)(double, NSString *))progress
+                  completion:(void (^)(NSError *))completion
+{
+    dispatch_worker(^{
+        unsigned long long content = [self folderSizeAtPath:folderPath];
+        unsigned long long size = content + content / 10 + 16 * 1024 * 1024;
+        progress(0.05,
+                 NSLocalizedString(@"Creating image container...", nil));
+        NSError *error =
+            [DULinuxImageTool createImageFileAtPath:path sizeBytes:size];
+        if (error != nil) {
+            completion(error);
+            return;
+        }
+        progress(0.2, NSLocalizedString(@"Formatting image...", nil));
+        error = [self formatImageFile:path filesystem:filesystem];
+        if (error != nil) {
+            completion(error);
+            return;
+        }
+        progress(0.35, NSLocalizedString(@"Mounting image...", nil));
+        NSString *mountPoint = [self mountFileImage:path];
+        if (mountPoint == nil) {
+            completion(DUErrorMake(
+                DUErrorMountError,
+                NSLocalizedString(@"The folder image could not be mounted.",
+                                  nil)));
+            return;
+        }
+        progress(0.5, NSLocalizedString(@"Copying files into image...", nil));
+        NSError *copyError = nil;
+        [[DUAuthorizationManager sharedManager]
+            runPrivileged:[DUProcessRunner executablePathForName:@"/bin/cp"]
+                     args:@[
+                         @"-a",
+                         [folderPath stringByAppendingPathComponent:@"."],
+                         mountPoint
+                     ]
+                   timeout:600.0
+                     error:&copyError];
+        [self unmountFileImage:mountPoint];
+        if (copyError != nil) {
+            completion(DUErrorMake(
+                DUErrorFilesystemError,
+                NSLocalizedString(@"The folder could not be copied into "
+                                   @"the image.",
+                                  nil)));
+            return;
+        }
+        progress(1.0,
+                 NSLocalizedString(@"Folder image created.", nil));
+        completion(nil);
+    });
+}
+
+#pragma mark - Image conversion, resizing, burning
+
+- (void)convertImage:(DUStorageObject *)image
+             options:(NSDictionary *)options
+            progress:(void (^)(double, NSString *))progress
+          completion:(void (^)(NSError *))completion
+{
+    NSString *sourcePath = ((DUDiskImage *)image).path;
+    NSString *targetPath = options[@"path"];
+    NSString *format = options[@"format"];
+    if (sourcePath.length == 0 || targetPath.length == 0 ||
+        format.length == 0) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(
+                                   @"Missing image parameters.", nil)));
+        return;
+    }
+    dispatch_worker(^{
+        progress(0.1, NSLocalizedString(@"Converting image...", nil));
+        NSError *result = [DULinuxImageTool
+            convertImageAtPath:sourcePath
+                        toPath:targetPath
+                        format:format];
+        if (result == nil) {
+            progress(1.0,
+                     NSLocalizedString(@"Image converted successfully.",
+                                       nil));
+        }
+        completion(result);
+    });
+}
+
+- (void)resizeImage:(DUStorageObject *)image
+             options:(NSDictionary *)options
+            progress:(void (^)(double, NSString *))progress
+          completion:(void (^)(NSError *))completion
+{
+    NSString *sourcePath = ((DUDiskImage *)image).path;
+    NSNumber *delta = options[@"deltaBytes"];
+    if (sourcePath.length == 0 || delta == nil) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(
+                                   @"Missing image parameters.", nil)));
+        return;
+    }
+    dispatch_worker(^{
+        progress(0.1, NSLocalizedString(@"Resizing image...", nil));
+        NSError *result = [DULinuxImageTool
+            resizeImageAtPath:sourcePath
+               sizeDeltaBytes:delta.longLongValue];
+        if (result == nil) {
+            progress(1.0,
+                     NSLocalizedString(@"Image resized successfully.",
+                                       nil));
+        }
+        completion(result);
+    });
+}
+
+// cdrecord-family syntax differences; the probed tool decides the argument
+// shape. All of them write the image to the drive node.
+- (NSArray<NSString *> *)burnArgumentsForTool:(NSString *)tool
+                                   imagePath:(NSString *)imagePath
+                                    drivePath:(NSString *)drivePath
+{
+    if ([tool hasSuffix:@"xorriso"]) {
+        return @[ @"-as", @"cdrecord", @"-v",
+                  [NSString stringWithFormat:@"dev=%@", drivePath],
+                  @"-data", imagePath ];
+    }
+    if ([tool hasSuffix:@"growisofs"]) {
+        return @[ @"-dvd-compat",
+                  [NSString stringWithFormat:@"%@=%@", drivePath, imagePath] ];
+    }
+    return @[ @"-v",
+              [NSString stringWithFormat:@"dev=%@", drivePath],
+              imagePath ];
+}
+
+- (void)burnImage:(DUStorageObject *)image
+         toObject:(DUStorageObject *)opticalDrive
+         progress:(void (^)(double, NSString *))progress
+        completion:(void (^)(NSError *))completion
+{
+    NSString *imagePath = ((DUDiskImage *)image).path;
+    NSString *drivePath = ((DUStorageDevice *)opticalDrive).devicePath
+        ?: opticalDrive.backendPath;
+    if (imagePath.length == 0 || drivePath.length == 0) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(
+                                   @"Missing burn parameters.", nil)));
+        return;
+    }
+
+    NSString *tool = nil;
+    for (NSString *candidate in @[ @"xorriso", @"growisofs",
+                                   @"wodim", @"cdrecord" ]) {
+        NSString *path = [DUProcessRunner executablePathForName:candidate];
+        if (path != nil) {
+            tool = path;
+            break;
+        }
+    }
+    if (tool == nil) {
+        completion(DUErrorMake(DUErrorBackendUnavailable,
+                               NSLocalizedString(
+                                   @"No optical burning tool is installed "
+                                   @"(xorriso, growisofs, wodim or "
+                                   @"cdrecord).", nil)));
+        return;
+    }
+
+    NSArray<NSString *> *arguments =
+        [self burnArgumentsForTool:tool.lastPathComponent
+                         imagePath:imagePath
+                          drivePath:drivePath];
+
+    // Writing to the raw drive node needs root; escalate like dd/mount do.
+    progress(0.05, NSLocalizedString(@"Burning image...", nil));
+    NSError *launchError = nil;
+    DUProcessHandle *handle =
+        [[DUAuthorizationManager sharedManager]
+            streamPrivileged:tool
+                        args:arguments
+               stdoutHandler:^(NSString *line) {
+            // Tool progress lines stream into the log; the fraction stays
+            // coarse because every burner reports differently.
+            progress(0.5, [DUParsing trimmedString:line] ?: @"");
+        }
+              finishHandler:^(DUProcessResult *result) {
+            if (result.exitedNormally && result.terminationStatus == 0) {
+                progress(1.0,
+                         NSLocalizedString(@"Image burned successfully.",
+                                           nil));
+                completion(nil);
+            } else {
+                NSString *detail = [DUParsing trimmedString:
+                                        result.standardOutput];
+                completion(DUErrorMake(DUErrorUnknown,
+                                       detail.length > 0
+                                           ? detail
+                                           : NSLocalizedString(
+                                                 @"Burning failed.", nil)));
+            }
+        }
+                               error:&launchError];
+    if (handle == nil) {
+        completion(launchError ?: DUErrorMake(DUErrorBackendUnavailable,
+                                              NSLocalizedString(
+                                                  @"Burning could not be "
+                                                  @"started.", nil)));
+    }
+}
+
 #pragma mark - RAID
 
 - (NSError *)createRAIDSetNamed:(NSString *)name
@@ -967,6 +1338,24 @@
 }
 
 #pragma mark - Worker helper
+
+- (void)mountFileImageAtPath:(NSString *)path
+                  completion:(void (^)(NSError *, NSString *))completion
+{
+    dispatch_worker(^{
+        NSString *mountPoint = [self mountFileImage:path];
+        if (mountPoint == nil) {
+            completion(DUErrorMake(
+                          DUErrorMountError,
+                          NSLocalizedString(@"The disk image could not be "
+                                            @"mounted.",
+                                            nil)),
+                      nil);
+            return;
+        }
+        completion(nil, mountPoint);
+    });
+}
 
 // Spawns a detached one-shot worker thread with its own autorelease pool.
 // No GCD: operations here can block for minutes on device I/O.

@@ -128,6 +128,10 @@ static NSString * const kUnknownValue = @"-";
                     NSLocalizedString(@"Health Status:", nil),
                     device.healthStatus ?: kUnknownValue
                 ]];
+                [rows addObject:@[
+                    NSLocalizedString(@"SMART Status:", nil),
+                    [DUStorageDevice localizedSmartStatus:device.smartStatus]
+                ]];
             }
             break;
         }

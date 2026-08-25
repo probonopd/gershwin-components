@@ -22,7 +22,10 @@
     NS_DESIGNATED_INITIALIZER;
 
 - (void)refreshForObject:(DUStorageObject *)object
-            capabilities:(DUStorageCapabilities *)capabilities;
+             capabilities:(DUStorageCapabilities *)capabilities;
+
+// Preloads the source role from outside (Images > Scan Image for Restore).
+- (void)setSourceObject:(DUStorageObject *)object;
 
 - (void)setControlsEnabled:(BOOL)enabled;
 

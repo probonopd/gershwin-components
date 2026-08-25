@@ -1178,6 +1178,9 @@ The following may be used through `DUProcessRunner`:
 | Utility / subsystem | License | Process execution |
 | ------------------- | ------- | ----------------: |
 | **qemu-img**        | GPL-2   |           **YES** |
+| **xorriso**         | GPL-3   |           **YES** |
+| **growisofs**       | GPL-2   |           **YES** |
+| **wodim** / **cdrecord** | GPL-2 |           **YES** |
 | **e2fsck**          | GPL     |           **YES** |
 | **mkfs.ext4**       | GPL     |           **YES** |
 | **resize2fs**       | GPL     |           **YES** |

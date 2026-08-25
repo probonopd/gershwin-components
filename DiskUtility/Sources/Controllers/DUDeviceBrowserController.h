@@ -16,6 +16,11 @@
 // routes them to the same handlers as the toolbar.
 - (void)browserRequestCommand:(NSString *)token
                     forObject:(DUStorageObject *)object;
+
+// Fired when image files are dropped onto the left pane (e.g. from the
+// Workspace); the window controller mounts each one so it appears in the
+// list, exactly like File > Open Disk Image.
+- (void)browserDidDropImageFiles:(NSArray<NSURL *> *)urls;
 @end
 
 // Owns the device tree presentation (ARCHITECTURE.md section 39). Reads
@@ -33,6 +38,10 @@
 // Rebuilds rows from the manager snapshot, preserving expansion state and
 // reselecting preferredIdentifier when still present.
 - (void)reloadWithPreferredSelection:(NSString *)preferredIdentifier;
+
+// When YES the outline shows only volumes, hiding whole disks and devices
+// (View > Show Only Volumes). Reset with View > Show All Devices.
+@property (nonatomic, assign) BOOL showOnlyVolumes;
 
 - (DUStorageObject *)selectedObject;
 

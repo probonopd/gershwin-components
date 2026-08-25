@@ -18,6 +18,7 @@
 #import "DUOpenBSDDeviceDiscovery.h"
 #import "DUOpenBSDDisklabelParser.h"
 #import "DUOpticalMedia.h"
+#import "DUDiskImage.h"
 #import "DUOpenBSDDeviceDiscovery.h"
 #import "DUParsing.h"
 #import "DUPartition.h"
@@ -46,11 +47,62 @@ static const NSTimeInterval kToolTimeoutSeconds = 300.0;
 
 @implementation DUOpenBSDStorageBackend
 
+- (NSArray<NSString *> *)expectedToolNames
+{
+    return @[
+        @"disklabel", @"dmesg", @"sysctl", @"mount", @"umount", @"newfs",
+        @"newfs_msdos", @"fsck_ffs", @"fsck_msdos", @"dd", @"sha256",
+        @"gzip", @"qemu-img", @"cdrecord", @"wodim", @"xorriso",
+        @"growisofs", @"eject", @"cat"
+    ];
+}
+
 #pragma mark - Discovery
 
 - (NSArray *)discoverStorageObjects:(NSError **)error
 {
-    return [[DUOpenBSDDeviceDiscovery new] discoverObjects:error];
+    NSMutableArray *objects =
+        [[[DUOpenBSDDeviceDiscovery new] discoverObjects:error]
+            mutableCopy];
+    // Registered disk-image files (user default, ARCHITECTURE.md section 67)
+    // become roots so convert/resize can target them. Both capabilities gate
+    // on qemu-img being installed.
+    [objects addObjectsFromArray:[self discoverRegisteredImages]];
+    return objects;
+}
+
+- (NSArray<DUDiskImage *> *)discoverRegisteredImages
+{
+    NSArray<NSString *> *imagePaths =
+        [[NSUserDefaults standardUserDefaults]
+            arrayForKey:@"DUAdditionalImages"] ?: @[];
+    BOOL qemuImg = [DUOpenBSDToolCache haveTool:@"qemu-img"];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSMutableArray<DUDiskImage *> *images = [NSMutableArray array];
+    for (NSString *path in imagePaths) {
+        if (![fileManager fileExistsAtPath:path]) {
+            continue;
+        }
+        DUDiskImage *image = [[DUDiskImage alloc]
+            initWithIdentifier:[@"openbsd-image-"
+                                    stringByAppendingString:
+                                        [path stringByAddingPercentEncodingWithAllowedCharacters:
+                                                  [NSCharacterSet alphanumericCharacterSet]].lowercaseString]];
+        image.displayName = path.lastPathComponent;
+        image.path = path;
+        NSDictionary<NSString *, NSNumber *> *attributes =
+            [fileManager attributesOfItemAtPath:path error:NULL];
+        image.sizeBytes =
+            attributes[NSFileSize].unsignedLongLongValue;
+        image.encrypted = NO;
+        image.compressed = NO;
+        image.mounted = NO;
+        image.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
+        image.capabilities.canConvertImage = qemuImg;
+        image.capabilities.canResizeImage = qemuImg;
+        [images addObject:image];
+    }
+    return images;
 }
 
 - (NSDictionary *)capabilitiesReport
@@ -75,7 +127,15 @@ static const NSTimeInterval kToolTimeoutSeconds = 300.0;
             [DUOpenBSDToolCache haveTool:@"dd"] ? @"partial" : @"no",
         @"RAID management" : @"no",
         @"Disk image mounting" : @"no",
-        @"Disk image conversion" : @"no",
+        // Image conversion and resizing go through qemu-img, a GPL tool run
+        // as a separate process per LIBRARIES.md section 3. Burning uses a
+        // GPL cdrecord-family tool out of process (section 26).
+        @"Disk image conversion" :
+            [DUOpenBSDToolCache haveTool:@"qemu-img"] ? @"yes" : @"no",
+        @"Disk image resizing" :
+            [DUOpenBSDToolCache haveTool:@"qemu-img"] ? @"yes" : @"no",
+        @"Optical burning" :
+            [self burnToolPath] != nil ? @"yes" : @"no",
     };
 }
 
@@ -1648,6 +1708,569 @@ static const NSTimeInterval kToolTimeoutSeconds = 300.0;
             completion(nil);
         }
     }];
+}
+
+#pragma mark - Image conversion, resizing, burning
+
+// Picks the first installed cdrecord-family burning tool. All are GPL and
+// therefore run as a separate process per LIBRARIES.md section 26, never
+// linked or dlopen'd.
+- (NSString *)burnToolPath
+{
+    for (NSString *candidate in @[ @"cdrecord", @"wodim", @"xorriso",
+                                    @"growisofs" ]) {
+        NSString *path = [DUOpenBSDToolCache pathForTool:candidate];
+        if (path != nil) {
+            return path;
+        }
+    }
+    return nil;
+}
+
+// Offered when creating or converting images; raw and gzipped raw need only
+// this process, the qemu formats appear only with qemu-img present.
+- (NSArray<NSDictionary *> *)imageCreationFormats
+{
+    NSMutableArray<NSDictionary *> *formats = [NSMutableArray array];
+    [formats addObject:@{
+        kDUFormatIdentifierKey : @"raw",
+        kDUFormatDisplayNameKey :
+            NSLocalizedString(@"Raw disk image (.img)", nil),
+    }];
+    if ([DUOpenBSDToolCache haveTool:@"gzip"]) {
+        [formats addObject:@{
+            kDUFormatIdentifierKey : @"gz",
+            kDUFormatDisplayNameKey :
+                NSLocalizedString(@"Gzipped raw image (.img.gz)", nil),
+        }];
+    }
+    if ([DUOpenBSDToolCache haveTool:@"qemu-img"]) {
+        for (NSString *format in @[ @"qcow2", @"vhd", @"vdi" ]) {
+            [formats addObject:@{
+                kDUFormatIdentifierKey : format,
+                kDUFormatDisplayNameKey :
+                    [NSString stringWithFormat:
+                        NSLocalizedString(@"QEMU %@ (via qemu-img)", nil),
+                        format.uppercaseString],
+            }];
+        }
+    }
+    return formats;
+}
+
+- (NSArray<NSString *> *)burnArgumentsForTool:(NSString *)tool
+                                   imagePath:(NSString *)imagePath
+                                    drivePath:(NSString *)drivePath
+{
+    NSString *base = tool.lastPathComponent;
+    if ([base isEqualToString:@"xorriso"]) {
+        return @[ @"-as", @"cdrecord", @"-v",
+                  [NSString stringWithFormat:@"dev=%@", drivePath],
+                  @"-data", imagePath ];
+    }
+    if ([base isEqualToString:@"growisofs"]) {
+        return @[ @"-dvd-compat",
+                  [NSString stringWithFormat:@"%@=%@", drivePath, imagePath] ];
+    }
+    return @[ @"-v",
+              [NSString stringWithFormat:@"dev=%@", drivePath],
+              imagePath ];
+}
+
+#pragma mark - Blank and folder image creation
+
+- (unsigned long long)folderSizeAtPath:(NSString *)folder
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    unsigned long long total = 0;
+    NSDirectoryEnumerator *enumerator = [fm enumeratorAtPath:folder];
+    for (NSString *entry in enumerator) {
+        NSString *full = [folder stringByAppendingPathComponent:entry];
+        NSDictionary *attrs = [fm attributesOfItemAtPath:full error:nil];
+        if ([[attrs fileType] isEqualToString:NSFileTypeRegular]) {
+            total += [attrs fileSize];
+        }
+    }
+    return total;
+}
+
+// Attaches a raw image file via vnconfig and returns the /dev/vnd0c node, or
+// nil on failure. The caller mounts, copies and later detaches it.
+- (NSString *)attachImageFile:(NSString *)path
+{
+    NSString *vnconfig = [DUOpenBSDToolCache pathForTool:@"vnconfig"];
+    if (vnconfig == nil) {
+        return nil;
+    }
+    NSError *runError = nil;
+    DUProcessResult *result =
+        [DUProcessRunner runExecutable:vnconfig
+                             arguments:@[ @"vnd0", path ]
+                                 error:&runError];
+    if (result == nil || !result.exitedNormally ||
+        result.terminationStatus != 0) {
+        return nil;
+    }
+    return @"/dev/vnd0c";
+}
+
+- (void)detachImageNode:(NSString *)node
+{
+    (void)node;
+    NSString *vnconfig = [DUOpenBSDToolCache pathForTool:@"vnconfig"];
+    if (vnconfig == nil) {
+        return;
+    }
+    [DUProcessRunner runExecutable:vnconfig
+                         arguments:@[ @"-u", @"vnd0" ]
+                             error:nil];
+}
+
+- (void)createBlankImageAtPath:(NSString *)path
+                           size:(unsigned long long)bytes
+                         format:(NSString *)format
+                       progress:(void (^)(double, NSString *))progress
+                     completion:(void (^)(NSError *))completion
+{
+    [self spawnWork:^{
+        progress(0.0, NSLocalizedString(@"Creating blank image...", nil));
+        NSError *error = nil;
+        if ([format isEqualToString:@"raw"]) {
+            NSString *truncate =
+                [DUOpenBSDToolCache pathForTool:@"truncate"];
+            if (truncate == nil) {
+                completion(
+                    [self toolFailure:DUErrorBackendUnavailable
+                              message:NSLocalizedString(
+                                          @"The truncate tool is missing.",
+                                          nil)
+                               result:nil]);
+                return;
+            }
+            NSError *launchError = nil;
+            DUProcessResult *result = [DUProcessRunner
+                runExecutable:truncate
+                   arguments:@[
+                       @"-s", [NSString stringWithFormat:@"%llu", bytes],
+                       path
+                   ]
+                       error:&launchError];
+            if (![self runSucceeded:result] || launchError != nil) {
+                error = launchError
+                            ?: [self toolFailure:DUErrorFilesystemError
+                                          message:NSLocalizedString(
+                                                      @"The blank image "
+                                                      @"could not be created.",
+                                                      nil)
+                                           result:result];
+            }
+        } else {
+            NSString *qemu =
+                [DUOpenBSDToolCache pathForTool:@"qemu-img"];
+            if (qemu == nil) {
+                completion([self
+                    toolFailure:DUErrorUnsupportedOperation
+                              message:NSLocalizedString(
+                                          @"Creating this image format "
+                                          @"requires qemu-img.",
+                                          nil)
+                               result:nil]);
+                return;
+            }
+            NSError *launchError = nil;
+            DUProcessResult *result = [DUProcessRunner
+                runExecutable:qemu
+                   arguments:@[
+                       @"create", @"-f", format, path,
+                       [NSString stringWithFormat:@"%llu", bytes]
+                   ]
+                       error:&launchError];
+            if (![self runSucceeded:result] || launchError != nil) {
+                error = launchError
+                            ?: [self toolFailure:DUErrorFilesystemError
+                                          message:NSLocalizedString(
+                                                      @"The blank image "
+                                                      @"could not be created.",
+                                                      nil)
+                                           result:result];
+            }
+        }
+        if (error == nil) {
+            progress(1.0,
+                     NSLocalizedString(@"Blank image created.", nil));
+        }
+        completion(error);
+    }];
+}
+
+- (void)createImageFromFolder:(NSString *)folderPath
+                  destination:(NSString *)path
+                  filesystem:(NSString *)filesystem
+                    progress:(void (^)(double, NSString *))progress
+                  completion:(void (^)(NSError *))completion
+{
+    (void)filesystem;
+    [self spawnWork:^{
+        unsigned long long content = [self folderSizeAtPath:folderPath];
+        unsigned long long size = content + content / 10 + 16 * 1024 * 1024;
+        progress(0.05,
+                 NSLocalizedString(@"Creating image container...", nil));
+        NSString *truncate = [DUOpenBSDToolCache pathForTool:@"truncate"];
+        if (truncate == nil) {
+            completion([self toolFailure:DUErrorBackendUnavailable
+                                  message:NSLocalizedString(
+                                              @"The truncate tool is missing.",
+                                              nil)
+                                   result:nil]);
+            return;
+        }
+        NSError *launchError = nil;
+        DUProcessResult *createResult = [DUProcessRunner
+            runExecutable:truncate
+               arguments:@[
+                   @"-s", [NSString stringWithFormat:@"%llu", size], path
+               ]
+                   error:&launchError];
+        if (![self runSucceeded:createResult] || launchError != nil) {
+            completion(launchError
+                           ?: [self toolFailure:DUErrorFilesystemError
+                                         message:NSLocalizedString(
+                                                     @"The image container "
+                                                     @"could not be created.",
+                                                     nil)
+                                          result:createResult]);
+            return;
+        }
+        progress(0.2, NSLocalizedString(@"Formatting image...", nil));
+        NSString *newfs =
+            [DUOpenBSDToolCache pathForTool:@"newfs_msdos"];
+        if (newfs == nil) {
+            completion([self toolFailure:DUErrorBackendUnavailable
+                                  message:NSLocalizedString(
+                                              @"The FAT formatting tool is "
+                                              @"missing.",
+                                              nil)
+                                   result:nil]);
+            return;
+        }
+        DUProcessResult *formatResult = [DUProcessRunner
+            runExecutable:newfs
+               arguments:@[ path ]
+                   error:&launchError];
+        if (![self runSucceeded:formatResult] || launchError != nil) {
+            completion(launchError
+                           ?: [self toolFailure:DUErrorFilesystemError
+                                         message:NSLocalizedString(
+                                                     @"The image filesystem "
+                                                     @"could not be formatted.",
+                                                     nil)
+                                          result:formatResult]);
+            return;
+        }
+        progress(0.35, NSLocalizedString(@"Mounting image...", nil));
+        NSString *node = [self attachImageFile:path];
+        if (node == nil) {
+            completion([self toolFailure:DUErrorMountError
+                                  message:NSLocalizedString(
+                                              @"The folder image could not "
+                                              @"be mounted.",
+                                              nil)
+                                   result:nil]);
+            return;
+        }
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSString *mountPoint = [NSString
+            stringWithFormat:@"/tmp/du_img_%@",
+                             [[NSProcessInfo processInfo]
+                                 globallyUniqueString]];
+        [fm createDirectoryAtPath:mountPoint
+            withIntermediateDirectories:YES
+                             attributes:nil
+                                  error:nil];
+        NSString *mount = [DUOpenBSDToolCache pathForTool:@"mount"];
+        DUProcessResult *mountResult = [DUProcessRunner
+            runExecutable:mount
+               arguments:@[ @"-t", @"msdos", node, mountPoint ]
+                   error:&launchError];
+        if (![self runSucceeded:mountResult] || launchError != nil) {
+            [self detachImageNode:node];
+            completion(launchError
+                           ?: [self toolFailure:DUErrorMountError
+                                         message:NSLocalizedString(
+                                                     @"The folder image could "
+                                                     @"not be mounted.",
+                                                     nil)
+                                          result:mountResult]);
+            return;
+        }
+        progress(0.5,
+                 NSLocalizedString(@"Copying files into image...", nil));
+        NSString *cp = @"/bin/cp";
+        DUProcessResult *copyResult = [DUProcessRunner
+            runExecutable:cp
+               arguments:@[
+                   @"-a",
+                   [folderPath stringByAppendingPathComponent:@"."],
+                   mountPoint
+               ]
+                   error:&launchError];
+        [DUProcessRunner runExecutable:
+                              [DUOpenBSDToolCache pathForTool:@"umount"]
+                             ?: @"umount"
+                             arguments:@[ mountPoint ]
+                                 error:nil];
+        [self detachImageNode:node];
+        if (![self runSucceeded:copyResult] || launchError != nil) {
+            completion(launchError
+                           ?: [self toolFailure:DUErrorFilesystemError
+                                         message:NSLocalizedString(
+                                                     @"The folder could not "
+                                                     @"be copied into the "
+                                                     @"image.",
+                                                     nil)
+                                          result:copyResult]);
+            return;
+        }
+        progress(1.0, NSLocalizedString(@"Folder image created.", nil));
+        completion(nil);
+    }];
+}
+
+- (void)mountFileImageAtPath:(NSString *)path
+                  completion:(void (^)(NSError *, NSString *))completion
+{
+    [self spawnWork:^{
+        NSString *node = [self attachImageFile:path];
+        if (node == nil) {
+            completion(
+                [self toolFailure:DUErrorMountError
+                          message:NSLocalizedString(
+                                      @"The disk image could not be attached.",
+                                      nil)
+                           result:nil],
+                nil);
+            return;
+        }
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSString *mountPoint = [NSString
+            stringWithFormat:@"/tmp/du_img_%@",
+                             [[NSProcessInfo processInfo]
+                                 globallyUniqueString]];
+        [fm createDirectoryAtPath:mountPoint
+            withIntermediateDirectories:YES
+                             attributes:nil
+                                  error:nil];
+        NSError *launchError = nil;
+        DUProcessResult *mountResult = [DUProcessRunner
+            runExecutable:[DUOpenBSDToolCache pathForTool:@"mount"]
+               arguments:@[ @"-t", @"msdos", node, mountPoint ]
+                   error:&launchError];
+        if (![self runSucceeded:mountResult] || launchError != nil) {
+            [self detachImageNode:node];
+            completion(
+                launchError
+                    ?: [self toolFailure:DUErrorMountError
+                                  message:NSLocalizedString(
+                                              @"The disk image could not be "
+                                              @"mounted.",
+                                              nil)
+                                   result:mountResult],
+                nil);
+            return;
+        }
+        completion(nil, mountPoint);
+    }];
+}
+
+- (void)convertImage:(DUStorageObject *)image
+             options:(NSDictionary *)options
+            progress:(void (^)(double, NSString *))progress
+          completion:(void (^)(NSError *))completion
+{
+    NSString *sourcePath = ((DUDiskImage *)image).path;
+    NSString *targetPath = options[@"path"];
+    NSString *format = options[@"format"];
+    if (sourcePath.length == 0 || targetPath.length == 0 ||
+        format.length == 0) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(
+                                   @"Missing image parameters.", nil)));
+        return;
+    }
+    // qemu-img runs as an ordinary unprivileged process: it only reads the
+    // source file and writes the destination file (LIBRARIES.md section 3).
+    NSString *qemuImg = [DUOpenBSDToolCache pathForTool:@"qemu-img"];
+    if (qemuImg == nil) {
+        completion(DUErrorMake(DUErrorUnsupportedOperation,
+                               NSLocalizedString(
+                                   @"Converting images requires the qemu-img "
+                                    @"tool.", nil)));
+        return;
+    }
+    if ([[NSFileManager defaultManager] fileExistsAtPath:targetPath]) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(
+                                   @"A file already exists at the "
+                                    @"destination.", nil)));
+        return;
+    }
+    [self spawnWork:^{
+        progress(0.1, NSLocalizedString(@"Converting image...", nil));
+        NSError *launchError = nil;
+        DUProcessResult *result =
+            [DUProcessRunner runExecutable:qemuImg
+                                 arguments:@[ @"convert", @"-O", format,
+                                              sourcePath, targetPath ]
+                                     error:&launchError];
+        if (launchError != nil) {
+            [[NSFileManager defaultManager] removeItemAtPath:targetPath
+                                                       error:NULL];
+            completion(launchError);
+            return;
+        }
+        if (![self runSucceeded:result]) {
+            [[NSFileManager defaultManager] removeItemAtPath:targetPath
+                                                       error:NULL];
+            completion([self toolFailure:DUErrorUnknown
+                                 message:NSLocalizedString(
+                                             @"The image conversion failed.",
+                                             nil)
+                                  result:result]);
+            return;
+        }
+        progress(1.0,
+                 NSLocalizedString(@"Image converted successfully.", nil));
+        completion(nil);
+    }];
+}
+
+- (void)resizeImage:(DUStorageObject *)image
+            options:(NSDictionary *)options
+           progress:(void (^)(double, NSString *))progress
+         completion:(void (^)(NSError *))completion
+{
+    NSString *sourcePath = ((DUDiskImage *)image).path;
+    NSNumber *delta = options[@"deltaBytes"];
+    if (sourcePath.length == 0 || delta == nil) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(
+                                   @"Missing image parameters.", nil)));
+        return;
+    }
+    long long deltaBytes = delta.longLongValue;
+    if (deltaBytes == 0) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(@"The resize amount must not "
+                                                  @"be zero.", nil)));
+        return;
+    }
+    NSString *qemuImg = [DUOpenBSDToolCache pathForTool:@"qemu-img"];
+    if (qemuImg == nil) {
+        completion(DUErrorMake(DUErrorUnsupportedOperation,
+                               NSLocalizedString(
+                                   @"Resizing images requires the qemu-img "
+                                    @"tool.", nil)));
+        return;
+    }
+    [self spawnWork:^{
+        progress(0.1, NSLocalizedString(@"Resizing image...", nil));
+        NSString *deltaSpec =
+            [NSString stringWithFormat:@"%c%lld",
+                                       deltaBytes > 0 ? '+' : '-',
+                                       deltaBytes > 0 ? deltaBytes
+                                                      : -deltaBytes];
+        NSError *launchError = nil;
+        DUProcessResult *result =
+            [DUProcessRunner runExecutable:qemuImg
+                                 arguments:@[ @"resize", sourcePath,
+                                              deltaSpec ]
+                                     error:&launchError];
+        if (launchError != nil) {
+            completion(launchError);
+            return;
+        }
+        if (![self runSucceeded:result]) {
+            completion([self toolFailure:DUErrorUnknown
+                                 message:NSLocalizedString(
+                                             @"The image could not be "
+                                              @"resized.", nil)
+                                  result:result]);
+            return;
+        }
+        progress(1.0,
+                 NSLocalizedString(@"Image resized successfully.", nil));
+        completion(nil);
+    }];
+}
+
+- (void)burnImage:(DUStorageObject *)image
+          toObject:(DUStorageObject *)opticalDrive
+          progress:(void (^)(double, NSString *))progress
+         completion:(void (^)(NSError *))completion
+{
+    NSString *imagePath = ((DUDiskImage *)image).path;
+    NSString *drivePath = ((DUStorageDevice *)opticalDrive).devicePath
+        ?: opticalDrive.backendPath;
+    if (imagePath.length == 0 || drivePath.length == 0) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(
+                                   @"Missing burn parameters.", nil)));
+        return;
+    }
+    NSString *tool = [self burnToolPath];
+    if (tool == nil) {
+        completion(DUErrorMake(DUErrorBackendUnavailable,
+                               NSLocalizedString(
+                                   @"No optical burning tool is installed "
+                                    @"(cdrecord, wodim, xorriso or "
+                                    @"growisofs).", nil)));
+        return;
+    }
+    NSArray<NSString *> *arguments =
+        [self burnArgumentsForTool:tool.lastPathComponent
+                         imagePath:imagePath
+                          drivePath:drivePath];
+    [self spawnWork:^{
+        progress(0.05, NSLocalizedString(@"Writing disc...", nil));
+        DUProcessResult *result =
+            [self blockingStreamedRun:tool
+                            arguments:arguments
+                          lineHandler:^(NSString *line) {
+                double fraction = [self burnProgressFromLine:line];
+                if (fraction > 0.0 && progress != NULL) {
+                    progress(fraction,
+                             NSLocalizedString(@"Writing disc...", nil));
+                }
+            }];
+        if (![self runSucceeded:result]) {
+            completion([self toolFailure:DUErrorUnknown
+                                 message:NSLocalizedString(
+                                             @"Burning the disc failed.", nil)
+                                  result:result]);
+            return;
+        }
+        progress(1.0, NSLocalizedString(@"Disc burned successfully.", nil));
+        completion(nil);
+    }];
+}
+
+- (double)burnProgressFromLine:(NSString *)line
+{
+    NSRange percent = [line rangeOfString:@"%"];
+    if (percent.location == NSNotFound) {
+        return 0.0;
+    }
+    NSRange start = [line rangeOfString:@" "
+                                options:NSBackwardsSearch
+                                  range:NSMakeRange(0, percent.location)];
+    NSUInteger from = start.location == NSNotFound ? 0 : start.location + 1;
+    NSString *number =
+        [line substringWithRange:NSMakeRange(from, percent.location - from)];
+    double value = [number doubleValue];
+    if (value <= 0.0 || value > 100.0) {
+        return 0.0;
+    }
+    return MIN(0.95, value / 100.0);
 }
 
 @end

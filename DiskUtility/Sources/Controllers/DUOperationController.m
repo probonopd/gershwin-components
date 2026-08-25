@@ -31,7 +31,14 @@ static NSString * const kTabIdentifierRestore = @"restore";
 @property (nonatomic, strong) DUEraseViewController *erasePane_;
 @property (nonatomic, strong) DUPartitionViewController *partitionPane_;
 @property (nonatomic, strong) DURestoreViewController *restorePane_;
-@property (nonatomic, strong) NSView *unavailablePlaceholder;
+@end
+
+// GNUstep's NSTabViewItem has no enabled state, so the Eau theme adds one
+// (defaulting to YES).  We drive it here: an operation unavailable for the
+// current selection disables its tab instead of showing a placeholder.
+@interface NSTabViewItem (EauEnabled)
+- (void)setEnabled:(BOOL)flag;
+- (BOOL)isEnabled;
 @end
 
 @implementation DUOperationController
@@ -66,10 +73,6 @@ static NSString * const kTabIdentifierRestore = @"restore";
         [[DURestoreViewController alloc]
             initWithStorageManager:manager logView:_logView];
 
-    // Shared placeholder shown in any tab whose operation is unavailable
-    // for the current selection (SPEC section 30).
-    _unavailablePlaceholder = [self placeholderView];
-
     [self addTabWithIdentifier:kTabIdentifierFirstAid
                          label:NSLocalizedString(@"First Aid", nil)
                           view:_firstAidPane_.view];
@@ -88,35 +91,9 @@ static NSString * const kTabIdentifierRestore = @"restore";
     return self;
 }
 
-- (NSView *)placeholderView
-{
-    NSView *view =
-        [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 260)];
-    view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-
-    NSTextField *label = [[NSTextField alloc] initWithFrame:NSZeroRect];
-    label.editable = NO;
-    label.bezeled = NO;
-    label.drawsBackground = NO;
-    label.stringValue = NSLocalizedString(
-        @"This operation is not available for the current selection.", nil);
-    label.font = METRICS_FONT_SYSTEM_REGULAR_11;
-    [(NSCell *)label.cell setWraps:YES];
-    label.textColor = [NSColor secondarySelectedControlColor];
-    label.frame =
-        NSMakeRect(METRICS_CONTENT_SIDE_MARGIN,
-                   NSHeight(view.frame) / 2.0,
-                   NSWidth(view.frame) - 2 * METRICS_CONTENT_SIDE_MARGIN,
-                   30);
-    label.autoresizingMask =
-        NSViewWidthSizable | NSViewMinYMargin;
-    [view addSubview:label];
-    return view;
-}
-
 - (void)addTabWithIdentifier:(NSString *)identifier
-                       label:(NSString *)label
-                        view:(NSView *)view
+                        label:(NSString *)label
+                         view:(NSView *)view
 {
     NSTabViewItem *item = [[NSTabViewItem alloc] initWithIdentifier:identifier];
     item.label = label;
@@ -143,10 +120,13 @@ static NSString * const kTabIdentifierRestore = @"restore";
 }
 
 - (void)refreshForObject:(DUStorageObject *)object
-             capabilities:(DUStorageCapabilities *)capabilities
+              capabilities:(DUStorageCapabilities *)capabilities
 {
-    // Availability follows SPEC section 30: unsupported tabs swap in a
-    // placeholder because GNUstep tab items cannot be disabled individually.
+    // Availability follows SPEC section 30: an operation unsupported for the
+    // current selection disables its tab (Eau theme grays it and the tab
+    // can no longer be selected) rather than showing a placeholder inside an
+    // otherwise empty tab.  The pane view itself is always installed, so a
+    // disabled tab simply can't be reached.
     void (^set)(NSString *, BOOL, NSView *) =
         ^(NSString *tabIdentifier, BOOL available, NSView *realView) {
             NSInteger index =
@@ -155,12 +135,11 @@ static NSString * const kTabIdentifierRestore = @"restore";
                 return;
             }
             NSTabViewItem *item = [self.tabView tabViewItemAtIndex:index];
-            NSView *wanted =
-                (available && object != nil) ? realView
-                                             : self.unavailablePlaceholder;
-            if (item.view != wanted) {
-                item.view = wanted;
+            // The view stays the real pane; only its enabled flag changes.
+            if (item.view != realView) {
+                item.view = realView;
             }
+            [item setEnabled:(available && object != nil)];
         };
 
     set(kTabIdentifierFirstAid,
@@ -170,14 +149,14 @@ static NSString * const kTabIdentifierRestore = @"restore";
     set(kTabIdentifierErase, capabilities.canErase, _erasePane_.view);
     set(kTabIdentifierRestore, capabilities.canRestore,
         _restorePane_.view);
-    set(kTabIdentifierRAID, capabilities.canCreateRAID,
+    set(kTabIdentifierRAID, capabilities.canCreateRAID && _raidPane != nil,
         self.raidPaneView);
 
     /* Partitioning always targets a whole device. When the selection is one
      * of its volumes or partitions, walk up to the owning device so its
      * Partition tab shows the parent disk's map (the apply path warns that
      * the whole disk is rewritten). Devices themselves pass through; RAID
-     * sets have no device ancestor and stay on the placeholder. */
+     * sets have no device ancestor and stay disabled. */
     DUStorageObject *partitionTarget = object;
     while (partitionTarget != nil &&
            partitionTarget.type != DUStorageObjectTypeDevice) {
@@ -197,6 +176,17 @@ static NSString * const kTabIdentifierRestore = @"restore";
         [_partitionPane_ refreshForObject:nil capabilities:nil];
     }
     [_restorePane_ refreshForObject:object capabilities:capabilities];
+
+    // If the currently selected tab just became unavailable, move to the
+    // first enabled one so the user is never left staring at a dead tab.
+    if (![self.tabView.selectedTabViewItem isEnabled]) {
+        for (NSTabViewItem *item in [self.tabView tabViewItems]) {
+            if ([item isEnabled]) {
+                [self.tabView selectTabViewItem:item];
+                break;
+            }
+        }
+    }
 }
 
 - (void)setControlsEnabled:(BOOL)enabled
@@ -222,13 +212,30 @@ static NSString * const kTabIdentifierRestore = @"restore";
     return _restorePane_;
 }
 
-// Current pane views; registered by later waves, placeholders before.
+- (void)showRestorePaneWithSource:(DUStorageObject *)object
+{
+    if ([_restorePane_ respondsToSelector:@selector(setSourceObject:)]) {
+        [_restorePane_ setSourceObject:object];
+    }
+    [self.tabView selectTabViewItemWithIdentifier:kTabIdentifierRestore];
+}
+
+// Current pane view; the RAID pane is registered in a later build wave, so
+// before that it is simply absent and its tab stays disabled.
 - (NSView *)raidPaneView
 {
-    return _raidPane ?: _unavailablePlaceholder;
+    return _raidPane ?: [[NSView alloc] init];
 }
 
 #pragma mark - NSTabViewDelegate
+
+// Disabled tabs (operation unavailable for the selection) cannot be
+// selected, by click or programmatically.
+- (BOOL)tabView:(NSTabView *)tabView
+    shouldSelectTabViewItem:(NSTabViewItem *)item
+{
+    return [item isEnabled];
+}
 
 // Tab swaps leave 1px-stale text in regions the backend does not damage
 // (observed as double-struck labels in unrelated panes); one synchronous

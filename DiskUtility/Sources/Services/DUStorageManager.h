@@ -71,6 +71,26 @@
 
 - (NSArray<NSDictionary *> *)imageCreationFormats;
 
+// Convenience starters for image conversion, resizing and burning
+// (optional backend verbs). Same lock-and-run contract as image creation.
+- (DUOperation *)convertImage:(DUStorageObject *)image
+                       options:(NSDictionary *)options
+                    onProgress:(void (^)(double progress, NSString *message))progress
+                  onCompletion:(void (^)(NSError *error))completion
+                         error:(NSError **)error;
+
+- (DUOperation *)resizeImage:(DUStorageObject *)image
+                      options:(NSDictionary *)options
+                   onProgress:(void (^)(double progress, NSString *message))progress
+                 onCompletion:(void (^)(NSError *error))completion
+                        error:(NSError **)error;
+
+- (DUOperation *)burnImage:(DUStorageObject *)image
+                 toObject:(DUStorageObject *)opticalDrive
+               onProgress:(void (^)(double progress, NSString *message))progress
+             onCompletion:(void (^)(NSError *error))completion
+                    error:(NSError **)error;
+
 // Format descriptors for the erase popup; passthrough to the optional
 // backend method, empty array when the backend does not implement it.
 - (NSArray<NSDictionary *> *)supportedFormatsForObject:(DUStorageObject *)object;

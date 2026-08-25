@@ -36,6 +36,11 @@ static const unsigned long long kGiB = 1024ull * 1024 * 1024;
 
 @implementation DUMockStorageBackend
 
+- (NSArray<NSString *> *)expectedToolNames
+{
+    return @[];
+}
+
 - (instancetype)init
 {
     if ((self = [super init]) == nil) {
@@ -259,6 +264,7 @@ static const unsigned long long kGiB = 1024ull * 1024 * 1024;
     device.readOnly = NO;
     device.partitionScheme = scheme;
     device.healthStatus = @"healthy";
+    device.smartStatus = DUStorageSmartStatusVerified;
     device.optical = optical;
     device.mediaPresent = optical;
 
@@ -1017,6 +1023,8 @@ static const unsigned long long kGiB = 1024ull * 1024 * 1024;
 
 - (NSArray<NSDictionary *> *)imageCreationFormats
 {
+    /* The mock simulates a system with qemu-img installed, so the
+     * conversion targets match what the caps advertise. */
     return @[
         @{ kDUFormatIdentifierKey : @"raw",
            kDUFormatDisplayNameKey :
@@ -1024,7 +1032,127 @@ static const unsigned long long kGiB = 1024ull * 1024 * 1024;
         @{ kDUFormatIdentifierKey : @"gz",
            kDUFormatDisplayNameKey :
                NSLocalizedString(@"Gzipped raw image (.img.gz)", nil) },
+        @{ kDUFormatIdentifierKey : @"qcow2",
+           kDUFormatDisplayNameKey :
+               NSLocalizedString(@"QEMU copy-on-write (.qcow2)", nil) },
+        @{ kDUFormatIdentifierKey : @"vdi",
+           kDUFormatDisplayNameKey :
+               NSLocalizedString(@"VirtualBox disk image (.vdi)", nil) },
     ];
+}
+
+#pragma mark - Image conversion, resizing, burning (simulated)
+
+- (DUDiskImage *)imageForObject:(DUStorageObject *)object
+{
+    for (DUStorageObject *root in self.roots) {
+        if ([root isKindOfClass:[DUDiskImage class]] &&
+            [root.identifier isEqualToString:object.identifier]) {
+            return (DUDiskImage *)root;
+        }
+    }
+    return nil;
+}
+
+- (void)convertImage:(DUStorageObject *)image
+             options:(NSDictionary *)options
+            progress:(void (^)(double, NSString *))progress
+          completion:(void (^)(NSError *))completion
+{
+    NSString *format = options[@"format"];
+    if (format.length == 0) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(
+                                   @"Missing image parameters.", nil)));
+        return;
+    }
+    [self spawnWork:^{
+        [self simulateSteps:8
+                    message:NSLocalizedString(@"Converting image...", nil)
+                   progress:progress];
+        [self.lock lock];
+        DUDiskImage *mockImage = [self imageForObject:image];
+        if (mockImage != nil) {
+            mockImage.format = format;
+            mockImage.compressed = ![format isEqualToString:@"raw"];
+        }
+        [self.lock unlock];
+        progress(1.0,
+                 NSLocalizedString(@"Image converted successfully.", nil));
+        completion(nil);
+    }];
+}
+
+- (void)resizeImage:(DUStorageObject *)image
+             options:(NSDictionary *)options
+            progress:(void (^)(double, NSString *))progress
+          completion:(void (^)(NSError *))completion
+{
+    NSNumber *delta = options[@"deltaBytes"];
+    if (delta == nil) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(
+                                   @"Missing image parameters.", nil)));
+        return;
+    }
+    [self spawnWork:^{
+        [self simulateSteps:5
+                    message:NSLocalizedString(@"Resizing image...", nil)
+                   progress:progress];
+        [self.lock lock];
+        DUDiskImage *mockImage = [self imageForObject:image];
+        if (mockImage != nil) {
+            unsigned long long newSize =
+                MAX(kMiB, mockImage.sizeBytes + delta.longLongValue);
+            mockImage.sizeBytes = newSize;
+            if (mockImage.backingVolume != nil) {
+                mockImage.backingVolume.capacityBytes = newSize;
+                mockImage.backingVolume.availableBytes =
+                    newSize - mockImage.backingVolume.usedBytes;
+            }
+        }
+        [self.lock unlock];
+        progress(1.0,
+                 NSLocalizedString(@"Image resized successfully.", nil));
+        completion(nil);
+    }];
+}
+
+- (void)burnImage:(DUStorageObject *)image
+         toObject:(DUStorageObject *)opticalDrive
+         progress:(void (^)(double, NSString *))progress
+        completion:(void (^)(NSError *))completion
+{
+    [self spawnWork:^{
+        [self simulateSteps:20
+                    message:NSLocalizedString(@"Burning image...", nil)
+                   progress:progress];
+        [self.lock lock];
+        for (DUStorageObject *root in self.roots) {
+            if (![root isKindOfClass:[DUStorageDevice class]] ||
+                !((DUStorageDevice *)root).optical) {
+                continue;
+            }
+            if (![root.identifier isEqualToString:opticalDrive.identifier]) {
+                continue;
+            }
+            for (DUStorageObject *child in root.children) {
+                DUOpticalMedia *media = (DUOpticalMedia *)child;
+                if (![media isKindOfClass:[DUOpticalMedia class]]) {
+                    continue;
+                }
+                media.displayName =
+                    [NSString stringWithFormat:
+                         NSLocalizedString(@"Burned: %@",
+                                           @"optical disc label"),
+                         image.displayName ?: @"image"];
+            }
+        }
+        [self.lock unlock];
+        progress(1.0,
+                 NSLocalizedString(@"Image burned successfully.", nil));
+        completion(nil);
+    }];
 }
 
 @end

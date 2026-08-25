@@ -6,6 +6,14 @@
 
 #import "DUStorageObject.h"
 
+// SMART self-assessment result. Unknown until the backend queries it.
+typedef NS_ENUM(NSInteger, DUStorageSmartStatus) {
+    DUStorageSmartStatusUnknown = 0,
+    DUStorageSmartStatusVerified,
+    DUStorageSmartStatusFailing,
+    DUStorageSmartStatusNotSupported,
+};
+
 // Physical or virtual storage device (ARCHITECTURE.md section 11).
 @interface DUStorageDevice : DUStorageObject
 
@@ -21,6 +29,19 @@
 @property (nonatomic, copy) NSString *partitionScheme;
 
 @property (nonatomic, copy) NSString *healthStatus;
+
+// SMART self-assessment of the physical drive. Only meaningful for whole
+// devices (disks), not volumes or partitions. The value is filled by the
+// backend during discovery via +querySmartStatusForPath:.
+@property (nonatomic) DUStorageSmartStatus smartStatus;
+
+// Best-effort SMART self-assessment for a block device (smartctl). Returns
+// DUStorageSmartStatusNotSupported when smartctl is absent or the device
+// does not support SMART, so callers must cope with that value.
++ (DUStorageSmartStatus)querySmartStatusForPath:(NSString *)devicePath;
+
+// Localized label for a DUStorageSmartStatus value.
++ (NSString *)localizedSmartStatus:(DUStorageSmartStatus)status;
 
 @property (nonatomic) BOOL optical;
 // Only meaningful when optical is YES.

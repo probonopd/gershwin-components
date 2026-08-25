@@ -16,7 +16,7 @@
 // No GCD: a plain NSLock serializes the rare cache misses.
 @interface DULinuxToolCache : NSObject
 
-// Absolute path of the tool in the fixed search directories, or nil when
+// Absolute path of the tool resolved from the process PATH (see DUProcessRunner), or nil when
 // absent. Negative results are cached too.
 + (NSString *)pathForTool:(NSString *)toolName;
 

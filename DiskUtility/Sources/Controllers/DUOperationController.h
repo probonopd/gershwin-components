@@ -33,6 +33,10 @@
 - (id)erasePane;
 - (id)restorePane;
 
+// Selects the Restore tab and preloads its source from an image file
+// (Images > Scan Image for Restore).
+- (void)showRestorePaneWithSource:(DUStorageObject *)object;
+
 // Global busy state: disables action controls in all panes while any
 // storage operation is running.
 - (void)setControlsEnabled:(BOOL)enabled;

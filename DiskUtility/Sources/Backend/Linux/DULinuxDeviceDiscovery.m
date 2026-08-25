@@ -494,6 +494,11 @@ extern NSString * const kLsblkKeyFstype;
     device.mediaPresent = NO;
     device.partitionScheme = [self partitionSchemeForDeviceRow:row];
 
+    // SMART is a whole-disk attribute; query it during discovery so the
+    // Info panel can show the drive's self-assessment.
+    device.smartStatus =
+        [DUStorageDevice querySmartStatusForPath:device.backendPath];
+
     device.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
     return device;
 }
@@ -788,6 +793,13 @@ extern NSString * const kLsblkKeyFstype;
         [DULinuxToolCache haveTool:@"sfdisk"] || [DULinuxToolCache haveTool:@"parted"];
     BOOL canFormatAny =
         [DULinuxToolCache haveTool:@"mkfs.ext4"] || [DULinuxToolCache haveTool:@"mkfs.vfat"];
+    // Burning runs through whichever cdrecord-family tool is installed
+    // (LIBRARIES.md section 1.3: GPL tools, out of process).
+    BOOL canBurn =
+        [DULinuxToolCache haveTool:@"xorriso"] ||
+        [DULinuxToolCache haveTool:@"growisofs"] ||
+        [DULinuxToolCache haveTool:@"wodim"] ||
+        [DULinuxToolCache haveTool:@"cdrecord"];
 
     for (DUStorageObject *root in roots) {
         if (![root isKindOfClass:[DUStorageDevice class]]) {
@@ -797,6 +809,7 @@ extern NSString * const kLsblkKeyFstype;
         device.capabilities.canPartition = canPartition && !device.optical;
         device.capabilities.canErase = canFormatAny && !device.optical;
         device.capabilities.canEject = device.ejectable && canEject;
+        device.capabilities.canBurn = canBurn && device.optical;
         device.capabilities.canMount = NO;
         device.capabilities.canUnmount = NO;
         device.capabilities.canVerify = YES;

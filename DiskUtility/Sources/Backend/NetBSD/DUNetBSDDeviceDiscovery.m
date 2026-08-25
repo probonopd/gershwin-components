@@ -299,6 +299,8 @@ static NSString * const kWholeDiskLetter = @"d";
     } else {
         device.connectionIsInternal = YES;
     }
+    device.smartStatus =
+        [DUStorageDevice querySmartStatusForPath:device.backendPath];
     device.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
 
     for (NSDictionary<NSString *, id> *row in
@@ -497,6 +499,17 @@ static NSString * const kWholeDiskLetter = @"d";
         drive.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
         drive.capabilities.canEject =
             [DUNetBSDToolCache haveTool:@"eject"];
+        // Burning needs a cdrecord-family tool (run out of process per
+        // LIBRARIES.md section 26); without one the toolbar Burn stays
+        // disabled.
+        drive.capabilities.canBurn = NO;
+        for (NSString *cand in @[ @"cdrecord", @"wodim", @"xorriso",
+                                    @"growisofs" ]) {
+            if ([DUNetBSDToolCache haveTool:cand]) {
+                drive.capabilities.canBurn = YES;
+                break;
+            }
+        }
         [roots addObject:drive];
     }
 }

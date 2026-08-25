@@ -51,6 +51,54 @@ static NSString * const kDefaultsConfirmDestructive =
 @property (nonatomic, assign) BOOL operationRunning;
 @end
 
+// A plain display field that also accepts file drops (Workspace images).  The
+// drop is forwarded to a block so the controller can resolve it to a restore
+// source without subclassing the whole pane.
+@interface DUFileDropTextField : NSTextField
+@property (nonatomic, copy) void (^dropHandler)(NSArray<NSURL *> *urls);
+@end
+
+@implementation DUFileDropTextField
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info
+{
+    (void)info;
+    return NSDragOperationCopy;
+}
+
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)info
+{
+    (void)info;
+    return YES;
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)info
+{
+    NSPasteboard *pb = [info draggingPasteboard];
+    NSArray *entries = [pb propertyListForType:NSFilenamesPboardType];
+    if (entries == nil) {
+        entries = [pb propertyListForType:NSURLPboardType];
+    }
+    NSMutableArray<NSURL *> *urls = [NSMutableArray array];
+    for (id entry in entries) {
+        NSURL *url = nil;
+        if ([entry isKindOfClass:[NSString class]]) {
+            url = [NSURL fileURLWithPath:entry];
+        } else if ([entry isKindOfClass:[NSURL class]]) {
+            url = entry;
+        }
+        if (url != nil && [url isFileURL]) {
+            [urls addObject:url];
+        }
+    }
+    if (urls.count > 0 && self.dropHandler != nil) {
+        self.dropHandler(urls);
+    }
+    return urls.count > 0;
+}
+
+@end
+
 @implementation DURestoreViewController
 
 - (instancetype)initWithStorageManager:(DUStorageManager *)manager
@@ -75,10 +123,19 @@ static NSString * const kDefaultsConfirmDestructive =
     _view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 
     _sourceLabel = [self label:NSLocalizedString(@"Source:", nil)];
-    _sourceField = [[NSTextField alloc] init];
-    _sourceField.editable = NO;
+    DUFileDropTextField *sourceField = [[DUFileDropTextField alloc] init];
+    sourceField.editable = NO;
+    // Let image files be dropped straight onto the Source field, mirroring
+    // the "Image File..." route in the chooser.
+    [sourceField
+        registerForDraggedTypes:@[ NSFilenamesPboardType, NSURLPboardType ]];
+    __weak typeof(self) weakSelf = self;
+    sourceField.dropHandler = ^(NSArray<NSURL *> *urls) {
+        [weakSelf sourceDroppedFileAtURL:urls.firstObject];
+    };
+    _sourceField = sourceField;
     _sourceChooseButton = [self button:NSLocalizedString(@"Choose...", nil)
-                                action:@selector(chooseSource:)];
+                                 action:@selector(chooseSource:)];
 
     _destinationLabel = [self label:NSLocalizedString(@"Destination:", nil)];
     _destinationField = [[NSTextField alloc] init];
@@ -227,6 +284,16 @@ static NSString * const kDefaultsConfirmDestructive =
         _destinationField.stringValue = object.displayName ?: @"";
     }
     [self updateEnabledStates:capabilities];
+}
+
+- (void)setSourceObject:(DUStorageObject *)object
+{
+    if (object == nil) {
+        return;
+    }
+    self.resolvedSource = object;
+    _sourceField.stringValue = object.displayName ?: @"";
+    [self updateEnabledStates:nil];
 }
 
 - (void)setControlsEnabled:(BOOL)enabled
@@ -438,6 +505,20 @@ static NSString * const kDefaultsConfirmDestructive =
     self.destinationChosenByUser = YES;
     _destinationField.stringValue = picked.displayName ?: @"";
     [self updateEnabledStates:nil];
+}
+
+// Dropped file onto the Source field: wrap it as a transient restore-capable
+// image, exactly like the chooser's "Image File..." route.
+- (void)sourceDroppedFileAtURL:(NSURL *)url
+{
+    if (url == nil) {
+        return;
+    }
+    DUDiskImage *image = [self transientImageForPath:[url path]];
+    if (image == nil) {
+        return;
+    }
+    [self setSourceObject:image];
 }
 
 // Shared state for the modal picker panel buttons.

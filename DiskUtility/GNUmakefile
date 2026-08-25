@@ -78,6 +78,7 @@ DiskUtility_OBJC_FILES = \
 	Sources/Controllers/DUFirstAidViewController.m \
 	Sources/Controllers/DUEraseViewController.m \
 	Sources/Controllers/DUNewImageController.m \
+	Sources/Controllers/DUImagePanelController.m \
 	Sources/Controllers/DUPartitionViewController.m \
 		Sources/Controllers/DURestoreViewController.m \
 	Sources/Views/DUDeviceOutlineView.m \
@@ -109,6 +110,9 @@ DiskUtility_OBJC_FILES = \
 	Sources/Operations/DURestoreOperation.m \
 	Sources/Operations/DURAIDOperation.m \
 	Sources/Operations/DUCreateImageOperation.m \
+	Sources/Operations/DUConvertImageOperation.m \
+	Sources/Operations/DUResizeImageOperation.m \
+	Sources/Operations/DUBurnOperation.m \
 	Sources/Operations/DUImageOperation.m \
 	Sources/Utilities/DUErrors.m \
 	Sources/Utilities/DUProcessRunner.m \
