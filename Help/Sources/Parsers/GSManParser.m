@@ -439,9 +439,22 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
   NSString *_section;
   BOOL _verbatim;
   NSMutableString *_codeBuffer;
+  /* Whole-section code blocks: some man sections (SYNOPSIS, TYPES,
+   * CONSTANTS, ...) are pure source and read best as a monospaced code
+   * block rather than filled prose. While _inCodeSection is set, text
+   * lines and font macros accumulate verbatim into _codeSectionBuffer,
+   * flushed as one GSHelpCodeBlock when the section ends. */
+  BOOL _inCodeSection;
+  NSMutableString *_codeSectionBuffer;
   BOOL _tpPending;
   GSHelpTextStyle _pendingStyle;
   BOOL _awaitHeadingText;
+  /* While parsing a roff macro definition (.de/.do ... terminator) the
+   * body lines are formatting machinery, never page content, and must
+   * be skipped wholesale. _macroDepth counts nesting; _macroEnd is the
+   * optional explicit end-macro name given as ".de name end". */
+  NSInteger _macroDepth;
+  NSString *_macroEnd;
 }
 
 #pragma mark Detection
@@ -562,9 +575,13 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
   _command = nil;
   _section = nil;
   _verbatim = NO;
+  _inCodeSection = NO;
+  _codeSectionBuffer = nil;
   _tpPending = NO;
   _pendingStyle = GSHelpTextStylePlain;
   _awaitHeadingText = NO;
+  _macroDepth = 0;
+  _macroEnd = nil;
 
   NSArray *lines =
       [source componentsSeparatedByCharactersInSet:
@@ -576,6 +593,7 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
   if (_verbatim) {
     [self flushCodeBlock];
   }
+  [self flushCodeSection];
 
   NSMutableDictionary *meta = [NSMutableDictionary new];
   meta[@"command"] = _command ?: @"";
@@ -610,6 +628,38 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
     return;
   }
 
+  /* Inside a roff macro definition the body is machinery, not content.
+   * Skip it until the terminator (a lone '.' or '..', or the explicit
+   * end macro named in ".de name end"). */
+  if (_macroDepth > 0) {
+    NSString *trimmed = GSTrim(line);
+    BOOL terminator = ([trimmed isEqualToString: @"."]
+                       || [trimmed isEqualToString: @".."]);
+    if (_macroEnd != nil) {
+      terminator = terminator
+          || [trimmed isEqualToString:
+              [@"." stringByAppendingString: _macroEnd]];
+    }
+    if (terminator) {
+      _macroDepth--;
+      if (_macroDepth == 0) {
+        _macroEnd = nil;
+      }
+      return;
+    }
+    return;
+  }
+
+  /* Fallback for macro bodies that escaped .de detection: a line that
+   * is plainly roff machinery (a macro argument reference "\$1" or a
+   * register/string interpolation "\n[...]") must never reach the
+   * output as text (this is what rst2man leaks at the top of pages). */
+  if ([line hasPrefix: @"\\$"]
+      || [line containsString: @"\\n["]
+      || [line containsString: @"\\*["]) {
+    return;
+  }
+
   unichar c0 = line.length ? [line characterAtIndex: 0] : 0;
 
   if (line.length == 0) {
@@ -636,11 +686,14 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
     return;
   }
 
-  if (_verbatim) {
-    [_codeBuffer appendString: line];
-    [_codeBuffer appendString: @"\n"];
-    return;
-  }
+    if (_verbatim) {
+      /* Code/verbatim excerpts carry the same roff noise as running
+       * text (\&, \f switches, \- ...); strip it so the block shows the
+       * actual content rather than roff machinery. */
+      [_codeBuffer appendString: GSUnescape(line)];
+      [_codeBuffer appendString: @"\n"];
+      return;
+    }
 
   [self addTextLine: line];
 }
@@ -648,6 +701,21 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
 - (void)handleMacro:(NSString *)name args:(NSString *)args
 {
   NSString *m = name.uppercaseString;
+
+  /* Begin a roff macro definition; its body (until the terminator) is
+   * machinery and is skipped by -processLine. The optional second
+   * argument names the end macro (".de name end"). */
+  if ([m isEqualToString: @"DE"] || [m isEqualToString: @"DO"]
+      || [m isEqualToString: @"DE1"] || [m isEqualToString: @"DO1"]) {
+    NSArray *toks = GSSplitQuoted(args);
+    NSString *end = nil;
+    if (toks.count >= 2) {
+      end = [toks[1] uppercaseString];
+    }
+    _macroDepth++;
+    _macroEnd = end;
+    return;
+  }
 
   if ([m isEqualToString: @"TH"]) {
     [self flushAllContent];
@@ -698,15 +766,28 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
     return;
   }
 
-  if ([m isEqualToString: @"NF"]) {
+  /* Verbatim display blocks arrive under several macro names: man(7)
+   * .nf/.fi, pod2man .Vb/.Ve and mdoc-style .EX/.EE. */
+  if ([m isEqualToString: @"NF"] || [m isEqualToString: @"VB"]
+      || [m isEqualToString: @"EX"]) {
     [self flushRuns];
     _verbatim = YES;
     _codeBuffer = [NSMutableString new];
     return;
   }
 
-  if ([m isEqualToString: @"FI"]) {
+  if ([m isEqualToString: @"FI"] || [m isEqualToString: @"VE"]
+      || [m isEqualToString: @"EE"]) {
     [self flushCodeBlock];
+    return;
+  }
+
+  /* .br forces a line break and .sp vertical space. Roff is
+   * case-sensitive here: the lowercase spellings are breaks, while
+   * .BR/.SP uppercased would collide with the bold-roman font macro,
+   * which silently ate every .br before this check existed. */
+  if ([name isEqualToString: @"br"] || [name isEqualToString: @"sp"]) {
+    [self flushRuns];
     return;
   }
 
@@ -715,7 +796,45 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
     return;
   }
 
+  /* mdoc author references: .An names an author (sometimes inline with
+   * "Aq email"), .Aq renders an address in angle brackets. Both carry
+   * real content that must reach the output, not be dropped. Control
+   * forms like ".An -split"/".An -nosplit" carry no text. */
+  if ([m isEqualToString: @"AN"]) {
+    [self handleAuthorName: args];
+    return;
+  }
+  if ([m isEqualToString: @"AQ"]) {
+    NSString *t = GSTrim(GSUnescape(args));
+    if (t.length > 0) {
+      [self addRun: [NSString stringWithFormat: @"<%@>", t]
+             style: GSHelpTextStylePlain
+              join: YES];
+    }
+    return;
+  }
+
   /* Unknown macro: ignored gracefully rather than misinterpreted. */
+}
+
+- (void)handleAuthorName:(NSString *)args
+{
+  NSString *t = GSTrim(GSUnescape(args));
+  if (t.length == 0 || [t hasPrefix: @"-"]) {
+    return;
+  }
+  /* Combined ".An name Aq email" form: keep the name and bracket the
+   * address, matching what .Aq would produce standalone. */
+  NSRange aq = [t rangeOfString: @" Aq "];
+  if (aq.location != NSNotFound) {
+    NSString *name = GSTrim([t substringToIndex: aq.location]);
+    NSString *email = GSTrim([t substringFromIndex: NSMaxRange(aq)]);
+    [self addRun: [NSString stringWithFormat: @"%@ <%@>", name, email]
+           style: GSHelpTextStylePlain
+            join: YES];
+    return;
+  }
+  [self addRun: t style: GSHelpTextStylePlain join: YES];
 }
 
 - (BOOL)isFontMacro:(NSString *)m
@@ -747,7 +866,24 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
 
 - (void)applyFontMacro:(NSString *)name args:(NSString *)args
 {
-  NSArray *toks = GSSplitWords(args);
+  /* Inside a code section a font macro just contributes its literal
+   * text as a source line; a bare font request (no args) applies to the
+   * next line and is ignored here. */
+  if (_inCodeSection) {
+    NSArray *toks = GSSplitQuoted(args);
+    if (toks.count == 0) {
+      return;
+    }
+    [_codeSectionBuffer
+        appendString: GSUnescape([toks componentsJoinedByString: @" "])];
+    [_codeSectionBuffer appendString: @"\n"];
+    return;
+  }
+
+  /* Roff font macros take whitespace-separated OR double-quoted
+   * arguments; quoted spaces are significant (".BI "-x " "file"" must
+   * render "-x file", not "-xfile"), so split quote-aware. */
+  NSArray *toks = GSSplitQuoted(args);
   if ([name isEqualToString: @"SM"]) {
     /* .SM sets its arguments small, i.e. plain roman here */
     for (NSString *tok in toks) {
@@ -768,8 +904,14 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
   for (NSUInteger k = 0; k < toks.count; k++) {
     unichar letter =
         [name characterAtIndex: alternating ? (k % 2) : 0];
+    /* Roff output semantics: the first argument continues the prose
+     * flow with a space; a single-font macro separates its further
+     * arguments with spaces too (".B foo bar" -> "foo bar"), while
+     * two-font macros concatenate them ("libinput" + "(1)" ->
+     * "libinput(1)"). */
     [self addRun: GSUnescape(toks[k])
-           style: [self styleForFontLetter: letter]];
+           style: [self styleForFontLetter: letter]
+           join: k == 0 || !alternating];
   }
   if (_tpPending) {
     /* The whole font-macro line counts as the .TP tag. */
@@ -779,11 +921,16 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
 
 - (void)openHeading:(NSString *)text level:(NSUInteger)level
 {
+  [self flushCodeSection];
   GSHelpHeading *h = [GSHelpHeading new];
   h.text = text;
   h.level = MIN(MAX(level, 1), 4);
   [_root appendNode: h];
   _inNameSection = [text caseInsensitiveCompare: @"NAME"] == 0;
+  _inCodeSection = [self isCodeSectionTitle: text];
+  if (_inCodeSection) {
+    _codeSectionBuffer = [NSMutableString new];
+  }
 }
 
 - (void)beginListItemWithTag:(BOOL)tagged args:(NSString *)args
@@ -802,12 +949,29 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
   _runMode = GSMRunModeListItem;
 
   if (tagged) {
-    NSString *t = GSTrim(GSUnescape(args));
-    if (t.length > 0) {
+    /* .IP tag [indent]: a purely numeric second argument is the tag
+     * width, not tag text, and must not leak into the output. */
+    NSArray *toks = GSSplitQuoted(args);
+    for (NSString *tok in toks) {
+      NSString *t = GSTrim(GSUnescape(tok));
+      if (t.length == 0) {
+        continue;
+      }
+      BOOL numericOnly = YES;
+      for (NSUInteger k = 0; k < t.length; k++) {
+        if (!isdigit((int)[t characterAtIndex: k])) {
+          numericOnly = NO;
+          break;
+        }
+      }
+      if (numericOnly) {
+        continue;
+      }
       GSHelpText *run = [GSHelpText new];
       run.string = t;
       run.style = GSHelpTextStyleBold;
       [item appendNode: run];
+      break;
     }
   }
 }
@@ -817,6 +981,14 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
   if (_awaitHeadingText) {
     _awaitHeadingText = NO;
     [self openHeading: GSTrim(GSUnescape(line)) level: 1];
+    return;
+  }
+
+  /* Inside a code section the body is source: keep it verbatim
+   * (preserving line breaks and indentation) instead of filling it. */
+  if (_inCodeSection) {
+    [_codeSectionBuffer appendString: GSUnescape(line)];
+    [_codeSectionBuffer appendString: @"\n"];
     return;
   }
 
@@ -833,11 +1005,39 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
   if (clean.length == 0) {
     return;
   }
-  [self addRun: clean style: style];
+  /* Roff hard-wraps paragraphs in the source; a newline in the input
+   * is a word space in the output, so consecutive text lines must
+   * join with a space or words glue together ("willbe"). */
+  [self addRun: clean style: style join: YES];
 }
 
 - (void)addRun:(NSString *)string style:(GSHelpTextStyle)style
 {
+  [self addRun: string style: style join: NO];
+}
+
+- (void)addRun:(NSString *)string
+              style:(GSHelpTextStyle)style
+              join:(BOOL)join
+{
+  /* Roff fill mode puts a space wherever a source line breaks, no
+   * matter which characters meet at the boundary ("adds" + "-Wall"
+   * renders "adds -Wall"); only existing whitespace suppresses the
+   * joiner. */
+  if (join && string.length > 0 && _pendingRuns.count > 0) {
+    GSHelpNode *last = _pendingRuns.lastObject;
+    if ([last isKindOfClass: [GSHelpText class]]) {
+      GSHelpText *prev = (GSHelpText *)last;
+      if (prev.string.length > 0) {
+        unichar a = [prev.string
+            characterAtIndex: prev.string.length - 1];
+        unichar b = [string characterAtIndex: 0];
+        if (a != ' ' && b != ' ') {
+          prev.string = [prev.string stringByAppendingString: @" "];
+        }
+      }
+    }
+  }
   GSHelpText *run = [GSHelpText new];
   run.string = string;
   run.style = style;
@@ -859,6 +1059,24 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
   }
   if (wasItem) {
     if (_currentItem) {
+      /* The item may already hold the bold .IP/.TP tag run; the body
+       * must not glue onto it ("--helpShow this help"). */
+      GSHelpNode *lastTag = [_currentItem.children lastObject];
+      GSHelpText *first = runs.firstObject;
+      if ([lastTag isKindOfClass: [GSHelpText class]]
+          && [first isKindOfClass: [GSHelpText class]]
+          && [(GSHelpText *)lastTag string].length > 0
+          && [first string].length > 0) {
+        unichar a = [[(GSHelpText *)lastTag string]
+            characterAtIndex:
+                [(GSHelpText *)lastTag string].length - 1];
+        unichar b = [[first string] characterAtIndex: 0];
+        if (a != ' ' && b != ' ') {
+          ((GSHelpText *)lastTag).string =
+              [[(GSHelpText *)lastTag string]
+                  stringByAppendingString: @" "];
+        }
+      }
       for (GSHelpNode *n in [self expandedRuns: runs]) {
         [_currentItem appendNode: n];
       }
@@ -891,10 +1109,47 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
   _lastBlockWasList = NO;
 }
 
+/* Man sections that are pure source read best as a monospaced code block
+ * rather than filled, joined prose. Recognised by their (case-insensitive)
+ * title; extend this set as more code-bearing sections are encountered. */
+- (BOOL)isCodeSectionTitle:(NSString *)title
+{
+  static NSSet *codeSections;
+  if (codeSections == nil) {
+    codeSections = [NSSet setWithObjects:
+        @"SYNOPSIS", @"SYNTAX",
+        @"CALLBACKS", @"TYPES", @"CONSTANTS",
+        @"DEFINES", @"DECLARATIONS", nil];
+  }
+  return [codeSections containsObject: [title uppercaseString]];
+}
+
+/* Flushes a pending whole-section code block (see _inCodeSection). */
+- (void)flushCodeSection
+{
+  if (!_inCodeSection) {
+    return;
+  }
+  _inCodeSection = NO;
+  NSString *code = [_codeSectionBuffer
+      stringByTrimmingCharactersInSet:
+          [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  _codeSectionBuffer = nil;
+  if (code.length == 0) {
+    return;
+  }
+  GSHelpCodeBlock *cb = [GSHelpCodeBlock new];
+  cb.code = code;
+  cb.language = nil;
+  [_root appendNode: cb];
+  _lastBlockWasList = NO;
+}
+
 - (void)flushAllContent
 {
   [self flushRuns];
   [self flushCodeBlock];
+  [self flushCodeSection];
 }
 
 /* NAME section: first hyphen splits command summary from description

@@ -199,7 +199,9 @@ int main(void)
     PASS(((GSHelpText *)syn[0]).style == GSHelpTextStyleBold
          && ((GSHelpText *)syn[0]).string != nil,
          "first synopsis run bold");
-    PASS_EQUAL(PlainOf(syn), @"ls[OPTION]... [FILE]...",
+    /* Roff fill mode joins a macro line and the following text line
+     * with a space: nroff renders "ls [OPTION]... [FILE]...". */
+    PASS_EQUAL(PlainOf(syn), @"ls [OPTION]... [FILE]...",
                "synopsis runs concatenated");
   }
   END_SET("font macros")
@@ -214,7 +216,8 @@ int main(void)
     PASS(runs.count >= 2, "tag plus body runs present");
     PASS(((GSHelpText *)runs[0]).style == GSHelpTextStyleBold,
          "tag line rendered bold");
-    PASS_EQUAL(((GSHelpText *)runs[0]).string, @"-v",
+    /* The joiner space between tag and body lives on the tag run. */
+    PASS_EQUAL(((GSHelpText *)runs[0]).string, @"-v ",
                "\\- in tag unescaped to hyphen");
     BOOL bodyPlain = NO;
     for (GSHelpNode *n in runs) {
@@ -244,9 +247,9 @@ int main(void)
     GSHelpListItem *item0 = list.children[0];
     PASS(item0.children.count >= 2, "item holds tag and description");
     GSHelpText *tag = item0.children[0];
-    PASS(tag.style == GSHelpTextStyleBold && [tag.string isEqual: @"opt1"],
+    PASS(tag.style == GSHelpTextStyleBold && [tag.string isEqual: @"opt1 "],
          "tag is bold first run");
-    PASS_EQUAL(PlainOf(item0.children), @"opt1desc one",
+    PASS_EQUAL(PlainOf(item0.children), @"opt1 desc one",
                "description kept in same item");
 
     /* a .PP between .IP groups starts a fresh list */
