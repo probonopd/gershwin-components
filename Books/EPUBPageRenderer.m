@@ -20,6 +20,8 @@
 - (BOOL)isFlipped { return YES; }
 @end
 
+const CGFloat EPUBPageMargin = 24.0;
+
 @implementation EPUBPageRenderer
 {
   NSWindow *_offscreen;
@@ -74,7 +76,7 @@
 
   if (valid)
     {
-      CGFloat margin = 24.0;
+      CGFloat margin = EPUBPageMargin;
       NSSize textSize = NSMakeSize(w - 2.0 * margin, h - 2.0 * margin);
 
       NSLayoutManager *lm = [[NSLayoutManager alloc] init];

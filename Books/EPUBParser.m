@@ -23,6 +23,119 @@ static NSString *Trimmed(NSString *s)
     return [s stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
+// WHY: EPUB RS 3.3, 5.3 requires stripping AND collapsing ASCII whitespace
+// from Dublin Core and meta element values before processing. A plain trim is
+// not enough (internal runs of whitespace must collapse to a single space).
+static NSString *CollapseASCIIWhitespace(NSString *s)
+{
+    if (s == nil)
+    {
+        return nil;
+    }
+    NSMutableString *out = [NSMutableString string];
+    BOOL inSpace = YES; // treat leading edge as whitespace so it is stripped
+    for (NSUInteger i = 0; i < [s length]; i++)
+    {
+        unichar c = [s characterAtIndex:i];
+        BOOL isWS = (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == 0x0c);
+        if (isWS)
+        {
+            inSpace = YES;
+        }
+        else
+        {
+            if (inSpace && [out length] > 0)
+            {
+                [out appendString:@" "];
+            }
+            [out appendString:[NSString stringWithCharacters:&c length:1]];
+            inSpace = NO;
+        }
+    }
+    return out;
+}
+
+#pragma mark - ZIP container validation (EPUB RS 3.3, 4.2)
+
+// WHY a manual scan instead of relying on `unzip`: 4.2 requires treating
+// encrypted archives, unsupported compression methods and unexpected "version
+// needed to extract" values as fatal errors. We inspect each local file header
+// so we reject such containers before extraction rather than failing mid-way or,
+// worse, silently mis-handling them.
+static BOOL EPUBLocalHeaderRead32(const uint8_t *p, NSUInteger len, NSUInteger off, uint32_t *out)
+{
+    if (off + 4 > len) return NO;
+    *out = (uint32_t)p[off] | ((uint32_t)p[off + 1] << 8) |
+           ((uint32_t)p[off + 2] << 16) | ((uint32_t)p[off + 3] << 24);
+    return YES;
+}
+static BOOL EPUBLocalHeaderRead16(const uint8_t *p, NSUInteger len, NSUInteger off, uint16_t *out)
+{
+    if (off + 2 > len) return NO;
+    *out = (uint16_t)p[off] | ((uint16_t)p[off + 1] << 8);
+    return YES;
+}
+
+static BOOL EPUBZipIsValidContainer(NSData *data, NSError **error)
+{
+    const uint8_t *p = [data bytes];
+    NSUInteger len = [data length];
+    NSUInteger off = 0;
+    while (off + 4 <= len)
+    {
+        uint32_t sig;
+        if (!EPUBLocalHeaderRead32(p, len, off, &sig)) break;
+        if (sig != 0x04034b50) break; // no more local headers
+        uint16_t version, flags, method, fnLen, exLen;
+        uint32_t compSize;
+        if (!EPUBLocalHeaderRead16(p, len, off + 4, &version)) break;
+        if (!EPUBLocalHeaderRead16(p, len, off + 6, &flags)) break;
+        if (!EPUBLocalHeaderRead16(p, len, off + 8, &method)) break;
+        if (!EPUBLocalHeaderRead32(p, len, off + 18, &compSize)) break;
+        if (!EPUBLocalHeaderRead16(p, len, off + 26, &fnLen)) break;
+        if (!EPUBLocalHeaderRead16(p, len, off + 28, &exLen)) break;
+
+        if (flags & 0x0001)
+        {
+            if (error)
+            {
+                *error = [NSError errorWithDomain:@"EPUBParser" code:6
+                                         userInfo:@{NSLocalizedDescriptionKey:
+                                             @"EPUB container is encrypted (encryption not supported)"}];
+            }
+            return NO;
+        }
+        if (method != 0 && method != 8)
+        {
+            if (error)
+            {
+                *error = [NSError errorWithDomain:@"EPUBParser" code:7
+                                         userInfo:@{NSLocalizedDescriptionKey:
+                                             @"EPUB container uses an unsupported compression method"}];
+            }
+            return NO;
+        }
+        if (version != 10 && version != 20 && version != 45)
+        {
+            if (error)
+            {
+                *error = [NSError errorWithDomain:@"EPUBParser" code:8
+                                         userInfo:@{NSLocalizedDescriptionKey:
+                                             @"EPUB container uses an unsupported ZIP version"}];
+            }
+            return NO;
+        }
+        // ZIP64 uses 0xFFFFFFFF/0xFFFF as sentinels; we cannot reliably skip
+        // those entries, so stop scanning (the container is still extracted).
+        if (compSize == 0xFFFFFFFFU || fnLen == 0xFFFF || exLen == 0xFFFF) break;
+        NSUInteger advance = 30 + (NSUInteger)fnLen + (NSUInteger)exLen + (NSUInteger)compSize;
+        if (flags & 0x0001) advance += 12; // encryption header
+        if (advance == 0 || off + advance > len + 0xFFFFFFFFU) break;
+        off += advance;
+    }
+    return YES;
+}
+
 /* src may carry a #fragment; resolve relative to baseDir, then make it
    relative to extractRoot so the book can re-resolve via absolutePathForContent:. */
 static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, NSString *extractRoot)
@@ -93,6 +206,7 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
 @property (nonatomic, copy) NSString *publisher;
 @property (nonatomic, copy) NSString *spineTocId;
 @property (nonatomic, copy) NSString *metaCoverId;
+@property (nonatomic, copy) NSString *pageProgressionDirection;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSDictionary *> *manifest;
 @property (nonatomic, strong) NSMutableArray<NSString *> *manifestOrder;
 @property (nonatomic, strong) NSMutableArray<NSString *> *spineIds;
@@ -127,11 +241,13 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
         NSString *href = attributes[@"href"];
         NSString *mt = attributes[@"media-type"];
         NSString *props = attributes[@"properties"];
+        NSString *fb = attributes[@"fallback"];
         if (ident != nil && href != nil)
         {
             NSMutableDictionary *d = [NSMutableDictionary dictionary];
             if (mt) d[@"media-type"] = mt;
             if (props) d[@"properties"] = props;
+            if (fb) d[@"fallback"] = fb;
             d[@"href"] = href;
             _manifest[ident] = d;
             [_manifestOrder addObject:ident];
@@ -151,6 +267,13 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
         if (toc != nil)
         {
             _spineTocId = toc;
+        }
+        // EPUB RS 3.3, 5.5: if the creator does not specify
+        // page-progression-direction, the reading system MUST assume "default".
+        NSString *ppd = attributes[@"page-progression-direction"];
+        if (ppd != nil)
+        {
+            _pageProgressionDirection = ppd;
         }
     }
     else if ([local isEqualToString:@"meta"])
@@ -177,7 +300,7 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
 - (void)parser:(NSXMLParser *)parser didEndElement:(NSString *)elementName namespaceURI:(NSString *)namespaceURI qualifiedName:(NSString *)qName
 {
     NSString *local = LocalName(elementName);
-    NSString *value = Trimmed(_text);
+    NSString *value = CollapseASCIIWhitespace(_text);
     if ([local isEqualToString:@"title"])
     {
         if (_title == nil && [value length] > 0)
@@ -463,6 +586,14 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
         return nil;
     }
 
+    /* EPUB RS 3.3, 4.2: validate the OCF ZIP container (encryption, compression
+       method, ZIP version) before extracting anything. */
+    NSData *zipData = [NSData dataWithContentsOfFile:epubPath];
+    if (!EPUBZipIsValidContainer(zipData, error))
+    {
+        return nil;
+    }
+
     NSString *tmp = NSTemporaryDirectory();
     NSString *extractDir = [tmp stringByAppendingPathComponent:
         [@"epub-" stringByAppendingString:[[NSProcessInfo processInfo] globallyUniqueString]]];
@@ -513,6 +644,7 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
     _ContainerParser *cp = [[_ContainerParser alloc] init];
     NSXMLParser *cxml = [[NSXMLParser alloc] initWithContentsOfURL:[NSURL fileURLWithPath:containerPath]];
     [cxml setDelegate:cp];
+    [cxml setShouldResolveExternalEntities:NO];
     [cxml parse];
     if (cp.opfPath == nil)
     {
@@ -531,6 +663,7 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
     _OPFParser *op = [[_OPFParser alloc] init];
     NSXMLParser *oxml = [[NSXMLParser alloc] initWithContentsOfURL:[NSURL fileURLWithPath:opfPath]];
     [oxml setDelegate:op];
+    [oxml setShouldResolveExternalEntities:NO];
     [oxml parse];
 
     NSMutableDictionary<NSString *, NSDictionary *> *absManifest = [NSMutableDictionary dictionary];
@@ -548,10 +681,13 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
     NSMutableArray<NSString *> *spine = [NSMutableArray array];
     for (NSString *idref in op.spineIds)
     {
-        NSDictionary *d = absManifest[idref];
-        if (d != nil)
+        // EPUB RS 3.3, 5.4: traverse the manifest fallback chain when a spine
+        // item's media type is not directly renderable, terminating at the
+        // first manifest item already visited (cycle guard).
+        NSString *resolved = [self spineResourceForId:idref manifest:absManifest];
+        if (resolved != nil)
         {
-            [spine addObject:d[@"abs"]];
+            [spine addObject:resolved];
         }
     }
     if ([spine count] == 0)
@@ -629,6 +765,7 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
         np.extractRoot = extractDir;
         NSXMLParser *nxml = [[NSXMLParser alloc] initWithContentsOfURL:[NSURL fileURLWithPath:navPath]];
         [nxml setDelegate:np];
+    [nxml setShouldResolveExternalEntities:NO];
         [nxml parse];
         toc = np.roots;
     }
@@ -665,6 +802,7 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
             npx.extractRoot = extractDir;
             NSXMLParser *nxml = [[NSXMLParser alloc] initWithContentsOfURL:[NSURL fileURLWithPath:ncxPath]];
             [nxml setDelegate:npx];
+    [nxml setShouldResolveExternalEntities:NO];
             [nxml parse];
             toc = npx.roots;
         }
@@ -685,8 +823,43 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
     [book setCoverPath:coverPath];
     [book setSpine:spine];
     [book setTableOfContents:toc];
+    // EPUB RS 3.3, 5.5: honor an explicit page-progression-direction; when
+    // absent the reading system MUST assume "default" (nil here means default).
+    [book setPageProgressionDirection:op.pageProgressionDirection];
     [book setValue:extractDir forKey:@"extractedRoot"];
     return book;
+}
+
+#pragma mark - spine fallback resolution (EPUB RS 3.3, 5.4)
+
+- (NSString *)spineResourceForId:(NSString *)idref
+                       manifest:(NSDictionary<NSString *, NSDictionary *> *)absManifest
+{
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    NSString *cur = idref;
+    while (cur != nil)
+    {
+        if ([seen containsObject:cur])
+        {
+            break; // cycle: terminate the fallback chain
+        }
+        [seen addObject:cur];
+        NSDictionary *d = absManifest[cur];
+        if (d == nil)
+        {
+            break;
+        }
+        NSString *mt = d[@"media-type"];
+        if (mt != nil &&
+            ([mt isEqualToString:@"application/xhtml+xml"] ||
+             [mt isEqualToString:@"text/html"] ||
+             [mt rangeOfString:@"html" options:NSCaseInsensitiveSearch].location != NSNotFound))
+        {
+            return d[@"abs"];
+        }
+        cur = d[@"fallback"];
+    }
+    return nil;
 }
 
 @end

@@ -34,6 +34,7 @@
     {
       _mutableBooks = [NSMutableArray array];
       [self load];
+      [self loadCurrent];
     }
   return self;
 }
@@ -112,6 +113,36 @@
 {
   [_mutableBooks removeObject:book];
   [self save];
+}
+
+#pragma mark - Current (open) book
+
+- (NSString *)currentBookFile
+{
+  return [[[self storePath] stringByDeletingLastPathComponent]
+      stringByAppendingPathComponent:@"currentbook.plist"];
+}
+
+- (void)loadCurrent
+{
+  _currentBookPath = [NSString stringWithContentsOfFile:[self currentBookFile]
+                                               encoding:NSUTF8StringEncoding
+                                                  error:NULL];
+}
+
+- (void)setCurrentBookPath:(NSString *)path
+{
+  _currentBookPath = [path copy];
+  [self saveCurrent];
+}
+
+- (void)saveCurrent
+{
+  if (_currentBookPath == nil) return;
+  [_currentBookPath writeToFile:[self currentBookFile]
+                     atomically:YES
+                       encoding:NSUTF8StringEncoding
+                          error:NULL];
 }
 
 @end

@@ -10,7 +10,6 @@
 @end
 
 static const CGFloat kBodySize = 16.0;
-
 @interface EPUBHTMLConverter () <NSXMLParserDelegate>
 {
   NSMutableAttributedString *_out;
@@ -20,8 +19,14 @@ static const CGFloat kBodySize = 16.0;
   NSUInteger _blockStart;
   NSMutableParagraphStyle *_blockStyle;
   NSURL *_base;
+  NSURL *_containerRoot;
   NSFont *_lastFont;
+  NSMutableArray<NSString *> *_dirStack;
+  NSMutableArray<NSString *> *_langStack;
+  NSString *_currentDir;
+  NSString *_currentLang;
 }
+
 @end
 
 @implementation EPUBHTMLConverter
@@ -30,7 +35,21 @@ static const CGFloat kBodySize = 16.0;
                                                  baseURL:(NSURL *)base
                                                    error:(NSError **)error
 {
+  return [self attributedStringFromXHTMLAtPath:path
+                                        baseURL:base
+                                 containerRoot:nil
+                                         error:error];
+}
+
++ (NSAttributedString *)attributedStringFromXHTMLAtPath:(NSString *)path
+                                                 baseURL:(NSURL *)base
+                                          containerRoot:(NSString *)containerRoot
+                                                   error:(NSError **)error
+{
   EPUBHTMLConverter *c = [[EPUBHTMLConverter alloc] init];
+  c->_containerRoot = [containerRoot isKindOfClass:[NSString class]]
+                          ? [NSURL fileURLWithPath:[containerRoot stringByStandardizingPath]]
+                          : nil;
   return [c parsePath:path baseURL:base error:error];
 }
 
@@ -50,6 +69,10 @@ static const CGFloat kBodySize = 16.0;
   _traitStack = [NSMutableArray arrayWithObject:@(0)];
   _sizeStack = [NSMutableArray arrayWithObject:@(kBodySize)];
   _ignoreStack = [NSMutableArray arrayWithObject:@(0)];
+  _dirStack = [NSMutableArray array];
+  _langStack = [NSMutableArray array];
+  _currentDir = nil;
+  _currentLang = nil;
   _blockStart = 0;
   _blockStyle = [self defaultParagraph];
 
@@ -157,6 +180,12 @@ static const CGFloat kBodySize = 16.0;
     [_out appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n"]];
   _blockStart = [_out length];
   _blockStyle = style ?: [self defaultParagraph];
+  // EPUB RS 3.3, 5.1 / 6.1: apply the base writing direction resolved from the
+  // dir attribute (ltr/rtl). "auto"/absent leaves the natural direction.
+  if ([_currentDir isEqualToString:@"rtl"])
+    [_blockStyle setBaseWritingDirection:NSWritingDirectionRightToLeft];
+  else if ([_currentDir isEqualToString:@"ltr"])
+    [_blockStyle setBaseWritingDirection:NSWritingDirectionLeftToRight];
 }
 
 - (void)finalizeBlock
@@ -167,6 +196,9 @@ static const CGFloat kBodySize = 16.0;
       NSRange r = NSMakeRange(_blockStart, end - _blockStart);
       [_out addAttribute:NSParagraphStyleAttributeName value:_blockStyle range:r];
     }
+  // Advance past the finalized range so a later startBlock does not re-finalize
+  // (and overwrite) this block's paragraph attributes.
+  _blockStart = end;
   _blockStyle = [self defaultParagraph];
 }
 
@@ -179,10 +211,27 @@ didStartElement:(NSString *)element
      attributes:(NSDictionary *)attrs
 {
   NSString *e = [element lowercaseString];
+
+  // EPUB RS 3.3, 3.7 / 5.1 / 6.1: process the dir and xml:lang attributes.
+  // Direction is inherited until overridden; we push the effective value for
+  // every element so block starts can apply the base writing direction.
+  NSString *dirAttr = attrs[@"dir"] ?: attrs[@"epub:dir"];
+  NSString *langAttr = attrs[@"lang"] ?: attrs[@"xml:lang"];
+  NSString *newDir = (dirAttr != nil) ? dirAttr : _currentDir;
+  NSString *newLang = (langAttr != nil) ? langAttr : _currentLang;
+  [_dirStack addObject:(newDir ?: (id)[NSNull null])];
+  [_langStack addObject:(newLang ?: (id)[NSNull null])];
+  _currentDir = newDir;
+  _currentLang = newLang;
+
   if ([e isEqualToString:@"b"] || [e isEqualToString:@"strong"]) { [self pushTrait:NSBoldFontMask]; return; }
   if ([e isEqualToString:@"i"] || [e isEqualToString:@"em"]) { [self pushTrait:NSItalicFontMask]; return; }
   if ([e isEqualToString:@"u"]) { return; }
   if ([e isEqualToString:@"script"] || [e isEqualToString:@"style"]) { [self pushIgnore:YES]; return; }
+  // The document head (title, meta, link) is not body content; ignoring it
+  // stops the head's <title> from being rendered as a duplicate (normal-size)
+  // copy of the chapter name that the body already shows as a heading.
+  if ([e isEqualToString:@"head"]) { [self pushIgnore:YES]; return; }
 
   if ([e isEqualToString:@"br"]) {
     if (![self ignoring]) [_out appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n"]];
@@ -221,15 +270,25 @@ didStartElement:(NSString *)element
 }
 
 - (void)parser:(NSXMLParser *)parser
- didEndElement:(NSString *)element
-  namespaceURI:(NSString *)ns
- qualifiedName:(NSString *)qn
+  didEndElement:(NSString *)element
+   namespaceURI:(NSString *)ns
+  qualifiedName:(NSString *)qn
 {
   NSString *e = [element lowercaseString];
+
+  // pop the dir/lang context pushed in didStartElement
+  if ([_dirStack count] > 0) [_dirStack removeLastObject];
+  if ([_langStack count] > 0) [_langStack removeLastObject];
+  id d = [_dirStack lastObject];
+  id l = [_langStack lastObject];
+  _currentDir = ([d isKindOfClass:[NSString class]]) ? d : nil;
+  _currentLang = ([l isKindOfClass:[NSString class]]) ? l : nil;
+
   if ([e isEqualToString:@"b"] || [e isEqualToString:@"strong"]) { [self popTrait:NSBoldFontMask]; return; }
   if ([e isEqualToString:@"i"] || [e isEqualToString:@"em"]) { [self popTrait:NSItalicFontMask]; return; }
   if ([e isEqualToString:@"u"]) { return; }
   if ([e isEqualToString:@"script"] || [e isEqualToString:@"style"]) { [self popIgnore]; return; }
+  if ([e isEqualToString:@"head"]) { [self popIgnore]; return; }
   if ([e hasPrefix:@"h"] && [e length] == 2) { [self popTrait:NSBoldFontMask]; [self popSize]; [self finalizeBlock]; [self appendBlankLine]; return; }
   if ([e isEqualToString:@"p"] || [e isEqualToString:@"div"] || [e isEqualToString:@"li"] || [e isEqualToString:@"blockquote"]) {
     [self finalizeBlock]; [self appendBlankLine]; return;
@@ -281,8 +340,34 @@ didStartElement:(NSString *)element
   if (src == nil) return;
   NSURL *url = [NSURL URLWithString:src relativeToURL:_base];
   if (url == nil) return;
-  NSImage *img = [[NSImage alloc] initWithContentsOfFile:[url path]];
-  if (img == nil) img = [[NSImage alloc] initWithContentsOfURL:url];
+
+  NSImage *img = nil;
+  NSString *scheme = [url scheme];
+  if ([scheme isEqualToString:@"data"])
+    {
+      // EPUB RS 3.3, 3.4: data: URLs are acceptable only as embedded content
+      // (never as navigation, which this reader does not perform).
+      img = [[NSImage alloc] initWithContentsOfURL:url];
+    }
+  else
+    {
+      // file: scheme covers both relative references (resolved against the
+      // in-container _base) and absolute file: URLs. EPUB RS 3.3, 3.5 / 4.1.1:
+      // constrain every such path to the container root so a reference like
+      // file:///etc/passwd or ../../../secret cannot escape the publication.
+      // Remote schemes (http/https/...) are not fetched (no network access).
+      if (scheme != nil && ![scheme isEqualToString:@"file"]) return;
+      NSString *path = [url path];
+      if (path == nil) return;
+      if (_containerRoot != nil)
+        {
+          NSString *std = [path stringByStandardizingPath];
+          NSString *root = [_containerRoot path];
+          if (![std hasPrefix:root] && ![std hasPrefix:[root stringByAppendingString:@"/"]])
+            return;
+        }
+      img = [[NSImage alloc] initWithContentsOfFile:path];
+    }
   if (img == nil) return;
   NSData *tiff = [img TIFFRepresentation];
   if (tiff == nil) return;

@@ -119,32 +119,62 @@
   [self reload];
 }
 
-- (void)openBook:(LibraryBook *)book
+- (BOOL)openBook:(LibraryBook *)book
 {
   if (![[NSFileManager defaultManager] fileExistsAtPath:book.epubPath])
     {
       NSAlert *a = [NSAlert alertWithMessageText:@"Book not found"
-                                   defaultButton:@"OK"
-                                 alternateButton:nil
-                                     otherButton:nil
-                       informativeTextWithFormat:
-                         @"The file %@ could not be found.", book.epubPath];
+                                    defaultButton:@"OK"
+                                  alternateButton:nil
+                                      otherButton:nil
+                        informativeTextWithFormat:
+                          @"The file %@ could not be found.", book.epubPath];
       [a runModal];
-      return;
+      return NO;
     }
   BookReaderController *reader = [[BookReaderController alloc] initWithLibraryBook:book];
-  if (reader == nil) return;
-  NSRect shelfRect = [_shelf rectForBookAtIndex:_shelf.selectedIndex];
-  NSRect screenRect = [_shelf convertRect:shelfRect toView:nil];
-  NSPoint p = [[self window] convertBaseToScreen:screenRect.origin];
-  screenRect.origin = p;
+  if (reader == nil) return NO;
+  NSRect screenRect;
+  if (_shelf.selectedIndex >= 0)
+    {
+      NSRect shelfRect = [_shelf rectForBookAtIndex:_shelf.selectedIndex];
+      NSRect localRect = [_shelf convertRect:shelfRect toView:nil];
+      NSPoint p = [[self window] convertBaseToScreen:localRect.origin];
+      screenRect = localRect;
+      screenRect.origin = p;
+    }
+  else
+    {
+      NSRect sr = [[NSScreen mainScreen] frame];
+      screenRect = NSMakeRect(NSMidX(sr) - 120, NSMidY(sr) - 120, 240, 240);
+    }
   [reader showWithZoomFromRect:screenRect];
   [_openReaders addObject:reader];
+  [[LibraryStore sharedStore] setCurrentBookPath:book.epubPath];
+  // A book is open: hide the bookshelf until every reader is closed again.
+  [[self window] orderOut:nil];
   [[NSNotificationCenter defaultCenter]
       addObserver:self
          selector:@selector(readerWindowWillClose:)
              name:NSWindowWillCloseNotification
            object:reader.window];
+  return YES;
+}
+
+- (LibraryBook *)bookForPath:(NSString *)path
+{
+  NSString *std = [path stringByStandardizingPath];
+  for (LibraryBook *b in [[LibraryStore sharedStore] books])
+    if ([[b.epubPath stringByStandardizingPath] isEqualToString:std])
+      return b;
+  return nil;
+}
+
+- (BOOL)openBookForPath:(NSString *)path
+{
+  LibraryBook *b = [self bookForPath:path];
+  if (b == nil) return NO;
+  return [self openBook:b];
 }
 
 - (void)readerWindowWillClose:(NSNotification *)note
@@ -160,6 +190,17 @@
           [_openReaders removeObjectAtIndex:i];
           break;
         }
+    }
+  // No readers left: forget the open book and bring the shelf back.
+  if ([_openReaders count] == 0)
+    {
+      [[LibraryStore sharedStore] setCurrentBookPath:nil];
+      [self reload];
+      [self showWindow:self];
+    }
+  else
+    {
+      [[LibraryStore sharedStore] setCurrentBookPath:[[_openReaders lastObject] libraryBook].epubPath];
     }
 }
 

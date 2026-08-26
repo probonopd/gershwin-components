@@ -36,5 +36,20 @@
 	<string>Copyright (c) 2026 Simon Peter</string>
 	<key>CopyrightDescription</key>
 	<string>Released under the BSD 2-Clause License</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>NSDocumentType</key>
+			<string>epub</string>
+			<key>NSRole</key>
+			<string>Viewer</string>
+			<key>NSHumanReadableName</key>
+			<string>EPUB eBook</string>
+			<key>NSUnixExtensions</key>
+			<array>
+				<string>epub</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

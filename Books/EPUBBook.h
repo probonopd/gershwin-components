@@ -15,6 +15,8 @@
 @property (nonatomic, copy) NSString *language;
 @property (nonatomic, copy) NSString *publisher;
 @property (nonatomic, copy) NSString *coverPath;
+// EPUB RS 3.3, 5.5: nil means the reading system MUST assume "default".
+@property (nonatomic, copy) NSString *pageProgressionDirection;
 @property (nonatomic, copy) NSArray<NSString *> *spine;
 @property (nonatomic, copy) NSArray<EPUBTOCEntry *> *tableOfContents;
 @property (nonatomic, copy, readonly) NSString *extractedRoot;

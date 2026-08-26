@@ -20,6 +20,7 @@
 @property (nonatomic, strong) LibraryBook *libBook;
 @property (nonatomic, strong) EPUBBook *epub;
 @property (nonatomic, strong) NSMutableAttributedString *fullText;
+@property (nonatomic, strong) NSAttributedString *baseText;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *docStart;
 @property (nonatomic, strong) EPUBPageRenderer *renderer;
 @property (nonatomic, strong) BookPageView *pageView;
@@ -40,7 +41,7 @@
   if (self)
     {
       _libBook = book;
-      _fontSize = book.fontSize > 0 ? book.fontSize : 16.0;
+      _fontSize = book.fontSize > 0 ? book.fontSize : 14.0;
       _theme = book.theme;
       _currentSpread = book.lastSpreadIndex;
       _docStart = [NSMutableDictionary dictionary];
@@ -69,27 +70,38 @@
       return NO;
     }
 
-  _fullText = [[NSMutableAttributedString alloc] init];
+  NSMutableAttributedString *base = [[NSMutableAttributedString alloc] init];
   NSUInteger offset = 0;
   for (NSString *docAbs in _epub.spine)
     {
       NSData *data = [NSData dataWithContentsOfFile:docAbs];
       if (data == nil) continue;
-      NSURL *base = [NSURL fileURLWithPath:[docAbs stringByDeletingLastPathComponent]];
+      NSURL *baseURL = [NSURL fileURLWithPath:[docAbs stringByDeletingLastPathComponent]];
       NSAttributedString *part = [EPUBHTMLConverter
-          attributedStringFromXHTMLAtPath:docAbs baseURL:base error:NULL];
+          attributedStringFromXHTMLAtPath:docAbs
+                                    baseURL:baseURL
+                             containerRoot:_epub.extractedRoot
+                                     error:NULL];
       if ([part length] > 0)
         {
           [_docStart setObject:@(offset) forKey:[docAbs lastPathComponent]];
-          [_fullText appendAttributedString:part];
+          [base appendAttributedString:part];
+          // Force each chapter (spine document) to begin on a new page.
+          [base addAttribute:EPUBPageBreakAttributeName
+                       value:@YES
+                       range:NSMakeRange(offset, 1)];
           offset += [part length];
         }
     }
-  if ([_fullText length] == 0)
+  if ([base length] == 0)
     {
       [_epub cleanupExtraction];
       return NO;
     }
+  // Keep the converter output untouched as the scaling source; _fullText is the
+  // working copy whose fonts are re-derived from _baseText on every zoom change.
+  _baseText = [base copy];
+  _fullText = [base mutableCopy];
   [self applyFont];
   [self applyTextColor];
   return YES;
@@ -121,28 +133,21 @@
 
 - (void)applyFont
 {
+  // Scale from the original (unscaled) fonts in _baseText every time, so A− and
+  // A+ are exact inverses and repeated presses do not compound on each other.
   CGFloat factor = _fontSize / 16.0;
-  NSUInteger len = [_fullText length];
-  NSMutableArray<NSValue *> *ranges = [NSMutableArray array];
-  NSMutableArray *fonts = [NSMutableArray array];
+  NSUInteger len = [_baseText length];
   NSUInteger loc = 0;
   while (loc < len)
     {
       NSRange eff;
-      NSDictionary *attrs = [_fullText attributesAtIndex:loc effectiveRange:&eff];
-      [ranges addObject:[NSValue valueWithRange:eff]];
+      NSDictionary *attrs = [_baseText attributesAtIndex:loc effectiveRange:&eff];
       id f = attrs[NSFontAttributeName];
       if (f == nil || ![f isKindOfClass:[NSFont class]])
         f = [NSFont userFontOfSize:16.0];
-      [fonts addObject:f];
-      loc = NSMaxRange(eff);
-    }
-  for (NSUInteger i = 0; i < [ranges count]; i++)
-    {
-      NSRange r = [ranges[i] rangeValue];
-      NSFont *f = fonts[i];
       NSFont *nf = [[NSFontManager sharedFontManager] convertFont:f toSize:[f pointSize] * factor];
-      if (nf) [_fullText addAttribute:NSFontAttributeName value:nf range:r];
+      if (nf) [_fullText addAttribute:NSFontAttributeName value:nf range:eff];
+      loc = NSMaxRange(eff);
     }
 }
 
@@ -157,9 +162,13 @@
 {
   if (_pageView == nil || _fullText == nil) return;
   NSSize cs = [_pageView contentSize];
+  // The renderer insets the text by EPUBPageMargin on every side, so paginate
+  // using that same inner area; otherwise the last lines overflow and get cut.
+  NSSize textArea = NSMakeSize(MAX(1.0, cs.width - 2.0 * EPUBPageMargin),
+                               MAX(1.0, cs.height - 2.0 * EPUBPageMargin));
   EPUBPaginator *p = [[EPUBPaginator alloc]
       initWithAttributedString:_fullText
-                      pageRect:NSMakeRect(0, 0, cs.width, cs.height)];
+                      pageRect:NSMakeRect(0, 0, textArea.width, textArea.height)];
   [_pageView configureWithAttributedString:_fullText paginator:p renderer:_renderer];
   [_pageView setBackgroundColor:_backgroundColor];
   [_pageView setThemeTextColor:_textColor];
@@ -322,6 +331,11 @@
 {
   [self persist];
   [_epub cleanupExtraction];
+}
+
+- (LibraryBook *)libraryBook
+{
+  return _libBook;
 }
 
 @end

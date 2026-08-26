@@ -12,6 +12,8 @@
 @property (nonatomic, strong) NSMutableArray<NSValue *> *ranges;
 @end
 
+NSString *EPUBPageBreakAttributeName = @"EPUBPageBreak";
+
 @implementation EPUBPaginator
 
 - (instancetype)initWithAttributedString:(NSAttributedString *)attrString
@@ -96,6 +98,19 @@
               if (accumulatedHeight > 0.0
                   && accumulatedHeight + frag.size.height > _pageSize.height)
                 break;
+
+              // A chapter break: do not let the line that carries the marker
+              // share a page with preceding content; start the chapter fresh.
+              NSRange lineCharRange = [lm characterRangeForGlyphRange:lineRange
+                                                  actualGlyphRange:NULL];
+              id breakVal = (lineCharRange.length > 0)
+                ? [_attrString attribute:EPUBPageBreakAttributeName
+                                 atIndex:lineCharRange.location
+                          effectiveRange:NULL]
+                : nil;
+              if (breakVal != nil && accumulatedHeight > 0.0)
+                break;
+
               accumulatedHeight += frag.size.height;
               glyphIndex = NSMaxRange(lineRange);
             }
