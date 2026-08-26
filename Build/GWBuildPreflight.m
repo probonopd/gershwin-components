@@ -20,8 +20,12 @@ static NSRegularExpression *GWHeaderRegex(void)
     static NSRegularExpression *regex = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
+        // Group 1 is the opening delimiter ('<' or '"'); group 2 is the header
+        // name.  The delimiter distinguishes system/external includes
+        // ('<...>', which the package manager can provide) from project-local
+        // includes ('"..."', which the project's own build resolves).
         regex = [NSRegularExpression regularExpressionWithPattern:
-            @"#[ \\t]*(?:include|import)[ \\t]*[<\"]([^>\"]+)[>\"]"
+            @"#[ \\t]*(?:include|import)[ \\t]*([<\"])([^>\"]+)[>\"]"
                                                           options:0 error:NULL];
     });
     return regex;
@@ -297,9 +301,18 @@ typedef NS_ENUM(NSInteger, GWPreflightConsent) {
                 lineActives:actives inBlockStarts:inBlocks ranges:lineRanges];
 
         for (NSTextCheckingResult *match in matches) {
-            NSRange nameRange = [match rangeAtIndex:1];
+            NSRange nameRange = [match rangeAtIndex:2];
             if (nameRange.location == NSNotFound) continue;
             NSString *header = [content substringWithRange:nameRange];
+
+            // Quoted includes ('"..."') are project-local by convention: the
+            // build resolves them relative to the project, so they can never
+            // be installable system packages.  A missing one (e.g. an unused or
+            // orphaned source file) must therefore not block the build.
+            BOOL quoted = NO;
+            NSRange delimRange = [match rangeAtIndex:1];
+            if (delimRange.location != NSNotFound)
+                quoted = [[content substringWithRange:delimRange] isEqualToString:@"\""];
 
             // Strip a leading slash or "./" from angle includes.
             while ([header hasPrefix:@"/"] || [header hasPrefix:@"./"]) {
@@ -346,6 +359,16 @@ typedef NS_ENUM(NSInteger, GWPreflightConsent) {
                 if (![_resolvedHeaders containsObject:header])
                     [_resolvedHeaders addObject:header];
             } else {
+                // A quoted (project-local) include that we cannot resolve is
+                // the project's own concern, not an installable package, so it
+                // must not abort the build.  Only genuinely external angle-bracket
+                // ('<>') includes are hard failures.
+                if (quoted) {
+                    [self outputLine:[NSString stringWithFormat:
+                        @"Preflight: skipping unresolved quoted include %@ "
+                        "(project-local)", header]];
+                    continue;
+                }
                 if (![_unresolvedHeaders containsObject:header])
                     [_unresolvedHeaders addObject:header];
             }

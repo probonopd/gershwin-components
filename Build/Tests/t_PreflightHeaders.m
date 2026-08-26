@@ -89,6 +89,22 @@ int main(void)
     [pf release];
   }
 
+  /* The regex exposes the include delimiter so quoted (project-local) and
+     angle (external) includes can be told apart; only the latter can be
+     installable system packages.  ProjectCenter's failing headers were all
+     quoted includes of project-private (or orphaned) files. */
+  {
+    NSString *src = @"#import \"Local.h\"\n#import <System.h>\n";
+    NSArray *matches = [GWHeaderRegex() matchesInString:src
+                                                options:0
+                                                  range:NSMakeRange(0, [src length])];
+    PASS([matches count] == 2, "quoted and angle includes both matched");
+    NSString *d0 = [src substringWithRange:[matches[0] rangeAtIndex:1]];
+    NSString *d1 = [src substringWithRange:[matches[1] rangeAtIndex:1]];
+    PASS([d0 isEqualToString:@"\""], "first include is quoted (project-local)");
+    PASS([d1 isEqualToString:@"<"], "second include is angle (external)");
+  }
+
   [arp release];
   return 0;
 }
