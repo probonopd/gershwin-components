@@ -8,7 +8,8 @@ PROJECT_NAME = initgfx
 
 # Define all the files that need to be installed with their destination paths
 INSTALL_FILES = \
-	files/usr/local/etc/fonts/conf.d/99-block-surrogate-fonts.conf
+	files/usr/local/etc/fonts/conf.d/99-block-surrogate-fonts.conf \
+	files/System/Library/Preferences/fonts.conf
 
 # This project doesn't build anything, so we override the default targets
 all::
