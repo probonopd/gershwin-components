@@ -239,12 +239,15 @@ typedef NS_ENUM(NSInteger, GWPreflightConsent) {
 {
     // GNUstep and ObjC runtime headers are never resolved to packages: they
     // come from the GNUstep system domain, and the database simply has no
-    // entries for them (Foundation.h etc. are not distro packages).
-    if ([header hasPrefix:@"GNUstep/"]
-        || [header hasPrefix:@"AppKit/"]
-        || [header hasPrefix:@"Foundation/"]
-        || [header hasPrefix:@"Cocoa/"]
-        || [header hasPrefix:@"gnustep/"]) {
+    // entries for them (Foundation.h etc. are not distro packages).  Match by
+    // top-level directory so the whole GNUstep* family is covered
+    // (GNUstepGUI/, GNUstepBase/, ...), not just the bare GNUstep/ prefix.
+    NSString *firstComponent = [[header componentsSeparatedByString:@"/"] firstObject];
+    if ([firstComponent isEqualToString:@"AppKit"]
+        || [firstComponent isEqualToString:@"Foundation"]
+        || [firstComponent isEqualToString:@"Cocoa"]
+        || [firstComponent isEqualToString:@"gnustep"]
+        || [firstComponent hasPrefix:@"GNUstep"]) {
         return NO;
     }
 
