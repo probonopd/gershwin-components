@@ -76,6 +76,14 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>FontBook</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-fontbook</string>
+		<key>Description</key>
+		<string>Browse and manage the fonts installed on your system</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>Fortunate</string>
 		<key>GitURL</key>
 		<string>https://github.com/alexmyczko/Fortunate.app</string>
