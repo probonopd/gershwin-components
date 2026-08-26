@@ -280,6 +280,54 @@
 	</dict>
 	<dict>
 		<key>Name</key>
+		<string>Dock</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-dock</string>
+		<key>Description</key>
+		<string>Launch and organize applications from a desktop dock</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>LDAP Web Explorer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-gsldapwebexplorer</string>
+		<key>Description</key>
+		<string>Browse and search LDAP directory servers through a web LDAP explorer</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>GWorkspace</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-gworkspace</string>
+		<key>Description</key>
+		<string>Manage files and the desktop with a file manager, icons, and services</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>NFSManager</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-nfsmanager</string>
+		<key>Description</key>
+		<string>Manage NFS network file shares and mounts</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>SystemPreferences</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-systempreferences</string>
+		<key>Description</key>
+		<string>Adjust system and appearance settings through a preferences application</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>VideoPlayer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-videoplayer</string>
+		<key>Description</key>
+		<string>Play video files in a multimedia player</string>
+	</dict>
+	<dict>
+		<key>Name</key>
 		<string>VolumeControl</string>
 		<key>GitURL</key>
 		<string>https://github.com/alexmyczko/VolumeControl.app</string>
