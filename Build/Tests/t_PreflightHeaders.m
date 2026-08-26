@@ -25,7 +25,69 @@ int main(void)
   PASS(![GWBuildPreflight headerIsShippedWithGnustepMake: @"curl/curl.h"],
        "curl/curl.h does not ship with gnustep-make");
   PASS(![GWBuildPreflight headerIsShippedWithGnustepMake: @"TestingX.h"],
-       "unknown headers are not claimed as gnustep-make headers");
+        "unknown headers are not claimed as gnustep-make headers");
+
+  /* A header guarded by a foreign-OS macro that is never defined on this host
+     (e.g. windows.h under #ifdef __MINGW32__) is dead code and must be
+     skipped, not reported as a missing dependency. */
+  {
+    GWBuildPreflight *pf = [GWBuildPreflight new];
+    NSString *src = @"#ifdef __MINGW32__\n#include <windows.h>\n#endif\n";
+    NSSet *undef = [pf _undefinedPlatformMacros];
+    NSMutableArray *actives = [NSMutableArray array];
+    NSMutableArray *inBlocks = [NSMutableArray array];
+    NSMutableArray *ranges = [NSMutableArray array];
+    [pf _scanContent:src undefined:undef lineActives:actives
+        inBlockStarts:inBlocks ranges:ranges];
+    NSArray *matches = [GWHeaderRegex() matchesInString:src
+                                                options:0
+                                                  range:NSMakeRange(0, [src length])];
+    PASS([matches count] == 1, "windows.h is matched");
+    PASS([pf _shouldSkipHeaderAtMatch:matches[0] inContent:src
+                             actives:actives inBlocks:inBlocks ranges:ranges],
+         "windows.h under __MINGW32__ is skipped");
+    [pf release];
+  }
+
+  /* A commented-out import is dead code and must be skipped. */
+  {
+    GWBuildPreflight *pf = [GWBuildPreflight new];
+    NSString *src = @"//#import <Renaissance/Renaissance.h>\n";
+    NSSet *undef = [pf _undefinedPlatformMacros];
+    NSMutableArray *actives = [NSMutableArray array];
+    NSMutableArray *inBlocks = [NSMutableArray array];
+    NSMutableArray *ranges = [NSMutableArray array];
+    [pf _scanContent:src undefined:undef lineActives:actives
+        inBlockStarts:inBlocks ranges:ranges];
+    NSArray *matches = [GWHeaderRegex() matchesInString:src
+                                                options:0
+                                                  range:NSMakeRange(0, [src length])];
+    PASS([matches count] == 1, "commented Renaissance import is matched");
+    PASS([pf _shouldSkipHeaderAtMatch:matches[0] inContent:src
+                             actives:actives inBlocks:inBlocks ranges:ranges],
+         "commented-out import is skipped");
+    [pf release];
+  }
+
+  /* A header that is actually compiled must NOT be skipped. */
+  {
+    GWBuildPreflight *pf = [GWBuildPreflight new];
+    NSString *src = @"#import <stdio.h>\n";
+    NSSet *undef = [pf _undefinedPlatformMacros];
+    NSMutableArray *actives = [NSMutableArray array];
+    NSMutableArray *inBlocks = [NSMutableArray array];
+    NSMutableArray *ranges = [NSMutableArray array];
+    [pf _scanContent:src undefined:undef lineActives:actives
+        inBlockStarts:inBlocks ranges:ranges];
+    NSArray *matches = [GWHeaderRegex() matchesInString:src
+                                                options:0
+                                                  range:NSMakeRange(0, [src length])];
+    PASS([matches count] == 1, "stdio.h is matched");
+    PASS(![pf _shouldSkipHeaderAtMatch:matches[0] inContent:src
+                              actives:actives inBlocks:inBlocks ranges:ranges],
+         "compiled import is not skipped");
+    [pf release];
+  }
 
   [arp release];
   return 0;
