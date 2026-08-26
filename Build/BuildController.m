@@ -2371,11 +2371,19 @@ static const CGFloat kSpace16 = 16.0;
 {
     self.preflightInstalledPackages = NO;
 
-    // Determine the scan root: for multi-library repos we cover the whole
-    // checkout, otherwise just the makefile's directory.
-    NSString *scanRoot = [self findRepoRootFromMakefileDir:directory
-                                                   buildDir:self.buildDir];
-    if (!scanRoot) scanRoot = directory;
+    // Scan only the directory that is actually built (the makefile's
+    // directory).  For catalog entries that point at a subproject inside a
+    // larger repository (e.g. gnustep/gap's user-apps/InnerSpace), walking up
+    // to the repo root would scan every other app in the checkout and report
+    // their optional/foreign backends (CoreAudio, Qt, WebKit, berkelium, ...)
+    // as missing headers, even though those files are never compiled for the
+    // subproject being built.  The subproject directory is the correct scope.
+    // For single-project repos the makefile sits at the root, so this is
+    // identical to scanning the whole checkout.
+    NSString *scanRoot = directory;
+    if (!scanRoot)
+        scanRoot = [self findRepoRootFromMakefileDir:directory
+                                             buildDir:self.buildDir];
 
     GWBuildPreflight *preflight = [[GWBuildPreflight alloc]
         initWithSourceRoot:scanRoot makefilePath:makefilePath];
