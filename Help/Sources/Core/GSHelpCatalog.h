@@ -30,22 +30,17 @@ NS_ASSUME_NONNULL_BEGIN
 @interface GSHelpCatalog : NSObject
 
 /* Roots contain *.app bundles (only those with Resources/Help are
- * listed), manN directories, and arbitrary trees to search for
- * .md/.markdown files respectively. */
+ * listed), manN directories, markdown trees (fileRoots) and gsdoc
+ * trees (developerRoots). The Documentation group leads the list,
+ * then Applications, then Manual Pages. */
 + (NSArray<GSHelpCatalogItem *> *)catalogItemsWithAppRoots:
                                      (NSArray<NSString *> *)appRoots
                                             manRoots:
                                                 (NSArray<NSString *> *)manRoots
                                            fileRoots:
-                                               (NSArray<NSString *> *)fileRoots;
-
-/* Each root is a Library/Documentation/Developer directory. Every
- * *.gsdoc file below it becomes a leaf; subdirectories mirror the
- * on-disk tree as group rows. Roots arrive in domain precedence
- * order and a relative path seen twice keeps its first copy.
- * Returns zero or one group. */
-+ (NSArray<GSHelpCatalogItem *> *)developerDocItemsWithRoots:
-    (NSArray<NSString *> *)roots;
+                                               (NSArray<NSString *> *)fileRoots
+                                       developerRoots:
+                                           (NSArray<NSString *> *)developerRoots;
 
 /* "3" -> "Section 3: Library Functions", "1p" ->
  * "Section 1p: User Commands (POSIX)"; unknown labels pass

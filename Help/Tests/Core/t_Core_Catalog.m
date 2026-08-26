@@ -79,12 +79,17 @@ int main(void)
     NSArray *items =
         [GSHelpCatalog catalogItemsWithAppRoots: @[ ]
                                        manRoots: @[ ]
-                                      fileRoots: @[ ]];
-    PASS([items count] == 0, "no inputs -> empty catalog");
+                                      fileRoots: @[ ]
+                                  developerRoots: @[ ]];
+    PASS([items count] == 1
+             && [[items[0] title] isEqualToString: @"Welcome"],
+         "no inputs -> only the pinned Welcome group");
     PASS_RUNS([GSHelpCatalog catalogItemsWithAppRoots: @[@"/nonexistent-apps"]
                                              manRoots: @[@"/nonexistent-man"]
                                             fileRoots:
-                                                @[@"/nonexistent-docs"]],
+                                                @[@"/nonexistent-docs"]
+                                        developerRoots:
+                                                @[@"/nonexistent-devdocs"]],
               "missing roots do not raise");
   }
   END_SET("empty inputs")
@@ -97,11 +102,13 @@ int main(void)
 
     NSArray *groups = [GSHelpCatalog catalogItemsWithAppRoots: @[ base ]
                                                      manRoots: @[ ]
-                                                    fileRoots: @[ ]];
-    PASS([groups count] == 1
-             && [[groups[0] title] isEqualToString: @"Applications"],
-         "apps collected under one Applications group");
-    NSArray *items = [groups[0] children];
+                                                    fileRoots: @[ ]
+                                                developerRoots: @[ ]];
+    PASS([groups count] == 2
+             && [[groups[0] title] isEqualToString: @"Welcome"]
+             && [[groups[1] title] isEqualToString: @"Applications"],
+         "apps collected under one Applications group after Welcome");
+    NSArray *items = [groups[1] children];
     PASS([items count] == 2, "one item per app bundle");
     PASS([[items[0] title] isEqualToString: @"Bar"]
              && [[items[1] title] isEqualToString: @"Foo"],
@@ -115,8 +122,9 @@ int main(void)
        withIntermediateDirectories: YES attributes: nil error: NULL];
     groups = [GSHelpCatalog catalogItemsWithAppRoots: @[ base ]
                                             manRoots: @[ ]
-                                           fileRoots: @[ ]];
-    PASS([[groups[0] children] count] == 2,
+                                           fileRoots: @[ ]
+                                       developerRoots: @[ ]];
+    PASS([[groups[1] children] count] == 2,
          "app without Resources/Help skipped");
 
     [fm removeFileAtPath: base handler: nil];
@@ -135,11 +143,13 @@ int main(void)
 
     NSArray *groups = [GSHelpCatalog catalogItemsWithAppRoots: @[ ]
                                                      manRoots: @[ base ]
-                                                    fileRoots: @[ ]];
-    PASS([groups count] == 1
-             && [[groups[0] title] isEqualToString: @"Commands"],
-         "man pages collected under one Commands group");
-    NSArray *items = [groups[0] children];
+                                                    fileRoots: @[ ]
+                                                developerRoots: @[ ]];
+    PASS([groups count] == 2
+             && [[groups[0] title] isEqualToString: @"Welcome"]
+             && [[groups[1] title] isEqualToString: @"Manual Pages"],
+          "man pages collected under one Manual Pages group after Welcome");
+    NSArray *items = [groups[1] children];
     PASS([items count] == 5, "five sections present");
     PASS([[items[0] title] isEqualToString: @"Section 1: User Commands"],
          "section 1 carries its canonical name");
@@ -177,17 +187,23 @@ int main(void)
 
     NSArray *items = [GSHelpCatalog catalogItemsWithAppRoots: @[ ]
                                                     manRoots: @[ ]
-                                                   fileRoots: @[ base ]];
-    PASS(CountLeaves(items) == 2, "only Markdown files collected");
-    PASS([items count] == 1, "one System Documentation group");
-    NSMutableSet *titles =
-        [NSMutableSet setWithCapacity: [[items[0] children] count]];
-    for (GSHelpCatalogItem *leaf in [items[0] children])
-      {
-        [titles addObject: [leaf title]];
-      }
-    PASS([titles containsObject: @"a"] && [titles containsObject: @"b"],
-         "extension stripped from title");
+                                                   fileRoots: @[ base ]
+                                               developerRoots: @[ ]];
+    PASS(CountLeaves(items) == 3, "Welcome leaf plus Markdown files");
+    PASS([items count] == 2
+             && [[items[0] title] isEqualToString: @"Welcome"]
+             && [[items[1] title] isEqualToString: @"Documentation"],
+         "markdown merged into one Documentation group after Welcome");
+    NSArray *children = [items[1] children];
+    PASS([children count] == 2, "file and folder present");
+    PASS([[children[0] title] isEqualToString: @"a"]
+              && [[children[0] url] isKindOfClass: [NSURL class]],
+         "top-level markdown becomes a leaf, extension stripped");
+    GSHelpCatalogItem *sub = children[1];
+    PASS([[sub title] isEqualToString: @"sub"]
+             && [sub children] != nil, "directory mirrored as a group");
+    PASS([[[sub children][0] title] isEqualToString: @"b"],
+         "nested markdown leaf keeps its name");
 
     [fm removeFileAtPath: base handler: nil];
   }
@@ -204,26 +220,41 @@ int main(void)
     Touch([r2 stringByAppendingPathComponent: @"Foo/B.gsdoc"]);
     Touch([r2 stringByAppendingPathComponent: @"X.gsdoc"]);
 
-    NSArray *groups =
-        [GSHelpCatalog developerDocItemsWithRoots: @[ r1, r2 ]];
-    PASS([groups count] == 1
-             && [[groups[0] title] isEqualToString: @"Documentation"],
-         "all gsdoc collected under one Documentation group");
+    NSArray *groups = [GSHelpCatalog catalogItemsWithAppRoots: @[ ]
+                                                      manRoots: @[ ]
+                                                     fileRoots: @[ ]
+                                                 developerRoots: @[ r1, r2 ]];
+    PASS([groups count] == 2
+             && [[groups[0] title] isEqualToString: @"Welcome"]
+             && [[groups[1] title] isEqualToString: @"Documentation"],
+         "Welcome leads, gsdoc under Documentation");
 
-    NSArray *top = [groups[0] children];
-    PASS([top count] == 3, "three top-level rows");
-    PASS([[top[0] title] isEqualToString: @"Bar"]
-             && [[top[0] url] isKindOfClass: [NSURL class]],
+    NSArray *welcome = [groups[0] children];
+    PASS([welcome count] == 1
+             && [[welcome[0] title] isEqualToString: @"Welcome"]
+             && [[[welcome[0] url] absoluteString]
+                    isEqualToString: @"help://welcome"],
+         "Welcome group holds the welcome page with sentinel URL");
+    GSHelpCatalogItem *doc = groups[1];
+    PASS([doc children] != nil && [[doc children] count] == 1,
+         "gsdoc nested under a Frameworks subgroup of Documentation");
+    GSHelpCatalogItem *fw = [doc children][0];
+    PASS([[fw title] isEqualToString: @"Frameworks"],
+         "gsdoc nested under a Frameworks subgroup");
+    NSArray *fwTop = [fw children];
+    PASS([fwTop count] == 3, "three top-level framework rows");
+    PASS([[fwTop[0] title] isEqualToString: @"Bar"]
+             && [[fwTop[0] url] isKindOfClass: [NSURL class]],
          "root-level gsdoc becomes an openable leaf");
-    PASS([[top[0] url].path hasPrefix: r1],
+    PASS([[fwTop[0] url].path hasPrefix: r1],
          "leaf URL points at the real file");
-    PASS([[top[1] title] isEqualToString: @"Foo"],
+    PASS([[fwTop[1] title] isEqualToString: @"Foo"],
          "directories become group rows, sorted by name");
-    PASS([[top[2] title] isEqualToString: @"X"]
-             && [[top[2] url].path hasPrefix: r2],
+    PASS([[fwTop[2] title] isEqualToString: @"X"]
+             && [[fwTop[2] url].path hasPrefix: r2],
          "unique file from second root listed too");
 
-    GSHelpCatalogItem *fooGroup = top[1];
+    GSHelpCatalogItem *fooGroup = fwTop[1];
     PASS([[[fooGroup children][0] title] isEqualToString: @"B"],
          "nested gsdoc leaf under its directory group");
     PASS([[[fooGroup children][0] url].path hasPrefix: r1],
@@ -233,7 +264,7 @@ int main(void)
                     isEqualToString: @"A"],
          "subdirectories nest to mirror the tree");
 
-    PASS(CountLeaves(groups) == 4,
+    PASS(CountLeaves(groups) == 5,
          "non-gsdoc files ignored, duplicates collapsed");
 
     [fm removeFileAtPath: r1 handler: nil];
@@ -243,12 +274,20 @@ int main(void)
 
   START_SET("gsdoc missing roots")
   {
-    NSArray *groups = [GSHelpCatalog developerDocItemsWithRoots:
-                                          @[ @"/nonexistent-devdocs" ]];
-    PASS_RUNS([GSHelpCatalog developerDocItemsWithRoots:
-                              @[ @"/nonexistent-devdocs" ]],
+    NSArray *groups = [GSHelpCatalog
+        catalogItemsWithAppRoots: @[ ]
+                          manRoots: @[ ]
+                         fileRoots: @[ ]
+                     developerRoots: @[ @"/nonexistent-devdocs" ]];
+    PASS_RUNS([GSHelpCatalog
+        catalogItemsWithAppRoots: @[ ]
+                          manRoots: @[ ]
+                         fileRoots: @[ ]
+                     developerRoots: @[ @"/nonexistent-devdocs" ]],
               "missing root does not raise");
-    PASS([groups count] == 0, "missing root -> no group");
+    PASS([groups count] == 1
+             && [[groups[0] title] isEqualToString: @"Welcome"],
+         "missing root -> only the Welcome group");
   }
   END_SET("gsdoc missing roots")
 }

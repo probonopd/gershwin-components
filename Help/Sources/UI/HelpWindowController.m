@@ -134,6 +134,10 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
 @interface HelpWindowController ()
 @end
 
+/* Sentinel URL for the pinned "Getting Started" sidebar entry. The
+ * catalog emits this; we route it to the built-in welcome document. */
+static NSString * const kGSHelpWelcomeURL = @"help://welcome";
+
 @implementation HelpWindowController
 {
     NSWindow *_window;
@@ -148,9 +152,9 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     NSScrollView *_documentScroll;
     NSOutlineView *_outline;
     NSTextView *_textView;
-    /* Top-level sidebar groups: the open document's TOC plus the
-     * scanned documentation catalog. */
-    GSHelpTOCItem *_documentGroup;
+    /* Scanned documentation catalog. The open document is shown by
+     * selecting and revealing its catalog leaf; its section list is NOT
+     * mirrored into the sidebar (no "Contents" chapter). */
     NSMutableArray<GSHelpTOCItem *> *_catalogGroups;
     NSString *_activeFilter;
     NSArray<GSHelpTOCItem *> *_visibleTopLevel;
@@ -174,6 +178,7 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
       {
         _history = [GSHelpHistory new];
         [self buildWindow];
+        _currentURL = [NSURL URLWithString: kGSHelpWelcomeURL];
         [self loadDocument: [self welcomeDocument]];
         [self loadCatalog];
       }
@@ -261,7 +266,7 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
         NSMakeRect(0, 0, kSidebarWidth, 100)];
     NSTableColumn *column = [[NSTableColumn alloc]
         initWithIdentifier: @"contents"];
-    [[column headerCell] setStringValue: @"Contents"];
+    [[column headerCell] setStringValue: @"Help"];
     [column setEditable: NO];
     [_outline addTableColumn: column];
     [_outline setOutlineTableColumn: column];
@@ -393,6 +398,20 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
  * target, displays it, and optionally records a history entry. */
 - (BOOL)displayURL:(NSURL *)url push:(BOOL)push
 {
+    /* The pinned "Getting Started" entry has no file of its own; route
+     * it to the built-in welcome document instead of a real parser. */
+    if ([[url absoluteString] isEqualToString: kGSHelpWelcomeURL])
+      {
+        if (push)
+          {
+            [_history pushURL: url];
+          }
+        _currentURL = url;
+        [self loadDocument: [self welcomeDocument]];
+        [self syncNavigationButtons];
+        return YES;
+      }
+
     id <GSHelpParser> parser = [[self registry] parserForURL: url];
     if (parser == nil)
       {
@@ -486,7 +505,9 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     NSString *title = [document title];
     [_window setTitle: [title length] > 0 ? title : @"Help"];
 
-    [self rebuildTOCItems: [document tableOfContents]];
+    /* The sidebar stays a pure catalog tree; we do not mirror the open
+     * document's section list into it. Selecting/revealing the matching
+     * leaf happens in -expandAllTOCItems. */
     _suppressSelection = YES;
     [_outline reloadData];
     [self expandAllTOCItems];
@@ -516,37 +537,39 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     [_textView setNeedsDisplay: YES];
 }
 
-/* Wraps the open document's TOC under a "Contents" group so the
- * catalog groups sit alongside it in the same outline. */
-- (void)rebuildTOCItems:(NSArray<GSHelpTOCEntry *> *)toc
+/* Recursively locates the catalog leaf (entry == nil, url set) whose
+ * URL equals the given one; group rows carry no URL and are descended
+ * into. Used to select/reveal the page we are currently showing. */
+- (GSHelpTOCItem *)findLeafWithURL:(NSURL *)url
+                        inChildren:(NSArray<GSHelpTOCItem *> *)children
 {
-    NSMutableArray<GSHelpTOCItem *> *children = [NSMutableArray new];
-    NSMutableArray<GSHelpTOCItem *> *stack = [NSMutableArray new];
-
-    for (GSHelpTOCEntry *entry in toc)
+    if (url == nil)
       {
-        while ([stack count] > 0
-                 && [[stack lastObject] entry].level >= entry.level)
-          {
-            [stack removeLastObject];
-          }
-
-        GSHelpTOCItem *item = [GSHelpTOCItem new];
-        item.entry = entry;
-        if ([stack count] > 0)
-          {
-            [[stack lastObject].children addObject: item];
-          }
-        else
-          {
-            [children addObject: item];
-          }
-        [stack addObject: item];
+        return nil;
       }
-
-    _documentGroup = [GSHelpTOCItem new];
-    _documentGroup.title = @"Contents";
-    _documentGroup.children = children;
+    BOOL isHelp = [[url scheme] isEqualToString: @"help"];
+    NSString *matchPath = [url path];
+    for (GSHelpTOCItem *item in children)
+      {
+        if ([item entry] == nil && [item url] != nil)
+          {
+            BOOL match = isHelp
+                ? [[[item url] absoluteString]
+                      isEqualToString: [url absoluteString]]
+                : [[[item url] path] isEqualToString: matchPath];
+            if (match)
+              {
+                return item;
+              }
+          }
+        GSHelpTOCItem *found = [self findLeafWithURL: url
+                                        inChildren: item.children];
+        if (found != nil)
+          {
+            return found;
+          }
+      }
+    return nil;
 }
 
 #pragma mark Catalog sidebar
@@ -627,34 +650,43 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     return [self fullTopLevelItems];
 }
 
-/* The unfiltered sidebar root (the original -topLevelItems body). */
+/* The unfiltered sidebar root: the scanned catalog only. The open
+ * document's headings live inside that tree on the leaf for the current
+ * page, never as a separate floating section. */
 - (NSArray *)fullTopLevelItems
 {
-    NSMutableArray *items = [NSMutableArray new];
-    if (_documentGroup != nil)
-      {
-        [items addObject: _documentGroup];
-      }
-    if (_catalogGroups != nil)
-      {
-        [items addObjectsFromArray: _catalogGroups];
-      }
-    return items;
+    return _catalogGroups != nil ? _catalogGroups : @[];
 }
 
-/* The document TOC expands fully; catalog groups stay collapsed so
- * a 2600-page man section does not flood the outline. */
+/* Catalog groups open one level; the page we are currently showing is
+ * revealed and selected in place (its ancestors expand) but we never
+ * mirror its section list into the sidebar. */
 - (void)expandAllTOCItems
 {
     for (GSHelpTOCItem *item in [self topLevelItems])
       {
-        if (item == _documentGroup)
+        [_outline expandItem: item expandChildren: NO];
+      }
+    GSHelpTOCItem *current =
+        [self findLeafWithURL: _currentURL inChildren: _catalogGroups];
+    if (current != nil)
+      {
+        NSMutableArray<GSHelpTOCItem *> *path = [NSMutableArray new];
+        if ([self findItem: current
+                 inChildren: [self fullTopLevelItems]
+                       path: path])
           {
-            [self expandRecursively: item];
+            for (GSHelpTOCItem *ancestor in path)
+              {
+                [_outline expandItem: ancestor];
+              }
           }
-        else
+        NSInteger row = [_outline rowForItem: current];
+        if (row >= 0)
           {
-            [_outline expandItem: item expandChildren: NO];
+            [_outline selectRowIndexes: [NSIndexSet indexSetWithIndex: row]
+                           byExtendingSelection: NO];
+            [_outline scrollRowToVisible: row];
           }
       }
 }
@@ -993,8 +1025,8 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
 }
 
 - (BOOL)findItem:(GSHelpTOCItem *)target
-       inChildren:(NSArray<GSHelpTOCItem *> *)children
-             path:(NSMutableArray<GSHelpTOCItem *> *)path
+        inChildren:(NSArray<GSHelpTOCItem *> *)children
+              path:(NSMutableArray<GSHelpTOCItem *> *)path
 {
     for (GSHelpTOCItem *child in children)
       {
@@ -1012,9 +1044,69 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
     return NO;
 }
 
+/* Maps a help://man link to the sidebar leaf whose file URL matches the
+ * page located for that command+section, so a click can reveal and
+ * select it. Returns nil when the catalog has not been scanned yet or
+ * the page is not listed. */
+- (nullable GSHelpTOCItem *)catalogItemForManURL:(NSURL *)url
+                                         pageURL:(NSURL *)page
+{
+    if (page == nil || _catalogGroups == nil)
+      {
+        return nil;
+      }
+    NSString *standardized = [[page URLByStandardizingPath] path];
+    if (standardized == nil)
+      {
+        return nil;
+      }
+    return [self findCatalogItemWithPath: standardized
+                              inChildren: _catalogGroups];
+}
+
+- (nullable GSHelpTOCItem *)findCatalogItemWithPath:(NSString *)path
+                                        inChildren:
+                                            (NSArray<GSHelpTOCItem *> *)children
+{
+    for (GSHelpTOCItem *item in children)
+      {
+        NSURL *itemURL = item.url;
+        if (itemURL != nil)
+          {
+            NSString *itemPath = [[itemURL URLByStandardizingPath] path];
+            if (itemPath != nil && [itemPath isEqualToString: path])
+              {
+                return item;
+              }
+          }
+        GSHelpTOCItem *found = [self findCatalogItemWithPath: path
+                                                  inChildren: item.children];
+        if (found != nil)
+          {
+            return found;
+          }
+      }
+    return nil;
+}
+
 #pragma mark Link clicks
 
+/* GNUstep's NSTextView only dispatches the atIndex: variant of this
+ * delegate method, so both selectors are implemented and forwarded to
+ * the shared handler. */
+- (BOOL)textView:(NSTextView *)textView
+    clickedOnLink:(id)link
+         atIndex:(NSUInteger)charIndex
+{
+    return [self handleLinkClick: link];
+}
+
 - (BOOL)textView:(NSTextView *)textView clickedOnLink:(id)link
+{
+    return [self handleLinkClick: link];
+}
+
+- (BOOL)handleLinkClick:(id)link
 {
     NSString *target;
     if ([link isKindOfClass: [NSURL class]])
@@ -1085,7 +1177,21 @@ static const CGFloat kSidebarCaptionHeight = 26.0;
                 [self showPlaceholderForURL: url];
                 return YES;
               }
-            [self displayURL: page push: YES];
+            /* Prefer selecting the page in the sidebar (when it is part
+             * of the catalog): that reuses the catalog-click path which
+             * both shows the document and keeps the row selected. Fall
+             * back to a plain open when it is not in the catalog. */
+            GSHelpTOCItem *item = [self catalogItemForManURL: url
+                                                    pageURL: page];
+            if (item != nil)
+              {
+                [self displayURL: page push: YES];
+                [self revealAndSelectItem: item];
+              }
+            else
+              {
+                [self displayURL: page push: YES];
+              }
             return YES;
           }
         [self showPlaceholderForURL: url];

@@ -138,6 +138,8 @@
                                                 (NSArray<NSString *> *)manRoots
                                            fileRoots:
                                                (NSArray<NSString *> *)fileRoots
+                                       developerRoots:
+                                           (NSArray<NSString *> *)developerRoots
 {
     NSMutableArray<GSHelpCatalogItem *> *items = [NSMutableArray new];
 
@@ -305,34 +307,23 @@
                  children: pages]];
       }
 
-    /* --- Markdown files under the documentation roots --- */
-    NSMutableArray<GSHelpCatalogItem *> *mdItems = [NSMutableArray new];
-    for (NSString *root in fileRoots)
+    /* --- Welcome: pinned landing page, leads the sidebar --- */
+    GSHelpCatalogItem *welcomeGroup = [[GSHelpCatalogItem alloc]
+        initWithTitle: @"Welcome"
+                  url: nil
+             children: @[ [[GSHelpCatalogItem alloc]
+                 initWithTitle: @"Welcome"
+                           url: [NSURL URLWithString: @"help://welcome"]
+                      children: nil] ]];
+    [items addObject: welcomeGroup];
+
+    /* --- Documentation: merged markdown + gsdoc tree --- */
+    GSHelpCatalogItem *docGroup =
+        [self documentationGroupWithFileRoots: fileRoots
+                              developerRoots: developerRoots];
+    if (docGroup != nil)
       {
-        NSDirectoryEnumerator *enumerator =
-            [[NSFileManager defaultManager]
-                enumeratorAtURL: [NSURL fileURLWithPath: root]
-     includingPropertiesForKeys: @[ NSURLIsRegularFileKey ]
-                        options: NSDirectoryEnumerationSkipsPackageDescendants
-                   errorHandler: ^BOOL(NSURL *url, NSError *error) {
-                     (void)url;
-                     (void)error;
-                     /* Skip unreadable subtrees, keep walking. */
-                     return YES;
-                   }];
-        for (NSURL *url in enumerator)
-          {
-            NSString *name = [url lastPathComponent];
-            if ([name hasSuffix: @".md"] || [name hasSuffix: @".markdown"])
-              {
-                NSString *base =
-                    [name stringByDeletingPathExtension];
-                [mdItems addObject: [[GSHelpCatalogItem alloc]
-                    initWithTitle: base
-                              url: url
-                         children: nil]];
-              }
-          }
+        [items addObject: docGroup];
       }
 
     if ([appItems count] > 0)
@@ -342,21 +333,123 @@
                       url: nil
                  children: appItems]];
       }
+
+    /* --- Manual Pages: trails the list so a huge man tree never
+     * pushes Documentation out of easy reach --- */
     if ([sectionItems count] > 0)
       {
         [items addObject: [[GSHelpCatalogItem alloc]
-            initWithTitle: @"Commands"
+            initWithTitle: @"Manual Pages"
                       url: nil
                  children: sectionItems]];
       }
-    if ([mdItems count] > 0)
-      {
-        [items addObject: [[GSHelpCatalogItem alloc]
-            initWithTitle: @"System Documentation"
-                      url: nil
-                 children: mdItems]];
-      }
     return items;
+}
+
+/* Builds the merged Documentation group: markdown trees (fileRoots) and
+ * gsdoc trees (developerRoots) share one sidebar section, gsdoc under a
+ * "Frameworks" subgroup; a "Getting Started" leaf is pinned first. Returns
+ * nil when nothing was found. */
++ (GSHelpCatalogItem *)documentationGroupWithFileRoots:(NSArray *)fileRoots
+                                        developerRoots:(NSArray *)developerRoots
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSMutableArray<NSDictionary *> *mdEntries = [NSMutableArray new];
+    NSMutableArray<NSDictionary *> *gsdocEntries = [NSMutableArray new];
+
+    /* fileRoots contribute markdown only. GNUstep's
+     * -enumeratorAtURL: returns item URLs rooted at the current
+     * working directory rather than the supplied root, so enumerate
+     * by path and rebuild absolute paths from the known root. */
+    for (NSString *root in fileRoots)
+      {
+        NSString *rootPath = [root stringByStandardizingPath];
+        NSDirectoryEnumerator *enumerator =
+            [fm enumeratorAtPath: rootPath];
+        for (NSString *relPath in enumerator)
+          {
+            NSString *name = [relPath lastPathComponent];
+            if ([name hasSuffix: @".md"] || [name hasSuffix: @".markdown"])
+              {
+                [mdEntries addObject: @{
+                  @"rel": relPath,
+                  @"abs": [rootPath stringByAppendingPathComponent: relPath]
+                }];
+              }
+          }
+      }
+
+    /* developerRoots contribute both gsdoc and markdown. */
+    for (NSString *root in developerRoots)
+      {
+        NSMutableArray<NSDictionary *> *found = [NSMutableArray new];
+        [self collectGSdocFilesInDir: root into: found];
+        for (NSDictionary *entry in found)
+          {
+            NSString *ext =
+                [[entry[@"abs"] pathExtension] lowercaseString];
+            if ([ext isEqualToString: @"gsdoc"])
+              {
+                [gsdocEntries addObject: entry];
+              }
+            else if ([ext isEqualToString: @"md"]
+                       || [ext isEqualToString: @"markdown"])
+              {
+                [mdEntries addObject: entry];
+              }
+          }
+      }
+
+    /* Dedupe by relative path across all roots so overlapping sweeps
+     * (e.g. /Developer contains /Developer/Library/Sources) and domain
+     * mirrors keep their first copy, never the absolute path: the same
+     * file can legitimately live under two roots. */
+    NSMutableArray<NSDictionary *> *mdDedup = [NSMutableArray new];
+    NSMutableSet<NSString *> *seenMd = [NSMutableSet new];
+    for (NSDictionary *entry in mdEntries)
+      {
+        if ([seenMd containsObject: entry[@"rel"]])
+          {
+            continue;
+          }
+        [seenMd addObject: entry[@"rel"]];
+        [mdDedup addObject: entry];
+      }
+    NSMutableArray<NSDictionary *> *gsDedup = [NSMutableArray new];
+    NSMutableSet<NSString *> *seenGs = [NSMutableSet new];
+    for (NSDictionary *entry in gsdocEntries)
+      {
+        if ([seenGs containsObject: entry[@"rel"]])
+          {
+            continue;
+          }
+        [seenGs addObject: entry[@"rel"]];
+        [gsDedup addObject: entry];
+      }
+
+    /* No documentation at all: omit the group entirely. */
+    if ([mdDedup count] == 0 && [gsDedup count] == 0)
+      {
+        return nil;
+      }
+
+    NSMutableArray<GSHelpCatalogItem *> *children = [NSMutableArray new];
+    [children addObjectsFromArray: [self gsdocItemsForRelPaths: mdDedup]];
+
+    if ([gsDedup count] > 0)
+      {
+        NSArray<GSHelpCatalogItem *> *fwItems =
+            [self gsdocItemsForRelPaths: gsDedup];
+        [children addObject: [[GSHelpCatalogItem alloc]
+            initWithTitle: @"Frameworks"
+                      url: nil
+                 children: fwItems]];
+      }
+
+    return [[GSHelpCatalogItem alloc]
+        initWithTitle: @"Documentation"
+                  url: nil
+             children: children];
 }
 
 + (NSArray<GSHelpCatalogItem *> *)systemCatalogItems
@@ -372,14 +465,6 @@
       {
         [appRoots addObject: localApps];
       }
-    NSMutableArray *items =
-        [[self catalogItemsWithAppRoots: appRoots
-                               manRoots:
-                                   [GSHelpManLocator defaultSearchPaths]
-                              fileRoots:
-                                  @[ @"/System/Library/Documentation" ]]
-            mutableCopy];
-
     /* Framework reference (*.gsdoc) lives under
      * Library/Documentation/Developer in every domain. */
     NSArray *libraryDirs = NSSearchPathForDirectoriesInDomains(
@@ -416,9 +501,13 @@
       {
         [developerRoots addObject: @"/System"];
       }
-    [items addObjectsFromArray:
-               [self developerDocItemsWithRoots: developerRoots]];
-    return items;
+
+    return [self catalogItemsWithAppRoots: appRoots
+                                  manRoots:
+                                      [GSHelpManLocator defaultSearchPaths]
+                                 fileRoots:
+                                     @[ @"/System/Library/Documentation" ]
+                             developerRoots: developerRoots];
 }
 
 #pragma mark GSdoc developer documentation
@@ -593,45 +682,5 @@
                       return [[a title] compare: [b title]];
                     }];
 }
-
-+ (NSArray<GSHelpCatalogItem *> *)developerDocItemsWithRoots:
-    (NSArray<NSString *> *)roots
-{
-    /* Roots arrive most significant first.  Two dedupe passes keep
-     * the sidebar honest: absolute paths collapse copies claimed by
-     * overlapping sweep roots (/Developer contains Sources), and
-     * relative paths collapse domain mirrors such as an identical
-     * /Local tree shadowing /System. */
-    NSMutableArray<NSDictionary *> *collected = [NSMutableArray new];
-    NSMutableSet<NSString *> *seenAbs = [NSMutableSet new];
-    NSMutableSet<NSString *> *seenRel = [NSMutableSet new];
-    for (NSString *root in roots)
-      {
-        NSMutableArray<NSDictionary *> *found = [NSMutableArray new];
-        [self collectGSdocFilesInDir: root into: found];
-        for (NSDictionary *entry in found)
-          {
-            if ([seenAbs containsObject: entry[@"abs"]]
-                    || [seenRel containsObject: entry[@"rel"]])
-              {
-                continue;
-              }
-            [seenAbs addObject: entry[@"abs"]];
-            [seenRel addObject: entry[@"rel"]];
-            [collected addObject: entry];
-          }
-      }
-    if ([collected count] == 0)
-      {
-        return @[];
-      }
-
-    GSHelpCatalogItem *group = [[GSHelpCatalogItem alloc]
-        initWithTitle: @"Documentation"
-                  url: nil
-             children: [self gsdocItemsForRelPaths: collected]];
-    return @[ group ];
-}
-
 
 @end

@@ -6,6 +6,9 @@
 
 #import "GSHelpRenderer.h"
 
+#import "GSHelpURL.h"
+#import "GSHelpManLocator.h"
+
 #ifdef GS_HAVE_CURL
 #include <curl/curl.h>
 #endif
@@ -1106,6 +1109,7 @@ static NSData *gsHelpCachedFetch(NSString *urlString)
       {
         GSHelpLink *link = (GSHelpLink *)node;
         NSString *target = [link target] ?: @"";
+        BOOL navigable = [self linkTargetIsNavigable: target];
 
         for (GSHelpText *run in [link labelRuns])
           {
@@ -1114,14 +1118,29 @@ static NSData *gsHelpCachedFetch(NSString *urlString)
               {
                 continue;
               }
-            /* Target stored as the link attribute value so click
-             * handling can resolve it later (help:// or relative). */
-            NSDictionary *attrs = @{
-                NSFontAttributeName:
-                    [self runFontForStyle: [run style] base: baseFont],
-                NSLinkAttributeName: target,
-                NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle),
-            };
+            NSDictionary *attrs;
+            if (navigable)
+              {
+                /* Target stored as the link attribute value so click
+                 * handling can resolve it later (help:// or relative). */
+                attrs = @{
+                    NSFontAttributeName:
+                        [self runFontForStyle: [run style] base: baseFont],
+                    NSLinkAttributeName: target,
+                    NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle),
+                };
+              }
+            else
+              {
+                /* An unresolvable reference (e.g. a man page that is
+                 * not installed) must not look or act like a link;
+                 * render it as ordinary text so it cannot be clicked
+                 * into a dead end. */
+                attrs = @{
+                    NSFontAttributeName:
+                        [self runFontForStyle: [run style] base: baseFont],
+                };
+              }
             [out appendAttributedString:
                 [[NSAttributedString alloc] initWithString: string
                                                 attributes: attrs]];
@@ -1131,6 +1150,61 @@ static NSData *gsHelpCachedFetch(NSString *urlString)
       {
         [self appendImage: (GSHelpImage *)node toString: out indent: 0];
       }
+}
+
+/* A reference is shown as a link only when it actually leads somewhere.
+ * Man references require the page to be installed; local/relative links
+ * require the file to exist; external http(s) links always navigate. */
+- (BOOL)linkTargetIsNavigable:(NSString *)target
+{
+  if (target.length == 0)
+    {
+      return NO;
+    }
+  NSURL *url = [NSURL URLWithString: target];
+  if (url == nil)
+    {
+      return NO;
+    }
+  NSString *scheme = [url scheme];
+  if (scheme == nil || [scheme isEqualToString: @""])
+    {
+      /* Relative target: resolve against the document's own location
+       * and require the file to exist. */
+      if (_document.sourceURL == nil)
+        {
+          return NO;
+        }
+      NSURL *abs = [NSURL URLWithString: target
+                          relativeToURL: _document.sourceURL];
+      abs = [abs absoluteURL];
+      return [[NSFileManager defaultManager] fileExistsAtPath: [abs path]];
+    }
+  if ([scheme isEqualToString: @"http"] || [scheme isEqualToString: @"https"])
+    {
+      return YES;
+    }
+  if ([scheme isEqualToString: @"file"])
+    {
+      return [[NSFileManager defaultManager] fileExistsAtPath: [url path]];
+    }
+  if ([GSHelpURL isHelpURL: url])
+    {
+      NSString *kind = [GSHelpURL kindOfURL: url];
+      if ([kind isEqualToString: @"man"])
+        {
+          NSURL *page = [GSHelpManLocator
+              locateManPageWithCommand: [GSHelpURL commandOfURL: url]
+                               section: [GSHelpURL sectionOfURL: url]
+                           searchPaths:
+                               [GSHelpManLocator defaultSearchPaths]];
+          return page != nil;
+        }
+      /* Other help: kinds (catalog/section/topic) are resolved by the
+       * controller against the installed catalog, so trust them. */
+      return YES;
+    }
+  return NO;
 }
 
 @end

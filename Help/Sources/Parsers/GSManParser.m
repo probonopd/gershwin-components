@@ -1020,6 +1020,68 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
               style:(GSHelpTextStyle)style
               join:(BOOL)join
 {
+  [self appendReferenceAwareText: string style: style join: join];
+}
+
+/* Splits a text fragment on man-page cross-references of the form
+ * name(section) and appends the pieces: plain styled runs for the
+ * in-between text and GSHelpLink for each reference (resolved to
+ * help://man/name/section so the view can open the page). */
+- (void)appendReferenceAwareText:(NSString *)text
+                           style:(GSHelpTextStyle)style
+                            join:(BOOL)join
+{
+  if (text.length == 0) {
+    return;
+  }
+  /* A font macro like ".BR bind (2)" emits two adjacent runs, "bind"
+   * then "(2),", so the reference is split across runs and the inline
+   * pattern above never sees it whole. Fuse a leading "(section)..."
+   * fragment back onto the previous word into a single link, then
+   * process any trailing punctuation on its own. */
+  NSString *remainder = [self mergeLeadingParenReference: text
+                                                   style: style];
+  if (remainder != nil) {
+    [self appendReferenceAwareText: remainder style: style join: NO];
+    return;
+  }
+  NSArray *matches = [[self manReferenceRegex]
+      matchesInString: text
+               options: 0
+                 range: NSMakeRange(0, text.length)];
+  if (matches.count == 0) {
+    [self appendPlainRun: text style: style join: join];
+    return;
+  }
+  NSUInteger loc = 0;
+  BOOL first = YES;
+  for (NSTextCheckingResult *m in matches) {
+    NSRange whole = m.range;
+    if (whole.location > loc) {
+      NSString *seg = [text substringWithRange:
+          NSMakeRange(loc, whole.location - loc)];
+      [self appendPlainRun: seg style: style
+                       join: (first ? join : YES)];
+    }
+    NSString *name = [text substringWithRange: [m rangeAtIndex: 1]];
+    NSString *section = [text substringWithRange: [m rangeAtIndex: 2]];
+    [self appendManLinkWithName: name section: section
+                            join: (first ? join : YES) style: style];
+    first = NO;
+    loc = NSMaxRange(whole);
+  }
+  if (loc < text.length) {
+    NSString *seg = [text substringFromIndex: loc];
+    [self appendPlainRun: seg style: style join: YES];
+  }
+}
+
+/* The original addRun body: one plain styled run, with the same
+ * space-joining rule used between prose lines. */
+- (void)appendPlainRun:(NSString *)string
+                 style:(GSHelpTextStyle)style
+                  join:(BOOL)join
+{
   /* Roff fill mode puts a space wherever a source line breaks, no
    * matter which characters meet at the boundary ("adds" + "-Wall"
    * renders "adds -Wall"); only existing whitespace suppresses the
@@ -1037,11 +1099,156 @@ typedef NS_ENUM(NSUInteger, GSMRunMode) {
         }
       }
     }
+    else if ([last isKindOfClass: [GSHelpLink class]]) {
+      /* A link is not a GSHelpText, so the usual join-space rule is
+       * skipped; without it the following word glues onto the link
+       * label ("ldap_error(3)for"). Prepend the word space here. */
+      if ([string characterAtIndex: 0] != ' ') {
+        string = [@" " stringByAppendingString: string];
+      }
+    }
   }
   GSHelpText *run = [GSHelpText new];
   run.string = string;
   run.style = style;
   [_pendingRuns addObject: run];
+}
+
+- (void)appendManLinkWithName:(NSString *)name
+                     section:(NSString *)section
+                        join:(BOOL)join
+                       style:(GSHelpTextStyle)style
+{
+  /* Same leading-space rule as plain runs so a wrapped reference keeps
+   * its word boundary ("page bind(2)" never glues to "page"). */
+  NSString *label = [NSString stringWithFormat: @"%@(%@)", name, section];
+  if (join && _pendingRuns.count > 0) {
+    GSHelpNode *last = _pendingRuns.lastObject;
+    if ([last isKindOfClass: [GSHelpText class]]) {
+      GSHelpText *prev = (GSHelpText *)last;
+      if (prev.string.length > 0
+          && [prev.string characterAtIndex:
+                 prev.string.length - 1] != ' ') {
+        prev.string = [prev.string stringByAppendingString: @" "];
+      }
+    }
+    else if ([last isKindOfClass: [GSHelpLink class]]) {
+      if ([[(GSHelpLink *)last labelText] characterAtIndex:
+              [(GSHelpLink *)last labelText].length - 1] != ' ') {
+        label = [@" " stringByAppendingString: label];
+      }
+    }
+  }
+  GSHelpLink *link = [GSHelpLink new];
+  link.target = [[GSHelpURL manURLWithCommand: name section: section]
+      absoluteString];
+  [link appendLabelRun: label style: style];
+  [_pendingRuns addObject: link];
+}
+
+- (NSRegularExpression *)manReferenceRegex
+{
+  static NSRegularExpression *regex = nil;
+  static BOOL initialized = NO;
+  if (!initialized) {
+    /* The name excludes '.' so a preceding sentence word like
+     * "shown." is not fused onto the real reference
+     * ("shown.git-check-ref-format(1)" -> git-check-ref-format(1)).
+     * The section is a real man section: a digit (optionally with a
+     * sub-letter like 3tcl) or the standalone n/l sections; this
+     * rejects prose like "(lc)" or "(Lossy)". */
+    regex = [NSRegularExpression
+        regularExpressionWithPattern:
+            @"([A-Za-z0-9_]*[A-Za-z_][A-Za-z0-9_\\-]*)\\s*\\(([1-9][a-zA-Z]*|[nNlL])\\)"
+                             options: 0
+                               error: nil];
+    initialized = YES;
+  }
+  return regex;
+}
+
+/* Matches a run that is exactly "(section)" (plus optional leading space
+ * and arbitrary trailing text, e.g. "(2),"). Used to re-attach a
+ * two-font-macro reference like ".BR bind (2)" onto the preceding word. */
+- (NSRegularExpression *)leadingParenRegex
+{
+  static NSRegularExpression *regex = nil;
+  static BOOL initialized = NO;
+  if (!initialized) {
+    regex = [NSRegularExpression
+        regularExpressionWithPattern:
+            @"^\\s*\\(([1-9][a-zA-Z]*|[nNlL])\\)(.*)$"
+                             options: 0
+                               error: nil];
+    initialized = YES;
+  }
+  return regex;
+}
+
+/* If `text` begins with "(section)" and the previous pending run ends in
+ * a word, splice that word out and emit a single man-page link
+ * (help://man/word/section); returns the unprocessed tail (trailing
+ * punctuation) or nil when no fusion applies. */
+- (nullable NSString *)mergeLeadingParenReference:(NSString *)text
+                                           style:(GSHelpTextStyle)style
+{
+  if (_pendingRuns.count == 0) {
+    return nil;
+  }
+  NSTextCheckingResult *m = [[self leadingParenRegex]
+      firstMatchInString: text
+                  options: 0
+                    range: NSMakeRange(0, text.length)];
+  if (m == nil) {
+    return nil;
+  }
+  NSString *section = [text substringWithRange: [m rangeAtIndex: 1]];
+  NSString *rest = [text substringWithRange: [m rangeAtIndex: 2]];
+
+  GSHelpNode *last = _pendingRuns.lastObject;
+  if (![last isKindOfClass: [GSHelpText class]]) {
+    return nil;
+  }
+  GSHelpText *prev = (GSHelpText *)last;
+  NSString *prevStr = prev.string;
+  if (prevStr.length == 0) {
+    return nil;
+  }
+  /* A single trailing space in the previous run (roff fill join) is
+   * cosmetic; ignore it when locating the trailing word. */
+  NSString *trimmed = prevStr;
+  if ([trimmed hasSuffix: @" "]) {
+    trimmed = [trimmed substringToIndex: trimmed.length - 1];
+  }
+  if (trimmed.length == 0) {
+    return nil;
+  }
+  NSRange space = [trimmed rangeOfString: @" "
+                                  options: NSBackwardsSearch];
+  NSUInteger wordStart = (space.location == NSNotFound)
+      ? 0 : NSMaxRange(space);
+  NSString *word = [trimmed substringFromIndex: wordStart];
+  if (word.length == 0
+      || ([word characterAtIndex: 0] != '_'
+          && !isalnum((int)[word characterAtIndex: 0]))
+      || [word rangeOfString: @"("].location != NSNotFound) {
+    return nil;
+  }
+  /* Keep whatever preceded the word as the (possibly emptied) prior
+   * run, and replace the word with the link. */
+  NSString *prefix = [trimmed substringToIndex: wordStart];
+  prev.string = prefix;
+  if (prefix.length == 0) {
+    [_pendingRuns removeLastObject];
+  }
+  GSHelpLink *link = [GSHelpLink new];
+  link.target = [[GSHelpURL manURLWithCommand: word section: section]
+      absoluteString];
+  [link appendLabelRun: [NSString stringWithFormat: @"%@(%@)",
+                                                word, section]
+                 style: style];
+  [_pendingRuns addObject: link];
+  return rest;
 }
 
 #pragma mark Flushing
