@@ -25,6 +25,7 @@ static const CGFloat kBodySize = 16.0;
   NSMutableArray<NSString *> *_langStack;
   NSString *_currentDir;
   NSString *_currentLang;
+  NSMutableDictionary<NSString *, NSNumber *> *_anchors;
 }
 
 @end
@@ -42,15 +43,31 @@ static const CGFloat kBodySize = 16.0;
 }
 
 + (NSAttributedString *)attributedStringFromXHTMLAtPath:(NSString *)path
-                                                 baseURL:(NSURL *)base
-                                          containerRoot:(NSString *)containerRoot
-                                                   error:(NSError **)error
+                                                  baseURL:(NSURL *)base
+                                           containerRoot:(NSString *)containerRoot
+                                                    error:(NSError **)error
+{
+  return [self attributedStringFromXHTMLAtPath:path
+                                        baseURL:base
+                                 containerRoot:containerRoot
+                                       anchors:NULL
+                                          error:error];
+}
+
++ (NSAttributedString *)attributedStringFromXHTMLAtPath:(NSString *)path
+                                                  baseURL:(NSURL *)base
+                                           containerRoot:(NSString *)containerRoot
+                                                 anchors:(NSDictionary<NSString *, NSNumber *> **)outAnchors
+                                                    error:(NSError **)error
 {
   EPUBHTMLConverter *c = [[EPUBHTMLConverter alloc] init];
   c->_containerRoot = [containerRoot isKindOfClass:[NSString class]]
                           ? [NSURL fileURLWithPath:[containerRoot stringByStandardizingPath]]
                           : nil;
-  return [c parsePath:path baseURL:base error:error];
+  NSAttributedString *result = [c parsePath:path baseURL:base error:error];
+  if (outAnchors != NULL)
+    *outAnchors = [c->_anchors copy];
+  return result;
 }
 
 - (NSAttributedString *)parsePath:(NSString *)path
@@ -75,6 +92,7 @@ static const CGFloat kBodySize = 16.0;
   _currentLang = nil;
   _blockStart = 0;
   _blockStyle = [self defaultParagraph];
+  _anchors = [NSMutableDictionary dictionary];
 
   NSMutableData *d = [NSMutableData dataWithCapacity:[raw length]];
   [d appendData:raw];
@@ -211,6 +229,15 @@ didStartElement:(NSString *)element
      attributes:(NSDictionary *)attrs
 {
   NSString *e = [element lowercaseString];
+
+  // Record a page-list / TOC anchor: the offset where this element's content
+  // begins, keyed by its id. Done first so it points at the element start even
+  // for block elements that append a leading newline in startBlock below.
+  NSString *idAttr = attrs[@"id"];
+  if (idAttr != nil && [idAttr length] > 0)
+    {
+      [_anchors setObject:@([_out length]) forKey:idAttr];
+    }
 
   // EPUB RS 3.3, 3.7 / 5.1 / 6.1: process the dir and xml:lang attributes.
   // Direction is inherited until overridden; we push the effective value for

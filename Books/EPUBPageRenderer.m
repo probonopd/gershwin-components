@@ -20,7 +20,7 @@
 - (BOOL)isFlipped { return YES; }
 @end
 
-const CGFloat EPUBPageMargin = 24.0;
+CGFloat EPUBPageMargin = 24.0;
 
 @implementation EPUBPageRenderer
 {

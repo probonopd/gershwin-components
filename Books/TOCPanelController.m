@@ -7,22 +7,18 @@
 #import "TOCPanelController.h"
 
 @interface TOCPanelController ()
-@property (nonatomic, strong) NSPanel *panel;
+@property (nonatomic, strong) NSDrawer *drawer;
 @property (nonatomic, strong) NSOutlineView *outline;
 @end
 
 @implementation TOCPanelController
 
-- (NSPanel *)ensurePanel
+- (NSDrawer *)ensureDrawer
 {
-  if (_panel) return _panel;
+  if (_drawer) return _drawer;
   NSRect r = NSMakeRect(0, 0, 280, 420);
-  _panel = [[NSPanel alloc] initWithContentRect:r
-                                      styleMask:(NSTitledWindowMask | NSUtilityWindowMask)
-                                        backing:NSBackingStoreBuffered
-                                          defer:NO];
-  [_panel setTitle:@"Contents"];
-  NSView *content = [_panel contentView];
+  _drawer = [[NSDrawer alloc] initWithContentSize:r.size preferredEdge:NSMinXEdge];
+  NSView *cv = [[NSView alloc] initWithFrame:r];
   NSScrollView *sv = [[NSScrollView alloc] initWithFrame:NSMakeRect(8, 8, r.size.width - 16, r.size.height - 16)];
   [sv setHasVerticalScroller:YES];
   [sv setBorderType:NSBezelBorder];
@@ -34,13 +30,14 @@
   [_outline setDataSource:self];
   [_outline setDelegate:self];
   [sv setDocumentView:_outline];
-  [content addSubview:sv];
-  return _panel;
+  [cv addSubview:sv];
+  [_drawer setContentView:cv];
+  return _drawer;
 }
 
 - (BOOL)isVisible
 {
-  return (_panel != nil && [_panel isVisible]);
+  return (_drawer != nil && [_drawer state] == NSDrawerOpenState);
 }
 
 - (void)toggleWithTOC:(NSArray<EPUBTOCEntry *> *)toc relativeToView:(NSView *)view
@@ -54,23 +51,18 @@
 - (void)showWithTOC:(NSArray<EPUBTOCEntry *> *)toc relativeToView:(NSView *)view
 {
   self.toc = toc;
-  [self ensurePanel];
+  [self ensureDrawer];
+  NSWindow *host = [view window];
+  if (host != nil)
+    [_drawer setParentWindow:host];
   [_outline reloadData];
   [_outline expandItem:nil expandChildren:YES];
-  NSWindow *host = [view window];
-  NSRect hostFrame = (host != nil) ? [host frame] : [[NSScreen mainScreen] frame];
-  NSRect pr = [_panel frame];
-  NSRect r = NSMakeRect(hostFrame.origin.x + 12,
-                        hostFrame.origin.y + hostFrame.size.height - pr.size.height - 12,
-                        pr.size.width, pr.size.height);
-  [_panel setFrame:r display:NO];
-  [_panel orderFront:nil];
-  [NSApp activateIgnoringOtherApps:YES];
+  [_drawer open];
 }
 
 - (void)hide
 {
-  [_panel orderOut:nil];
+  [_drawer close];
 }
 
 - (NSInteger)outlineView:(NSOutlineView *)ov numberOfChildrenOfItem:(id)item

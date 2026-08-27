@@ -19,6 +19,11 @@
 @property (nonatomic, copy) NSString *pageProgressionDirection;
 @property (nonatomic, copy) NSArray<NSString *> *spine;
 @property (nonatomic, copy) NSArray<EPUBTOCEntry *> *tableOfContents;
+// EPUB Locators / EPUB 3.3 nav `page-list`: the publisher's print page map.
+// Each entry is @{ @"href": <relative ref, may carry #fragment>,
+//                   @"label": <page label string, e.g. "1", "iv", "A-12"> }.
+// Absent (nil) when the publication ships no page-list.
+@property (nonatomic, copy) NSArray<NSDictionary<NSString *, NSString *> *> *pageList;
 @property (nonatomic, copy, readonly) NSString *extractedRoot;
 
 - (instancetype)initWithEPUBAtPath:(NSString *)epubPath error:(NSError **)error;

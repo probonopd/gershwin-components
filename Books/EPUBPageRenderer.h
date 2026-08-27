@@ -8,8 +8,10 @@
 
 // Inset (points) drawn around the text inside each page bitmap. The paginator
 // and the renderer must agree on this so a paginated page never overflows the
-// area the renderer actually draws into.
-extern const CGFloat EPUBPageMargin;
+// area the renderer actually draws into. It is a mutable global so the reader
+// can adjust the page border margin at runtime; the controller assigns it
+// before paginating and before each render.
+extern CGFloat EPUBPageMargin;
 
 @interface EPUBPageRenderer : NSObject
 

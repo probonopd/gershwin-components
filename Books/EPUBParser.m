@@ -461,102 +461,141 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
 
 @interface _NavParser : NSObject <NSXMLParserDelegate>
 @property (nonatomic, strong) NSMutableArray<EPUBTOCEntry *> *roots;
+@property (nonatomic, strong) NSMutableArray<NSDictionary<NSString *, NSString *> *> *pageList;
 @property (nonatomic, copy) NSString *navDocDir;
 @property (nonatomic, copy) NSString *extractRoot;
 @end
 
 @implementation _NavParser
 {
-    NSMutableArray *_stack;
-    EPUBTOCEntry *_current;
-    NSMutableString *_text;
-    BOOL _inTocNav;
-    BOOL _inAnchor;
-    BOOL _inLi;
+  NSMutableArray *_stack;
+  EPUBTOCEntry *_current;
+  NSMutableString *_text;
+  BOOL _inTocNav;
+  BOOL _inPageListNav;
+  BOOL _inAnchor;
+  BOOL _inLi;
+  NSString *_pageListHref;
 }
 - (instancetype)init
 {
-    self = [super init];
-    if (self)
+  self = [super init];
+  if (self)
     {
-        _roots = [NSMutableArray array];
-        _stack = [NSMutableArray array];
-        _text = [NSMutableString string];
+      _roots = [NSMutableArray array];
+      _stack = [NSMutableArray array];
+      _text = [NSMutableString string];
+      _pageList = [NSMutableArray array];
     }
-    return self;
+  return self;
 }
 
 - (void)parser:(NSXMLParser *)parser didStartElement:(NSString *)elementName namespaceURI:(NSString *)namespaceURI qualifiedName:(NSString *)qName attributes:(NSDictionary<NSString *, NSString *> *)attributes
 {
-    NSString *local = LocalName(elementName);
-    if ([local isEqualToString:@"nav"])
+  NSString *local = LocalName(elementName);
+  if ([local isEqualToString:@"nav"])
     {
-        NSString *type = attributes[@"type"];
-        if (type == nil)
+      NSString *type = attributes[@"type"];
+      if (type == nil)
+      {
+        type = attributes[@"epub:type"];
+      }
+      if (type != nil)
+      {
+        if ([type rangeOfString:@"toc" options:NSCaseInsensitiveSearch].location != NSNotFound)
         {
-            type = attributes[@"epub:type"];
+          _inTocNav = YES;
         }
-        if (type != nil &&
-            [type rangeOfString:@"toc" options:NSCaseInsensitiveSearch].location != NSNotFound)
+        else if ([type rangeOfString:@"page-list" options:NSCaseInsensitiveSearch].location != NSNotFound)
         {
-            _inTocNav = YES;
+          _inPageListNav = YES;
         }
+      }
     }
-    else if (_inTocNav && [local isEqualToString:@"li"])
+  else if (_inTocNav && [local isEqualToString:@"li"])
     {
-        EPUBTOCEntry *entry = [[EPUBTOCEntry alloc] init];
-        if ([_stack count] == 0)
-        {
-            [_roots addObject:entry];
-        }
-        else
-        {
-            EPUBTOCEntry *parent = [_stack lastObject];
-            parent.children = [parent.children arrayByAddingObject:entry];
-        }
-        [_stack addObject:entry];
-        _current = entry;
-        _inLi = YES;
-        [_text setString:@""];
+      EPUBTOCEntry *entry = [[EPUBTOCEntry alloc] init];
+      if ([_stack count] == 0)
+      {
+        [_roots addObject:entry];
+      }
+      else
+      {
+        EPUBTOCEntry *parent = [_stack lastObject];
+        parent.children = [parent.children arrayByAddingObject:entry];
+      }
+      [_stack addObject:entry];
+      _current = entry;
+      _inLi = YES;
+      [_text setString:@""];
     }
-    else if (_inTocNav && _inLi && [local isEqualToString:@"a"])
+  else if (_inTocNav && _inLi && [local isEqualToString:@"a"])
     {
-        _inAnchor = YES;
-        [_text setString:@""];
-        NSString *href = attributes[@"href"];
-        _current.contentPath = ResolveRelativeToExtractRoot(href, _navDocDir, _extractRoot);
+      _inAnchor = YES;
+      [_text setString:@""];
+      NSString *href = attributes[@"href"];
+      _current.contentPath = ResolveRelativeToExtractRoot(href, _navDocDir, _extractRoot);
+    }
+  else if (_inPageListNav && [local isEqualToString:@"li"])
+    {
+      // Begin a new page-list item; remember its href when the anchor appears.
+      _inLi = YES;
+      _pageListHref = nil;
+      [_text setString:@""];
+    }
+  else if (_inPageListNav && _inLi && [local isEqualToString:@"a"])
+    {
+      _inAnchor = YES;
+      [_text setString:@""];
+      _pageListHref = ResolveRelativeToExtractRoot(attributes[@"href"], _navDocDir, _extractRoot);
     }
 }
 
 - (void)parser:(NSXMLParser *)parser foundCharacters:(NSString *)string
 {
-    if (_inAnchor)
-    {
-        [_text appendString:string];
-    }
+  if (_inAnchor)
+  {
+    [_text appendString:string];
+  }
 }
 
 - (void)parser:(NSXMLParser *)parser didEndElement:(NSString *)elementName namespaceURI:(NSString *)namespaceURI qualifiedName:(NSString *)qName
 {
-    NSString *local = LocalName(elementName);
-    if ([local isEqualToString:@"nav"])
+  NSString *local = LocalName(elementName);
+  if ([local isEqualToString:@"nav"])
+  {
+    _inTocNav = NO;
+    _inPageListNav = NO;
+  }
+  else if (_inTocNav && [local isEqualToString:@"a"])
+  {
+    if (_current != nil)
     {
-        _inTocNav = NO;
+      _current.title = Trimmed(_text);
     }
-    else if (_inTocNav && [local isEqualToString:@"a"])
+    _inAnchor = NO;
+  }
+  else if (_inTocNav && [local isEqualToString:@"li"])
+  {
+    _inLi = NO;
+    [_stack removeLastObject];
+    _current = [_stack lastObject];
+  }
+  else if (_inPageListNav && [local isEqualToString:@"a"])
+  {
+    _inAnchor = NO;
+  }
+  else if (_inPageListNav && [local isEqualToString:@"li"])
+  {
+    _inLi = NO;
+    // Commit the page-list entry now that its label text is complete.
+    NSString *label = Trimmed(_text);
+    if (_pageListHref != nil && [label length] > 0)
     {
-        if (_current != nil)
-        {
-            _current.title = Trimmed(_text);
-        }
-        _inAnchor = NO;
+      [_pageList addObject:@{ @"href": _pageListHref, @"label": label }];
     }
-    else if (_inTocNav && [local isEqualToString:@"li"])
-    {
-        _inLi = NO;
-        [_stack removeLastObject];
-        _current = [_stack lastObject];
-    }
+    _pageListHref = nil;
+  }
 }
 @end
 
@@ -742,6 +781,7 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
 
     /* TOC: prefer EPUB3 nav, fall back to EPUB2 NCX */
     NSMutableArray<EPUBTOCEntry *> *toc = [NSMutableArray array];
+    NSArray<NSDictionary<NSString *, NSString *> *> *pageList = nil;
 
     NSString *navId = nil;
     for (NSString *ident in op.manifestOrder)
@@ -768,6 +808,7 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
     [nxml setShouldResolveExternalEntities:NO];
         [nxml parse];
         toc = np.roots;
+        pageList = np.pageList;
     }
 
     if ([toc count] == 0)
@@ -823,6 +864,7 @@ static NSString *ResolveRelativeToExtractRoot(NSString *src, NSString *baseDir, 
     [book setCoverPath:coverPath];
     [book setSpine:spine];
     [book setTableOfContents:toc];
+    [book setPageList:(pageList ?: @[])];
     // EPUB RS 3.3, 5.5: honor an explicit page-progression-direction; when
     // absent the reading system MUST assume "default" (nil here means default).
     [book setPageProgressionDirection:op.pageProgressionDirection];

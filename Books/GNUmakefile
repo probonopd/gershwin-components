@@ -19,7 +19,10 @@ Books_OBJC_FILES = \
 	EPUBParser.m \
 	EPUBPageRenderer.m \
 	EPUBPaginator.m \
-	EPUBHTMLConverter.m
+	EPUBHTMLConverter.m \
+	EPUBPageLocator.m \
+	EPUBAnnotation.m \
+	AnnotationStore.m
 
 Books_HEADER_FILES = \
 	BooksAppDelegate.h \
@@ -36,7 +39,10 @@ Books_HEADER_FILES = \
 	EPUBParser.h \
 	EPUBPageRenderer.h \
 	EPUBPaginator.h \
-	EPUBHTMLConverter.h
+	EPUBHTMLConverter.h \
+	EPUBPageLocator.h \
+	EPUBAnnotation.h \
+	AnnotationStore.h
 
 Books_RESOURCE_FILES = \
 	Books.png \

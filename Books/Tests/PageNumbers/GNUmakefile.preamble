@@ -1,0 +1,4 @@
+# EPUBPageLocator uses only copy/assign properties, so it compiles cleanly
+# under manual reference counting; the ObjectTesting harness (Testing.h) is
+# MRC, so the whole test TU is built without -fobjc-arc.
+ADDITIONAL_OBJCFLAGS += -Wno-protocol

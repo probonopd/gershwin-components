@@ -18,6 +18,10 @@
       _lastSpreadIndex = 0;
       _fontSize = 16.0;
       _theme = 0;
+      _pageNumberMode = 0;
+      _lineSpacing = 0.0;
+      _pageMargin = 24.0;
+      _fontFamily = nil;
     }
   return self;
 }
@@ -67,6 +71,10 @@
   [coder encodeInteger:(NSInteger)_lastSpreadIndex forKey:@"lastSpreadIndex"];
   [coder encodeDouble:_fontSize forKey:@"fontSize"];
   [coder encodeInteger:_theme forKey:@"theme"];
+  [coder encodeInteger:_pageNumberMode forKey:@"pageNumberMode"];
+  [coder encodeDouble:_lineSpacing forKey:@"lineSpacing"];
+  [coder encodeDouble:_pageMargin forKey:@"pageMargin"];
+  [coder encodeObject:_fontFamily forKey:@"fontFamily"];
 }
 
 - (instancetype)initWithCoder:(NSCoder *)coder
@@ -82,6 +90,11 @@
       _lastSpreadIndex = (NSUInteger)[coder decodeIntegerForKey:@"lastSpreadIndex"];
       _fontSize = [coder decodeDoubleForKey:@"fontSize"];
       _theme = [coder decodeIntegerForKey:@"theme"];
+      _pageNumberMode = [coder decodeIntegerForKey:@"pageNumberMode"];
+      _lineSpacing = [coder decodeDoubleForKey:@"lineSpacing"];
+      _pageMargin = [coder decodeDoubleForKey:@"pageMargin"];
+      if (_pageMargin < 4.0) _pageMargin = 24.0;
+      _fontFamily = [coder decodeObjectForKey:@"fontFamily"];
       if (_fontSize < 8.0) _fontSize = 16.0;
     }
   return self;

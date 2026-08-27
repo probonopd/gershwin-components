@@ -65,7 +65,7 @@
   [appMenu addItemWithTitle:[NSString stringWithFormat:@"Quit %@", appName]
                       action:@selector(terminate:)
                keyEquivalent:@"q"];
-  NSMenuItem *appItem = [mainMenu addItemWithTitle:appName action:NULL keyEquivalent:@""];
+  NSMenuItem *appItem = (NSMenuItem *)[mainMenu addItemWithTitle:appName action:NULL keyEquivalent:@""];
   [mainMenu setSubmenu:appMenu forItem:appItem];
 
   NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
@@ -75,7 +75,7 @@
   [fileMenu addItemWithTitle:@"Open Library"
                        action:@selector(showShelf:)
                 keyEquivalent:@""];
-  NSMenuItem *fileItem = [mainMenu addItemWithTitle:@"File" action:NULL keyEquivalent:@""];
+  NSMenuItem *fileItem = (NSMenuItem *)[mainMenu addItemWithTitle:@"File" action:NULL keyEquivalent:@""];
   [mainMenu setSubmenu:fileMenu forItem:fileItem];
 
   NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
@@ -86,7 +86,7 @@
   [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
   [editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
   [editMenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
-  NSMenuItem *editItem = [mainMenu addItemWithTitle:@"Edit" action:NULL keyEquivalent:@""];
+  NSMenuItem *editItem = (NSMenuItem *)[mainMenu addItemWithTitle:@"Edit" action:NULL keyEquivalent:@""];
   [mainMenu setSubmenu:editMenu forItem:editItem];
 
   NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
@@ -96,12 +96,12 @@
   [windowMenu addItemWithTitle:@"Bring All to Front"
                         action:@selector(arrangeInFront:)
                  keyEquivalent:@""];
-  NSMenuItem *windowItem = [mainMenu addItemWithTitle:@"Window" action:NULL keyEquivalent:@""];
+  NSMenuItem *windowItem = (NSMenuItem *)[mainMenu addItemWithTitle:@"Window" action:NULL keyEquivalent:@""];
   [mainMenu setSubmenu:windowMenu forItem:windowItem];
   [NSApp setWindowsMenu:windowMenu];
 
   NSMenu *helpMenu = [[NSMenu alloc] initWithTitle:@"Help"];
-  NSMenuItem *helpItem = [mainMenu addItemWithTitle:@"Help" action:NULL keyEquivalent:@""];
+  NSMenuItem *helpItem = (NSMenuItem *)[mainMenu addItemWithTitle:@"Help" action:NULL keyEquivalent:@""];
   [mainMenu setSubmenu:helpMenu forItem:helpItem];
 
   [NSApp setMainMenu:mainMenu];
