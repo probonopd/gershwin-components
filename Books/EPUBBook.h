@@ -21,8 +21,20 @@
 @property (nonatomic, copy) NSArray<EPUBTOCEntry *> *tableOfContents;
 @property (nonatomic, copy, readonly) NSString *extractedRoot;
 
+// LCP (Readium Licensed Content Protection). The book is LCP-protected when
+// the container holds META-INF/license.lcpl. Until unlocked, encrypted
+// resources cannot be read; the renderer stays unaware of LCP and simply
+// asks the book for (decrypted) content paths.
+@property (nonatomic, readonly) BOOL lcpProtected;
+- (NSString *)lcpPassphraseHint;
+- (BOOL)lcpUnlockWithPassphrase:(NSString *)passphrase error:(NSError **)error;
+
 - (instancetype)initWithEPUBAtPath:(NSString *)epubPath error:(NSError **)error;
 - (NSString *)absolutePathForContent:(NSString *)relativePath;
+// Returns a path to the (decrypted, when LCP-encrypted) content for any
+// relative or absolute path. Decrypts on demand into the temp extract dir
+// and caches the result; the original EPUB on disk is never decrypted.
+- (NSString *)materializedPathForPath:(NSString *)anyPath error:(NSError **)error;
 - (void)cleanupExtraction;
 
 @end

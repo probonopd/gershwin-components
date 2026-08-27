@@ -70,17 +70,28 @@
       return NO;
     }
 
+  if (_epub.lcpProtected && ![self _unlockLCP])
+    return NO;
+
   NSMutableAttributedString *base = [[NSMutableAttributedString alloc] init];
   NSUInteger offset = 0;
   for (NSString *docAbs in _epub.spine)
     {
-      NSData *data = [NSData dataWithContentsOfFile:docAbs];
+      NSString *dec = [_epub materializedPathForPath:docAbs error:NULL];
+      if (dec == nil) continue;
+      NSData *data = [NSData dataWithContentsOfFile:dec];
       if (data == nil) continue;
-      NSURL *baseURL = [NSURL fileURLWithPath:[docAbs stringByDeletingLastPathComponent]];
+      NSURL *baseURL = [NSURL fileURLWithPath:[dec stringByDeletingLastPathComponent]];
       NSAttributedString *part = [EPUBHTMLConverter
-          attributedStringFromXHTMLAtPath:docAbs
+          attributedStringFromXHTMLAtPath:dec
                                     baseURL:baseURL
                              containerRoot:_epub.extractedRoot
+                           resourceResolver:
+          ^NSString *(NSString *p)
+            {
+              NSString *m = [_epub materializedPathForPath:p error:NULL];
+              return m ? m : p;
+            }
                                      error:NULL];
       if ([part length] > 0)
         {
@@ -105,6 +116,67 @@
   [self applyFont];
   [self applyTextColor];
   return YES;
+}
+
+/* WHY: GNUstep's NSAlert has no accessory view, so we present a small modal
+ * panel with a secure field to collect the LCP passphrase. */
+- (NSString *)_promptPassphraseWithHint:(NSString *)hint
+{
+  NSPanel *panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 340, 150)
+                                              styleMask:NSTitledWindowMask | NSClosableWindowMask
+                                                backing:NSBackingStoreBuffered
+                                                  defer:NO];
+  [panel setTitle:@"Protected book"];
+  NSTextField *label = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 96, 300, 34)];
+  [label setStringValue:hint ?: @"Enter the passphrase."];
+  [label setBezeled:NO];
+  [label setDrawsBackground:NO];
+  [label setEditable:NO];
+  NSSecureTextField *field =
+      [[NSSecureTextField alloc] initWithFrame:NSMakeRect(20, 56, 300, 24)];
+  [field setPlaceholderString:@"Passphrase"];
+  NSButton *ok = [[NSButton alloc] initWithFrame:NSMakeRect(220, 16, 100, 28)];
+  [ok setBezelStyle:NSRoundedBezelStyle];
+  [ok setTitle:@"Unlock"];
+  [ok setKeyEquivalent:@"\r"];
+  [ok setTarget:NSApp];
+  [ok setAction:@selector(stopModal)];
+  NSButton *cancel = [[NSButton alloc] initWithFrame:NSMakeRect(110, 16, 100, 28)];
+  [cancel setTitle:@"Cancel"];
+  [cancel setTarget:NSApp];
+  [cancel setAction:@selector(abortModal)];
+  [[panel contentView] addSubview:label];
+  [[panel contentView] addSubview:field];
+  [[panel contentView] addSubview:ok];
+  [[panel contentView] addSubview:cancel];
+
+  NSInteger rc = [NSApp runModalForWindow:panel];
+  if (rc != NSRunStoppedResponse)
+    return nil;
+  return [field stringValue];
+}
+
+/* WHY: LCP is unlocked interactively here, before the first spine read. We
+ * loop until the passphrase is accepted or the user cancels. */
+- (BOOL)_unlockLCP
+{
+  for (;;)
+    {
+      NSString *pass = [self _promptPassphraseWithHint:_epub.lcpPassphraseHint];
+      if (pass == nil)
+        return NO;
+      NSError *e = nil;
+      if ([_epub lcpUnlockWithPassphrase:pass error:&e])
+        return YES;
+      NSAlert *bad = [NSAlert alertWithMessageText:@"Wrong passphrase"
+                                      defaultButton:@"Retry"
+                                    alternateButton:@"Cancel"
+                                        otherButton:nil
+                          informativeTextWithFormat:@"%@",
+                            [e localizedDescription] ?: @"The passphrase was rejected."];
+      if ([bad runModal] != NSAlertDefaultReturn)
+        return NO;
+    }
 }
 
 - (void)updateThemeColors
@@ -308,6 +380,7 @@
 - (void)tocDidSelectEntry:(EPUBTOCEntry *)entry
 {
   NSString *abs = [_epub absolutePathForContent:entry.contentPath];
+  if (abs != nil) abs = [_epub materializedPathForPath:abs error:NULL];
   if (abs == nil) { [_tocPanel hide]; return; }
   NSNumber *start = [_docStart objectForKey:[abs lastPathComponent]];
   if (start)

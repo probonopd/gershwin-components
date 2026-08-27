@@ -20,4 +20,13 @@
                                           containerRoot:(NSString *)containerRoot
                                                    error:(NSError **)error;
 
+// resourceResolver maps a resource's absolute path to the path the converter
+// should actually load. Used by LCP to serve decrypted bytes; when nil the
+// path is used as-is.
++ (NSAttributedString *)attributedStringFromXHTMLAtPath:(NSString *)path
+                                                 baseURL:(NSURL *)base
+                                          containerRoot:(NSString *)containerRoot
+                                        resourceResolver:(NSString *(^)(NSString *))resolver
+                                                   error:(NSError **)error;
+
 @end

@@ -20,6 +20,7 @@ static const CGFloat kBodySize = 16.0;
   NSMutableParagraphStyle *_blockStyle;
   NSURL *_base;
   NSURL *_containerRoot;
+  NSString *(^_resourceResolver)(NSString *);
   NSFont *_lastFont;
   NSMutableArray<NSString *> *_dirStack;
   NSMutableArray<NSString *> *_langStack;
@@ -46,10 +47,24 @@ static const CGFloat kBodySize = 16.0;
                                           containerRoot:(NSString *)containerRoot
                                                    error:(NSError **)error
 {
+  return [self attributedStringFromXHTMLAtPath:path
+                                        baseURL:base
+                                 containerRoot:containerRoot
+                               resourceResolver:nil
+                                          error:error];
+}
+
++ (NSAttributedString *)attributedStringFromXHTMLAtPath:(NSString *)path
+                                                 baseURL:(NSURL *)base
+                                          containerRoot:(NSString *)containerRoot
+                                        resourceResolver:(NSString *(^)(NSString *))resolver
+                                                   error:(NSError **)error
+{
   EPUBHTMLConverter *c = [[EPUBHTMLConverter alloc] init];
   c->_containerRoot = [containerRoot isKindOfClass:[NSString class]]
                           ? [NSURL fileURLWithPath:[containerRoot stringByStandardizingPath]]
                           : nil;
+  c->_resourceResolver = resolver;
   return [c parsePath:path baseURL:base error:error];
 }
 
@@ -57,7 +72,8 @@ static const CGFloat kBodySize = 16.0;
                            baseURL:(NSURL *)base
                              error:(NSError **)error
 {
-  NSData *raw = [NSData dataWithContentsOfFile:path];
+  NSString *readPath = (_resourceResolver != nil) ? _resourceResolver(path) : path;
+  NSData *raw = [NSData dataWithContentsOfFile:readPath];
   if (raw == nil)
     {
       if (error) *error = [NSError errorWithDomain:@"EPUBHTML" code:1
@@ -359,6 +375,7 @@ didStartElement:(NSString *)element
       if (scheme != nil && ![scheme isEqualToString:@"file"]) return;
       NSString *path = [url path];
       if (path == nil) return;
+      if (_resourceResolver != nil) path = _resourceResolver(path);
       if (_containerRoot != nil)
         {
           NSString *std = [path stringByStandardizingPath];

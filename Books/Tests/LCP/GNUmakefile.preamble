@@ -1,0 +1,32 @@
+LCP_DIR = ../../LCP
+
+ADDITIONAL_INCLUDE_DIRS += -I$(LCP_DIR)
+
+# Link the units under test as separate objects (never #include multiple .m).
+t_License_OBJC_FILES          += $(LCP_DIR)/LCPError.m $(LCP_DIR)/LCPLicense.m
+t_Backend_OBJC_FILES          += $(LCP_DIR)/LCPError.m $(LCP_DIR)/LCPLicense.m $(LCP_DIR)/LCPOpenSSLBackend.m
+t_ResourceProvider_OBJC_FILES += $(LCP_DIR)/LCPError.m $(LCP_DIR)/LCPLicense.m \
+                                 $(LCP_DIR)/LCPOpenSSLBackend.m $(LCP_DIR)/LCPResourceProvider.m
+t_Manager_OBJC_FILES          += $(LCP_DIR)/LCPError.m $(LCP_DIR)/LCPLicense.m \
+                                 $(LCP_DIR)/LCPOpenSSLBackend.m $(LCP_DIR)/LCPResourceProvider.m \
+                                 $(LCP_DIR)/LCPManager.m
+
+# Crypto backend needs OpenSSL; Foundation classes need gnustep-base.
+ADDITIONAL_TOOL_LIBS += -lcrypto -lgnustep-base
+
+# End-to-end: pull in the real EPUB parsing + book layer, plus the LCP stack.
+BOOK_DIR = ../..
+t_EPUB_LCP_OBJC_FILES += $(BOOK_DIR)/EPUBBook.m $(BOOK_DIR)/EPUBParser.m \
+                          $(BOOK_DIR)/EPUBTOCEntry.m \
+                          $(LCP_DIR)/LCPError.m $(LCP_DIR)/LCPLicense.m \
+                          $(LCP_DIR)/LCPOpenSSLBackend.m $(LCP_DIR)/LCPResourceProvider.m \
+                          $(LCP_DIR)/LCPManager.m
+ADDITIONAL_INCLUDE_DIRS += -I$(BOOK_DIR)
+
+# Real EDRLab fixture (separate .lcpl + per-resource compression).
+t_RealLCP_OBJC_FILES += $(BOOK_DIR)/EPUBBook.m $(BOOK_DIR)/EPUBParser.m \
+                        $(BOOK_DIR)/EPUBTOCEntry.m \
+                        $(LCP_DIR)/LCPError.m $(LCP_DIR)/LCPLicense.m \
+                        $(LCP_DIR)/LCPOpenSSLBackend.m $(LCP_DIR)/LCPResourceProvider.m \
+                        $(LCP_DIR)/LCPManager.m
+ADDITIONAL_TOOL_LIBS += -lz

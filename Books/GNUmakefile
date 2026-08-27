@@ -19,7 +19,12 @@ Books_OBJC_FILES = \
 	EPUBParser.m \
 	EPUBPageRenderer.m \
 	EPUBPaginator.m \
-	EPUBHTMLConverter.m
+	EPUBHTMLConverter.m \
+	LCP/LCPError.m \
+	LCP/LCPLicense.m \
+	LCP/LCPOpenSSLBackend.m \
+	LCP/LCPResourceProvider.m \
+	LCP/LCPManager.m
 
 Books_HEADER_FILES = \
 	BooksAppDelegate.h \
@@ -36,7 +41,13 @@ Books_HEADER_FILES = \
 	EPUBParser.h \
 	EPUBPageRenderer.h \
 	EPUBPaginator.h \
-	EPUBHTMLConverter.h
+	EPUBHTMLConverter.h \
+	LCP/LCPError.h \
+	LCP/LCPLicense.h \
+	LCP/LCPClientBackend.h \
+	LCP/LCPOpenSSLBackend.h \
+	LCP/LCPResourceProvider.h \
+	LCP/LCPManager.h
 
 Books_RESOURCE_FILES = \
 	Books.png \
@@ -46,7 +57,7 @@ Books_RESOURCE_FILES = \
 	BooksInfo.plist
 
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fobjc-runtime=gnustep-2.0 -Wno-protocol
-ADDITIONAL_GUI_LIBS += -lGL
+ADDITIONAL_GUI_LIBS += -lGL -lcrypto -lz
 
 # Register Books as the handler for .epub so double-click opens the app.
 # Run as the real (desktop) user, not root: make_services writes the
