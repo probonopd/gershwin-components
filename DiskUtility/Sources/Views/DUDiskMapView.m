@@ -238,11 +238,9 @@ static const unsigned long long kMinimumDragSizeBytes = 1024ull * 1024ull;
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
+    // Transparent plot area: the theme's natural background shows through
+    // behind the partition tiles instead of a hard-coded color.
     NSRect area = [self plotArea];
-
-    [[NSColor controlBackgroundColor] setFill];
-    [[NSBezierPath bezierPathWithRect:area] fill];
-
     NSArray<DUPartition *> *sorted = self.layout.partitions;
 
     // Free gaps first so tile fills never cover the hatching.

@@ -30,9 +30,7 @@ static NSString * const kUnknownValue = @"-";
 
 - (void)drawRect:(NSRect)dirtyRect
 {
-    (void)dirtyRect;
-    [[NSColor controlBackgroundColor] setFill];
-    NSRectFill(self.bounds);
+    [super drawRect:dirtyRect];
 }
 
 @end
@@ -378,12 +376,10 @@ static NSString * const kUnknownValue = @"-";
     NSTextField *label = [[DUInfoTextField alloc] initWithFrame:NSZeroRect];
     label.editable = NO;
     label.bezeled = NO;
-    /* Opaque on purpose: the area view behind us never participates in
-     * partial redraws, so a transparent field would stack its glyphs onto
-     * whatever pixels survived from earlier renders (observed as
-     * double-struck values after operations). */
-    label.drawsBackground = YES;
-    label.backgroundColor = [NSColor controlBackgroundColor];
+    // Transparent: the theme's window background shows through instead of a
+    // hard-coded box color. Force the flag so the GNUstep default (which can
+    // paint a control-colored box) never applies.
+    label.drawsBackground = NO;
     label.stringValue = text.length > 0 ? text : kUnknownValue;
     label.font = bold ? METRICS_FONT_SYSTEM_BOLD_11
                       : METRICS_FONT_SYSTEM_REGULAR_11;

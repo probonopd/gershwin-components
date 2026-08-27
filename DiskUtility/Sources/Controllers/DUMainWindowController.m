@@ -109,9 +109,9 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
 @implementation DUContentView
 - (void)drawRect:(NSRect)dirtyRect
 {
-    (void)dirtyRect;
-    [[NSColor controlBackgroundColor] setFill];
-    NSRectFill(self.bounds);
+    // Let the theme draw the window's natural content background; do not
+    // paint over it with an explicit color.
+    [super drawRect:dirtyRect];
 }
 @end
 
@@ -160,6 +160,10 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
 
     [self buildLayoutInWindow:window];
     [self buildToolbarButtons];
+    // Start with every command control disabled; updateToolbarForSelection
+    // re-enables only what the selected object's capabilities permit, so the
+    // toolbar never advertises an operation no backend implements.
+    [self updateToolbarForSelection];
 
     [[NSNotificationCenter defaultCenter]
         addObserver:self
@@ -723,10 +727,17 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
             action == @selector(commandVerify:) ||
             action == @selector(commandConvert:) ||
             action == @selector(commandBurn:) ||
-            action == @selector(commandResize:)) {
+            action == @selector(commandResize:) ||
+            action == @selector(commandAddChecksum:) ||
+            action == @selector(commandVerifyChecksum:) ||
+            action == @selector(commandScanImageForRestore:)) {
             return NO;
         }
-        return [super validateMenuItem:menuItem];
+        // No selection: every other command the controller implements stays
+        // available (Refresh, Close, Help, view toggles).  We must not call
+        // super here -- NSWindowController does not implement validateMenuItem:
+        // and doing so throws on every menu update.
+        return (action == NULL) ? NO : [self respondsToSelector:action];
     }
     DUStorageCapabilities *caps = selection.capabilities;
     if (action == @selector(commandConvert:)) {
@@ -779,7 +790,9 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
         DUStorageObject *sel = self.selectedObject;
         return sel != nil && sel.type == DUStorageObjectTypeDiskImage;
     }
-    return [super validateMenuItem:menuItem];
+    // Anything else the controller implements is enabled; super would throw
+    // because NSWindowController has no validateMenuItem:.
+    return (action == NULL) ? NO : [self respondsToSelector:action];
 }
 
 #pragma mark - Selection fan-out (SPEC section 30)

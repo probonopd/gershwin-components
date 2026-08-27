@@ -38,7 +38,7 @@
     // Lines wrap instead of widening the container; a horizontal scrollbar
     // would fight the wrapping behavior expected of the log pane.
     textView.horizontallyResizable = NO;
-    textView.backgroundColor = [NSColor whiteColor];
+    // Natural theme background for the log pane.
     textView.textContainerInset =
         NSMakeSize(METRICS_SPACE_8, METRICS_SPACE_8);
     textView.font = [NSFont userFixedPitchFontOfSize:11.0];
