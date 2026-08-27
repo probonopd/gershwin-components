@@ -107,6 +107,54 @@
 @property (nonatomic, strong) NSView *topBar;
 @end
 
+// Toolbar background: paints the same grey as the bottom pixel of the eau window
+// title-bar gradient (active: 0.83 -> 0.63, bottom row solid 0.63) so the app's
+// toolbar continues the system title bar seamlessly. A plain NSView has no
+// background-color property in GNUstep, hence the small drawRect override.
+@interface _BooksGrayBar : NSView
+@end
+@implementation _BooksGrayBar
+- (BOOL)isOpaque { return YES; }
+
+- (void)viewDidMoveToWindow
+{
+  [super viewDidMoveToWindow];
+  NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+  [nc removeObserver:self name:NSWindowDidBecomeKeyNotification object:nil];
+  [nc removeObserver:self name:NSWindowDidResignKeyNotification object:nil];
+  NSWindow *win = [self window];
+  if (win != nil) {
+    [nc addObserver:self selector:@selector(_windowKeyChanged:)
+               name:NSWindowDidBecomeKeyNotification object:win];
+    [nc addObserver:self selector:@selector(_windowKeyChanged:)
+               name:NSWindowDidResignKeyNotification object:win];
+  }
+}
+
+- (void)_windowKeyChanged:(NSNotification *)note
+{
+  [self setNeedsDisplay:YES];
+}
+
+- (void)dealloc
+{
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)drawRect:(NSRect)aRect
+{
+  // Match the bottom pixel of the eau window title-bar gradient so the toolbar
+  // continues the system title bar seamlessly. The theme paints the active
+  // (key) gradient 0.83 -> 0.63 (bottom row solid 0.63) and the inactive
+  // gradient 0.92 -> 0.83 (bottom row solid 0.83); isActive tracks the key
+  // window, exactly as the theme does (inputState == 0).
+  BOOL active = [[self window] isKeyWindow];
+  CGFloat g = active ? 0.63 : 0.83;
+  [[NSColor colorWithCalibratedRed:g green:g blue:g alpha:1.0] setFill];
+  NSRectFill(aRect);
+}
+@end
+
 @implementation BookReaderController
 
 - (instancetype)initWithLibraryBook:(LibraryBook *)book
@@ -628,7 +676,7 @@
 
   NSView *content = [win contentView];
   NSRect bar = NSMakeRect(0, r.size.height - 44, r.size.width, 44);
-  NSView *topBar = [[NSView alloc] initWithFrame:bar];
+  NSView *topBar = [[_BooksGrayBar alloc] initWithFrame:bar];
   self.topBar = topBar;
   [topBar setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
 
