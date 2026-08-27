@@ -12,6 +12,8 @@
 #import "DUConvertImageOperation.h"
 #import "DUResizeImageOperation.h"
 #import "DUBurnOperation.h"
+#import "DUBlankDiscOperation.h"
+#import "DUVerifyDiscOperation.h"
 #import "DUOperation.h"
 #import "DUOperationManager.h"
 #import "DUStorageBackend.h"
@@ -570,8 +572,84 @@
 
     DUBurnOperation *operation =
         [[DUBurnOperation alloc] initWithBackend:_backend
-                                           image:image
-                                    opticalDrive:opticalDrive];
+                                            image:image
+                                     opticalDrive:opticalDrive];
+    return [self startImageOperation:operation
+                   resourceIdentifier:opticalDrive.identifier
+                           onProgress:progress
+                         onCompletion:completion
+                                error:error];
+}
+
+- (DUOperation *)blankOpticalDisc:(DUStorageObject *)opticalDrive
+                           options:(NSDictionary *)options
+                        onProgress:(void (^)(double, NSString *))progress
+                      onCompletion:(void (^)(NSError *))completion
+                             error:(NSError **)error
+{
+    NSParameterAssert(opticalDrive != nil);
+
+    if (![self imageVerbAvailable:@selector(blankOpticalDisc:
+                                                    options:
+                                                    progress:completion:)
+                           message:NSLocalizedString(
+                                       @"This backend cannot blank discs.",
+                                       nil)
+                             error:error]) {
+        return nil;
+    }
+
+    NSError *localError = nil;
+    if (![self acquireLock:opticalDrive.identifier error:&localError]) {
+        if (error != nil) {
+            *error = localError;
+        }
+        return nil;
+    }
+
+    DUBlankDiscOperation *operation =
+        [[DUBlankDiscOperation alloc] initWithBackend:_backend
+                                         opticalDrive:opticalDrive
+                                              options:options];
+    return [self startImageOperation:operation
+                   resourceIdentifier:opticalDrive.identifier
+                           onProgress:progress
+                         onCompletion:completion
+                                error:error];
+}
+
+- (DUOperation *)verifyDisc:(DUStorageObject *)opticalDrive
+               againstImage:(DUStorageObject *)image
+                  onProgress:(void (^)(double, NSString *))progress
+                onCompletion:(void (^)(NSError *))completion
+                       error:(NSError **)error
+{
+    NSParameterAssert(opticalDrive != nil);
+    NSParameterAssert(image != nil);
+
+    if (![self imageVerbAvailable:@selector(verifyDisc:
+                                                   againstImage:
+                                                   progress:completion:)
+                           message:NSLocalizedString(
+                                       @"This backend cannot verify discs.",
+                                       nil)
+                             error:error]) {
+        return nil;
+    }
+
+    // The drive is the exclusive resource; the image is only read.
+    NSError *localError = nil;
+    if (![self acquireLock:opticalDrive.identifier error:&localError]) {
+        if (error != nil) {
+            *error = localError;
+        }
+        return nil;
+    }
+
+    DUVerifyDiscOperation *operation =
+        [[DUVerifyDiscOperation alloc] initWithBackend:_backend
+                                         opticalDrive:opticalDrive
+                                                image:image];
     return [self startImageOperation:operation
                    resourceIdentifier:opticalDrive.identifier
                            onProgress:progress

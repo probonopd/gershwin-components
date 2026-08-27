@@ -26,6 +26,7 @@
 #import "DUStorageCapabilities.h"
 #import "DUStorageManager.h"
 #import "DUStorageObject.h"
+#import "DUStorageDevice.h"
 #import "DUDiskImage.h"
 #import "DUSHA256.h"
 #import "DUPreferencesController.h"
@@ -548,6 +549,19 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
         return;
     }
 
+    if ([token isEqualToString:@"blankdisc"] ||
+        [token isEqualToString:@"copydisc"] ||
+        [token isEqualToString:@"verifydisc"]) {
+        if ([token isEqualToString:@"blankdisc"]) {
+            [self commandEraseDisc:self];
+        } else if ([token isEqualToString:@"copydisc"]) {
+            [self commandCopyDisc:self];
+        } else {
+            [self commandVerifyDisc:self];
+        }
+        return;
+    }
+
     // Burn/journaling/convert/resize remain capability-gated but inert;
     // they stay disabled instead of pretending success.
 }
@@ -648,6 +662,193 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
 {
     (void)sender;
     [self runCommand:@"resize" forObject:self.selectedObject];
+}
+
+// Erase a rewritable optical disc. Destructive, so we confirm first; the
+// backend reports clearly when the inserted media is not rewritable.
+- (IBAction)commandEraseDisc:(id)sender
+{
+    (void)sender;
+    DUStorageObject *object = self.selectedObject;
+    if (![object isKindOfClass:[DUStorageDevice class]] ||
+        !((DUStorageDevice *)object).optical) {
+        return;
+    }
+    NSInteger rc = NSRunAlertPanel(
+        NSLocalizedString(@"Erase Disc", nil),
+        NSLocalizedString(@"Erasing the disc will permanently remove all "
+                          @"data on it. This cannot be undone. Continue?",
+                          nil),
+        NSLocalizedString(@"Erase", nil),
+        NSLocalizedString(@"Cancel", nil), nil);
+    if (rc != NSAlertDefaultReturn) {
+        return;
+    }
+    self.completionLabel.stringValue =
+        NSLocalizedString(@"Erasing disc...", nil);
+    NSError *error = nil;
+    DUOperation *op = [self.storageManager
+        blankOpticalDisc:object
+                 options:@{ kDUDiscBlankMethodKey : kDUDiscBlankFastKey }
+              onProgress:^(double progress, NSString *msg) {
+            [self runOnMain:^{
+                self.completionLabel.stringValue = msg ?: @"";
+                (void)progress;
+            }];
+        }
+            onCompletion:^(NSError *err) {
+            [self runOnMain:^{
+                if (err != nil && err.code != DUErrorCancelled) {
+                    NSRunAlertPanel(
+                        NSLocalizedString(@"Erase Disc", nil),
+                        err.localizedDescription
+                            ?: NSLocalizedString(
+                                   @"The disc could not be erased.", nil),
+                        NSLocalizedString(@"OK", nil), nil, nil);
+                    self.completionLabel.stringValue =
+                        err.localizedDescription ?: @"";
+                } else if (err == nil) {
+                    self.completionLabel.stringValue =
+                        NSLocalizedString(@"Disc erased successfully.", nil);
+                }
+            }];
+        }
+                  error:&error];
+    if (op == nil && error != nil) {
+        NSRunAlertPanel(NSLocalizedString(@"Erase Disc", nil),
+                        error.localizedDescription
+                            ?: NSLocalizedString(
+                                   @"The disc could not be erased.", nil),
+                        NSLocalizedString(@"OK", nil), nil, nil);
+    }
+}
+
+// Copy the disc in the selected drive to an image file (whole-disc read).
+- (IBAction)commandCopyDisc:(id)sender
+{
+    (void)sender;
+    DUStorageObject *object = self.selectedObject;
+    if (![object isKindOfClass:[DUStorageDevice class]] ||
+        !((DUStorageDevice *)object).optical) {
+        return;
+    }
+    NSSavePanel *save = [NSSavePanel savePanel];
+    save.title = NSLocalizedString(@"Copy Disc To Image", nil);
+    save.nameFieldStringValue = @"Optical Disc.iso";
+    save.allowedFileTypes = @[ @"iso", @"cdr", @"img" ];
+    if ([save runModal] != NSFileHandlingPanelOKButton) {
+        return;
+    }
+    NSString *destination = save.filename;
+    if (destination.length == 0) {
+        return;
+    }
+    self.completionLabel.stringValue =
+        NSLocalizedString(@"Copying disc...", nil);
+    NSError *error = nil;
+    DUOperation *op = [self.storageManager
+        createImageFromObject:object
+                      options:@{ @"path" : destination, @"format" : @"raw" }
+                   onProgress:^(double progress, NSString *msg) {
+            [self runOnMain:^{
+                self.completionLabel.stringValue = msg ?: @"";
+                (void)progress;
+            }];
+        }
+                 onCompletion:^(NSError *err) {
+            [self runOnMain:^{
+                if (err != nil && err.code != DUErrorCancelled) {
+                    NSRunAlertPanel(
+                        NSLocalizedString(@"Copy Disc", nil),
+                        err.localizedDescription
+                            ?: NSLocalizedString(
+                                   @"The disc could not be copied.", nil),
+                        NSLocalizedString(@"OK", nil), nil, nil);
+                    self.completionLabel.stringValue =
+                        err.localizedDescription ?: @"";
+                } else if (err == nil) {
+                    self.completionLabel.stringValue =
+                        NSLocalizedString(@"Disc copied successfully.", nil);
+                }
+            }];
+        }
+                          error:&error];
+    if (op == nil && error != nil) {
+        NSRunAlertPanel(NSLocalizedString(@"Copy Disc", nil),
+                        error.localizedDescription
+                            ?: NSLocalizedString(
+                                   @"The disc could not be copied.", nil),
+                        NSLocalizedString(@"OK", nil), nil, nil);
+    }
+}
+
+// Verify a burned disc by reading its data back and comparing it against the
+// source image the user points us at.
+- (IBAction)commandVerifyDisc:(id)sender
+{
+    (void)sender;
+    DUStorageObject *object = self.selectedObject;
+    if (![object isKindOfClass:[DUStorageDevice class]] ||
+        !((DUStorageDevice *)object).optical) {
+        return;
+    }
+    NSOpenPanel *open = [NSOpenPanel openPanel];
+    open.title = NSLocalizedString(@"Select Source Image", nil);
+    open.canChooseDirectories = NO;
+    open.canChooseFiles = YES;
+    open.allowedFileTypes = @[ @"iso", @"cdr", @"img", @"dmg" ];
+    if ([open runModal] != NSFileHandlingPanelOKButton) {
+        return;
+    }
+    NSString *imagePath = open.filename;
+    if (imagePath.length == 0) {
+        return;
+    }
+    NSDictionary *attrs =
+        [[NSFileManager defaultManager] attributesOfItemAtPath:imagePath
+                                                          error:NULL];
+    DUDiskImage *image = [[DUDiskImage alloc]
+        initWithIdentifier:[@"verify-" stringByAppendingString:imagePath]];
+    image.path = imagePath;
+    image.sizeBytes = [attrs fileSize];
+
+    self.completionLabel.stringValue =
+        NSLocalizedString(@"Verifying disc...", nil);
+    NSError *error = nil;
+    DUOperation *op = [self.storageManager
+        verifyDisc:object
+      againstImage:image
+         onProgress:^(double progress, NSString *msg) {
+            [self runOnMain:^{
+                self.completionLabel.stringValue = msg ?: @"";
+                (void)progress;
+            }];
+        }
+       onCompletion:^(NSError *err) {
+            [self runOnMain:^{
+                if (err != nil && err.code != DUErrorCancelled) {
+                    NSRunAlertPanel(
+                        NSLocalizedString(@"Verify Disc", nil),
+                        err.localizedDescription
+                            ?: NSLocalizedString(@"Verification failed.",
+                                                 nil),
+                        NSLocalizedString(@"OK", nil), nil, nil);
+                    self.completionLabel.stringValue =
+                        err.localizedDescription ?: @"";
+                } else if (err == nil) {
+                    self.completionLabel.stringValue =
+                        NSLocalizedString(@"Disc verified successfully.", nil);
+                }
+            }];
+        }
+              error:&error];
+    if (op == nil && error != nil) {
+        NSRunAlertPanel(NSLocalizedString(@"Verify Disc", nil),
+                        error.localizedDescription
+                            ?: NSLocalizedString(@"Verification failed.",
+                                                 nil),
+                        NSLocalizedString(@"OK", nil), nil, nil);
+    }
 }
 
 // Re-reads the whole topology; the refresh shortcuts and the menu share it
@@ -773,6 +974,16 @@ static NSString * const kDefaultsWindowFrame = @"DUWindowFrame";
     if (action == @selector(commandOpenDiskImage:)) {
         return [self.activeBackend
             respondsToSelector:@selector(mountFileImageAtPath:completion:)];
+    }
+    if (action == @selector(commandEraseDisc:)) {
+        return caps.canBlankDisc;
+    }
+    if (action == @selector(commandCopyDisc:)) {
+        return [selection isKindOfClass:[DUStorageDevice class]] &&
+            ((DUStorageDevice *)selection).optical && caps.canCreateImage;
+    }
+    if (action == @selector(commandVerifyDisc:)) {
+        return caps.canVerifyDisc;
     }
     // These do not depend on the current selection.
     if (action == @selector(commandPreferences:) ||

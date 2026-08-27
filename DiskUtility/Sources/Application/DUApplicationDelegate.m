@@ -384,8 +384,23 @@
              keyMask:0
                   key:@""];
     [self addCommand:imagesMenu
+               title:NSLocalizedString(@"Erase Disc", nil)
+             selector:@selector(commandEraseDisc:)
+             keyMask:0
+                  key:@""];
+    [self addCommand:imagesMenu
                title:NSLocalizedString(@"Resize", nil)
              selector:@selector(commandResize:)
+             keyMask:0
+                  key:@""];
+    [self addCommand:imagesMenu
+               title:NSLocalizedString(@"Copy Disc…", nil)
+             selector:@selector(commandCopyDisc:)
+             keyMask:0
+                  key:@""];
+    [self addCommand:imagesMenu
+               title:NSLocalizedString(@"Verify Disc…", nil)
+             selector:@selector(commandVerifyDisc:)
              keyMask:0
                   key:@""];
     [imagesMenu addItem:[NSMenuItem separatorItem]];

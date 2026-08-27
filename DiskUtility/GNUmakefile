@@ -113,6 +113,8 @@ DiskUtility_OBJC_FILES = \
 	Sources/Operations/DUConvertImageOperation.m \
 	Sources/Operations/DUResizeImageOperation.m \
 	Sources/Operations/DUBurnOperation.m \
+	Sources/Operations/DUBlankDiscOperation.m \
+	Sources/Operations/DUVerifyDiscOperation.m \
 	Sources/Operations/DUImageOperation.m \
 	Sources/Utilities/DUErrors.m \
 	Sources/Utilities/DUProcessRunner.m \

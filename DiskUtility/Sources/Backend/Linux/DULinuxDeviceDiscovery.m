@@ -810,6 +810,10 @@ extern NSString * const kLsblkKeyFstype;
         device.capabilities.canErase = canFormatAny && !device.optical;
         device.capabilities.canEject = device.ejectable && canEject;
         device.capabilities.canBurn = canBurn && device.optical;
+        device.capabilities.canBlankDisc =
+            canBurn && device.optical && device.mediaPresent;
+        device.capabilities.canVerifyDisc =
+            device.optical && device.mediaPresent;
         device.capabilities.canMount = NO;
         device.capabilities.canUnmount = NO;
         device.capabilities.canVerify = YES;

@@ -27,3 +27,7 @@ NSString *const kDUFormatCanFormatKey = @"DUFormatCanFormat";
 NSString *const kDUEraseSecurityMethodKey = @"DUEraseSecurityMethod";
 NSString *const kDUEraseMethodStandardKey = @"standard";
 NSString *const kDUEraseMethodZerosKey = @"zeros";
+
+NSString *const kDUDiscBlankMethodKey = @"DUDiscBlankMethod";
+NSString *const kDUDiscBlankFastKey = @"fast";
+NSString *const kDUDiscBlankAllKey = @"all";

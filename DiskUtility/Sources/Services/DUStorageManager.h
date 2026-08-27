@@ -86,10 +86,23 @@
                         error:(NSError **)error;
 
 - (DUOperation *)burnImage:(DUStorageObject *)image
-                 toObject:(DUStorageObject *)opticalDrive
-               onProgress:(void (^)(double progress, NSString *message))progress
-             onCompletion:(void (^)(NSError *error))completion
-                    error:(NSError **)error;
+                  toObject:(DUStorageObject *)opticalDrive
+                onProgress:(void (^)(double progress, NSString *message))progress
+              onCompletion:(void (^)(NSError *error))completion
+                     error:(NSError **)error;
+
+// Disc (optical) helpers. Same lock-and-run contract as the image starters.
+- (DUOperation *)blankOpticalDisc:(DUStorageObject *)opticalDrive
+                           options:(NSDictionary *)options
+                        onProgress:(void (^)(double progress, NSString *message))progress
+                      onCompletion:(void (^)(NSError *error))completion
+                             error:(NSError **)error;
+
+- (DUOperation *)verifyDisc:(DUStorageObject *)opticalDrive
+               againstImage:(DUStorageObject *)image
+                  onProgress:(void (^)(double progress, NSString *message))progress
+                onCompletion:(void (^)(NSError *error))completion
+                       error:(NSError **)error;
 
 // Format descriptors for the erase popup; passthrough to the optional
 // backend method, empty array when the backend does not implement it.

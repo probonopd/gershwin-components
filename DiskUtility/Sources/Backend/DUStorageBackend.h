@@ -38,6 +38,13 @@ extern NSString *const kDUEraseSecurityMethodKey; // value is one of the two bel
 extern NSString *const kDUEraseMethodStandardKey; // e.g. "standard"
 extern NSString *const kDUEraseMethodZerosKey;    // e.g. "zeros"
 
+// Disc (optical) operation keys. Blanking a rewritable disc (CD-RW,
+// DVD-RW, DVD+RW, DVD-RAM, BD-RE) prepares it for reuse; the method picks
+// the wipe depth.
+extern NSString *const kDUDiscBlankMethodKey; // value is one of the two below
+extern NSString *const kDUDiscBlankFastKey;   // e.g. "fast" (quick blank)
+extern NSString *const kDUDiscBlankAllKey;    // e.g. "all" (full blank)
+
 // Storage abstraction every platform backend implements. All async methods
 // validate their arguments synchronously and then run on a private worker
 // thread. Progress and completion callbacks are delivered on an arbitrary
@@ -151,8 +158,27 @@ extern NSString *const kDUEraseMethodZerosKey;    // e.g. "zeros"
 // cannot burn; UI gates on canBurn which backends set only when a burning
 // tool is installed and the drive has writable media.
 - (void)burnImage:(DUStorageObject *)image
-         toObject:(DUStorageObject *)opticalDrive
-         progress:(void (^)(double progress, NSString *message))progress
+          toObject:(DUStorageObject *)opticalDrive
+          progress:(void (^)(double progress, NSString *message))progress
+         completion:(void (^)(NSError *error))completion;
+
+// Blank (erase) a rewritable optical disc in the drive so it can be
+// reused. options carries the method under kDUDiscBlankMethodKey; when
+// absent backends use the fast blank. Absent method => cannot blank; UI
+// gates on canBlankDisc which backends set only for optical drives with a
+// burning tool installed and media present.
+- (void)blankOpticalDisc:(DUStorageObject *)opticalDrive
+                 options:(NSDictionary *)options
+                progress:(void (^)(double progress, NSString *message))progress
+              completion:(void (^)(NSError *error))completion;
+
+// Verify a burned optical disc by reading its data back and comparing it
+// against the source image file. Absent method => cannot verify discs; UI
+// gates on canVerifyDisc which backends set only for optical drives with
+// media present.
+- (void)verifyDisc:(DUStorageObject *)opticalDrive
+      againstImage:(DUStorageObject *)image
+          progress:(void (^)(double progress, NSString *message))progress
         completion:(void (^)(NSError *error))completion;
 
 // Mount a disk-image file the user opened from disk (File > Open Disk Image),

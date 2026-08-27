@@ -19,6 +19,8 @@
     _canUnmount = value;
     _canEject = value;
     _canBurn = value;
+    _canBlankDisc = value;
+    _canVerifyDisc = value;
     _canCreateImage = value;
     _canRestore = value;
     _canCreateRAID = value;
