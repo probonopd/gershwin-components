@@ -44,6 +44,13 @@
 @property (nonatomic, strong) NSDictionary *cachedAppBundleTree;
 @property (nonatomic, assign) NSTimeInterval cachedAppBundleTreeTime;
 @property (nonatomic, assign) BOOL systemMenuPopulatedFromCache;
+
+/* Persistent Applications submenu NSMenu.  Built once from the app bundle tree
+   and reused across every bar rebuild / focus switch, so switching windows or
+   re-opening the ⌘ menu never discards and re-allocates the whole app list
+   (which used to cascade through NSMenu/NSMenuItem dealloc and re-stat every
+   .app bundle for its icon).  Only rebuilt when the underlying tree changes. */
+@property (nonatomic, strong) NSMenu *cachedAppsSubmenu;
 @property (nonatomic, assign) NSTimeInterval lastSystemMenuUpdateTime;
 
 /* Coalescing timer for window focus changes */

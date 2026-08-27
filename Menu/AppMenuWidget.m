@@ -1543,17 +1543,28 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         self.cachedAppBundleTreeTime = now;
     }
 
-    /* Build the "Applications" submenu from the tree. */
-    NSMenu *appsSubmenu = [[NSMenu alloc] initWithTitle:NSLocalizedString(@"Applications", nil)];
-    NSLog(@"AppMenuWidget: Scanning app tree with %ld root keys", (long)[[appTree allKeys] count]);
-    [self addMenuItemsFromTree:appTree toMenu:appsSubmenu];
-
-    NSLog(@"AppMenuWidget: Built apps submenu with %ld items", (long)[appsSubmenu numberOfItems]);
-    if ([appsSubmenu numberOfItems] == 0) {
-        NSMenuItem *none = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"No applications found", nil)
-                                                      action:nil keyEquivalent:@""];
-        [none setEnabled:NO];
-        [appsSubmenu addItem:none];
+    /* Reuse the persistent Applications submenu across rebuilds.  Only
+       (re)build it when the bundle tree actually changed (or on first build);
+       otherwise re-insert the very same NSMenu object.  Rebuilding from scratch
+       each open allocated one NSMenuItem + one -[NSWorkspace iconForFile:] (a
+       stat of every .app bundle) per installed app and then tore the whole old
+       tree down again via NSMenu/NSMenuItem dealloc — a multi-hundred-object
+       cascade that showed up as the bulk of Menu's CPU. */
+    NSMenu *appsSubmenu = self.cachedAppsSubmenu;
+    if (!appsSubmenu || !cacheValid) {
+        appsSubmenu = [[NSMenu alloc] initWithTitle:NSLocalizedString(@"Applications", nil)];
+        NSLog(@"AppMenuWidget: Scanning app tree with %ld root keys", (long)[[appTree allKeys] count]);
+        [self addMenuItemsFromTree:appTree toMenu:appsSubmenu];
+        self.cachedAppsSubmenu = appsSubmenu;
+        NSLog(@"AppMenuWidget: (Re)built persistent apps submenu with %ld items", (long)[appsSubmenu numberOfItems]);
+        if ([appsSubmenu numberOfItems] == 0) {
+            NSMenuItem *none = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"No applications found", nil)
+                                                          action:nil keyEquivalent:@""];
+            [none setEnabled:NO];
+            [appsSubmenu addItem:none];
+        }
+    } else {
+        NSLog(@"AppMenuWidget: Reusing cached apps submenu (%ld items)", (long)[appsSubmenu numberOfItems]);
     }
 
     [self addLauncherItemWithTitle:NSLocalizedString(@"Applications", nil)
