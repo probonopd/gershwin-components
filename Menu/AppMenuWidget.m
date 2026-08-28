@@ -1088,12 +1088,13 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     if (window) [window disableFlushWindow];
 
     @try {
-        /* Tear down old menu view.  We must create a fresh AppMenuView on every
-           switch: GNUstep's -[NSMenuView setMenu:] only ever appends item
-           cells to its internal _itemCells array and never clears them (the
-           array is emptied solely in -dealloc), so reusing one view and
-           pointing it at a different/mutated menu accumulates stale cells and
-           the bar shows duplicate items. */
+        /* Tear down old menu view.  A fresh AppMenuView is required per switch:
+           GNUstep's -[NSMenuView setMenu:] only appends item cells and never
+           clears them (NSMenuView.m:273-325, :250), and a kept/reused view would
+           keep observing its menu - the importer replaces/rebuilds a window's
+           menu item array, leaving the view's _items_link dangling and crashing
+           in -itemAdded: (NSMenuView.m:507).  setMenu:nil on teardown nils
+           _items_link and removes the observers, which is what makes this safe. */
         if (self.menuView) {
             [[NSNotificationCenter defaultCenter] removeObserver:self.menuView];
             [self.menuView setMenu:nil];
@@ -1146,17 +1147,16 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [sysItem setSubmenu:sysMenu];
         [menu insertItem:sysItem atIndex:0];
 
-        /* Create the new menu view.  A fresh view per switch is required
-           (see the teardown comment above) to avoid accumulating stale item
-           cells. */
+        /* Create a fresh menu view for this switch (see the teardown comment
+           above for why reuse is unsafe with GNUstep's NSMenuView). */
         NSRect mvFrame = NSMakeRect(0, 0, [self bounds].size.width, [self bounds].size.height);
-        AppMenuView *newView = [[AppMenuView alloc] initWithFrame:mvFrame];
-        [newView setHorizontal:YES];
-        [newView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-        [newView setMenu:menu];
-        [newView setHidden:NO];
-        [self addSubview:newView];
-        self.menuView = newView;
+        AppMenuView *view = [[AppMenuView alloc] initWithFrame:mvFrame];
+        [view setHorizontal:YES];
+        [view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+        [view setMenu:menu];
+        [view setHidden:NO];
+        [self addSubview:view];
+        self.menuView = view;
 
         [menu setDelegate:self];
         /* GNUstep's NSMenuView posts NSMenuDidBeginTrackingNotification only
@@ -1167,6 +1167,9 @@ static int handleX11Error(Display *display, XErrorEvent *event)
            with the menu bar.  This ensures enabled/disabled states (e.g. Copy
            after Select All) are pulled from the app before the user opens any
            submenu. */
+        [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                        name:NSMenuDidBeginTrackingNotification
+                                                      object:menu];
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(mainMenuDidBeginTracking:)
                                                      name:NSMenuDidBeginTrackingNotification
@@ -1179,6 +1182,9 @@ static int handleX11Error(Display *display, XErrorEvent *event)
            dropdown window stays mapped after every interaction, sitting over
            the menu bar and swallowing clicks - the "wedged" menu.  Close it
            right after tracking ends so it can never stick. */
+        [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                        name:NSMenuDidEndTrackingNotification
+                                                      object:menu];
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(mainMenuDidEndTracking:)
                                                      name:NSMenuDidEndTrackingNotification
