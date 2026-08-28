@@ -616,6 +616,7 @@ typedef struct {
     };
 
     NSError *error = nil;
+    [self.logView clear];
     [self.logView appendLine:[NSString stringWithFormat:
         NSLocalizedString(@"Restoring %@ to %@...", nil),
         source.displayName ?: @"",

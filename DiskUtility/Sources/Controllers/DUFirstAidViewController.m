@@ -345,6 +345,10 @@ static NSString * const kDefaultsConfirmDestructive =
 
     NSError *error = nil;
     DUOperation *operation = nil;
+    // The operation log is one shared view across all panes, so clear it
+    // before each run; otherwise a previous (e.g. erase) line would linger
+    // and read as if this nondestructive operation had produced it.
+    [self.logView clear];
     [self.logView appendLine:startedMessage];
     self.operationRunning = YES;
     [self updateEnabledStates];

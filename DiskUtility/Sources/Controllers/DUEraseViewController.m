@@ -377,6 +377,7 @@ static NSString * const kDefaultsConfirmDestructive =
     }
 
     NSError *error = nil;
+    [self.logView clear];
     [self.logView appendLine:[NSString stringWithFormat:
         NSLocalizedString(@"Erasing %@...", nil),
         object.displayName ?: @""]];
