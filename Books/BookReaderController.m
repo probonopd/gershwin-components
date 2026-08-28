@@ -10,7 +10,6 @@
 #import "LibraryStore.h"
 #import "EPUBBook.h"
 #import "EPUBTOCEntry.h"
-#import "EPUBPaginator.h"
 #import "EPUBPageRenderer.h"
 #import "EPUBHTMLConverter.h"
 #import "EPUBPageLocator.h"
@@ -50,7 +49,6 @@
 @property (nonatomic, strong) NSMutableAttributedString *fullText;
 @property (nonatomic, strong) NSAttributedString *baseText;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *docStart;
-@property (nonatomic, strong) EPUBPageRenderer *renderer;
 @property (nonatomic, strong) BookPageView *pageView;
 @property (nonatomic, strong) TOCPanelController *tocPanel;
 @property (nonatomic, assign) CGFloat fontSize;
@@ -61,15 +59,13 @@
 @property (nonatomic, strong) NSButton *themeButton;
 @property (nonatomic, assign) NSInteger pageNumberMode;
 @property (nonatomic, strong) EPUBPageLocator *locator;
-@property (nonatomic, strong) EPUBPaginator *paginator;
 @property (nonatomic, strong) NSMutableArray<NSString *> *pageLabels;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *docAnchors;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *docRelPaths;
 @property (nonatomic, strong) AnnotationStore *annoStore;
 @property (nonatomic, strong) NSMutableArray<EPUBAnnotation *> *annotations;
 @property (nonatomic, copy) NSString *highlightColorLabel;
-@property (nonatomic, strong) NSButton *bookmarkButton;
-@property (nonatomic, strong) NSButton *annoButton;
+@property (nonatomic, strong) NSButton *pencilButton;
 @property (nonatomic, strong) NSDrawer *annoDrawer;
 @property (nonatomic, strong) BooksAnnoTableView *annoTable;
 @property (nonatomic, strong) NSTextField *annoStatus;
@@ -89,6 +85,11 @@
 @property (nonatomic, strong) NSButton *marginUpBtn;
 @property (nonatomic, strong) NSPopUpButton *fontPopup;
 @property (nonatomic, strong) NSTimer *resizeTimer;
+// GNUstep may not post windowDidResize (or may keep a stale -[win frame]) when
+// the window manager resizes the window, so we also poll the real size and
+// relayout when it actually changes.
+@property (nonatomic, strong) NSTimer *sizePollTimer;
+@property (nonatomic, assign) NSSize lastContentSize;
 @property (nonatomic, strong) NSSearchField *searchField;
 @property (nonatomic, strong) NSDrawer *searchDrawer;
 @property (nonatomic, strong) NSTableView *searchTable;
@@ -98,6 +99,9 @@
 @property (nonatomic, assign) NSInteger histPos;
 @property (nonatomic, strong) NSButton *backButton;
 @property (nonatomic, strong) NSButton *forwardButton;
+// Ordered groups of toolbar controls; each group is laid out touching (so the
+// theme renders it as one control) and separated from the next by a constant gap.
+@property (nonatomic, strong) NSArray<NSArray<NSView *> *> *toolbarGroups;
 @end
 
 @implementation BookReaderController
@@ -115,7 +119,6 @@
       _pageMargin = book.pageMargin;
       _fontFamily = [book.fontFamily copy];
       _docStart = [NSMutableDictionary dictionary];
-      _renderer = [[EPUBPageRenderer alloc] init];
       [self updateThemeColors];
       if (![self parseBook])
         return nil;
@@ -255,13 +258,13 @@
 // offset. Stored in page order so BookPageView can overlay them by index.
 - (void)buildPageLabels
 {
-  if (_paginator == nil)
+  if (_pageView == nil || [_pageView pageCount] == 0)
     return;
-  NSUInteger pc = [_paginator pageCount];
+  NSUInteger pc = [_pageView pageCount];
   NSMutableArray<NSString *> *labels = [NSMutableArray arrayWithCapacity:pc];
   for (NSUInteger i = 0; i < pc; i++)
     {
-      NSRange r = [_paginator rangeForPage:i];
+      NSRange r = [_pageView rangeForPage:i];
       NSString *lab = [_locator labelForCharacterOffset:r.location mode:_pageNumberMode];
       [labels addObject:(lab != nil ? lab : @"")];
     }
@@ -392,18 +395,9 @@
 {
   if (_pageView == nil || _fullText == nil) return;
   // Apply the user's page border margin before computing the layout area so
-  // the paginator and the renderer (which both read EPUBPageMargin) agree.
+  // the renderer (which reads EPUBPageMargin) and the page text views agree.
   EPUBPageMargin = _pageMargin;
-  NSSize cs = [_pageView contentSize];
-  // The renderer insets the text by EPUBPageMargin on every side, so paginate
-  // using that same inner area; otherwise the last lines overflow and get cut.
-  NSSize textArea = NSMakeSize(MAX(1.0, cs.width - 2.0 * EPUBPageMargin),
-                               MAX(1.0, cs.height - 2.0 * EPUBPageMargin));
-  EPUBPaginator *p = [[EPUBPaginator alloc]
-      initWithAttributedString:_fullText
-                      pageRect:NSMakeRect(0, 0, textArea.width, textArea.height)];
-  self.paginator = p;
-  [_pageView configureWithAttributedString:_fullText paginator:p renderer:_renderer];
+  [_pageView configureWithAttributedString:_fullText];
   [_pageView setBackgroundColor:_backgroundColor];
   [_pageView setThemeTextColor:_textColor];
   NSUInteger maxSpread = [_pageView spreadCount];
@@ -425,23 +419,21 @@
 - (void)rebuildPaginatorPreservingLocation
 {
   NSUInteger anchor = NSNotFound;
-  EPUBPaginator *old = self.paginator;
-  if (old != nil && [old pageCount] > 0)
+  if (_pageView != nil && [_pageView pageCount] > 0)
     {
       NSUInteger leftPage = _currentSpread * 2;
-      if (leftPage >= [old pageCount])
-        leftPage = [old pageCount] - 1;
-      anchor = [old rangeForPage:leftPage].location;
+      if (leftPage >= [_pageView pageCount])
+        leftPage = [_pageView pageCount] - 1;
+      anchor = [_pageView rangeForPage:leftPage].location;
     }
   [self rebuildPaginator];
-  EPUBPaginator *newp = self.paginator;
-  if (anchor != NSNotFound && newp != nil && [newp pageCount] > 0)
+  if (anchor != NSNotFound && [_pageView pageCount] > 0)
     {
       NSUInteger newLeft = 0;
-      NSUInteger pc = [newp pageCount];
+      NSUInteger pc = [_pageView pageCount];
       for (NSUInteger i = 0; i < pc; i++)
         {
-          if ([newp rangeForPage:i].location >= anchor)
+          if ([_pageView rangeForPage:i].location >= anchor)
             {
               newLeft = i;
               break;
@@ -607,9 +599,17 @@
 - (void)buildWindow
 {
   NSRect screen = [[NSScreen mainScreen] frame];
-  NSRect r = NSMakeRect((screen.size.width - 1360) / 2.0,
-                          (screen.size.height - 720) / 2.0,
-                          1360, 720);
+  // Size the window to fit the screen; requesting a larger size makes some
+  // window managers silently clamp it, leaving GNUstep's -[win frame] stale and
+  // the page view overflowing. Fitting the screen keeps the frame honest so the
+  // page view (and resize reflow) tracks the real size.
+  CGFloat w = MIN(1360.0, screen.size.width - 40.0);
+  CGFloat h = MIN(720.0, screen.size.height - 80.0);
+  if (w < 620.0) w = 620.0;
+  if (h < 420.0) h = 420.0;
+  NSRect r = NSMakeRect((screen.size.width - w) / 2.0,
+                          (screen.size.height - h) / 2.0,
+                          w, h);
   NSWindow *win = [[NSWindow alloc]
       initWithContentRect:r
                  styleMask:(NSTitledWindowMask | NSClosableWindowMask |
@@ -625,41 +625,39 @@
   NSRect bar = NSMakeRect(0, r.size.height - 44, r.size.width, 44);
   NSView *topBar = [[NSView alloc] initWithFrame:bar];
   [topBar setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
-  [self addBtn:topBar title:@"Contents" action:@selector(showTOC:) x:16];
-  _backButton = [self addBtn:topBar title:@"<-" action:@selector(historyBack:) x:100 width:44];
-  _forwardButton = [self addBtn:topBar title:@"->" action:@selector(historyForward:) x:148 width:44];
-  [self addBtn:topBar title:@"A−" action:@selector(smaller:) x:196];
-  [self addBtn:topBar title:@"A+" action:@selector(larger:) x:244];
+
+  // Every toolbar control shares one height and baseline so the theme can render
+  // adjacent (touching) controls as a single group. Controls are grouped by
+  // function; within a group they touch exactly and groups are separated by a
+  // constant gap (see -layoutToolbar).
+  NSButton *contentsBtn = [self addBtn:topBar title:@"Contents" action:@selector(showTOC:) x:0 width:88];
+  _backButton = [self addBtn:topBar title:@"<-" action:@selector(historyBack:) x:0 width:40];
+  _forwardButton = [self addBtn:topBar title:@"->" action:@selector(historyForward:) x:0 width:40];
+  NSButton *smallerBtn = [self addBtn:topBar title:@"A−" action:@selector(smaller:) x:0 width:40];
+  NSButton *largerBtn = [self addBtn:topBar title:@"A+" action:@selector(larger:) x:0 width:40];
   _themeButton = [self addBtn:topBar
                          title:[NSString stringWithFormat:@"Theme: %@", [self themeName]]
                          action:@selector(cycleTheme:)
-                              x:292];
+                              x:0 width:120];
   _pagesButton = [self addBtn:topBar
                          title:[self pagesButtonTitle]
                          action:@selector(cyclePageNumbers:)
-                              x:392];
-  [self updatePagesButtonTitle];
+                              x:0 width:108];
+  _lineDownBtn = [self addBtn:topBar title:@"↕−" action:@selector(changeLineSpacing:) x:0 width:40];
+  _lineUpBtn = [self addBtn:topBar title:@"↕+" action:@selector(changeLineSpacing:) x:0 width:40];
+  _marginDownBtn = [self addBtn:topBar title:@"▭−" action:@selector(changeMargin:) x:0 width:40];
+  _marginUpBtn = [self addBtn:topBar title:@"▭+" action:@selector(changeMargin:) x:0 width:40];
 
-  // Line spacing −/+ (small square buttons).
-  _lineDownBtn = [self addBtn:topBar title:@"↕−" action:@selector(changeLineSpacing:) x:492 width:52];
-  _lineUpBtn = [self addBtn:topBar title:@"↕+" action:@selector(changeLineSpacing:) x:548 width:52];
-  // Page border margin −/+.
-  _marginDownBtn = [self addBtn:topBar title:@"▭−" action:@selector(changeMargin:) x:604 width:52];
-  _marginUpBtn = [self addBtn:topBar title:@"▭+" action:@selector(changeMargin:) x:660 width:52];
-  // Font family drop-down. Offer the real font families the system serves
-  // (no symbol/dingbat faces), discovered from the live font configuration.
-  _fontPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(716, 9, 120, 26) pullsDown:NO];
+  // Font family drop-down: real families the system serves (no dingbat faces).
+  _fontPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 9, 120, 26) pullsDown:NO];
   [_fontPopup setTarget:self];
   [_fontPopup setAction:@selector(changeFontFamily:)];
   [_fontPopup addItemWithTitle:@"Default"];
   NSSet<NSString *> *skip = [NSSet setWithObjects:@"Dingbats", @"Standard Symbols PS", nil];
   NSArray<NSString *> *fams = [self systemFontFamilyNames];
-  NSLog(@"Books font families (%lu): %@", (unsigned long)[fams count],
-        [fams componentsJoinedByString:@", "]);
   for (NSString *fam in fams)
     {
-      if ([skip containsObject:fam])
-        continue;
+      if ([skip containsObject:fam]) continue;
       [_fontPopup addItemWithTitle:fam];
     }
   if ([_fontFamily length] > 0)
@@ -671,14 +669,14 @@
     [_fontPopup selectItemAtIndex:0];
   [topBar addSubview:_fontPopup];
 
-  // Bookmark the current spread (Cmd-D) and open the annotations list.
-  _bookmarkButton = [self addBtn:topBar title:@"Mark" action:@selector(addBookmark:) x:840 width:64];
-  [_bookmarkButton setKeyEquivalent:@"d"];
-  [_bookmarkButton setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
-  _annoButton = [self addBtn:topBar title:@"Annotate" action:@selector(showAnnotations:) x:908 width:84];
+  // Single pencil button replaces the old Mark + Annotate buttons: it toggles
+  // the annotations/bookmarks drawer (which lists both), matching Contents.
+  _pencilButton = [self addBtn:topBar title:@"✎" action:@selector(showAnnotations:) x:0 width:40];
+  [_pencilButton setKeyEquivalent:@"d"];
+  [_pencilButton setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
 
-  // Scrubber at the top right: drag to move through the book by spread.
-  _scrubber = [[NSSlider alloc] initWithFrame:NSMakeRect(1140, 11, 120, 22)];
+  // Scrubber + page field: drag to move through the book, or type a page number.
+  _scrubber = [[NSSlider alloc] initWithFrame:NSMakeRect(0, 9, 120, 26)];
   [_scrubber setTarget:self];
   [_scrubber setAction:@selector(scrubberMoved:)];
   [_scrubber setMinValue:0.0];
@@ -687,22 +685,35 @@
   [_scrubber setEnabled:NO];
   [topBar addSubview:_scrubber];
 
-  // Page-number field to the right of the scrubber: shows the current page and
-  // accepts a number + Enter to jump there.
-  _pageField = [[NSTextField alloc] initWithFrame:NSMakeRect(1266, 11, 52, 22)];
+  _pageField = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 9, 52, 26)];
   [_pageField setTarget:self];
   [_pageField setAction:@selector(pageFieldEntered:)];
   [_pageField setStringValue:@""];
   [_pageField setBezeled:YES];
   [topBar addSubview:_pageField];
 
-  // Search field in the top-right: type a word, press Enter, and every match in
-  // the book is listed in the results drawer so the reader can jump to any of them.
-  _searchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(996, 9, 140, 24)];
+  // Search field: type a word + Enter to list every match in the results drawer.
+  _searchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(0, 9, 150, 26)];
   [_searchField setTarget:self];
   [_searchField setAction:@selector(searchEntered:)];
   [_searchField setPlaceholderString:@"Search"];
   [topBar addSubview:_searchField];
+
+  [self updatePagesButtonTitle];
+
+  // Group the controls; touching controls form one visual group per the theme.
+  _toolbarGroups = @[
+    @[contentsBtn, _backButton, _forwardButton],
+    @[smallerBtn, largerBtn],
+    @[_themeButton, _pagesButton],
+    @[_lineDownBtn, _lineUpBtn],
+    @[_marginDownBtn, _marginUpBtn],
+    @[_fontPopup],
+    @[_pencilButton],
+    @[_searchField],
+    @[_scrubber, _pageField]
+  ];
+  [self layoutToolbar];
 
   [content addSubview:topBar];
 
@@ -713,6 +724,15 @@
   [_pageView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
   [_pageView setDelegate:self];
   [content addSubview:_pageView];
+  // The window manager may settle the window at a different size than requested;
+  // re-apply the page-view layout shortly after show so it tracks the real size,
+  // and keep polling since GNUstep may not post windowDidResize on WM resizes.
+  [self performSelector:@selector(layoutForWindowSize) withObject:nil afterDelay:0.2];
+  _sizePollTimer = [NSTimer scheduledTimerWithTimeInterval:0.2
+                                                    target:self
+                                                  selector:@selector(sizePollTick:)
+                                                  userInfo:nil
+                                                   repeats:YES];
 }
 
 - (NSButton *)addBtn:(NSView *)parent title:(NSString *)title action:(SEL)a x:(CGFloat)x
@@ -722,13 +742,37 @@
 
 - (NSButton *)addBtn:(NSView *)parent title:(NSString *)title action:(SEL)a x:(CGFloat)x width:(CGFloat)w
 {
-  NSButton *b = [[NSButton alloc] initWithFrame:NSMakeRect(x, 9, w, 28)];
+  NSButton *b = [[NSButton alloc] initWithFrame:NSMakeRect(x, 9, w, 26)];
   [b setBezelStyle:NSRoundedBezelStyle];
   [b setTitle:title];
   [b setTarget:self];
   [b setAction:a];
   [parent addSubview:b];
   return b;
+}
+
+// Lay the toolbar groups out left-to-right. Every control shares the same height
+// and baseline; within a group controls touch exactly (no horizontal gap) so the
+// theme treats them as one control, and groups are separated by a constant gap.
+- (void)layoutToolbar
+{
+  CGFloat H = 26.0;
+  CGFloat Y = (44.0 - H) / 2.0;
+  CGFloat groupGap = 14.0;
+  CGFloat x = 16.0;
+  for (NSArray<NSView *> *group in _toolbarGroups)
+    {
+      for (NSView *v in group)
+        {
+          NSRect f = [v frame];
+          f.origin.x = x;
+          f.origin.y = Y;
+          f.size.height = H;
+          [v setFrame:f];
+          x += f.size.width;
+        }
+      x += groupGap;
+    }
 }
 
 - (void)showWithZoomFromRect:(NSRect)screenRect
@@ -983,7 +1027,7 @@
   if (n < 1) n = 1;
   if (_pageLabels == nil)
     [self buildPageLabels];
-  NSUInteger pc = [_paginator pageCount];
+  NSUInteger pc = [_pageView pageCount];
   if (pc == 0)
     return;
   NSUInteger target = pc - 1;
@@ -1055,8 +1099,55 @@
 
 #pragma mark - NSWindowDelegate
 
+// GNUstep does not always resize the window's content view (and thus the page
+// view) to track the actual on-screen window size, so the page view can overflow
+// the window and never reflow. Force the page view to fill the current content
+// area on every resize; the heavy re-pagination is still deferred below.
+- (void)layoutForWindowSize
+{
+  NSWindow *win = self.window;
+  if (win == nil)
+    return;
+  NSRect cr = [win contentRectForFrameRect:[win frame]];
+  if (cr.size.width < 1.0 || cr.size.height < 1.0)
+    return;
+  _lastContentSize = cr.size;
+  // Do NOT resize the content view here: writing it back from the content rect
+  // feeds into contentRectForFrameRect: and makes the reported size drift every
+  // tick, so sizePollTick never sees a stable size and re-paginates forever
+  // (pinning the CPU). The content view is owned by the window; we only size our
+  // own page view inside it.
+  NSRect pv = NSMakeRect(0, 0, cr.size.width, cr.size.height - 44.0);
+  if (!NSEqualRects([_pageView frame], pv))
+    [_pageView setFrame:pv];
+}
+
+// The window manager can resize the window without GNUstep ever posting
+// windowDidResize (or with a stale -[win frame]), so check the real size on a
+// low-frequency timer and reflow when it genuinely changes.
+- (void)sizePollTick:(NSTimer *)t
+{
+  NSWindow *win = self.window;
+  if (win == nil || ![win isVisible])
+    return;
+  NSRect cr = [win contentRectForFrameRect:[win frame]];
+  if (cr.size.width < 1.0 || cr.size.height < 1.0)
+    return;
+  if (NSEqualSizes(cr.size, _lastContentSize))
+    return;
+  _lastContentSize = cr.size;
+  [self layoutForWindowSize];
+  [_resizeTimer invalidate];
+  _resizeTimer = [NSTimer scheduledTimerWithTimeInterval:0.12
+                                                  target:self
+                                                selector:@selector(resizeRelayout:)
+                                                userInfo:nil
+                                                 repeats:NO];
+}
+
 - (void)windowDidResize:(NSNotification *)note
 {
+  [self layoutForWindowSize];
   // Re-paginating on every resize tick blocks the run loop and makes the window
   // feel frozen while the user drags the size grip. Defer the heavy work until
   // the resize settles, and show a busy cursor while it actually runs.
@@ -1104,6 +1195,8 @@
 {
   [_resizeTimer invalidate];
   _resizeTimer = nil;
+  [_sizePollTimer invalidate];
+  _sizePollTimer = nil;
   [self persist];
   [_epub cleanupExtraction];
 }
@@ -1423,46 +1516,24 @@
 }
 
 // Bookmark the current spread's reading position (Cmd-D).
-- (void)addBookmark:(id)sender
-{
-  EPUBPaginator *old = self.paginator;
-  if (old == nil || [old pageCount] == 0)
-    return;
-  NSUInteger leftPage = _currentSpread * 2;
-  if (leftPage >= [old pageCount])
-    leftPage = [old pageCount] - 1;
-  NSUInteger off = [old rangeForPage:leftPage].location;
-  for (EPUBAnnotation *a in _annotations)
-    if (a.motivation == EPUBAnnotationBookmarking && a.absStart == off)
-      {
-        [self showAnnotations:nil];
-        return;
-      }
-  NSString *docKey = [self docKeyForCharOffset:off];
-  if (docKey == nil)
-    return;
-  NSUInteger base = [_docStart[docKey] unsignedIntegerValue];
-  EPUBAnnotation *a = [[EPUBAnnotation alloc] init];
-  a.motivation = EPUBAnnotationBookmarking;
-  a.source = _docRelPaths[docKey] ?: docKey;
-  a.docStart = off - base;
-  a.docEnd = off - base;
-  a.absStart = off;
-  a.absEnd = off;
-  [_annotations addObject:a];
-  [self saveAnnotations];
-  [_annoTable reloadData];
-  [self updateAnnoStatus];
-  [self showAnnotations:nil];
-}
-
-- (void)showAnnotations:(id)sender
+- (void)openAnnotations
 {
   if (_annoDrawer == nil)
     [self buildAnnotationDrawer];
   [_annoTable reloadData];
   [self updateAnnoStatus];
   [_annoDrawer open];
+}
+
+- (void)showAnnotations:(id)sender
+{
+  // Single pencil button: toggle the annotations drawer like the Contents
+  // button toggles the TOC. Reload first so the list is current on open.
+  if (_annoDrawer == nil)
+    [self buildAnnotationDrawer];
+  [_annoTable reloadData];
+  [self updateAnnoStatus];
+  [_annoDrawer toggle:self];
 }
 
 // Results drawer (right edge) listing every annotation and bookmark. Each row

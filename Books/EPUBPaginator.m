@@ -5,6 +5,7 @@
  */
 
 #import "EPUBPaginator.h"
+#import "EPUBPageRenderer.h"
 
 @interface EPUBPaginator ()
 @property (nonatomic, strong) NSAttributedString *attrString;
@@ -65,9 +66,18 @@ NSString *EPUBPageBreakAttributeName = @"EPUBPageBreak";
 
   @try
     {
+      // The paginator must agree with how the page text view lays out text: the
+      // renderer/view insets the text by EPUBPageMargin on every side, so the
+      // effective container area is pageSize - 2*margin. Using the same area here
+      // keeps each paginated range exactly one screen of text in the view.
+      CGFloat margin = EPUBPageMargin;
+      NSSize textSize = NSMakeSize(MAX(1.0, _pageSize.width - 2.0 * margin),
+                                   1.0e7);
+      CGFloat pageH = MAX(1.0, _pageSize.height - 2.0 * margin);
+
       NSLayoutManager *lm = [[NSLayoutManager alloc] init];
       NSTextContainer *tc = [[NSTextContainer alloc]
-        initWithContainerSize:NSMakeSize(_pageSize.width, 1.0e7)];
+        initWithContainerSize:textSize];
       [tc setWidthTracksTextView:NO];
       [tc setHeightTracksTextView:NO];
       [tc setLineFragmentPadding:0.0];
@@ -96,7 +106,7 @@ NSString *EPUBPageBreakAttributeName = @"EPUBPageBreak";
                                                   effectiveRange:&lineRange];
               // A line already placed plus this one would overflow the page.
               if (accumulatedHeight > 0.0
-                  && accumulatedHeight + frag.size.height > _pageSize.height)
+                  && accumulatedHeight + frag.size.height > pageH)
                 break;
 
               // A chapter break: do not let the line that carries the marker

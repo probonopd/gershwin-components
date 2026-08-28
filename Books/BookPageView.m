@@ -6,30 +6,38 @@
 
 #import <AppKit/AppKit.h>
 #import "BookPageView.h"
-#import "EPUBPaginator.h"
 #import "EPUBPageRenderer.h"
 #import "GLPageTurnView.h"
+#import "BookPageTextView.h"
 #include <math.h>
 
-@interface BookPageView ()
+@interface BookPageView () <BookPageTextViewOwner>
 @property (nonatomic, strong) NSAttributedString *attrString;
-@property (nonatomic, strong) EPUBPaginator *paginator;
-@property (nonatomic, strong) EPUBPageRenderer *renderer;
-@property (nonatomic, assign) BOOL usesGL;
-@property (nonatomic, strong) GLPageTurnView *glView;
 @property (nonatomic, assign) NSUInteger currentSpread;
 @property (nonatomic, assign) NSUInteger pageCount;
-@property (nonatomic, strong) NSBitmapImageRep *leftImage;
-@property (nonatomic, strong) NSBitmapImageRep *rightImage;
-// Accumulates wheel delta between page turns so a trackpad swipe or mouse notch
-// flips roughly one spread rather than firing on every tiny event.
-@property (nonatomic, assign) CGFloat scrollAccum;
-// Drag-to-select state. A gesture only becomes a selection once it moves past a
-// small threshold; below it, mouseUp is treated as a page-turn click.
-@property (nonatomic, assign) NSPoint mouseDownPoint;
-@property (nonatomic, assign) NSPoint selStartPoint;
-@property (nonatomic, assign) NSPoint selCurPoint;
+@property (nonatomic, strong) BookPageTextView *leftTV;
+@property (nonatomic, strong) BookPageTextView *rightTV;
+@property (nonatomic, strong) GLPageTurnView *glView;
+@property (nonatomic, assign) BOOL usesGL;
+// Per-side absolute character range currently shown, so a point in a text view
+// maps straight back to a book character index.
+@property (nonatomic, assign) NSRange leftRange;
+@property (nonatomic, assign) NSRange rightRange;
+// Page ranges are computed natively here from the view's own bounds so resize
+// reflow is exact.
+@property (nonatomic, strong) NSMutableArray *pageRanges;
+// Drag-to-select state. Selection ranges are absolute in the reading text and
+// the owner paints them onto the relevant text view(s) natively.
+@property (nonatomic, assign) BOOL mouseDownActive;
 @property (nonatomic, assign) BOOL selecting;
+@property (nonatomic, assign) NSUInteger selAbsStart;
+@property (nonatomic, assign) NSUInteger selAbsEnd;
+@property (nonatomic, assign) NSUInteger selStartSide;
+@property (nonatomic, assign) CGFloat scrollAccum;
+// Cache of the last re-paginated geometry/text so we can skip the (still costly)
+// re-pagination when setFrame: fires repeatedly with an unchanged page area.
+@property (nonatomic, assign) NSSize paginatedArea;
+@property (nonatomic, strong) NSAttributedString *paginatedAttr;
 @end
 
 @implementation BookPageView
@@ -39,28 +47,212 @@
   self = [super initWithFrame:frame];
   if (self)
     {
-      _usesGL = NO; /* DIAGNOSTIC: force software renderer to isolate GL issue */
+      // The GL page-turn overlay currently leaves a black frame covering the
+      // text views at rest (its hide/redraw is not reliable in this GNUstep),
+      // so we render the native text views directly for now. Re-enable once
+      // the overlay hide path is fixed.
+      _usesGL = NO;
+      _backgroundColor = [NSColor whiteColor];
+      _textColor = [NSColor blackColor];
+      _leftRange = NSMakeRange(NSNotFound, 0);
+      _rightRange = NSMakeRange(NSNotFound, 0);
+      _pageRanges = [NSMutableArray array];
+
+      // GNUstep's NSTextView does not always create a text storage when handed
+      // a bare container, so wire the storage -> layout manager -> container
+      // chain ourselves; otherwise the view silently shows no text.
+      // Let NSTextView create its own text storage + layout manager (the
+      // reliable path in this GNUstep); we only size/configure the container
+      // later in layoutTextViews.
+      _leftTV = [[BookPageTextView alloc] initWithFrame:NSZeroRect];
+      [_leftTV setOwner:self];
+
+      _rightTV = [[BookPageTextView alloc] initWithFrame:NSZeroRect];
+      [_rightTV setOwner:self];
+
+      [self addSubview:_leftTV];
+      [self addSubview:_rightTV];
+
       if (_usesGL)
         {
           _glView = [[GLPageTurnView alloc] initWithFrame:[self bounds]];
           [_glView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+          [_glView setHidden:YES];
           [self addSubview:_glView];
         }
-      _backgroundColor = [NSColor whiteColor];
-      _textColor = [NSColor blackColor];
+      [self layoutTextViews];
     }
   return self;
 }
 
+- (void)setFrame:(NSRect)frame
+{
+  [super setFrame:frame];
+  [self layoutTextViews];
+}
+
+// Position the two page text views and size their text containers to exactly the
+// page text area (contentSize - 2*EPUBPageMargin), so a page range maps
+// 1:1 onto the visible text.
+- (void)layoutTextViews
+{
+  NSRect b = [self bounds];
+  CGFloat pageW = b.size.width / 2.0;
+  CGFloat pageH = b.size.height;
+  CGFloat margin = EPUBPageMargin;
+  // The page border margin is applied exactly once, by insetting the text view's
+  // frame inside its half of the page. The text container therefore IS the text
+  // area (page size minus 2*margin) with no further inset, so it matches the area
+  // the layout manager paginates into (the controller passes the same area).
+  NSSize area = NSMakeSize(MAX(1.0, pageW - 2.0 * margin),
+                           MAX(1.0, pageH - 2.0 * margin));
+  [_leftTV setFixedPageSize:area];
+  [_leftTV setFrameOrigin:NSMakePoint(margin, margin)];
+  [_rightTV setFixedPageSize:area];
+  [_rightTV setFrameOrigin:NSMakePoint(pageW + margin, margin)];
+  for (BookPageTextView *tv in @[ _leftTV, _rightTV ])
+    {
+      NSTextContainer *tc = [tv textContainer];
+      // Pin the container to the exact page text area. GNUstep's NSTextView
+      // defaults to widthTracksTextView/heightTracksTextView = YES, which makes
+      // the container follow the view frame instead of this explicit size; the
+      // container then disagrees with the layout manager's page capacity, so text
+      // overflows, clips and shifts ("renders in the wrong places", and breaks
+      // completely on resize). Disabling tracking keeps them in agreement.
+      [tc setWidthTracksTextView:NO];
+      [tc setHeightTracksTextView:NO];
+      [tc setContainerSize:area];
+      [tc setLineFragmentPadding:0.0];
+      [tv setTextContainerInset:NSZeroSize];
+    }
+  // Window/geometry changed: re-paginate to the new page area so the text fills
+  // exactly and reflows correctly. recomputePages is a no-op until the book text
+  // has been configured.
+  [self recomputePages];
+}
+
 - (void)configureWithAttributedString:(NSAttributedString *)attr
-                            paginator:(EPUBPaginator *)pag
-                             renderer:(EPUBPageRenderer *)rend
 {
   self.attrString = attr;
-  self.paginator = pag;
-  self.renderer = rend;
-  self.pageCount = [pag pageCount];
+  [self recomputePages];
   self.currentSpread = 0;
+}
+
+// The single-page text area: one half of the view, minus the page margin inset
+// applied exactly once (the text container IS this area, see layoutTextViews).
+- (NSSize)pageArea
+{
+  NSRect b = [self bounds];
+  CGFloat pageW = b.size.width / 2.0;
+  CGFloat pageH = b.size.height;
+  return NSMakeSize(MAX(1.0, pageW - 2.0 * EPUBPageMargin),
+                    MAX(1.0, pageH - 2.0 * EPUBPageMargin));
+}
+
+// Glyph-accurate pagination using GNUstep's NSLayoutManager. For each page we lay
+// the remaining text into a fresh text container sized to exactly one page and
+// ask the layout manager which glyphs fit inside that rectangle; that range is
+// one page. Chapter breaks (EPUBPageBreakAttributeName) are honoured by ending
+// the current page before the chapter's first character.
+- (void)recomputePages
+{
+  if (self.attrString == nil)
+    {
+      [_pageRanges removeAllObjects];
+      self.pageCount = 0;
+      _paginatedArea = NSMakeSize(0.0, 0.0);
+      _paginatedAttr = nil;
+      return;
+    }
+  NSSize area = [self pageArea];
+  // Skip the re-pagination when neither the page geometry nor the reading text
+  // changed. setFrame: (and thus layoutTextViews) is invoked on every autoresize
+  // tick, and the window manager can redrive that repeatedly, so without this
+  // guard the reader re-paginates forever and pins the CPU at ~100%.
+  if (_pageRanges.count > 0
+      && _paginatedAttr == self.attrString
+      && fabs(_paginatedArea.width - area.width) < 0.5
+      && fabs(_paginatedArea.height - area.height) < 0.5)
+    {
+      return;
+    }
+  _paginatedArea = area;
+  _paginatedAttr = self.attrString;
+  [_pageRanges removeAllObjects];
+  NSUInteger len = [self.attrString length];
+
+  // Precompute chapter break character indices once.
+  NSMutableArray *breaks = [NSMutableArray array];
+  for (NSUInteger i = 0; i < len; i++)
+    {
+      NSRange eff;
+      id brk = [self.attrString attribute:EPUBPageBreakAttributeName
+                                  atIndex:i
+                           effectiveRange:&eff];
+      if (brk != nil) [breaks addObject:[NSNumber numberWithUnsignedInteger:i]];
+    }
+
+  // Lay the whole book out ONCE and let the layout manager flow it across one
+  // text container per page. The previous code re-laid-out the remaining text for
+  // every single page, which was O(N^2) and could spin the CPU for minutes on a
+  // long book (and, retriggered by resize polling, never settle so clicks were
+  // never serviced).
+  NSTextStorage *ts = [[NSTextStorage alloc] initWithAttributedString:self.attrString];
+  NSLayoutManager *lm = [[NSLayoutManager alloc] init];
+  [ts addLayoutManager:lm];
+
+  NSMutableArray *containers = [NSMutableArray array];
+  NSUInteger totalGlyphs = 0;
+  for (;;)
+    {
+      NSTextContainer *tc = [[NSTextContainer alloc] initWithContainerSize:area];
+      [tc setWidthTracksTextView:NO];
+      [tc setHeightTracksTextView:NO];
+      [tc setLineFragmentPadding:0.0];
+      [lm addTextContainer:tc];
+      [containers addObject:tc];
+      NSRange gr = [lm glyphRangeForTextContainer:tc];
+      if (gr.length == 0 && [containers count] > 1)
+        {
+          [lm removeTextContainerAtIndex:[containers count] - 1];
+          [containers removeLastObject];
+          break;
+        }
+      totalGlyphs = [lm numberOfGlyphs];
+      if (NSMaxRange(gr) >= totalGlyphs) break;
+      if ([containers count] > 100000) break; // hard safety
+    }
+
+  // Each settled container holds at most one page of glyphs. Convert to
+  // character ranges and honour explicit chapter breaks by splitting pages.
+  for (NSTextContainer *tc in containers)
+    {
+      NSRange gr = [lm glyphRangeForTextContainer:tc];
+      if (gr.length == 0) continue;
+      NSRange cr = [lm characterRangeForGlyphRange:gr actualGlyphRange:NULL];
+      [self _addPageRangeSplittingAtBreaks:cr breaks:breaks];
+    }
+
+  if ([_pageRanges count] == 0)
+    [_pageRanges addObject:[NSValue valueWithRange:NSMakeRange(0, len)]];
+  self.pageCount = [_pageRanges count];
+}
+
+- (void)_addPageRangeSplittingAtBreaks:(NSRange)r breaks:(NSArray *)breaks
+{
+  NSUInteger s = r.location;
+  NSUInteger e = NSMaxRange(r);
+  while (s < e)
+    {
+      NSUInteger split = e;
+      for (NSNumber *n in breaks)
+        {
+          NSUInteger b = [n unsignedIntegerValue];
+          if (b > s && b < split) split = b;
+        }
+      [_pageRanges addObject:[NSValue valueWithRange:NSMakeRange(s, split - s)]];
+      s = split;
+    }
 }
 
 - (NSUInteger)spreadCount
@@ -85,186 +277,376 @@
   CGFloat h = b.size.height;
   if (w < 10) w = 450;
   if (h < 10) h = 650;
-  // The renderer paints a bitmap of exactly this size and the view draws it 1:1
-  // into the page rect, so there must be no extra inset here: any difference
-  // between this size and the on-screen page rect would stretch the bitmap and
-  // make hit-testing and highlight drawing disagree. The reader's page border
-  // margin (EPUBPageMargin) is applied by the renderer/paginator, not here.
   return NSMakeSize(MAX(50.0, w), MAX(50.0, h));
 }
 
-- (NSBitmapImageRep *)renderPage:(NSUInteger)idx
+- (NSUInteger)pageForCharacterIndex:(NSUInteger)idx
 {
-  if (idx >= self.pageCount)
-    return [self blankImage];
-  NSRange r = [self.paginator rangeForPage:idx];
-  NSBitmapImageRep *rep = [self.renderer imageForRange:r
-                                 ofAttributedString:self.attrString
-                                           pageSize:[self contentSize]
-                                    backgroundColor:self.backgroundColor
-                                           textColor:self.textColor];
-  return rep;
+  if (_pageRanges == nil || [_pageRanges count] == 0) return 0;
+  for (NSUInteger i = 0; i < [_pageRanges count]; i++)
+    {
+      NSRange r = [[_pageRanges objectAtIndex:i] rangeValue];
+      if (idx >= r.location && idx < NSMaxRange(r)) return i;
+    }
+  return [_pageRanges count] - 1;
 }
 
-- (NSBitmapImageRep *)blankImage
+- (NSRange)rangeForPage:(NSUInteger)page
 {
-  NSSize s = [self contentSize];
-  return [self.renderer imageForRange:NSMakeRange(0, 0)
-                    ofAttributedString:nil
-                              pageSize:s
-                       backgroundColor:self.backgroundColor
-                             textColor:self.textColor];
+  if (_pageRanges == nil || [_pageRanges count] == 0
+      || page >= [_pageRanges count])
+    return NSMakeRange(0, 0);
+  return [[_pageRanges objectAtIndex:page] rangeValue];
 }
 
 - (void)setBackgroundColor:(NSColor *)backgroundColor
 {
   _backgroundColor = backgroundColor;
-  [self refreshStatic];
+  if (_leftTV) [_leftTV setBackgroundColor:backgroundColor];
+  if (_rightTV) [_rightTV setBackgroundColor:backgroundColor];
+  [self setNeedsDisplay:YES];
 }
 
 - (void)setThemeTextColor:(NSColor *)textColor
 {
   _textColor = textColor;
-  [self refreshStatic];
+  [self applyTextColor];
+  [self setNeedsDisplay:YES];
+}
+
+- (void)applyTextColor
+{
+  for (BookPageTextView *tv in @[ _leftTV, _rightTV ])
+    {
+      NSTextStorage *ts = [tv textStorage];
+      if (ts == nil) continue;
+      [ts addAttribute:NSForegroundColorAttributeName
+                 value:_textColor
+                 range:NSMakeRange(0, [ts length])];
+    }
 }
 
 - (void)setPageLabels:(NSArray<NSString *> *)pageLabels
 {
   _pageLabels = [pageLabels copy];
-  [self setNeedsDisplay:YES];
+  [self applyFooters];
 }
 
-- (void)refreshStatic
+- (void)applyFooters
 {
-  if (self.attrString == nil) return;
-  [self showSpread:self.currentSpread animated:NO];
+  [_leftTV setFooterText:[self footerForSide:0]];
+  [_rightTV setFooterText:[self footerForSide:1]];
+}
+
+- (NSString *)footerForSide:(NSUInteger)side
+{
+  NSUInteger pageIdx = self.currentSpread * 2 + side;
+  if (_pageLabels == nil || pageIdx >= [_pageLabels count]) return @"";
+  return [_pageLabels objectAtIndex:pageIdx];
+}
+
+- (void)setHighlights:(NSArray<NSDictionary *> *)arr
+{
+  _highlights = [arr copy];
+  [self applyHighlights];
+}
+
+- (void)buildPage:(NSUInteger)side
+{
+  NSUInteger pageIdx = self.currentSpread * 2 + side;
+  BookPageTextView *tv = (side == 0) ? _leftTV : _rightTV;
+  if (pageIdx >= self.pageCount)
+    {
+      [tv setString:@""];
+      [tv setHidden:YES];
+      [tv setFooterText:@""];
+      if (side == 0) _leftRange = NSMakeRange(NSNotFound, 0);
+      else _rightRange = NSMakeRange(NSNotFound, 0);
+      return;
+    }
+  [tv setHidden:NO];
+  NSRange pr = [self rangeForPage:pageIdx];
+  if (side == 0) _leftRange = pr; else _rightRange = pr;
+  NSAttributedString *sub = [self.attrString attributedSubstringFromRange:pr];
+  NSTextStorage *ts = [tv textStorage];
+  [ts setAttributedString:sub];
+  if (_textColor)
+    [ts addAttribute:NSForegroundColorAttributeName
+               value:_textColor
+               range:NSMakeRange(0, [ts length])];
+  [tv setBackgroundColor:_backgroundColor ?: [NSColor whiteColor]];
+  [tv setFooterText:[self footerForSide:side]];
+  [tv setFooterAlignRight:(side == 1)];
+  NSRect ur = [[tv layoutManager] usedRectForTextContainer:[tv textContainer]];
+  (void)ur;
 }
 
 - (void)showSpread:(NSUInteger)spread animated:(BOOL)animated
 {
   if (self.attrString == nil) return;
-  NSUInteger maxSpread = [self spreadCount];
-  if (spread >= maxSpread) spread = maxSpread - 1;
-  if (maxSpread == 0) return;
+  NSUInteger max = [self spreadCount];
+  if (spread >= max) spread = max - 1;
+  if (max == 0) return;
+
+  NSBitmapImageRep *oldL = nil;
+  NSBitmapImageRep *oldR = nil;
+  if (animated) { oldL = [self snapshot:_leftTV]; oldR = [self snapshot:_rightTV]; }
 
   self.currentSpread = spread;
-  self.leftImage = [self renderPage:spread * 2];
-  self.rightImage = [self renderPage:spread * 2 + 1];
-  if (self.usesGL && self.glView)
-    [self.glView displayLeft:self.leftImage right:self.rightImage];
-  else
-    [self setNeedsDisplay:YES];
+  [self buildPage:0];
+  [self buildPage:1];
+  // GNUstep's NSTextView shrinks its frame to the laid-out text height after
+  // -setAttributedString: (it ignores -setVerticallyResizable:NO), so re-apply
+  // the fixed page frames and container sizes here.
+  [self layoutTextViews];
+  [self applyHighlights];
+
+  if (animated && self.usesGL && oldL != nil)
+    {
+      @try
+        {
+          [_glView displayLeft:oldL right:oldR];
+          [_glView setHidden:NO];
+          [_glView turnWithCompletion:^{
+            [_glView setHidden:YES];
+          }];
+        }
+      @catch (id ex)
+        {
+          [_glView setHidden:YES];
+        }
+    }
 }
+
+- (NSBitmapImageRep *)snapshot:(NSView *)view
+{
+  NSRect b = [view bounds];
+  NSBitmapImageRep *rep = [view bitmapImageRepForCachingDisplayInRect:b];
+  if (rep) [view cacheDisplayInRect:b toBitmapImageRep:rep];
+  return rep;
+}
+
+- (void)applyHighlights
+{
+  for (NSUInteger side = 0; side < 2; side++)
+    {
+      NSRange pr = (side == 0) ? _leftRange : _rightRange;
+      if (pr.location == NSNotFound) continue;
+      BookPageTextView *tv = (side == 0) ? _leftTV : _rightTV;
+      NSTextStorage *ts = [tv textStorage];
+      if (ts == nil) continue;
+      // GNUstep does not reliably paint temporary layout attributes, so mark the
+      // highlight as a real background attribute on the (per-page) text storage;
+      // clear any previous marks first so removes/edits take effect.
+      [ts removeAttribute:NSBackgroundColorAttributeName
+                     range:NSMakeRange(0, [ts length])];
+      for (NSDictionary *h in _highlights)
+        {
+          NSRange hr = [h[@"range"] rangeValue];
+          NSRange inter = NSIntersectionRange(hr, pr);
+          if (inter.length == 0) continue;
+          NSColor *c = h[@"color"];
+          if (c == nil)
+            c = [NSColor colorWithCalibratedRed:1.0 green:0.88 blue:0.18 alpha:1.0];
+          [ts addAttribute:NSBackgroundColorAttributeName
+                     value:[c colorWithAlphaComponent:0.35]
+                     range:NSMakeRange(inter.location - pr.location, inter.length)];
+        }
+      [tv setNeedsDisplay:YES];
+    }
+}
+
+#pragma mark - selection
+
+- (NSUInteger)sideForView:(BookPageTextView *)tv
+{
+  return (tv == _leftTV) ? 0 : 1;
+}
+
+- (NSUInteger)charAtPoint:(NSPoint)p side:(NSUInteger)side
+{
+  BookPageTextView *tv = (side == 0) ? _leftTV : _rightTV;
+  NSLayoutManager *lm = [tv layoutManager];
+  NSTextContainer *tc = [tv textContainer];
+  NSTextStorage *ts = [tv textStorage];
+  NSUInteger len = [ts length];
+  if (lm == nil || tc == nil || len == 0)
+    {
+      NSRange pr = (side == 0) ? _leftRange : _rightRange;
+      return (pr.location == NSNotFound) ? 0 : pr.location;
+    }
+
+  // The text view's own characterIndexForPoint: is unreliable in this GNUstep
+  // (its backing glyphIndexForPoint: lands ~3 lines off), so locate the glyph by
+  // its true ink rect from the layout manager instead.
+  NSSize inset = [tv textContainerInset];
+  NSPoint cp = NSMakePoint(p.x - inset.width, p.y - inset.height);
+
+  NSRange fullGlyph = [lm glyphRangeForTextContainer:tc];
+  if (fullGlyph.length == 0)
+    {
+      NSRange pr = (side == 0) ? _leftRange : _rightRange;
+      return (pr.location == NSNotFound) ? 0 : pr.location;
+    }
+
+  // Find the line fragment whose ink rect contains the point's y. The text
+  // view is non-flipped, so y increases upward and the first line has the
+  // largest y; we scan top-to-bottom (decreasing y).
+  NSUInteger g = fullGlyph.location;
+  NSUInteger hitLineStart = fullGlyph.location;
+  while (g < NSMaxRange(fullGlyph))
+    {
+      NSRange lineGR;
+      NSRect frag = [lm lineFragmentRectForGlyphAtIndex:g effectiveRange:&lineGR];
+      CGFloat top = frag.origin.y + frag.size.height;
+      CGFloat bottom = frag.origin.y;
+      if (cp.y >= bottom && cp.y <= top)
+        {
+          hitLineStart = lineGR.location;
+          break;
+        }
+      if (cp.y > top)
+        {
+          // Below this line. GNUstep lays text out y-down (origin top-left),
+          // so a larger y is lower on the page; keep scanning downward. If the
+          // point is past all text this lands on the last line.
+          hitLineStart = lineGR.location;
+          g = NSMaxRange(lineGR);
+          continue;
+        }
+      // Above this line: only possible at the very first line, so clamp.
+      hitLineStart = lineGR.location;
+      break;
+    }
+
+  // Within the line, pick the glyph whose ink rect is nearest to the point.
+  NSRange lineGR;
+  [lm lineFragmentRectForGlyphAtIndex:hitLineStart effectiveRange:&lineGR];
+  NSUInteger bestGlyph = lineGR.location;
+  CGFloat bestDist = 1.0e18;
+  for (NSUInteger gi = lineGR.location; gi < NSMaxRange(lineGR); gi++)
+    {
+      NSRect gb = [lm boundingRectForGlyphRange:NSMakeRange(gi, 1)
+                                inTextContainer:tc];
+      CGFloat cx = gb.origin.x + gb.size.width * 0.5;
+      CGFloat cy = gb.origin.y + gb.size.height * 0.5;
+      CGFloat dx = cx - cp.x;
+      CGFloat dy = cy - cp.y;
+      CGFloat d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; bestGlyph = gi; }
+    }
+
+  NSUInteger ch = [lm characterIndexForGlyphAtIndex:bestGlyph];
+  if (ch > len) ch = len;
+  NSRange pr = (side == 0) ? _leftRange : _rightRange;
+  if (pr.location == NSNotFound) return 0;
+  return pr.location + ch;
+}
+
+- (void)updateSelection
+{
+  NSUInteger lo = MIN(_selAbsStart, _selAbsEnd);
+  NSUInteger hi = MAX(_selAbsStart, _selAbsEnd);
+  [self clearSelection];
+  if (hi <= lo) return;
+  NSRange sel = NSMakeRange(lo, hi - lo);
+  for (NSUInteger side = 0; side < 2; side++)
+    {
+      NSRange pr = (side == 0) ? _leftRange : _rightRange;
+      if (pr.location == NSNotFound) continue;
+      NSRange inter = NSIntersectionRange(sel, pr);
+      if (inter.length == 0) continue;
+      BookPageTextView *tv = (side == 0) ? _leftTV : _rightTV;
+      NSRange local = NSMakeRange(inter.location - pr.location, inter.length);
+      [tv setSelectedRanges:@[ [NSValue valueWithRange:local] ]];
+    }
+}
+
+- (void)clearSelection
+{
+  // An empty array is rejected by GNUstep's NSTextView; use a zero-length
+  // selection on each page instead, which paints no highlight.
+  NSRange none = NSMakeRange(0, 0);
+  NSArray *empty = @[ [NSValue valueWithRange:none] ];
+  [_leftTV setSelectedRanges:empty];
+  [_rightTV setSelectedRanges:empty];
+}
+
+#pragma mark - BookPageTextViewOwner
+
+- (void)pageTextView:(BookPageTextView *)tv mouseDown:(NSEvent *)e
+{
+  _mouseDownActive = YES;
+  _selecting = NO;
+  NSPoint p = [tv convertPoint:[e locationInWindow] fromView:nil];
+  NSUInteger side = [self sideForView:tv];
+  _selStartSide = side;
+  _selAbsStart = [self charAtPoint:p side:side];
+  _selAbsEnd = _selAbsStart;
+  [self updateSelection];
+}
+
+- (void)pageTextView:(BookPageTextView *)tv mouseDragged:(NSEvent *)e
+{
+  if (!_mouseDownActive) return;
+  NSPoint p = [tv convertPoint:[e locationInWindow] fromView:nil];
+  NSUInteger side = [self sideForView:tv];
+  _selAbsEnd = [self charAtPoint:p side:side];
+  _selecting = YES;
+  [self updateSelection];
+}
+
+- (void)pageTextView:(BookPageTextView *)tv mouseUp:(NSEvent *)e
+{
+  if (!_mouseDownActive) return;
+  NSUInteger lo = MIN(_selAbsStart, _selAbsEnd);
+  NSUInteger hi = MAX(_selAbsStart, _selAbsEnd);
+  BOOL wasSelecting = _selecting;
+  _mouseDownActive = NO;
+  _selecting = NO;
+  _selAbsStart = NSNotFound;
+  _selAbsEnd = NSNotFound;
+  [self clearSelection];
+  if (wasSelecting && hi > lo)
+    {
+      if ([_delegate respondsToSelector:@selector(pageView:didSelectRange:)])
+        [_delegate pageView:self didSelectRange:NSMakeRange(lo, hi - lo)];
+    }
+  else
+    {
+      if (_selStartSide == 0)
+        {
+          if ([_delegate respondsToSelector:@selector(pageViewDidRequestPrevious:)])
+            [_delegate pageViewDidRequestPrevious:self];
+        }
+      else
+        {
+          if ([_delegate respondsToSelector:@selector(pageViewDidRequestNext:)])
+            [_delegate pageViewDidRequestNext:self];
+        }
+    }
+}
+
+- (void)pageTextView:(BookPageTextView *)tv scrollWheel:(NSEvent *)e
+{
+  [self scrollWheel:e];
+}
+
+- (void)pageTextView:(BookPageTextView *)tv keyDown:(NSEvent *)e
+{
+  [self keyDown:e];
+}
+
+#pragma mark - navigation / input
 
 - (void)next
 {
-  if ([self canGoNext])
-    [self showSpread:self.currentSpread + 1 animated:YES];
+  if ([self canGoNext]) [self showSpread:self.currentSpread + 1 animated:YES];
 }
 
 - (void)previous
 {
-  if ([self canGoPrevious])
-    [self showSpread:self.currentSpread - 1 animated:YES];
-}
-
-- (BOOL)acceptsFirstResponder
-{
-  return YES;
-}
-
-// The reader shows the text as a raster page, but the reader expects to sweep a
-// text selection like a word processor, so present an I-beam cursor over the
-// whole page instead of the default arrow.
-- (void)resetCursorRects
-{
-  [super resetCursorRects];
-  NSRect b = [self bounds];
-  CGFloat margin = EPUBPageMargin;
-  CGFloat halfW = b.size.width / 2.0;
-  NSRect leftR = NSMakeRect(margin, margin, halfW - 2.0 * margin, b.size.height - 2.0 * margin);
-  NSRect rightR = NSMakeRect(halfW + margin, margin, halfW - 2.0 * margin, b.size.height - 2.0 * margin);
-  [self addCursorRect:leftR cursor:[NSCursor IBeamCursor]];
-  [self addCursorRect:rightR cursor:[NSCursor IBeamCursor]];
-  [[self window] setAcceptsMouseMovedEvents:YES];
-}
-
-- (void)mouseMoved:(NSEvent *)event
-{
-  NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
-  NSRect b = [self bounds];
-  CGFloat margin = EPUBPageMargin;
-  CGFloat halfW = b.size.width / 2.0;
-  NSRect leftR = NSMakeRect(margin, margin, halfW - 2.0 * margin, b.size.height - 2.0 * margin);
-  NSRect rightR = NSMakeRect(halfW + margin, margin, halfW - 2.0 * margin, b.size.height - 2.0 * margin);
-  if (NSMouseInRect(p, leftR, [self isFlipped]) || NSMouseInRect(p, rightR, [self isFlipped]))
-    [[NSCursor IBeamCursor] set];
-  else
-    [[NSCursor arrowCursor] set];
-}
-
-// The reader is a static page, so a quick click in the side quarters flips the
-// page, while a drag selects a run of text. We start the gesture on mouseDown and
-// only decide which it is on mouseUp: a drag past the threshold becomes a
-// selection (forwarded to the delegate as -pageView:didSelectRange:); anything
-// shorter is a page-turn depending on where the press began.
-- (void)mouseDown:(NSEvent *)event
-{
-  _mouseDownPoint = [self convertPoint:[event locationInWindow] fromView:nil];
-  _selStartPoint = _mouseDownPoint;
-  _selCurPoint = _mouseDownPoint;
-  _selecting = NO;
-}
-
-- (void)mouseDragged:(NSEvent *)event
-{
-  NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
-  _selCurPoint = p;
-  CGFloat dx = p.x - _selStartPoint.x;
-  CGFloat dy = p.y - _selStartPoint.y;
-  if (!_selecting && (dx * dx + dy * dy) > 16.0)
-    _selecting = YES;
-  if (_selecting)
-    [self setNeedsDisplay:YES];
-}
-
-- (void)mouseUp:(NSEvent *)event
-{
-  NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
-  if (_selecting)
-    {
-      NSUInteger a = [self characterIndexAtPoint:_selStartPoint];
-      NSUInteger b = [self characterIndexAtPoint:p];
-      _selecting = NO;
-      _selStartPoint = NSZeroPoint;
-      _selCurPoint = NSZeroPoint;
-      [self setNeedsDisplay:YES];
-      if (a != NSNotFound && b != NSNotFound && a != b)
-        {
-          NSUInteger lo = MIN(a, b);
-          NSUInteger hi = MAX(a, b);
-          if (_delegate && [_delegate respondsToSelector:@selector(pageView:didSelectRange:)])
-            [_delegate pageView:self didSelectRange:NSMakeRange(lo, hi - lo)];
-        }
-      return;
-    }
-
-  NSRect bnd = [self bounds];
-  CGFloat quarter = bnd.size.width / 4.0;
-  if (_mouseDownPoint.x < quarter)
-    {
-      if (_delegate && [_delegate respondsToSelector:@selector(pageViewDidRequestPrevious:)])
-        [_delegate pageViewDidRequestPrevious:self];
-      else
-        [self previous];
-    }
-  else if (_mouseDownPoint.x > bnd.size.width - quarter)
-    {
-      if (_delegate && [_delegate respondsToSelector:@selector(pageViewDidRequestNext:)])
-        [_delegate pageViewDidRequestNext:self];
-      else
-        [self next];
-    }
+  if ([self canGoPrevious]) [self showSpread:self.currentSpread - 1 animated:YES];
 }
 
 - (void)keyDown:(NSEvent *)event
@@ -274,28 +656,23 @@
   unichar c = [s characterAtIndex:0];
   if (c == NSRightArrowFunctionKey || c == ' ' || c == NSCarriageReturnCharacter)
     {
-      if (_delegate && [_delegate respondsToSelector:@selector(pageViewDidRequestNext:)])
+      if ([_delegate respondsToSelector:@selector(pageViewDidRequestNext:)])
         [_delegate pageViewDidRequestNext:self];
-      else
-        [self next];
+      else [self next];
     }
   else if (c == NSLeftArrowFunctionKey)
     {
-      if (_delegate && [_delegate respondsToSelector:@selector(pageViewDidRequestPrevious:)])
+      if ([_delegate respondsToSelector:@selector(pageViewDidRequestPrevious:)])
         [_delegate pageViewDidRequestPrevious:self];
-      else
-        [self previous];
+      else [self previous];
     }
 }
 
-// Plain scroll wheel turns pages (down = next, up = previous); Ctrl + scroll
-// wheel zooms the text. Accumulating the delta avoids hyper-sensitive flips from
-// continuous trackpad events.
 - (void)scrollWheel:(NSEvent *)event
 {
   if ([event modifierFlags] & NSControlKeyMask)
     {
-      if (_delegate && [_delegate respondsToSelector:@selector(pageView:fontSizeDelta:)])
+      if ([_delegate respondsToSelector:@selector(pageView:fontSizeDelta:)])
         [_delegate pageView:self fontSizeDelta:[event deltaY]];
       return;
     }
@@ -303,322 +680,76 @@
   CGFloat TH = 0.8;
   while (_scrollAccum <= -TH)
     {
-      if (_delegate && [_delegate respondsToSelector:@selector(pageViewDidRequestNext:)])
+      if ([_delegate respondsToSelector:@selector(pageViewDidRequestNext:)])
         [_delegate pageViewDidRequestNext:self];
-      else
-        [self next];
+      else [self next];
       _scrollAccum += TH;
     }
   while (_scrollAccum >= TH)
     {
-      if (_delegate && [_delegate respondsToSelector:@selector(pageViewDidRequestPrevious:)])
+      if ([_delegate respondsToSelector:@selector(pageViewDidRequestPrevious:)])
         [_delegate pageViewDidRequestPrevious:self];
-      else
-        [self previous];
+      else [self previous];
       _scrollAccum -= TH;
     }
 }
 
-- (NSUInteger)pageForCharacterIndex:(NSUInteger)idx
-{
-  if (self.paginator == nil) return 0;
-  return [self.paginator pageForCharacterIndex:idx];
-}
-
-- (void)setHighlights:(NSArray<NSDictionary *> *)arr
-{
-  _highlights = [arr copy];
-  [self setNeedsDisplay:YES];
-}
-
-// Build a layout manager that reproduces exactly how EPUBPageRenderer laid out a
-// single paginated page, so a point (or glyph rect) in that page maps back to a
-// character index in the concatenated reading text. The renderer insets the text
-// by EPUBPageMargin and the container size is contentSize - 2*margin.
-- (NSLayoutManager *)layoutManagerForPage:(NSUInteger)pageIdx
-                              textStorage:(NSTextStorage *__autoreleasing *)outStorage
-                            textContainer:(NSTextContainer *__autoreleasing *)outContainer
-{
-  NSRange pageRange = [self.paginator rangeForPage:pageIdx];
-  NSSize cs = [self contentSize];
-  CGFloat margin = EPUBPageMargin;
-  NSSize textSize = NSMakeSize(MAX(1.0, cs.width - 2.0 * margin),
-                               MAX(1.0, cs.height - 2.0 * margin));
-  NSTextStorage *ts = [[NSTextStorage alloc]
-      initWithAttributedString:[self.attrString attributedSubstringFromRange:pageRange]];
-  NSLayoutManager *lm = [[NSLayoutManager alloc] init];
-  NSTextContainer *tc = [[NSTextContainer alloc] initWithContainerSize:textSize];
-  [tc setLineFragmentPadding:0.0];
-  [ts addLayoutManager:lm];
-  [lm addTextContainer:tc];
-  [lm glyphRangeForTextContainer:tc];
-  if (outStorage) *outStorage = ts;
-  if (outContainer) *outContainer = tc;
-  return lm;
-}
-
-// Map a view point to an absolute character index in the reading text, or
-// NSNotFound. The point may fall on either the left or right page of the spread.
-- (NSUInteger)characterIndexAtPoint:(NSPoint)p
-{
-  if (self.attrString == nil || self.paginator == nil) return NSNotFound;
-  NSRect b = [self bounds];
-  BOOL right = (p.x >= b.size.width / 2.0);
-  NSUInteger pageIdx = right ? (self.currentSpread * 2 + 1) : (self.currentSpread * 2);
-  if (pageIdx >= self.pageCount) return NSNotFound;
-  NSRange pageRange = [self.paginator rangeForPage:pageIdx];
-  if (pageRange.length == 0) return NSNotFound;
-
-  NSSize cs = [self contentSize];
-  CGFloat margin = EPUBPageMargin;
-  NSRect pageR = right
-    ? NSMakeRect(b.size.width / 2.0, 0, b.size.width / 2.0, b.size.height)
-    : NSMakeRect(0, 0, b.size.width / 2.0, b.size.height);
-
-  // The renderer paints a contentSize-sized bitmap (cs.width x cs.height) and
-  // the view stretches it to fill pageR. Invert that stretch to land in bitmap
-  // coordinates, then drop the renderer's margin to reach text-container
-  // coordinates (y measured down from the top of the page).
-  CGFloat tx = (p.x - pageR.origin.x) * cs.width / pageR.size.width - margin;
-  CGFloat ty = (pageR.size.height - (p.y - pageR.origin.y)) * cs.height / pageR.size.height - margin;
-
-  NSTextStorage *ts = nil;
-  NSTextContainer *tc = nil;
-  NSLayoutManager *lm = [self layoutManagerForPage:pageIdx textStorage:&ts textContainer:&tc];
-
-  // glyphIndexForPoint:inTextContainer: in this GNUstep maps a y coordinate to a
-  // line several fragments above the true glyph position, so it cannot be used to
-  // resolve the line. Instead walk the real line-fragment rects (which agree with
-  // boundingRectForGlyphRange used for drawing) and pick the fragment containing
-  // the cursor, then resolve the glyph within that fragment by x.
-  NSUInteger glyphCount = [lm numberOfGlyphs];
-  // lineFragmentUsedRectForGlyphAtIndex: returns glyph ranges correctly, but in
-  // this GNUstep its rect origin.y is shifted several fragments away from where
-  // boundingRectForGlyphRange: (which we use to paint) actually places the ink.
-  // So locate the line by the TRUE glyph ink position from boundingRect, and only
-  // use lineFragmentUsedRect for the (correct) glyph range of that line.
-  NSMutableArray *lines = [NSMutableArray array];
-  NSUInteger scan = 0;
-  while (scan < glyphCount)
-    {
-      NSRange eff = NSMakeRange(0, 0);
-      [lm lineFragmentUsedRectForGlyphAtIndex:scan
-                                effectiveRange:&eff
-                             withoutAdditionalLayout:YES];
-      if (eff.length == 0) break;
-      NSRect gr0 = [lm boundingRectForGlyphRange:NSMakeRange(eff.location, 1)
-                                 inTextContainer:tc];
-      NSRect gr1 = [lm boundingRectForGlyphRange:NSMakeRange(NSMaxRange(eff) - 1, 1)
-                                 inTextContainer:tc];
-      CGFloat yTop = MIN(gr0.origin.y, gr1.origin.y);
-      CGFloat yBot = MAX(gr0.origin.y + gr0.size.height,
-                         gr1.origin.y + gr1.size.height);
-      [lines addObject:@[ [NSValue valueWithRange:eff], @(yTop), @(yBot) ]];
-      scan = NSMaxRange(eff);
-    }
-  if ([lines count] == 0) return NSNotFound;
-  NSRange lineRange = [[lines[0] objectAtIndex:0] rangeValue];
-  BOOL found = NO;
-  for (NSArray *ln in lines)
-    {
-      CGFloat yt = [ln[1] floatValue];
-      CGFloat yb = [ln[2] floatValue];
-      // include a small slop so the inter-line gap still lands on its line
-      if (ty >= yt - 4.0 && ty <= yb + 4.0) { lineRange = [ln[0] rangeValue]; found = YES; break; }
-    }
-  if (!found)
-    {
-      CGFloat bestD = 1e9;
-      for (NSArray *ln in lines)
-        {
-          CGFloat mid = ([ln[1] floatValue] + [ln[2] floatValue]) / 2.0;
-          CGFloat d = fabs(ty - mid);
-          if (d < bestD) { bestD = d; lineRange = [ln[0] rangeValue]; }
-        }
-    }
-  NSUInteger glyph = lineRange.location;
-  CGFloat best = 1e9;
-  for (NSUInteger g = lineRange.location; g < MIN(NSMaxRange(lineRange), glyphCount); g++)
-    {
-      NSRect gr = [lm boundingRectForGlyphRange:NSMakeRange(g, 1) inTextContainer:tc];
-      if (gr.size.width <= 0.0) continue;
-      CGFloat mid = gr.origin.x + gr.size.width / 2.0;
-      CGFloat d = fabs(tx - mid);
-      if (d < best) { best = d; glyph = g; }
-    }
-  NSUInteger ch = [lm characterIndexForGlyphAtIndex:glyph];
-  if (ch == NSNotFound) return NSNotFound;
-  return pageRange.location + ch;
-}
-
-// Paint the glyph rectangles for an absolute reading-text range that fall on the
-// current spread's pages. The per-page layout manager is built from that page's
-// attributed substring, so its character/glyph coordinates are page-relative; we
-// shift the absolute range into that space before asking for glyph rects, then
-// map those rects from bitmap to view coordinates.
-- (void)drawAbsoluteRange:(NSRange)absRange color:(NSColor *)color
-{
-  if (absRange.length == 0) return;
-  NSRect b = [self bounds];
-  NSSize cs = [self contentSize];
-  CGFloat margin = EPUBPageMargin;
-  for (NSUInteger side = 0; side < 2; side++)
-    {
-      NSUInteger pageIdx = self.currentSpread * 2 + side;
-      if (pageIdx >= self.pageCount) continue;
-      NSRange pageRange = [self.paginator rangeForPage:pageIdx];
-      if (pageRange.length == 0) continue;
-      NSRange inter = NSIntersectionRange(absRange, pageRange);
-      if (inter.length == 0) continue;
-      NSRange rel = NSMakeRange(inter.location - pageRange.location, inter.length);
-      NSTextStorage *ts = nil;
-      NSTextContainer *tc = nil;
-      NSLayoutManager *lm = [self layoutManagerForPage:pageIdx textStorage:&ts textContainer:&tc];
-      NSRange glyphRange = [lm glyphRangeForCharacterRange:rel actualCharacterRange:NULL];
-      if (glyphRange.location == NSNotFound) continue;
-      NSRect pageR = (side == 0)
-        ? NSMakeRect(0, 0, b.size.width / 2.0, b.size.height)
-        : NSMakeRect(b.size.width / 2.0, 0, b.size.width / 2.0, b.size.height);
-      [color setFill];
-      // Walk line fragments so multi-line ranges paint every fragment, not just
-      // the first one rectArrayForGlyphRange: would return for the whole range.
-      NSUInteger glyphIndex = glyphRange.location;
-      while (glyphIndex < NSMaxRange(glyphRange))
-        {
-          NSRange fragRange = NSMakeRange(0, 0);
-          [lm lineFragmentUsedRectForGlyphAtIndex:glyphIndex
-                                  effectiveRange:&fragRange
-                       withoutAdditionalLayout:YES];
-          if (fragRange.length == 0) break;
-          NSRange cur = NSIntersectionRange(glyphRange, fragRange);
-          // Use the glyph ink bounding rect, not the line-fragment rect: the
-          // fragment rect top sits a font ascent above the visible ink, which
-          // made highlights paint ~one line above the text. The ink rect already
-          // includes that ascent, so it lands on the glyphs.
-          NSRect gr = [lm boundingRectForGlyphRange:cur inTextContainer:tc];
-          if (gr.size.width <= 0.0 || gr.size.height <= 0.0)
-            continue;
-          // gr is in text-container coords (origin at the text inset, y down from
-          // the top). The renderer drew the container origin at (margin, margin)
-          // inside a contentSize-sized bitmap, which the view stretches to fill
-          // pageR, so reapply that stretch (and flip y for display).
-          CGFloat bx = margin + gr.origin.x;
-          CGFloat by = margin + gr.origin.y;
-          CGFloat vx = pageR.origin.x + (bx / cs.width) * pageR.size.width;
-          CGFloat vy = pageR.size.height - (by / cs.height) * pageR.size.height;
-          CGFloat vw = (gr.size.width / cs.width) * pageR.size.width;
-          CGFloat vh = (gr.size.height / cs.height) * pageR.size.height;
-          NSRectFill(NSMakeRect(vx, vy, vw, vh));
-          if (fragRange.location + fragRange.length > glyphIndex)
-            glyphIndex = fragRange.location + fragRange.length;
-          else
-            glyphIndex += 1;
-        }
-    }
-}
+#pragma mark - gutter
 
 - (void)drawRect:(NSRect)rect
 {
-  if (self.usesGL) return;
-  NSRect b = [self bounds];
-  [[self.backgroundColor shadowWithLevel:0.7] set];
-  NSRectFill(b);
+  NSColor *paper = _backgroundColor ?: [NSColor whiteColor];
 
-  NSRect leftR = NSMakeRect(0, 0, b.size.width / 2.0, b.size.height);
-  NSRect rightR = NSMakeRect(b.size.width / 2.0, 0, b.size.width / 2.0, b.size.height);
+  // Desk behind the pages: a slightly darker, subtle shade of the paper so the
+  // two page rectangles read as distinct sheets instead of one continuous fill.
+  // Kept light (not a dark grey) so it frames the pages rather than dominating.
+  CGFloat pr, pg, pb, pa;
+  [paper getRed:&pr green:&pg blue:&pb alpha:&pa];
+  NSColor *desk = [NSColor colorWithCalibratedRed:pr * 0.88 + 0.04
+                                             green:pg * 0.88 + 0.04
+                                              blue:pb * 0.9 + 0.04
+                                             alpha:1.0];
+  [desk setFill];
+  NSRectFill(rect);
 
-  [self.leftImage drawInRect:leftR
-                    fromRect:NSZeroRect
-                   operation:NSCompositeSourceOver
-                    fraction:1.0
-               respectFlipped:NO
-                    hints:nil];
-  [self.rightImage drawInRect:rightR
-                     fromRect:NSZeroRect
-                    operation:NSCompositeSourceOver
-                     fraction:1.0
-               respectFlipped:NO
-                    hints:nil];
+  // Two paper pages, inset from the view edges so the desk shows as a border
+  // and the gutter between them is visible.
+  CGFloat inset = 26.0;
+  CGFloat halfW = [self bounds].size.width / 2.0;
+  CGFloat pageH = [self bounds].size.height;
+  NSRect lp = NSMakeRect(inset, inset, halfW - inset, pageH - 2.0 * inset);
+  NSRect rp = NSMakeRect(halfW + inset, inset, halfW - inset, pageH - 2.0 * inset);
+  [paper setFill];
+  NSRectFill(lp);
+  NSRectFill(rp);
 
-  NSRect spine = NSMakeRect(b.size.width / 2.0 - 6, 0, 12, b.size.height);
-  NSGradient *g = [[NSGradient alloc]
-      initWithStartingColor:[NSColor colorWithCalibratedWhite:0.0 alpha:0.0]
-                  endingColor:[NSColor colorWithCalibratedWhite:0.0 alpha:0.5]];
-  [g drawInRect:spine angle:0.0];
+  // Subtle gutter shadow line down the centre fold.
+  [[NSColor colorWithCalibratedWhite:0.0 alpha:0.22] setFill];
+  NSRectFill(NSMakeRect(halfW - 1.0, inset, 2.0, pageH - 2.0 * inset));
 
-  // Saved highlights: translucent text-shaped rectangles over the matching
-  // runs (yellow text-marker look). The range is absolute in the reading text;
-  // drawAbsoluteRange maps it onto the visible page's glyphs.
-  if (_highlights != nil && [_highlights count] > 0)
+  // Folios: the page number at the foot of each page, set in the book's own
+  // type but smaller (as a printed book prints its folios), centred on the page.
+  NSFont *bookFont = (self.attrString != nil)
+    ? [self.attrString attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL]
+    : nil;
+  CGFloat folioSize = (bookFont != nil) ? [bookFont pointSize] * 0.7 : 10.0;
+  if (folioSize < 8.0) folioSize = 8.0;
+  NSFont *folioFont = (bookFont != nil)
+    ? [NSFont fontWithName:[bookFont fontName] size:folioSize]
+    : [NSFont userFontOfSize:folioSize];
+  NSColor *folioColor = _textColor ?: [NSColor blackColor];
+  NSDictionary *folioAttrs = @{ NSFontAttributeName: folioFont,
+                                NSForegroundColorAttributeName: folioColor };
+  for (NSUInteger s = 0; s < 2; s++)
     {
-      for (NSDictionary *hl in _highlights)
-        {
-          NSColor *col = hl[@"color"];
-          if (col == nil) col = [NSColor colorWithCalibratedRed:1.0 green:0.88 blue:0.18 alpha:1.0];
-          [self drawAbsoluteRange:[hl[@"range"] rangeValue]
-                             color:[col colorWithAlphaComponent:0.35]];
-        }
+      NSString *lab = [self footerForSide:s];
+      if ([lab length] == 0) continue;
+      NSRect pr = (s == 0) ? lp : rp;
+      NSSize ts = [lab sizeWithAttributes:folioAttrs];
+      CGFloat x = pr.origin.x + (pr.size.width - ts.width) / 2.0;
+      CGFloat y = pr.origin.y + 10.0;
+      [lab drawAtPoint:NSMakePoint(x, y) withAttributes:folioAttrs];
     }
-
-  // Live drag selection: paint the actual selected glyphs, not a bounding box, so
-  // it reads like a word-processor text selection that follows the text lines.
-  if (_selecting)
-    {
-      NSUInteger a = [self characterIndexAtPoint:_selStartPoint];
-      NSUInteger c = [self characterIndexAtPoint:_selCurPoint];
-      if (a != NSNotFound && c != NSNotFound && a != c)
-        {
-          NSUInteger lo = MIN(a, c);
-          NSUInteger hi = MAX(a, c);
-          [self drawAbsoluteRange:NSMakeRange(lo, hi - lo)
-                            color:[NSColor colorWithCalibratedRed:0.2 green:0.4 blue:0.9 alpha:0.30]];
-        }
-    }
-  // EPUB Locators: page numbers sit at the foot of each page, in the outer
-  // corner like a printed book — left page number bottom-left, right page
-  // number bottom-right.
-  if (_pageLabels != nil && [_pageLabels count] > 0)
-    {
-      NSUInteger leftIdx = self.currentSpread * 2;
-      NSUInteger rightIdx = leftIdx + 1;
-      if (leftIdx < [_pageLabels count])
-        {
-          NSString *l = [_pageLabels objectAtIndex:leftIdx];
-          if ([l length] > 0)
-            [self drawFooter:l inRect:leftR alignRight:NO];
-        }
-      if (rightIdx < [_pageLabels count])
-        {
-          NSString *r = [_pageLabels objectAtIndex:rightIdx];
-          if ([r length] > 0)
-            [self drawFooter:r inRect:rightR alignRight:YES];
-        }
-    }
-}
-
-// Draw a page-number footer inside `pageRect`. alignRight=NO places it at the
-// bottom-left (verso), alignRight=YES at the bottom-right (recto). The text is
-// inset to match the body margin and sits in the lower page margin so it never
-// collides with body text.
-- (void)drawFooter:(NSString *)text inRect:(NSRect)pageRect alignRight:(BOOL)alignRight
-{
-  if (text == nil || [text length] == 0)
-    return;
-  CGFloat fs = 10.0;
-  NSFont *font = [NSFont userFontOfSize:fs];
-  if (font == nil)
-    font = [NSFont systemFontOfSize:fs];
-  NSDictionary *attrs = @{ NSFontAttributeName: font,
-                           NSForegroundColorAttributeName: _textColor };
-  NSSize ts = [text sizeWithAttributes:attrs];
-  CGFloat margin = EPUBPageMargin;
-  CGFloat x = alignRight
-    ? (pageRect.origin.x + pageRect.size.width - margin - ts.width)
-    : (pageRect.origin.x + margin);
-  // Non-flipped view: a string drawn at y sits with its baseline at y and the
-  // glyphs above it, so a small y keeps the number pinned to the page foot.
-  CGFloat y = pageRect.origin.y + 3.0;
-  [text drawAtPoint:NSMakePoint(x, y) withAttributes:attrs];
 }
 
 @end

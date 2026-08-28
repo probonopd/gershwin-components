@@ -12,13 +12,13 @@ Books_OBJC_FILES = \
 	BookshelfView.m \
 	BookReaderController.m \
 	BookPageView.m \
+	BookPageTextView.m \
 	GLPageTurnView.m \
 	TOCPanelController.m \
 	EPUBBook.m \
 	EPUBTOCEntry.m \
 	EPUBParser.m \
 	EPUBPageRenderer.m \
-	EPUBPaginator.m \
 	EPUBHTMLConverter.m \
 	EPUBPageLocator.m \
 	EPUBAnnotation.m \
@@ -32,13 +32,13 @@ Books_HEADER_FILES = \
 	BookshelfView.h \
 	BookReaderController.h \
 	BookPageView.h \
+	BookPageTextView.h \
 	GLPageTurnView.h \
 	TOCPanelController.h \
 	EPUBBook.h \
 	EPUBTOCEntry.h \
 	EPUBParser.h \
 	EPUBPageRenderer.h \
-	EPUBPaginator.h \
 	EPUBHTMLConverter.h \
 	EPUBPageLocator.h \
 	EPUBAnnotation.h \

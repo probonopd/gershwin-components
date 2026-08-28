@@ -5,10 +5,9 @@
  */
 
 #import <AppKit/AppKit.h>
-#import "EPUBPaginator.h"
-#import "EPUBPageRenderer.h"
 
 @class BookPageView;
+@class BookPageTextView;
 
 @protocol BookPageViewDelegate <NSObject>
 - (void)pageViewDidRequestNext:(BookPageView *)view;
@@ -28,20 +27,20 @@
 @property (nonatomic, strong) NSColor *backgroundColor;
 @property (nonatomic, strong) NSColor *textColor;
 // Footer page numbers, one per paginated visual page, in page order. An empty
-// string (or an index past the end) means "draw nothing" for that page. The
-// reader fills these from the EPUB Locators page-number model.
+// string (or an index past the end) means "draw nothing" for that page.
 @property (nonatomic, copy) NSArray<NSString *> *pageLabels;
-// Active highlights to paint over the rendered pages. Each entry is an
-// NSDictionary with keys @"range" (NSValue wrapping an NSRange, absolute in the
-// reading text) and @"color" (an NSColor). Painted as translucent rectangles
-// behind the footer but over the page bitmap.
+// Active highlights to paint over the text. Each entry is an NSDictionary with
+// keys @"range" (NSValue wrapping an NSRange, absolute in the reading text) and
+// @"color" (an NSColor). Painted as translucent background behind the glyphs.
 @property (nonatomic, copy) NSArray<NSDictionary *> *highlights;
 
-- (void)configureWithAttributedString:(NSAttributedString *)attr
-                            paginator:(EPUBPaginator *)pag
-                             renderer:(EPUBPageRenderer *)rend;
+- (void)configureWithAttributedString:(NSAttributedString *)attr;
 - (NSSize)contentSize;
 - (void)setThemeTextColor:(NSColor *)textColor;
+// Total paginated visual pages. Read-only: pages are derived natively from the
+// view's own geometry in -configureWithAttributedString: and on every resize.
+@property (nonatomic, assign, readonly) NSUInteger pageCount;
+- (NSRange)rangeForPage:(NSUInteger)page;
 - (NSUInteger)spreadCount;
 - (NSUInteger)currentSpread;
 - (BOOL)canGoNext;

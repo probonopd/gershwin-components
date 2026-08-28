@@ -10,5 +10,6 @@
 
 + (BOOL)glSupported;
 - (void)displayLeft:(NSBitmapImageRep *)left right:(NSBitmapImageRep *)right;
+- (void)turnWithCompletion:(void (^)(void))block;
 
 @end

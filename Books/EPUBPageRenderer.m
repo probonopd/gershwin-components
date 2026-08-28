@@ -21,6 +21,7 @@
 @end
 
 CGFloat EPUBPageMargin = 24.0;
+NSString *EPUBPageBreakAttributeName = @"EPUBPageBreak";
 
 @implementation EPUBPageRenderer
 {

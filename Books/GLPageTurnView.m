@@ -10,16 +10,18 @@
 #include <math.h>
 
 @interface GLPageTurnView ()
-
-@end
-
-@implementation GLPageTurnView
 {
   GLuint _texLeft;
   GLuint _texRight;
   BOOL _hasLeft;
   BOOL _hasRight;
+  CGFloat _angle;
+  NSTimer *_turnTimer;
+  void (^_turnCompletion)(void);
 }
+@end
+
+@implementation GLPageTurnView
 
 + (BOOL)glSupported
 {
@@ -110,6 +112,41 @@
   _texRight = [self textureFromBitmapRep:right];
   _hasLeft = (_texLeft != 0);
   _hasRight = (_texRight != 0);
+  _angle = 0.0;
+  [self setNeedsDisplay:YES];
+}
+
+// Animate a quick flip of the spread around the vertical spine, then hand back
+// to the caller so it can reveal the (already updated) text views underneath.
+- (void)turnWithCompletion:(void (^)(void))block
+{
+  if (block) _turnCompletion = [block copy];
+  _angle = 0.0;
+  if (_turnTimer != nil) { [_turnTimer invalidate]; _turnTimer = nil; }
+  _turnTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 / 60.0
+                                               target:self
+                                             selector:@selector(_turnTick:)
+                                             userInfo:nil
+                                              repeats:YES];
+}
+
+- (void)_turnTick:(NSTimer *)t
+{
+  _angle += 4.0;
+  if (_angle >= 90.0)
+    {
+      _angle = 90.0;
+      [_turnTimer invalidate];
+      _turnTimer = nil;
+      [self setNeedsDisplay:YES];
+      if (_turnCompletion != nil)
+        {
+          void (^b)(void) = _turnCompletion;
+          _turnCompletion = nil;
+          b();
+        }
+      return;
+    }
   [self setNeedsDisplay:YES];
 }
 
@@ -145,6 +182,7 @@
       return;
     }
 
+  glRotatef(_angle, 0.0, 1.0, 0.0);
   [self drawQuad:_texLeft x0:-1.0 x1:0.0 shade:1.0];
   [self drawQuad:_texRight x0:0.0 x1:1.0 shade:1.0];
 
