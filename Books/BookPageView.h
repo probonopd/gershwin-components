@@ -41,6 +41,12 @@
 // view's own geometry in -configureWithAttributedString: and on every resize.
 @property (nonatomic, assign, readonly) NSUInteger pageCount;
 - (NSRange)rangeForPage:(NSUInteger)page;
+// Visual page index (0-based) shown at `side` (0 = left/verso, 1 = right/recto)
+// of `spread`. Returns NSNotFound when that side is intentionally blank (the
+// first spread opens on the right, so its left page is empty, like a real book).
+- (NSUInteger)pageIndexForSpread:(NSUInteger)spread side:(NSUInteger)side;
+// The spread that displays visual page `page`.
+- (NSUInteger)spreadForPageIndex:(NSUInteger)page;
 - (NSUInteger)spreadCount;
 - (NSUInteger)currentSpread;
 - (BOOL)canGoNext;

@@ -257,7 +257,27 @@
 
 - (NSUInteger)spreadCount
 {
-  return (self.pageCount + 1) / 2;
+  NSUInteger pc = self.pageCount;
+  if (pc == 0) return 0;
+  // Page 1 (index 0) opens on the right, so spread 0 is a single right page and
+  // every later spread holds {2s-1 (left), 2s (right)}.
+  if (pc % 2 == 0) return pc / 2 + 1;
+  return (pc + 1) / 2;
+}
+
+// A book opens on a right-hand (recto) page: page 1 sits on the right and the
+// preceding left page is intentionally blank, exactly like a printed book.
+- (NSUInteger)pageIndexForSpread:(NSUInteger)spread side:(NSUInteger)side
+{
+  if (side == 1) return spread * 2;                // right/recto = even index
+  if (spread == 0) return NSNotFound;              // first spread: no left page
+  return spread * 2 - 1;                            // left/verso = odd index
+}
+
+- (NSUInteger)spreadForPageIndex:(NSUInteger)page
+{
+  if (page % 2 == 0) return page / 2;
+  return (page + 1) / 2;
 }
 
 - (BOOL)canGoNext
@@ -340,8 +360,9 @@
 
 - (NSString *)footerForSide:(NSUInteger)side
 {
-  NSUInteger pageIdx = self.currentSpread * 2 + side;
-  if (_pageLabels == nil || pageIdx >= [_pageLabels count]) return @"";
+  NSUInteger pageIdx = [self pageIndexForSpread:self.currentSpread side:side];
+  if (_pageLabels == nil || pageIdx == NSNotFound
+      || pageIdx >= [_pageLabels count]) return @"";
   return [_pageLabels objectAtIndex:pageIdx];
 }
 
@@ -353,9 +374,9 @@
 
 - (void)buildPage:(NSUInteger)side
 {
-  NSUInteger pageIdx = self.currentSpread * 2 + side;
+  NSUInteger pageIdx = [self pageIndexForSpread:self.currentSpread side:side];
   BookPageTextView *tv = (side == 0) ? _leftTV : _rightTV;
-  if (pageIdx >= self.pageCount)
+  if (pageIdx == NSNotFound || pageIdx >= self.pageCount)
     {
       [tv setString:@""];
       [tv setHidden:YES];
@@ -746,8 +767,13 @@
       if ([lab length] == 0) continue;
       NSRect pr = (s == 0) ? lp : rp;
       NSSize ts = [lab sizeWithAttributes:folioAttrs];
-      CGFloat x = pr.origin.x + (pr.size.width - ts.width) / 2.0;
-      CGFloat y = pr.origin.y + 10.0;
+      CGFloat pad = 10.0;
+      // A left-hand page carries its folio at the left, a right-hand page at the
+      // right - the outer corner, as in a printed book.
+      CGFloat x = (s == 0)
+        ? pr.origin.x + pad
+        : pr.origin.x + pr.size.width - ts.width - pad;
+      CGFloat y = pr.origin.y + pad;
       [lab drawAtPoint:NSMakePoint(x, y) withAttributes:folioAttrs];
     }
 }

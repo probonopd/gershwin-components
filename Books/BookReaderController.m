@@ -284,10 +284,10 @@
   SEL aSel = NSSelectorFromString(@"setAccessibilityValue:");
   if (aSel == NULL || [self.window respondsToSelector:aSel] == NO)
     return;
-  NSUInteger left = _currentSpread * 2;
-  NSUInteger right = left + 1;
-  NSString *l = (left < [_pageLabels count]) ? [_pageLabels objectAtIndex:left] : @"";
-  NSString *r = (right < [_pageLabels count]) ? [_pageLabels objectAtIndex:right] : @"";
+  NSUInteger left = [_pageView pageIndexForSpread:_currentSpread side:0];
+  NSUInteger right = [_pageView pageIndexForSpread:_currentSpread side:1];
+  NSString *l = (left != NSNotFound && left < [_pageLabels count]) ? [_pageLabels objectAtIndex:left] : @"";
+  NSString *r = (right != NSNotFound && right < [_pageLabels count]) ? [_pageLabels objectAtIndex:right] : @"";
   NSString *val = [NSString stringWithFormat:@"Page numbers: left %@, right %@", l, r];
   NSMethodSignature *sig = [self.window methodSignatureForSelector:aSel];
   if (sig == nil)
@@ -421,9 +421,11 @@
   NSUInteger anchor = NSNotFound;
   if (_pageView != nil && [_pageView pageCount] > 0)
     {
-      NSUInteger leftPage = _currentSpread * 2;
-      if (leftPage >= [_pageView pageCount])
-        leftPage = [_pageView pageCount] - 1;
+      NSUInteger leftPage = [_pageView pageIndexForSpread:_currentSpread side:0];
+      if (leftPage == NSNotFound || leftPage >= [_pageView pageCount])
+        leftPage = [_pageView pageIndexForSpread:_currentSpread side:1];
+      if (leftPage == NSNotFound || leftPage >= [_pageView pageCount])
+        leftPage = 0;
       anchor = [_pageView rangeForPage:leftPage].location;
     }
   [self rebuildPaginator];
@@ -440,7 +442,7 @@
             }
           newLeft = i;
         }
-      _currentSpread = newLeft / 2;
+      _currentSpread = [_pageView spreadForPageIndex:newLeft];
       [_pageView showSpread:_currentSpread animated:NO];
       [self reflectCurrentSpread];
     }
@@ -710,8 +712,8 @@
     @[_marginDownBtn, _marginUpBtn],
     @[_fontPopup],
     @[_pencilButton],
-    @[_searchField],
-    @[_scrubber, _pageField]
+    @[_scrubber, _pageField],
+    @[_searchField]
   ];
   [self layoutToolbar];
 
@@ -991,13 +993,13 @@
     }
   if (_pageField != nil && _pageLabels != nil)
     {
-      NSUInteger left = _currentSpread * 2;
-      NSUInteger right = left + 1;
+      NSUInteger rightIdx = [_pageView pageIndexForSpread:_currentSpread side:1];
+      NSUInteger leftIdx = [_pageView pageIndexForSpread:_currentSpread side:0];
       NSString *lab = nil;
-      if (right < [_pageLabels count])
-        lab = [_pageLabels objectAtIndex:right];
-      if ([lab length] == 0 && left < [_pageLabels count])
-        lab = [_pageLabels objectAtIndex:left];
+      if (rightIdx != NSNotFound && rightIdx < [_pageLabels count])
+        lab = [_pageLabels objectAtIndex:rightIdx];
+      if ([lab length] == 0 && leftIdx != NSNotFound && leftIdx < [_pageLabels count])
+        lab = [_pageLabels objectAtIndex:leftIdx];
       [_pageField setStringValue:(lab != nil ? lab : @"")];
     }
 }
@@ -1041,7 +1043,7 @@
           break;
         }
     }
-  _currentSpread = target / 2;
+  _currentSpread = [_pageView spreadForPageIndex:target];
   [self recordLocation];
   [_pageView showSpread:_currentSpread animated:YES];
   [self persist];
@@ -1089,7 +1091,7 @@
     {
       NSUInteger page = [_pageView pageForCharacterIndex:[start unsignedIntegerValue]];
       [self recordLocation];
-      _currentSpread = page / 2;
+      _currentSpread = [_pageView spreadForPageIndex:page];
       [_pageView showSpread:_currentSpread animated:YES];
       [self reflectCurrentSpread];
       [self persist];
@@ -1309,7 +1311,7 @@
   NSRange range = [[_searchMatches objectAtIndex:row] rangeValue];
   NSUInteger page = [_pageView pageForCharacterIndex:range.location];
   [self recordLocation];
-  _currentSpread = page / 2;
+  _currentSpread = [_pageView spreadForPageIndex:page];
   [_pageView showSpread:_currentSpread animated:NO];
   [self reflectCurrentSpread];
   [self persist];
@@ -1624,7 +1626,7 @@
     return;
   NSUInteger page = [_pageView pageForCharacterIndex:a.absStart];
   [self recordLocation];
-  _currentSpread = page / 2;
+  _currentSpread = [_pageView spreadForPageIndex:page];
   [_pageView showSpread:_currentSpread animated:NO];
   [self reflectCurrentSpread];
   [self persist];
