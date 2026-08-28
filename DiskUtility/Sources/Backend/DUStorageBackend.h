@@ -177,9 +177,17 @@ extern NSString *const kDUDiscBlankAllKey;    // e.g. "all" (full blank)
 // gates on canVerifyDisc which backends set only for optical drives with
 // media present.
 - (void)verifyDisc:(DUStorageObject *)opticalDrive
-      againstImage:(DUStorageObject *)image
-          progress:(void (^)(double progress, NSString *message))progress
-        completion:(void (^)(NSError *error))completion;
+       againstImage:(DUStorageObject *)image
+           progress:(void (^)(double progress, NSString *message))progress
+         completion:(void (^)(NSError *error))completion;
+
+// Repair permissions of every user's home directory so all files there
+// belong to the owning user (chown -R + chmod -R). Absent method => the
+// backend has no repair-permissions verb; the UI gates the button on
+// canRepairPermissions which backends set only when they implement this.
+- (void)repairHomePermissionsWithProgress:(void (^)(double progress,
+                                                    NSString *message))progress
+                                completion:(void (^)(NSError *error))completion;
 
 // Mount a disk-image file the user opened from disk (File > Open Disk Image),
 // attaching it through the platform's loop/vnode device and returning the

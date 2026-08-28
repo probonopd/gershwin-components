@@ -198,6 +198,7 @@ static BOOL IsSliceShapedChildName(NSString *childName, NSString *parentName)
     device.smartStatus =
         [DUStorageDevice querySmartStatusForPath:device.backendPath];
     device.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
+    device.capabilities.canRepairPermissions = YES;
     return device;
 }
 
@@ -353,6 +354,7 @@ static BOOL IsSliceShapedChildName(NSString *childName, NSString *parentName)
                  display,
                  [DUParsing humanReadableSizeFromBytes:volume.capacityBytes]];
         volume.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
+        volume.capabilities.canRepairPermissions = YES;
         volume.capabilities.canVerify = [self canCheckFilesystem:fstype];
         volume.capabilities.canRepair = volume.capabilities.canVerify;
         volume.capabilities.canMount =
@@ -408,6 +410,7 @@ static BOOL IsSliceShapedChildName(NSString *childName, NSString *parentName)
         drive.ejectable = YES;
         drive.connectionIsInternal = NO;
         drive.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
+        drive.capabilities.canRepairPermissions = YES;
         drive.capabilities.canEject = [self canEject];
         [roots addObject:drive];
     }
@@ -450,6 +453,12 @@ static BOOL IsSliceShapedChildName(NSString *childName, NSString *parentName)
     drive.capabilities.canBurn =
         [DUFreeBSDToolCache haveAnyTool:@[ @"cdrecord", @"wodim",
                                             @"xorriso", @"growisofs" ]];
+    // Blank/verify need a tool too (xorriso/cdrecord/wodim for blanking,
+    // cmp for verify); mirror the Linux backend's gating.
+    BOOL canBlank = [DUFreeBSDToolCache haveAnyTool:@[ @"cdrecord", @"wodim",
+                                                       @"xorriso" ]];
+    drive.capabilities.canBlankDisc = canBlank && drive.mediaPresent;
+    drive.capabilities.canVerifyDisc = drive.mediaPresent;
     return drive;
 }
 

@@ -823,6 +823,19 @@ extern NSString * const kLsblkKeyFstype;
             [DULinuxToolCache haveTool:@"dd"];
         // Raw and gzip streaming need no external tool beyond gzip.
         device.capabilities.canCreateImage = YES;
+        device.capabilities.canRepairPermissions = YES;
+        // Repair Permissions works on any selected object (device, volume
+        // or partition), so enable it wherever the user might land.
+        NSMutableArray<DUStorageObject *> *queue =
+            [NSMutableArray arrayWithObject:device];
+        while (queue.count > 0) {
+            DUStorageObject *obj = queue.firstObject;
+            [queue removeObjectAtIndex:0];
+            for (DUStorageObject *child in obj.children) {
+                child.capabilities.canRepairPermissions = YES;
+                [queue addObject:child];
+            }
+        }
     }
 }
 

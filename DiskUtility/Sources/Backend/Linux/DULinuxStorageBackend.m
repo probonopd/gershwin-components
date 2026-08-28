@@ -7,6 +7,7 @@
 #if defined(__linux__)
 
 #import "DULinuxStorageBackend.h"
+#import "DURepairPermissionsTool.h"
 
 #import <sys/statvfs.h>
 
@@ -415,6 +416,13 @@
                      : NSLocalizedString(@"Repair failed.", nil));
         completion(result);
     });
+}
+
+- (void)repairHomePermissionsWithProgress:(void (^)(double, NSString *))progress
+                                completion:(void (^)(NSError *))completion
+{
+    [DURepairPermissionsTool repairHomePermissionsWithProgress:progress
+                                                     completion:completion];
 }
 
 #pragma mark - Erase

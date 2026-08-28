@@ -302,6 +302,7 @@ static NSString * const kWholeDiskLetter = @"c";
     device.smartStatus =
         [DUStorageDevice querySmartStatusForPath:device.backendPath];
     device.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
+    device.capabilities.canRepairPermissions = YES;
 
     for (NSDictionary<NSString *, id> *row in
              label[kDisklabelKeyPartitions]) {
@@ -417,6 +418,7 @@ static NSString * const kWholeDiskLetter = @"c";
              [DUPartitionTableParser filesystemDisplayName:fstype],
              [DUParsing humanReadableSizeFromBytes:volume.capacityBytes]];
     volume.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
+    volume.capabilities.canRepairPermissions = YES;
     volume.capabilities.canVerify =
         [self canCheckFilesystem:fstype];
     volume.capabilities.canRepair = volume.capabilities.canVerify;
@@ -495,6 +497,7 @@ static NSString * const kWholeDiskLetter = @"c";
         drive.connectionIsInternal = NO;
         drive.connectionType = @"SCSI";
         drive.capabilities = [DUStorageCapabilities capabilitiesWithAll:NO];
+        drive.capabilities.canRepairPermissions = YES;
         drive.capabilities.canEject =
             [DUOpenBSDToolCache haveTool:@"eject"];
         // Burning needs a cdrecord-family tool (run out of process per
@@ -508,6 +511,14 @@ static NSString * const kWholeDiskLetter = @"c";
                 break;
             }
         }
+        // growisofs cannot blank; without a cmp there is nothing to verify
+        // against, so gate both on a suitable tool as well as media.
+        BOOL canBlank = [DUOpenBSDToolCache haveAnyTool:@[ @"cdrecord",
+                                                           @"wodim",
+                                                           @"xorriso" ]];
+        drive.capabilities.canBlankDisc = canBlank && drive.mediaPresent;
+        drive.capabilities.canVerifyDisc =
+            drive.mediaPresent && [DUOpenBSDToolCache haveTool:@"cmp"];
         [roots addObject:drive];
     }
 }

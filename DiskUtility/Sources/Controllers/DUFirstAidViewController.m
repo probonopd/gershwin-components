@@ -258,6 +258,35 @@ static NSString * const kDefaultsConfirmDestructive =
 - (void)repairPermissions:(id)sender
 {
     (void)sender;
+    DUStorageObject *object = self.currentObject;
+    if (object == nil || self.operationRunning) {
+        return;
+    }
+    id<DUStorageBackend> backend = self.storageManager.backend;
+    if (![backend respondsToSelector:
+              @selector(repairHomePermissionsWithProgress:completion:)]) {
+        [self.logView appendLine:NSLocalizedString(
+            @"Repair Permissions is not available on this platform.", nil)];
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    void (^progressBlock)(double, NSString *) =
+        ^(double progress, NSString *message) {
+            (void)progress;
+            [weakSelf.logView appendLine:message];
+        };
+    void (^completionBlock)(NSError *) =
+        ^(NSError *completionError) {
+            [weakSelf operationFinished:completionError
+                             failedTitle:NSLocalizedString(
+                                 @"Repair Permissions failed.", nil)];
+        };
+    [self.logView appendLine:NSLocalizedString(
+        @"Repairing home directory permissions...", nil)];
+    self.operationRunning = YES;
+    [self updateEnabledStates];
+    [backend repairHomePermissionsWithProgress:progressBlock
+                                    completion:completionBlock];
 }
 
 - (void)verifyDisk:(id)sender
@@ -389,9 +418,11 @@ static NSString * const kDefaultsConfirmDestructive =
 
     _verifyDiskButton.enabled = hasObject && !busy && caps.canVerify;
     _repairDiskButton.enabled = hasObject && !busy && caps.canRepair;
-    _verifyPermissionsButton.enabled =
+    // No Unix equivalent of the classic permissions check exists, so the
+    // Verify Permissions button stays disabled on every platform.
+    _verifyPermissionsButton.enabled = NO;
+    _repairPermissionsButton.enabled =
         hasObject && !busy && caps.canRepairPermissions;
-    _repairPermissionsButton.enabled = [_verifyPermissionsButton isEnabled];
     _clearHistoryButton.enabled = !busy;
 }
 

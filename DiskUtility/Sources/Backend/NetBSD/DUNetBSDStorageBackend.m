@@ -7,6 +7,7 @@
 #if defined(__NetBSD__)
 
 #import "DUNetBSDStorageBackend.h"
+#import "DURepairPermissionsTool.h"
 
 #import <sys/statvfs.h>
 #import <sys/wait.h>
@@ -775,6 +776,13 @@ static const NSTimeInterval kToolTimeoutSeconds = 300.0;
             completion(nil);
         }
     }];
+}
+
+- (void)repairHomePermissionsWithProgress:(void (^)(double, NSString *))progress
+                                completion:(void (^)(NSError *))completion
+{
+    [DURepairPermissionsTool repairHomePermissionsWithProgress:progress
+                                                     completion:completion];
 }
 
 #pragma mark - Erase
@@ -2267,6 +2275,115 @@ static const NSTimeInterval kToolTimeoutSeconds = 300.0;
         return 0.0;
     }
     return MIN(0.95, value / 100.0);
+}
+
+#pragma mark - Disc blank and verify (optical)
+
+// Mirrors the Linux backend: xorriso/cdrecord/wodim blank the rewritable
+// medium; growisofs cannot blank, so it is intentionally omitted here.
+- (void)blankOpticalDisc:(DUStorageObject *)opticalDrive
+                options:(NSDictionary *)options
+               progress:(void (^)(double, NSString *))progress
+             completion:(void (^)(NSError *))completion
+{
+    NSString *drivePath = ((DUStorageDevice *)opticalDrive).devicePath
+        ?: opticalDrive.backendPath;
+    if (drivePath.length == 0) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(
+                                   @"Missing disc drive.", nil)));
+        return;
+    }
+    NSString *method = options[kDUDiscBlankMethodKey] ?: kDUDiscBlankFastKey;
+    NSString *mode = [method isEqualToString:kDUDiscBlankAllKey]
+        ? @"all" : @"fast";
+    NSString *tool = nil;
+    for (NSString *candidate in @[ @"xorriso", @"wodim", @"cdrecord" ]) {
+        NSString *path = [DUNetBSDToolCache pathForTool:candidate];
+        if (path != nil) {
+            tool = path;
+            break;
+        }
+    }
+    if (tool == nil) {
+        completion(DUErrorMake(
+            DUErrorBackendUnavailable,
+            NSLocalizedString(
+                @"No optical blanking tool is installed "
+                @"(xorriso, wodim or cdrecord).", nil)));
+        return;
+    }
+    NSArray<NSString *> *arguments;
+    NSString *last = tool.lastPathComponent;
+    if ([last isEqualToString:@"xorriso"]) {
+        arguments = @[ @"-as", @"cdrecord", @"-v",
+                      [NSString stringWithFormat:@"blank=%@", mode],
+                      [NSString stringWithFormat:@"dev=%@", drivePath] ];
+    } else {
+        arguments = @[ @"-v",
+                      [NSString stringWithFormat:@"blank=%@", mode],
+                      [NSString stringWithFormat:@"dev=%@", drivePath] ];
+    }
+    progress(0.05, NSLocalizedString(@"Blanking disc...", nil));
+    [self spawnWork:^{
+        DUProcessResult *result =
+            [self blockingStreamedRun:tool
+                            arguments:arguments
+                          lineHandler:^(NSString *line) {
+                double fraction = [self burnProgressFromLine:line];
+                if (fraction > 0.0 && progress != NULL) {
+                    progress(fraction,
+                             NSLocalizedString(@"Blanking disc...", nil));
+                }
+            }];
+        if (![self runSucceeded:result]) {
+            completion([self toolFailure:DUErrorEraseFailed
+                                 message:NSLocalizedString(
+                                     @"Blanking the disc failed.", nil)
+                                  result:result]);
+            return;
+        }
+        progress(1.0, NSLocalizedString(@"Disc blanked successfully.", nil));
+        completion(nil);
+    }];
+}
+
+// Reads the burned disc back and compares it byte-for-byte against the
+// source image with cmp; exit 0 means a match, anything else a mismatch or
+// read error (both surfaced as a verification failure).
+- (void)verifyDisc:(DUStorageObject *)opticalDrive
+      againstImage:(DUStorageObject *)image
+          progress:(void (^)(double, NSString *))progress
+        completion:(void (^)(NSError *))completion
+{
+    NSString *drivePath = ((DUStorageDevice *)opticalDrive).devicePath
+        ?: opticalDrive.backendPath;
+    NSString *imagePath = ((DUDiskImage *)image).path;
+    if (drivePath.length == 0 || imagePath.length == 0) {
+        completion(DUErrorMake(DUErrorInvalidArgument,
+                               NSLocalizedString(
+                                   @"Missing verify parameters.", nil)));
+        return;
+    }
+    NSString *cmp = [DUNetBSDToolCache pathForTool:@"cmp"] ?: @"/usr/bin/cmp";
+    progress(0.1, NSLocalizedString(@"Reading disc back...", nil));
+    [self spawnWork:^{
+        DUProcessResult *result =
+            [self blockingStreamedRun:cmp
+                            arguments:@[ drivePath, imagePath ]
+                          lineHandler:^(NSString *line) { (void)line; }];
+        if (![self runSucceeded:result]) {
+            completion([self toolFailure:DUErrorVerificationFailed
+                                 message:NSLocalizedString(
+                                     @"The disc does not match the image.",
+                                     nil)
+                                  result:result]);
+            return;
+        }
+        progress(1.0, NSLocalizedString(
+                         @"Disc verified: data matches the image.", nil));
+        completion(nil);
+    }];
 }
 
 @end
