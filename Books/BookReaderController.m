@@ -102,6 +102,9 @@
 // Ordered groups of toolbar controls; each group is laid out touching (so the
 // theme renders it as one control) and separated from the next by a constant gap.
 @property (nonatomic, strong) NSArray<NSArray<NSView *> *> *toolbarGroups;
+// The toolbar bar itself, kept so layoutToolbar can right-align the trailing
+// group (the search field) to the bar's right edge.
+@property (nonatomic, strong) NSView *topBar;
 @end
 
 @implementation BookReaderController
@@ -626,6 +629,7 @@
   NSView *content = [win contentView];
   NSRect bar = NSMakeRect(0, r.size.height - 44, r.size.width, 44);
   NSView *topBar = [[NSView alloc] initWithFrame:bar];
+  self.topBar = topBar;
   [topBar setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
 
   // Every toolbar control shares one height and baseline so the theme can render
@@ -753,18 +757,30 @@
   return b;
 }
 
-// Lay the toolbar groups out left-to-right. Every control shares the same height
-// and baseline; within a group controls touch exactly (no horizontal gap) so the
-// theme treats them as one control, and groups are separated by a constant gap.
+// Lay the toolbar groups out: every group except the last is packed from the
+// left edge, and the final group (the search field) is right-aligned to the
+// bar's right edge so it sits flush at the trailing end of the toolbar. Every
+// control shares the same height and baseline; within a group controls touch
+// exactly (no horizontal gap) so the theme treats them as one control, and
+// groups are separated by a constant gap.
 - (void)layoutToolbar
 {
   CGFloat H = 26.0;
   CGFloat Y = (44.0 - H) / 2.0;
   CGFloat groupGap = 14.0;
-  CGFloat x = 16.0;
-  for (NSArray<NSView *> *group in _toolbarGroups)
+  CGFloat edge = 16.0;
+  NSArray<NSArray<NSView *> *> *groups = _toolbarGroups;
+  NSUInteger n = [groups count];
+  if (n == 0) return;
+
+  CGFloat barW = ([_topBar bounds].size.width > 0)
+    ? [_topBar bounds].size.width : 940.0;
+
+  // Pack all but the last group from the left edge.
+  CGFloat x = edge;
+  for (NSUInteger i = 0; i + 1 < n; i++)
     {
-      for (NSView *v in group)
+      for (NSView *v in groups[i])
         {
           NSRect f = [v frame];
           f.origin.x = x;
@@ -774,6 +790,22 @@
           x += f.size.width;
         }
       x += groupGap;
+    }
+
+  // The trailing group is right-aligned to the bar's right edge.
+  NSArray<NSView *> *last = groups[n - 1];
+  CGFloat lastW = 0.0;
+  for (NSView *v in last) lastW += [v frame].size.width;
+  CGFloat lastX = barW - edge - lastW;
+  if (lastX < x) lastX = x;   // keep clear of the packed groups if the bar is narrow
+  for (NSView *v in last)
+    {
+      NSRect f = [v frame];
+      f.origin.x = lastX;
+      f.origin.y = Y;
+      f.size.height = H;
+      [v setFrame:f];
+      lastX += f.size.width;
     }
 }
 
@@ -1122,6 +1154,9 @@
   NSRect pv = NSMakeRect(0, 0, cr.size.width, cr.size.height - 44.0);
   if (!NSEqualRects([_pageView frame], pv))
     [_pageView setFrame:pv];
+  // The toolbar is sized relative to the bar width, so re-flow it on every resize
+  // to keep the trailing (search) group pinned to the right edge.
+  [self layoutToolbar];
 }
 
 // The window manager can resize the window without GNUstep ever posting

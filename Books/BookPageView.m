@@ -11,6 +11,12 @@
 #import "BookPageTextView.h"
 #include <math.h>
 
+// Fixed bottom margin reserved for the folio (page number). Unlike the top/left/
+// right page margins, this never shrinks, so the folio is always painted below
+// the text and is never covered by the text view, even when the page margin is
+// reduced or the window is small. (See -layoutTextViews and -drawRect.)
+#define BOOKS_BOTTOM_MARGIN 56.0
+
 @interface BookPageView () <BookPageTextViewOwner>
 @property (nonatomic, strong) NSAttributedString *attrString;
 @property (nonatomic, assign) NSUInteger currentSpread;
@@ -100,16 +106,20 @@
   CGFloat pageW = b.size.width / 2.0;
   CGFloat pageH = b.size.height;
   CGFloat margin = EPUBPageMargin;
+  // The bottom margin is fixed (BOOKS_BOTTOM_MARGIN) and never tracks the
+  // adjustable top/left/right page margin, so the folio always has room below the
+  // text and is never overlapped by the text view, however small the page border.
+  CGFloat bottomMargin = BOOKS_BOTTOM_MARGIN;
   NSSize area = NSMakeSize(MAX(1.0, pageW - 2.0 * margin),
-                           MAX(1.0, pageH - 2.0 * margin));
+                           MAX(1.0, pageH - margin - bottomMargin));
   // Each text view is exactly one page text area. The folio is painted by the
   // superview (in -drawRect:) at the paper border, so it always aligns to the
   // page edge and is redrawn on every -setNeedsDisplay: (page turn, theme).
   NSSize viewSize = area;
   [_leftTV setFixedPageSize:viewSize];
-  [_leftTV setFrameOrigin:NSMakePoint(margin, margin)];
+  [_leftTV setFrameOrigin:NSMakePoint(margin, bottomMargin)];
   [_rightTV setFixedPageSize:viewSize];
-  [_rightTV setFrameOrigin:NSMakePoint(pageW + margin, margin)];
+  [_rightTV setFrameOrigin:NSMakePoint(pageW + margin, bottomMargin)];
   for (BookPageTextView *tv in @[ _leftTV, _rightTV ])
     {
       NSTextContainer *tc = [tv textContainer];
@@ -146,7 +156,7 @@
   CGFloat pageW = b.size.width / 2.0;
   CGFloat pageH = b.size.height;
   return NSMakeSize(MAX(1.0, pageW - 2.0 * EPUBPageMargin),
-                    MAX(1.0, pageH - 2.0 * EPUBPageMargin));
+                     MAX(1.0, pageH - EPUBPageMargin - BOOKS_BOTTOM_MARGIN));
 }
 
 // Glyph-accurate pagination using GNUstep's NSLayoutManager. For each page we lay
@@ -780,10 +790,17 @@
       NSString *label = [self footerForSide:side];
       if ([label length] == 0) continue;
       NSSize fs = [label sizeWithAttributes:folioAttrs];
+      // Keep the folio within the fixed bottom band (below the text view) so it is
+      // never overlapped by the text, even at large zoom where the folio font is
+      // tall, or when the page itself is short.
+      CGFloat y = footY;
+      CGFloat maxTop = BOOKS_BOTTOM_MARGIN - 4.0;
+      if (y + fs.height > maxTop) y = maxTop - fs.height;
+      if (y < 2.0) y = 2.0;
       CGFloat x = (side == 0)
         ? NSMinX(leftFrame)
         : NSMaxX(rightFrame) - fs.width;
-      [label drawAtPoint:NSMakePoint(x, footY) withAttributes:folioAttrs];
+      [label drawAtPoint:NSMakePoint(x, y) withAttributes:folioAttrs];
     }
 }
 
