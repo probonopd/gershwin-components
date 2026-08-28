@@ -1088,7 +1088,12 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     if (window) [window disableFlushWindow];
 
     @try {
-        /* Tear down old menu view. */
+        /* Tear down old menu view.  We must create a fresh AppMenuView on every
+           switch: GNUstep's -[NSMenuView setMenu:] only ever appends item
+           cells to its internal _itemCells array and never clears them (the
+           array is emptied solely in -dealloc), so reusing one view and
+           pointing it at a different/mutated menu accumulates stale cells and
+           the bar shows duplicate items. */
         if (self.menuView) {
             [[NSNotificationCenter defaultCenter] removeObserver:self.menuView];
             [self.menuView setMenu:nil];
@@ -1141,7 +1146,9 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         [sysItem setSubmenu:sysMenu];
         [menu insertItem:sysItem atIndex:0];
 
-        /* Create the new menu view. */
+        /* Create the new menu view.  A fresh view per switch is required
+           (see the teardown comment above) to avoid accumulating stale item
+           cells. */
         NSRect mvFrame = NSMakeRect(0, 0, [self bounds].size.width, [self bounds].size.height);
         AppMenuView *newView = [[AppMenuView alloc] initWithFrame:mvFrame];
         [newView setHorizontal:YES];
