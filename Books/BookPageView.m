@@ -721,16 +721,10 @@
 {
   NSColor *paper = _backgroundColor ?: [NSColor whiteColor];
 
-  // Desk behind the pages: a slightly darker, subtle shade of the paper so the
-  // two page rectangles read as distinct sheets instead of one continuous fill.
-  // Kept light (not a dark grey) so it frames the pages rather than dominating.
-  CGFloat pr, pg, pb, pa;
-  [paper getRed:&pr green:&pg blue:&pb alpha:&pa];
-  NSColor *desk = [NSColor colorWithCalibratedRed:pr * 0.88 + 0.04
-                                             green:pg * 0.88 + 0.04
-                                              blue:pb * 0.9 + 0.04
-                                             alpha:1.0];
-  [desk setFill];
+  // The area around the pages is the same colour as the paper, so there is no
+  // differently coloured padding framing the sheets; the leaves meet the window
+  // edges and only the gutter shadow separates the two pages.
+  [paper setFill];
   NSRectFill(rect);
 
   // Two paper pages, inset from the view edges so the desk shows as a border
