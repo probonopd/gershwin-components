@@ -187,6 +187,15 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
 @interface AppMenuWidget ()
 
+/* YES while the system (Command) menu or any of its submenus is being
+   tracked/shown.  populateSystemMenu mutates self.systemMenu in place
+   (removeItemAtIndex: + addItem:); doing that while the menu is tracked
+   crashes GNUstep's NSMenuView in -itemAdded: because it posts
+   NSMenuDidAddItemNotification to the very view that is tracking.  All
+   structural repopulation must therefore be deferred to a non-tracking
+   moment (setup, or mainMenuDidEndTracking:). */
+@property (nonatomic, assign) BOOL menuTracking;
+
 /* PID of the window whose menu is currently displayed */
 @property (nonatomic, assign) pid_t lastDisplayedPID;
 /* Timestamp of the last window switch (used for brief no-window grace) */
@@ -1133,6 +1142,13 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         }
         self.systemMenu = sysMenu;
 
+        /* Populate the Applications launcher (and scan the app tree) once,
+           while the menu is NOT being tracked.  Doing this during tracking -
+           as systemMenuDidBeginTracking: / menuNeedsUpdate: used to - crashes
+           GNUstep's NSMenuView (see menuTracking above).  On later switches
+           populateSystemMenu early-returns on its cache, so this stays cheap. */
+        [self populateSystemMenu];
+
         /* Keep the widget observing the cached menu's tracking notification
            exactly once (remove-then-add is idempotent). */
         [[NSNotificationCenter defaultCenter] removeObserver:self
@@ -1401,8 +1417,9 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 {
     NSMenu *menu = (NSMenu *)[note object];
     if (menu != self.systemMenu) return;
-    NSDebugLog(@"AppMenuWidget: systemMenuDidBeginTracking - populating apps");
-    [self populateSystemMenu];
+    /* The menu is now tracked; populateSystemMenu is deferred to
+       mainMenuDidEndTracking: so we never restructure the live menu. */
+    self.menuTracking = YES;
 }
 
 - (void)menuWillOpen:(NSMenu *)menu
@@ -1437,6 +1454,8 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 - (void)mainMenuDidBeginTracking:(NSNotification *)note
 {
     (void)note;
+    /* Mark tracking so populateSystemMenu never restructures the live menu. */
+    self.menuTracking = YES;
     unsigned long windowId = self.currentWindowId;
 
     if (windowId == 0) {
@@ -1468,6 +1487,11 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 - (void)mainMenuDidEndTracking:(NSNotification *)note
 {
     (void)note;
+    /* Tracking has ended - the menu can now be safely restructured.  Refresh
+       the Applications launcher here (non-tracking) so a freshly installed app
+       shows on the next open, without ever mutating a tracked menu. */
+    self.menuTracking = NO;
+    [self populateSystemMenu];
     [self performSelector:@selector(closeOpenMenuTracking)
                withObject:nil
                afterDelay:0.0];
@@ -1511,6 +1535,13 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     NSMenu *menu = self.systemMenu;
     if (!menu) {
         NSLog(@"AppMenuWidget: populateSystemMenu - no systemMenu");
+        return;
+    }
+
+    /* Never restructure the live, tracked menu; the callers that open the
+       menu set menuTracking, and the deferred repopulate happens on end. */
+    if (self.menuTracking) {
+        NSDebugLog(@"AppMenuWidget: populateSystemMenu skipped (menu tracking)");
         return;
     }
 
