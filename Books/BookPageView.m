@@ -100,16 +100,20 @@
   CGFloat pageW = b.size.width / 2.0;
   CGFloat pageH = b.size.height;
   CGFloat margin = EPUBPageMargin;
-  // The page border margin is applied exactly once, by insetting the text view's
-  // frame inside its half of the page. The text container therefore IS the text
-  // area (page size minus 2*margin) with no further inset, so it matches the area
-  // the layout manager paginates into (the controller passes the same area).
+  // The foot of each page carries its folio (page number). Reserve the bottom
+  // page margin inside every text view so the folio is part of the rendered page
+  // and flips with it, instead of an overlay drawn by the superview that does not
+  // refresh on page turns. The text container itself stays at the text area, so
+  // the reserved foot below it is free for the folio and pagination is unchanged.
+  CGFloat footReserve = margin - 26.0;
+  if (footReserve < 12.0) footReserve = 12.0;
   NSSize area = NSMakeSize(MAX(1.0, pageW - 2.0 * margin),
                            MAX(1.0, pageH - 2.0 * margin));
-  [_leftTV setFixedPageSize:area];
-  [_leftTV setFrameOrigin:NSMakePoint(margin, margin)];
-  [_rightTV setFixedPageSize:area];
-  [_rightTV setFrameOrigin:NSMakePoint(pageW + margin, margin)];
+  NSSize viewSize = NSMakeSize(area.width, area.height + footReserve);
+  [_leftTV setFixedPageSize:viewSize];
+  [_leftTV setFrameOrigin:NSMakePoint(margin, margin - footReserve)];
+  [_rightTV setFixedPageSize:viewSize];
+  [_rightTV setFrameOrigin:NSMakePoint(pageW + margin, margin - footReserve)];
   for (BookPageTextView *tv in @[ _leftTV, _rightTV ])
     {
       NSTextContainer *tc = [tv textContainer];
@@ -748,34 +752,9 @@
   [[NSColor colorWithCalibratedWhite:0.0 alpha:0.22] setFill];
   NSRectFill(NSMakeRect(halfW - 1.0, inset, 2.0, pageH - 2.0 * inset));
 
-  // Folios: the page number at the foot of each page, set in the book's own
-  // type but smaller (as a printed book prints its folios), centred on the page.
-  NSFont *bookFont = (self.attrString != nil)
-    ? [self.attrString attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL]
-    : nil;
-  CGFloat folioSize = (bookFont != nil) ? [bookFont pointSize] * 0.7 : 10.0;
-  if (folioSize < 8.0) folioSize = 8.0;
-  NSFont *folioFont = (bookFont != nil)
-    ? [NSFont fontWithName:[bookFont fontName] size:folioSize]
-    : [NSFont userFontOfSize:folioSize];
-  NSColor *folioColor = _textColor ?: [NSColor blackColor];
-  NSDictionary *folioAttrs = @{ NSFontAttributeName: folioFont,
-                                NSForegroundColorAttributeName: folioColor };
-  for (NSUInteger s = 0; s < 2; s++)
-    {
-      NSString *lab = [self footerForSide:s];
-      if ([lab length] == 0) continue;
-      NSRect pr = (s == 0) ? lp : rp;
-      NSSize ts = [lab sizeWithAttributes:folioAttrs];
-      CGFloat pad = 10.0;
-      // A left-hand page carries its folio at the left, a right-hand page at the
-      // right - the outer corner, as in a printed book.
-      CGFloat x = (s == 0)
-        ? pr.origin.x + pad
-        : pr.origin.x + pr.size.width - ts.width - pad;
-      CGFloat y = pr.origin.y + pad;
-      [lab drawAtPoint:NSMakePoint(x, y) withAttributes:folioAttrs];
-    }
+  // The folio (page number) is no longer painted here: each page's text view
+  // renders its own folio in the reserved foot of the page, so it is part of the
+  // page and redraws together with the text on every page turn.
 }
 
 @end

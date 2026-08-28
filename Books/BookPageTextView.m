@@ -81,6 +81,36 @@
 - (void)drawRect:(NSRect)rect
 {
   [super drawRect:rect];
+  // The folio is part of the rendered page: it is painted by the page's own text
+  // view (in the reserved foot below the text container) so it redraws together
+  // with the text on every page turn, instead of an overlay that goes stale.
+  if (_footerText == nil || [_footerText length] == 0)
+    return;
+  NSFont *f = nil;
+  NSColor *col = nil;
+  NSTextStorage *ts = [self textStorage];
+  if (ts != nil && [ts length] > 0)
+    {
+      f = [ts attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL];
+      col = [ts attribute:NSForegroundColorAttributeName atIndex:0 effectiveRange:NULL];
+    }
+  if (f == nil) f = [NSFont userFontOfSize:12.0];
+  CGFloat size = [f pointSize] * 0.7;
+  if (size < 8.0) size = 8.0;
+  NSFont *folioFont = [NSFont fontWithName:[f fontName] size:size];
+  if (folioFont == nil) folioFont = f;
+  if (col == nil) col = [NSColor blackColor];
+  NSDictionary *attrs = @{ NSFontAttributeName: folioFont,
+                           NSForegroundColorAttributeName: col };
+  NSSize fs = [_footerText sizeWithAttributes:attrs];
+  CGFloat pad = 10.0;
+  // A left-hand page carries its folio at the left, a right-hand page at the
+  // right - the outer corner, as in a printed book.
+  CGFloat x = _footerAlignRight
+    ? (NSMaxX([self bounds]) - fs.width - pad)
+    : pad;
+  CGFloat y = pad;
+  [_footerText drawAtPoint:NSMakePoint(x, y) withAttributes:attrs];
 }
 
 @end
