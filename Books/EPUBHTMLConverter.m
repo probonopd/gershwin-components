@@ -361,12 +361,36 @@ didStartElement:(NSString *)element
   return s;
 }
 
+- (void)appendAltText:(NSString *)alt
+{
+  if (alt == nil || [alt length] == 0) return;
+  NSDictionary *attrs = @{ NSFontAttributeName: [self currentFont] };
+  NSAttributedString *a = [[NSAttributedString alloc] initWithString:alt
+                                                         attributes:attrs];
+  [_out appendAttributedString:a];
+}
+
 - (void)appendImageWithAttributes:(NSDictionary *)attrs
 {
+  if ([self ignoring]) return;
   NSString *src = attrs[@"src"];
-  if (src == nil) return;
+  NSString *alt = attrs[@"alt"];
+
+  // EPUB RS 3.3, 5.1.2: an image without a resolvable source (or one that
+  // cannot be loaded) falls back to its alternate text. A decorative image
+  // carries an empty alt and must render nothing.
+  if (src == nil || [src length] == 0)
+    {
+      [self appendAltText:alt];
+      return;
+    }
+
   NSURL *url = [NSURL URLWithString:src relativeToURL:_base];
-  if (url == nil) return;
+  if (url == nil)
+    {
+      [self appendAltText:alt];
+      return;
+    }
 
   NSImage *img = nil;
   NSString *scheme = [url scheme];
@@ -383,35 +407,61 @@ didStartElement:(NSString *)element
       // constrain every such path to the container root so a reference like
       // file:///etc/passwd or ../../../secret cannot escape the publication.
       // Remote schemes (http/https/...) are not fetched (no network access).
-      if (scheme != nil && ![scheme isEqualToString:@"file"]) return;
+      if (scheme != nil && ![scheme isEqualToString:@"file"])
+        {
+          [self appendAltText:alt];
+          return;
+        }
       NSString *path = [url path];
-      if (path == nil) return;
+      if (path == nil)
+        {
+          [self appendAltText:alt];
+          return;
+        }
       if (_containerRoot != nil)
         {
           NSString *std = [path stringByStandardizingPath];
           NSString *root = [_containerRoot path];
           if (![std hasPrefix:root] && ![std hasPrefix:[root stringByAppendingString:@"/"]])
-            return;
+            {
+              [self appendAltText:alt];
+              return;
+            }
         }
       img = [[NSImage alloc] initWithContentsOfFile:path];
     }
-  if (img == nil) return;
+
+  if (img == nil)
+    {
+      [self appendAltText:alt];
+      return;
+    }
+
   NSData *tiff = [img TIFFRepresentation];
-  if (tiff == nil) return;
+  if (tiff == nil)
+    {
+      [self appendAltText:alt];
+      return;
+    }
   NSFileWrapper *fw = [[NSFileWrapper alloc] initRegularFileWithContents:tiff];
   NSTextAttachment *att = [[NSTextAttachment alloc] initWithFileWrapper:fw];
   // WHY a custom cell: GNUstep draws a default NSTextAttachment by rendering
   // its NSImage, which crashes (bestRepresentationForRect fpret bug). Our cell
   // blits the image's bitmap representation directly, avoiding NSImage drawing.
+  // The cell also scales the bitmap to the available line width so an image
+  // wider than the page is shrunk to fit (EPUB RS 3.3, 3.1).
   BooksImageAttachmentCell *cell = [[BooksImageAttachmentCell alloc] init];
   [att setAttachmentCell:cell];
-  [self startBlock:nil];
+  // EPUB RS 3.3, 3.1: images are inline by default and flow within their
+  // containing block at the point where they occur; they are NOT forced onto
+  // their own paragraph. The layout manager asks the cell for its frame, and
+  // the cell reports a size scaled to the available space (preserving aspect
+  // ratio), so the picture sits inline with the surrounding text.
   unichar ch = 0xfffc;
   NSString *attStr = [NSString stringWithCharacters:&ch length:1];
   NSMutableAttributedString *mas = [[NSMutableAttributedString alloc] initWithString:attStr];
   [mas addAttribute:NSAttachmentAttributeName value:att range:NSMakeRange(0, 1)];
   [_out appendAttributedString:mas];
-  [_out appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n"]];
 }
 
 - (NSMutableParagraphStyle *)headingStyle:(NSTextAlignment)align
@@ -428,6 +478,25 @@ didStartElement:(NSString *)element
 #pragma mark - Safe image attachment cell
 
 @implementation BooksImageAttachmentCell
+
+// WHY override setAttachment: GNUstep only loads the wrapped image into the
+// cell when the cell was NOT explicitly set (NSTextAttachment.m:307). Because
+// we install our own cell, the image is never copied in, so [self image] is
+// nil and nothing draws. Pull the image out of the file wrapper here.
+- (void)setAttachment:(NSTextAttachment *)anObject
+{
+  [super setAttachment:anObject];
+  NSFileWrapper *fw = [anObject fileWrapper];
+  if (fw != nil && [fw isRegularFile])
+    {
+      NSData *d = [fw regularFileContents];
+      if (d != nil)
+        {
+          NSImage *img = [[NSImage alloc] initWithData:d];
+          if (img != nil) [self setImage:img];
+        }
+    }
+}
 
 - (void)drawWithFrame:(NSRect)cellFrame inView:(NSView *)aView
 {
@@ -472,11 +541,74 @@ didStartElement:(NSString *)element
     }
   if (rep == nil) return;
   [rep drawInRect:frame
-         fromRect:NSZeroRect
-        operation:NSCompositeSourceOver
-         fraction:1.0
-    respectFlipped:NO
-          hints:nil];
+          fromRect:NSZeroRect
+         operation:NSCompositeSourceOver
+          fraction:1.0
+     respectFlipped:YES
+           hints:nil];
+}
+
+// Intrinsic pixel size of the attached image, used to compute the scaled
+// frame. Pixel dimensions are preferred over the nominal NSImage size so the
+// scale is correct regardless of the image's embedded DPI.
+- (NSSize)naturalSize
+{
+  NSImage *img = [self image];
+  if (img == nil) return NSZeroSize;
+  for (NSImageRep *r in [img representations])
+    {
+      if ([r isKindOfClass:[NSBitmapImageRep class]])
+        return NSMakeSize([(NSBitmapImageRep *)r pixelsWide],
+                          [(NSBitmapImageRep *)r pixelsHigh]);
+    }
+  return [img size];
+}
+
+// WHY override cellFrame: the layout manager reserves space for an attachment
+// from this rect. The default returns the image's intrinsic size, so a picture
+// wider than the page overflows (and is clipped). EPUB RS 3.3, 3.1 requires a
+// Reading System to scale an image to fit the available space while preserving
+// its aspect ratio; we do exactly that here, using the line fragment's width as
+// the available width and the text container's height as the available height,
+// and we never upscale beyond the intrinsic size so small images are not blurred.
+- (NSRect)cellFrameForTextContainer:(NSTextContainer *)textContainer
+                 proposedLineFragment:(NSRect)lineFrag
+                       glyphPosition:(NSPoint)position
+                    characterIndex:(NSUInteger)charIndex
+{
+  NSSize natural = [self naturalSize];
+  if (natural.width <= 0.0 || natural.height <= 0.0)
+    return [super cellFrameForTextContainer:textContainer
+                        proposedLineFragment:lineFrag
+                              glyphPosition:position
+                           characterIndex:charIndex];
+
+  CGFloat maxW = lineFrag.size.width;
+  if (maxW <= 0.0 && textContainer != nil)
+    maxW = [textContainer containerSize].width;
+  CGFloat maxH = (textContainer != nil)
+    ? [textContainer containerSize].height
+    : lineFrag.size.height;
+
+  CGFloat w = natural.width;
+  CGFloat h = natural.height;
+  if (w > maxW)
+    {
+      CGFloat s = maxW / w;
+      w *= s; h *= s;
+    }
+  if (h > maxH)
+    {
+      CGFloat s = maxH / h;
+      h *= s; w *= s;
+    }
+  // Do not upscale beyond the intrinsic size.
+  if (w > natural.width)
+    {
+      w = natural.width; h = natural.height;
+    }
+  // Bottom-align the picture to the text baseline, matching the default cell.
+  return NSMakeRect(0.0, 0.0, w, h);
 }
 
 @end
