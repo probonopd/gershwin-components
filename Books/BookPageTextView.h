@@ -22,8 +22,6 @@
 @interface BookPageTextView : NSTextView
 
 @property (weak) id<BookPageTextViewOwner> owner;
-@property (nonatomic, copy) NSString *footerText;
-@property (nonatomic, assign) BOOL footerAlignRight;
 
 // Pin the view's size to the page rectangle. GNUstep's NSTextView otherwise
 // shrinks its frame to the laid-out text height during a deferred relayout

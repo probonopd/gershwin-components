@@ -100,20 +100,16 @@
   CGFloat pageW = b.size.width / 2.0;
   CGFloat pageH = b.size.height;
   CGFloat margin = EPUBPageMargin;
-  // The foot of each page carries its folio (page number). Reserve the bottom
-  // page margin inside every text view so the folio is part of the rendered page
-  // and flips with it, instead of an overlay drawn by the superview that does not
-  // refresh on page turns. The text container itself stays at the text area, so
-  // the reserved foot below it is free for the folio and pagination is unchanged.
-  CGFloat footReserve = margin - 26.0;
-  if (footReserve < 12.0) footReserve = 12.0;
   NSSize area = NSMakeSize(MAX(1.0, pageW - 2.0 * margin),
                            MAX(1.0, pageH - 2.0 * margin));
-  NSSize viewSize = NSMakeSize(area.width, area.height + footReserve);
+  // Each text view is exactly one page text area. The folio is painted by the
+  // superview (in -drawRect:) at the paper border, so it always aligns to the
+  // page edge and is redrawn on every -setNeedsDisplay: (page turn, theme).
+  NSSize viewSize = area;
   [_leftTV setFixedPageSize:viewSize];
-  [_leftTV setFrameOrigin:NSMakePoint(margin, margin - footReserve)];
+  [_leftTV setFrameOrigin:NSMakePoint(margin, margin)];
   [_rightTV setFixedPageSize:viewSize];
-  [_rightTV setFrameOrigin:NSMakePoint(pageW + margin, margin - footReserve)];
+  [_rightTV setFrameOrigin:NSMakePoint(pageW + margin, margin)];
   for (BookPageTextView *tv in @[ _leftTV, _rightTV ])
     {
       NSTextContainer *tc = [tv textContainer];
@@ -358,16 +354,15 @@
 
 - (void)applyFooters
 {
-  [_leftTV setFooterText:[self footerForSide:0]];
-  [_rightTV setFooterText:[self footerForSide:1]];
+  [self setNeedsDisplay:YES];
 }
 
 - (NSString *)footerForSide:(NSUInteger)side
 {
-  NSUInteger pageIdx = [self pageIndexForSpread:self.currentSpread side:side];
+  NSInteger pageIdx = [self pageIndexForSpread:self.currentSpread side:side];
   if (_pageLabels == nil || pageIdx == NSNotFound
-      || pageIdx >= [_pageLabels count]) return @"";
-  return [_pageLabels objectAtIndex:pageIdx];
+      || pageIdx >= (NSInteger)[_pageLabels count]) return @"";
+  return [_pageLabels objectAtIndex:(NSUInteger)pageIdx];
 }
 
 - (void)setHighlights:(NSArray<NSDictionary *> *)arr
@@ -384,7 +379,6 @@
     {
       [tv setString:@""];
       [tv setHidden:YES];
-      [tv setFooterText:@""];
       if (side == 0) _leftRange = NSMakeRange(NSNotFound, 0);
       else _rightRange = NSMakeRange(NSNotFound, 0);
       return;
@@ -400,8 +394,6 @@
                value:_textColor
                range:NSMakeRange(0, [ts length])];
   [tv setBackgroundColor:_backgroundColor ?: [NSColor whiteColor]];
-  [tv setFooterText:[self footerForSide:side]];
-  [tv setFooterAlignRight:(side == 1)];
   NSRect ur = [[tv layoutManager] usedRectForTextContainer:[tv textContainer]];
   (void)ur;
 }
@@ -425,6 +417,10 @@
   // the fixed page frames and container sizes here.
   [self layoutTextViews];
   [self applyHighlights];
+  // The folio is painted by the superview and depends on the current spread, so
+  // redraw the page (paper + folio) on every turn; otherwise the number would
+  // not refresh until the next resize.
+  [self setNeedsDisplay:YES];
 
   if (animated && self.usesGL && oldL != nil)
     {
@@ -738,12 +734,14 @@
   NSRectFill(rect);
 
   // Two paper pages, inset from the view edges so the desk shows as a border
-  // and the gutter between them is visible.
+  // and the gutter between them is visible. Each page keeps an equal outer
+  // margin (inset) from the view edge and an equal gutter gap from the centre.
   CGFloat inset = 26.0;
   CGFloat halfW = [self bounds].size.width / 2.0;
   CGFloat pageH = [self bounds].size.height;
-  NSRect lp = NSMakeRect(inset, inset, halfW - inset, pageH - 2.0 * inset);
-  NSRect rp = NSMakeRect(halfW + inset, inset, halfW - inset, pageH - 2.0 * inset);
+  CGFloat pageW = halfW - 2.0 * inset;
+  NSRect lp = NSMakeRect(inset, inset, pageW, pageH - 2.0 * inset);
+  NSRect rp = NSMakeRect(halfW + inset, inset, pageW, pageH - 2.0 * inset);
   [paper setFill];
   NSRectFill(lp);
   NSRectFill(rp);
@@ -752,9 +750,47 @@
   [[NSColor colorWithCalibratedWhite:0.0 alpha:0.22] setFill];
   NSRectFill(NSMakeRect(halfW - 1.0, inset, 2.0, pageH - 2.0 * inset));
 
-  // The folio (page number) is no longer painted here: each page's text view
-  // renders its own folio in the reserved foot of the page, so it is part of the
-  // page and redraws together with the text on every page turn.
+  // Folio (page number) per page, painted by the superview so it redraws on every
+  // -setNeedsDisplay: (page turn, theme, zoom). A left-hand page prints its folio
+  // flush with the left edge of the text block, a right-hand page flush with the
+  // right edge of the text block (the outer margin of the running text), as in a
+  // printed book. Blank pages (NSNotFound) print nothing.
+  // The folio font matches the book's body text. Take it from the middle of the
+  // page's text storage (not index 0): a page can open on a heading or other run
+  // whose font differs from the body, so the first character would give the wrong
+  // folio font; the middle of a page is reliably body text.
+  NSFont *base = nil;
+  NSTextStorage *lts = [_leftTV textStorage];
+  if (lts != nil && [lts length] > 0)
+    {
+      NSUInteger mid = [lts length] / 2;
+      base = [lts attribute:NSFontAttributeName atIndex:mid effectiveRange:NULL];
+      if (base == nil)
+        base = [lts attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL];
+    }
+  NSFont *folioFont = base
+    ? [NSFont fontWithName:[base fontName] size:[base pointSize] * 0.7]
+    : [NSFont systemFontOfSize:11.0];
+  NSDictionary *folioAttrs = @{
+    NSFontAttributeName : folioFont,
+    NSForegroundColorAttributeName : (_textColor ?: [NSColor blackColor])
+  };
+  // Flush with the running text: the folio's outer edge lines up exactly with the
+  // text block's outer edge (left edge for a left-hand page, right edge for a
+  // right-hand page), with no extra indent.
+  CGFloat footY = inset + 8.0;
+  NSRect leftFrame = [_leftTV frame];
+  NSRect rightFrame = [_rightTV frame];
+  for (NSUInteger side = 0; side < 2; side++)
+    {
+      NSString *label = [self footerForSide:side];
+      if ([label length] == 0) continue;
+      NSSize fs = [label sizeWithAttributes:folioAttrs];
+      CGFloat x = (side == 0)
+        ? NSMinX(leftFrame)
+        : NSMaxX(rightFrame) - fs.width;
+      [label drawAtPoint:NSMakePoint(x, footY) withAttributes:folioAttrs];
+    }
 }
 
 @end
