@@ -11,6 +11,7 @@
 #include <sys/sysctl.h>
 #include <sys/param.h>
 #include <sys/proc.h>
+#include <sys/user.h>
 #define BSD_PROCESS_LIST
 #endif
 
