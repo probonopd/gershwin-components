@@ -11,6 +11,11 @@
  * Direct install mode: when invoked with a package file path as argument
  * (e.g., "OnDemand /path/to/file.deb"), detects the format and installs
  * the package via the system package manager.
+ *
+ * Dependency mode: when invoked with a .plist path as argument
+ * (e.g., "OnDemand /path/to/Dependencies.plist"), installs the packages
+ * listed in that plist (no postinstall_command is expected; it just
+ * installs the packages and exits).  Used by OnDemand.bundle.
  */
 
 #import <AppKit/NSApplication.h>
@@ -26,7 +31,27 @@ int main(int argc, const char *argv[])
   gController = [[OnDemandController alloc] init];
   [[NSApplication sharedApplication] setDelegate:gController];
 
-  /* Direct install mode: file path provided.
+  /* Dependency mode: a .plist path was passed as argument.
+     The bundle invokes OnDemand with the Dependencies.plist of the
+     launching app.  Install the packages listed and exit — do NOT
+     try to launch a postinstall_command (there is none). */
+  if (argc > 1)
+    {
+      NSString *lastArg = [NSString stringWithUTF8String:argv[argc - 1]];
+      if ([lastArg hasSuffix:@".plist"])
+        {
+          NSLog(@"OnDemand -> main: dependency mode for %@", lastArg);
+          if (![gController setupFromCustomPlistPath:lastArg])
+            {
+              NSLog(@"OnDemand [FAIL] main: failed to read plist %@", lastArg);
+              return 1;
+            }
+          [[NSApplication sharedApplication] run];
+          return 0;
+        }
+    }
+
+  /* Direct install mode: file path provided (non-plist).
      Workspace launches apps with "-GSFilePath <path>", so skip that flag. */
   if (argc > 1)
     {

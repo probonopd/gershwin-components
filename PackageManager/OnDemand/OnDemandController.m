@@ -280,6 +280,52 @@ static NSString *_detectPackageFormat(NSString *path)
   return YES;
 }
 
+- (BOOL)setupFromCustomPlistPath:(NSString *)plistPath
+{
+  // Dependency mode: we were called with a custom plist path (not our bundle's
+  // Install.plist).  Parse it and install whatever packages it lists.
+  // We do NOT launch a postinstall_command — this mode is purely for
+  // installing dependencies so the calling app can then proceed.
+  NSError *error = nil;
+  _spec = [[GWPackageInstallSpec alloc]
+             initWithPlistAtPath:plistPath
+                       specType:GWPackageInstallSpecTypeInstall
+                          error:&error];
+  if (!_spec)
+    {
+      NSLog(@"OnDemand [FAIL] setupFromCustomPlistPath: failed to parse %@: %@",
+            plistPath, error);
+      return NO;
+    }
+
+  if (![_spec isValid:&error])
+    {
+      NSLog(@"OnDemand [FAIL] setupFromCustomPlistPath: invalid spec: %@", error);
+      return NO;
+    }
+
+  // Derive the app name from the plist filename (e.g. "Dependencies.plist"
+  // -> "Dependencies").  Use a generic name if extraction fails.
+  _appName = [[[plistPath lastPathComponent]
+                stringByDeletingPathExtension] copy];
+  if ([_appName length] == 0)
+    _appName = @"Dependency";
+
+  // There is no postinstall_command to run after a dependency install — we
+  // simply exit once the packages are installed.
+  _launchCommand = nil;
+  _launchArgs = @[];
+
+  // Dependency installs always go through the package manager (no direct file).
+  _isDirectInstall = NO;
+  _directFilePath = nil;
+
+  NSLog(@"OnDemand -> setupFromCustomPlistPath: plist=%@ appName=%@ packages=%@",
+        plistPath, _appName, [_spec packages]);
+
+  return YES;
+}
+
 /* Run a dry-run command with a 30s timeout, return stdout or nil */
 static NSString *_runCmd(NSString *path, NSArray *args)
 {

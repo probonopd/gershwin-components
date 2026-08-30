@@ -45,6 +45,10 @@
 // Handle a package file directly (e.g., double-click on .deb)
 - (BOOL)setupFromFile:(NSString *)path;
 
+// Set up from an explicit plist path (used by DependencyLoader.bundle
+// when OnDemand is invoked with a Dependencies.plist argument).
+- (BOOL)setupFromCustomPlistPath:(NSString *)plistPath;
+
 // Check if the target command is already available without showing a window
 - (BOOL)commandIsAvailable;
 
