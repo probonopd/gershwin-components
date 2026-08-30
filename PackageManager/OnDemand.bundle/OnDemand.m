@@ -24,7 +24,6 @@
 static NSTask *_installTask = nil;
 static NSPipe *_installPipe = nil;
 static ODProgressWindow *_progressWin = nil;
-static BOOL _installSucceeded = NO;
 
 @implementation OnDemand
 
@@ -88,6 +87,13 @@ static BOOL _installSucceeded = NO;
 
   NSLog(@"OnDemand bundle: missing packages for %@: %@", appName, missing);
 
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    [self _showInstallAlertForAppName:appName missingPackages:missing];
+  });
+}
+
++ (void)_showInstallAlertForAppName:(NSString *)appName missingPackages:(NSArray *)missing
+{
   NSAlert *alert = [[NSAlert alloc] init];
   [alert setMessageText:[NSString stringWithFormat:
     @"%@ needs additional software to run.", appName]];
@@ -175,12 +181,10 @@ static BOOL _installSucceeded = NO;
                                                  packages:packages];
 
   [_progressWin showWindow:nil];
-  NSLog(@"OnDemand bundle: progress window shown");
 
   @try
     {
       [_installTask launch];
-      NSLog(@"OnDemand bundle: task launched");
     }
   @catch (NSException *e)
     {
@@ -224,6 +228,7 @@ static BOOL _installSucceeded = NO;
     {
       NSLog(@"OnDemand bundle: install succeeded");
     }
+  [_progressWin close];
 }
 
 + (void)_showErrorAlert:(NSString *)title detail:(NSString *)detail
@@ -264,11 +269,22 @@ static BOOL _installSucceeded = NO;
 
 + (NSArray *)_missingPackagesFromArray:(NSArray *)packages
 {
+  NSArray *osPrefixes = @[@"linux-", @"freebsd-", @"openbsd-", @"netbsd-", @"darwin-", @"windows-"];
+
   NSMutableArray *missing = [NSMutableArray array];
   for (NSString *pkg in packages)
     {
-      NSString *cmd = [[pkg componentsSeparatedByString:@"_"] firstObject];
-      if (!cmd || [cmd length] == 0) cmd = pkg;
+      NSString *cmd = nil;
+      for (NSString *prefix in osPrefixes)
+        {
+          if ([pkg.lowercaseString hasPrefix:prefix.lowercaseString])
+            {
+              cmd = [pkg substringFromIndex:[prefix length]];
+              break;
+            }
+        }
+      if (!cmd || [cmd length] == 0)
+        cmd = pkg;
       if (![self _commandExists:cmd])
         [missing addObject:pkg];
     }
