@@ -18,7 +18,8 @@ PackageManager_OBJC_FILES = \
   GWHeaderDatabase.m \
   GWPackageManager.m \
   GWSudoHelper.m \
-  GWAppImageDownloader.m
+  GWAppImageDownloader.m \
+  ODProgressWindow.m
 
 PackageManager_HEADER_FILES = \
   GWSystemCommandExecutor.h \
@@ -32,7 +33,8 @@ PackageManager_HEADER_FILES = \
   GWHeaderDatabase.h \
   GWPackageManager.h \
   GWSudoHelper.h \
-  GWAppImageDownloader.h
+  GWAppImageDownloader.h \
+  ODProgressWindow.h
 
 PackageManager_HEADER_FILES_INSTALL_DIR = PackageManager
 

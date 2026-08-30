@@ -9,7 +9,7 @@
  */
 
 #import "OnDemand.h"
-#import <AppKit/AppKit.h>
+#import <PackageManager/ODProgressWindow.h>
 
 @interface OnDemand ()
 + (void)_appDidFinishLaunch:(NSNotification *)n;
@@ -17,9 +17,14 @@
                              osOverride:(NSString *)os;
 + (NSArray *)_missingPackagesFromArray:(NSArray *)packages;
 + (BOOL)_commandExists:(NSString *)command;
-+ (BOOL)_installPackages:(NSArray *)packages;
-+ (NSString *)_sudoHelperPath;
++ (void)_showErrorAlert:(NSString *)title detail:(NSString *)detail;
++ (void)_runInstallWithPackages:(NSArray *)packages;
 @end
+
+static NSTask *_installTask = nil;
+static NSPipe *_installPipe = nil;
+static ODProgressWindow *_progressWin = nil;
+static BOOL _installSucceeded = NO;
 
 @implementation OnDemand
 
@@ -100,75 +105,10 @@
       return;
     }
 
-  BOOL success = [self _installPackages:missing];
-  if (!success)
-    {
-      NSAlert *errAlert = [[NSAlert alloc] init];
-      [errAlert setMessageText:@"Installation Failed"];
-      [errAlert setInformativeText:[NSString stringWithFormat:
-        @"Could not install the required packages:\n\n• %@\n\n"
-        @"Please try installing them manually.",
-        [[missing copy] componentsJoinedByString:@"\n• "]]];
-      [errAlert runModal];
-    }
+  [self _runInstallWithPackages:missing];
 }
 
-+ (NSArray *)_packagesFromPlistAtPath:(NSString *)plistPath
-                             osOverride:(NSString *)os
-{
-  NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:plistPath];
-  if (!plist) return nil;
-
-  NSMutableArray *packages = [NSMutableArray array];
-
-  NSArray *basePackages = [plist objectForKey:@"packages"];
-  if ([basePackages isKindOfClass:[NSArray class]])
-    [packages addObjectsFromArray:basePackages];
-
-  NSDictionary *osOverrides = [plist objectForKey:@"os_overrides"];
-  if ([osOverrides isKindOfClass:[NSDictionary class]] && os)
-    {
-      NSDictionary *override = [osOverrides objectForKey:os];
-      if ([override isKindOfClass:[NSDictionary class]])
-        {
-          NSArray *overridePackages = [override objectForKey:@"packages"];
-          if ([overridePackages isKindOfClass:[NSArray class]])
-            [packages addObjectsFromArray:overridePackages];
-        }
-    }
-
-  return packages;
-}
-
-+ (NSArray *)_missingPackagesFromArray:(NSArray *)packages
-{
-  NSMutableArray *missing = [NSMutableArray array];
-  for (NSString *pkg in packages)
-    {
-      NSString *cmd = [[pkg componentsSeparatedByString:@"_"] firstObject];
-      if (!cmd || [cmd length] == 0) cmd = pkg;
-      if (![self _commandExists:cmd])
-        [missing addObject:pkg];
-    }
-  return missing;
-}
-
-+ (NSString *)_sudoHelperPath
-{
-  NSArray *paths = @[
-    @"/System/Library/Tools/gershwin-sudo-helper",
-    @"/System/Library/Tools/sudo-helper",
-    @"/usr/bin/sudo"
-  ];
-  for (NSString *p in paths)
-    {
-      if ([[NSFileManager defaultManager] fileExistsAtPath:p])
-        return p;
-    }
-  return @"/usr/bin/sudo";
-}
-
-+ (BOOL)_installPackages:(NSArray *)packages
++ (void)_runInstallWithPackages:(NSArray *)packages
 {
   NSLog(@"OnDemand bundle: installing packages: %@", packages);
 
@@ -214,36 +154,125 @@
     }
   else
     {
-      NSLog(@"OnDemand bundle: no known package manager found");
-      return NO;
+      [self _showErrorAlert:@"No Package Manager Found"
+                      detail:@"Could not find apt-get, dnf, pacman, or pkg.\n\nPlease install packages manually."];
+      return;
     }
 
   NSLog(@"OnDemand bundle: running: %@ %@", pmBin, [pmArgs componentsJoinedByString:@" "]);
 
-  NSTask *t = [[NSTask alloc] init];
-  [t setLaunchPath:pmBin];
-  [t setArguments:pmArgs];
-  [t setEnvironment:[NSProcessInfo processInfo].environment];
+  _installTask = [[NSTask alloc] init];
+  [_installTask setLaunchPath:pmBin];
+  [_installTask setArguments:pmArgs];
+  [_installTask setEnvironment:[NSProcessInfo processInfo].environment];
 
-  NSPipe *outPipe = [NSPipe pipe];
-  [t setStandardOutput:outPipe];
-  [t setStandardError:outPipe];
+  _installPipe = [NSPipe pipe];
+  [_installTask setStandardOutput:_installPipe];
+  [_installTask setStandardError:_installPipe];
+
+  _progressWin = [[ODProgressWindow alloc] initWithTitle:@"Installing..."
+                                                  message:@"Installing required packages..."
+                                                 packages:packages];
+
+  [_progressWin showWindow:nil];
+  NSLog(@"OnDemand bundle: progress window shown");
 
   @try
     {
-      [t launch];
-      [t waitUntilExit];
-      NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
-      NSString *outStr = [[NSString alloc] initWithData:outData encoding:NSUTF8StringEncoding];
-      NSLog(@"OnDemand bundle: install output: %@", outStr);
-      NSLog(@"OnDemand bundle: install exited with status %d", [t terminationStatus]);
-      return ([t terminationStatus] == 0);
+      [_installTask launch];
+      NSLog(@"OnDemand bundle: task launched");
     }
   @catch (NSException *e)
     {
-      NSLog(@"OnDemand bundle: failed to run package manager: %@", e);
-      return NO;
+      [_progressWin close];
+      [self _showErrorAlert:@"Installation Failed"
+                      detail:[NSString stringWithFormat:@"Could not run package manager:\n%@", e]];
+      return;
     }
+
+  while ([_installTask isRunning])
+    {
+      NSEvent *event = [NSApp nextEventMatchingMask:NSAnyEventMask
+                                           untilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]
+                                              inMode:NSDefaultRunLoopMode
+                                             dequeue:YES];
+      if (event)
+        [NSApp sendEvent:event];
+
+      if ([_progressWin cancelled])
+        {
+          [_installTask interrupt];
+          [_progressWin close];
+          return;
+        }
+    }
+
+  NSData *outData = [[_installPipe fileHandleForReading] readDataToEndOfFile];
+  NSString *outStr = [[NSString alloc] initWithData:outData encoding:NSUTF8StringEncoding];
+  NSInteger status = [_installTask terminationStatus];
+
+  [_progressWin close];
+
+  if (status != 0)
+    {
+      NSLog(@"OnDemand bundle: install failed with status %ld", (long)status);
+      [self _showErrorAlert:@"Installation Failed"
+                      detail:[NSString stringWithFormat:@"The package manager exited with an error:\n%@",
+                        [outStr substringToIndex:MIN([outStr length], 500)]]];
+    }
+  else
+    {
+      NSLog(@"OnDemand bundle: install succeeded");
+    }
+}
+
++ (void)_showErrorAlert:(NSString *)title detail:(NSString *)detail
+{
+  NSAlert *alert = [[NSAlert alloc] init];
+  [alert setMessageText:title];
+  [alert setInformativeText:detail];
+  [alert addButtonWithTitle:@"OK"];
+  [alert runModal];
+}
+
++ (NSArray *)_packagesFromPlistAtPath:(NSString *)plistPath
+                             osOverride:(NSString *)os
+{
+  NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:plistPath];
+  if (!plist) return nil;
+
+  NSMutableArray *packages = [NSMutableArray array];
+
+  NSArray *basePackages = [plist objectForKey:@"packages"];
+  if ([basePackages isKindOfClass:[NSArray class]])
+    [packages addObjectsFromArray:basePackages];
+
+  NSDictionary *osOverrides = [plist objectForKey:@"os_overrides"];
+  if ([osOverrides isKindOfClass:[NSDictionary class]] && os)
+    {
+      NSDictionary *override = [osOverrides objectForKey:os];
+      if ([override isKindOfClass:[NSDictionary class]])
+        {
+          NSArray *overridePackages = [override objectForKey:@"packages"];
+          if ([overridePackages isKindOfClass:[NSArray class]])
+            [packages addObjectsFromArray:overridePackages];
+        }
+    }
+
+  return packages;
+}
+
++ (NSArray *)_missingPackagesFromArray:(NSArray *)packages
+{
+  NSMutableArray *missing = [NSMutableArray array];
+  for (NSString *pkg in packages)
+    {
+      NSString *cmd = [[pkg componentsSeparatedByString:@"_"] firstObject];
+      if (!cmd || [cmd length] == 0) cmd = pkg;
+      if (![self _commandExists:cmd])
+        [missing addObject:pkg];
+    }
+  return missing;
 }
 
 + (BOOL)_commandExists:(NSString *)command

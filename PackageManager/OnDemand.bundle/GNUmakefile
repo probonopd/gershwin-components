@@ -10,7 +10,8 @@ OnDemand_HEADER_FILES = OnDemand.h
 OnDemand_PRINCIPAL_CLASS = OnDemand
 
 OnDemand_LIBS = -lgnustep-gui -lgnustep-base -lobjc
-ADDITIONAL_LDFLAGS =
+ADDITIONAL_LDFLAGS = -L/System/Library/Frameworks/PackageManager.framework/Versions/1 -lPackageManager
+ADDITIONAL_LDFLAGS += -Wl,-rpath,/System/Library/Frameworks/PackageManager.framework/Versions/1
 
 ADDITIONAL_OBJCFLAGS = -Wall -Wextra -fobjc-arc -F/System/Library/Frameworks
 
