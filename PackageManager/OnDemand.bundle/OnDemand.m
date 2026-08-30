@@ -198,10 +198,12 @@ static ODProgressWindow *_progressWin = nil;
     {
       NSEvent *event = [NSApp nextEventMatchingMask:NSAnyEventMask
                                            untilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]
-                                              inMode:NSDefaultRunLoopMode
+                                              inMode:NSEventTrackingRunLoopMode
                                              dequeue:YES];
       if (event)
         [NSApp sendEvent:event];
+
+      [_progressWin displayIfNeeded];
 
       if ([_progressWin cancelled])
         {
