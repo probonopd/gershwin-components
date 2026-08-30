@@ -4,8 +4,6 @@
 <dict>
     <key>packages</key>
     <array>
-        <string>linux-perf</string>
-        <string>linux-heaptrack</string>
     </array>
     <key>os_overrides</key>
     <dict>
@@ -13,21 +11,35 @@
         <dict>
             <key>description</key>
             <string>CPU profiler using hardware performance counters</string>
+            <key>packages</key>
+            <array>
+                <string>linux-perf</string>
+                <string>heaptrack</string>
+            </array>
         </dict>
         <key>freebsd</key>
         <dict>
             <key>description</key>
             <string>Use procstat and pmcstat instead of perf on FreeBSD</string>
+            <key>packages</key>
+            <array>
+            </array>
         </dict>
         <key>openbsd</key>
         <dict>
             <key>description</key>
             <string>Use native OpenBSD profiling tools instead of perf</string>
+            <key>packages</key>
+            <array>
+            </array>
         </dict>
         <key>netbsd</key>
         <dict>
             <key>description</key>
             <string>Use native NetBSD profiling tools instead of perf</string>
+            <key>packages</key>
+            <array>
+            </array>
         </dict>
     </dict>
 </dict>

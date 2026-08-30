@@ -287,12 +287,17 @@ static ODProgressWindow *_progressWin = nil;
   [t setArguments:@[@"-s", package]];
   NSPipe *p = [NSPipe pipe];
   [t setStandardOutput:p];
-  [t setStandardError:[NSPipe pipe]];
+  NSPipe *ep = [NSPipe pipe];
+  [t setStandardError:ep];
   @try
     {
       [t launch];
       [t waitUntilExit];
-      return ([t terminationStatus] == 0);
+      if ([t terminationStatus] != 0)
+        return NO;
+      NSData *outData = [[p fileHandleForReading] readDataToEndOfFile];
+      NSString *outStr = [[NSString alloc] initWithData:outData encoding:NSUTF8StringEncoding];
+      return [outStr rangeOfString:@"Status: install ok installed"].location != NSNotFound;
     }
   @catch (NSException *e)
     {
