@@ -2,124 +2,32 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="0.9">
 <dict>
-    <key>perf</key>
+    <key>packages</key>
+    <array>
+        <string>linux-perf</string>
+        <string>linux-heaptrack</string>
+    </array>
+    <key>os_overrides</key>
     <dict>
-        <key>description</key>
-        <string>CPU profiler using hardware performance counters (Linux)</string>
         <key>linux</key>
         <dict>
-            <key>Debian</key>
-            <dict>
-                <key>package</key>
-                <string>linux-perf</string>
-                <key>path</key>
-                <string>/usr/bin/perf</string>
-            </dict>
-            <key>Ubuntu</key>
-            <dict>
-                <key>package</key>
-                <string>linux-perf</string>
-                <key>path</key>
-                <string>/usr/bin/perf</string>
-            </dict>
-            <key>Arch</key>
-            <dict>
-                <key>package</key>
-                <string>perf</string>
-                <key>path</key>
-                <string>/usr/bin/perf</string>
-            </dict>
+            <key>description</key>
+            <string>CPU profiler using hardware performance counters</string>
         </dict>
-        <key>bsd</key>
+        <key>freebsd</key>
         <dict>
-            <key>FreeBSD</key>
-            <dict>
-                <key>path</key>
-                <string></string>
-                <key>note</key>
-                <string>Use procstat and pmcstat instead of perf on FreeBSD</string>
-            </dict>
-            <key>OpenBSD</key>
-            <dict>
-                <key>path</key>
-                <string></string>
-                <key>note</key>
-                <string>Use native OpenBSD profiling tools instead of perf</string>
-            </dict>
-            <key>NetBSD</key>
-            <dict>
-                <key>path</key>
-                <string></string>
-                <key>note</key>
-                <string>Use native NetBSD profiling tools instead of perf</string>
-            </dict>
-            <key>NextBSD</key>
-            <dict>
-                <key>path</key>
-                <string></string>
-                <key>note</key>
-                <string>Use procstat and pmcstat instead of perf on NextBSD</string>
-            </dict>
+            <key>description</key>
+            <string>Use procstat and pmcstat instead of perf on FreeBSD</string>
         </dict>
-    </dict>
-    <key>heaptrack</key>
-    <dict>
-        <key>description</key>
-        <string>Heap memory profiler for Linux</string>
-        <key>linux</key>
+        <key>openbsd</key>
         <dict>
-            <key>Debian</key>
-            <dict>
-                <key>package</key>
-                <string>heaptrack</string>
-                <key>path</key>
-                <string>/usr/bin/heaptrack</string>
-            </dict>
-            <key>Ubuntu</key>
-            <dict>
-                <key>package</key>
-                <string>heaptrack</string>
-                <key>path</key>
-                <string>/usr/bin/heaptrack</string>
-            </dict>
-            <key>Arch</key>
-            <dict>
-                <key>package</key>
-                <string>heaptrack</string>
-                <key>path</key>
-                <string>/usr/bin/heaptrack</string>
-            </dict>
+            <key>description</key>
+            <string>Use native OpenBSD profiling tools instead of perf</string>
         </dict>
-        <key>bsd</key>
+        <key>netbsd</key>
         <dict>
-            <key>FreeBSD</key>
-            <dict>
-                <key>path</key>
-                <string></string>
-                <key>note</key>
-                <string>heaptrack is not available on FreeBSD</string>
-            </dict>
-            <key>OpenBSD</key>
-            <dict>
-                <key>path</key>
-                <string></string>
-                <key>note</key>
-                <string>heaptrack is not available on OpenBSD</string>
-            </dict>
-            <key>NetBSD</key>
-            <dict>
-                <key>path</key>
-                <string></string>
-                <key>note</key>
-                <string>heaptrack is not available on NetBSD</string>
-            </dict>
-            <key>NextBSD</key>
-            <dict>
-                <key>path</key>
-                <string></string>
-                <key>note</key>
-                <string>heaptrack is not available on NextBSD</string>
-            </dict>
+            <key>description</key>
+            <string>Use native NetBSD profiling tools instead of perf</string>
         </dict>
     </dict>
 </dict>
