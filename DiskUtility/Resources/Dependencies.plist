@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+    <key>packages</key>
+    <array>
+        <string>linux-util-linux</string>
+        <string>linux-qemu-img</string>
+        <string>linux-parted</string>
+        <string>linux-mdadm</string>
+        <string>linux-e2fsprogs</string>
+    </array>
+    <key>os_overrides</key>
+    <dict>
+        <key>linux</key>
+        <dict>
+            <key>description</key>
+            <string>Disk management and formatting utility</string>
+        </dict>
+        <key>freebsd</key>
+        <dict>
+            <key>description</key>
+            <string>Disk management tools built into FreeBSD base system</string>
+        </dict>
+        <key>openbsd</key>
+        <dict>
+            <key>description</key>
+            <string>Disk management tools built into OpenBSD base system</string>
+        </dict>
+        <key>netbsd</key>
+        <dict>
+            <key>description</key>
+            <string>Disk management tools built into NetBSD base system</string>
+        </dict>
+    </dict>
+</dict>
+</plist>

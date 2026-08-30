@@ -150,6 +150,7 @@ DiskUtility_OBJC_FILES = \
 
 DiskUtility_RESOURCE_FILES = \
 	Resources/DiskUtility.png \
+	Resources/Dependencies.plist \
 	Resources/English.lproj \
 	Resources/Icons/verify.png \
 	Resources/Icons/info.png \
