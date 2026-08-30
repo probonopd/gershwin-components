@@ -7,7 +7,14 @@
 #import "ProcessMonitor.h"
 #import "ProcessInfo.h"
 
-#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+#include <libutil.h>
+#include <sys/sysctl.h>
+#include <sys/param.h>
+#include <sys/proc.h>
+#include <sys/user.h>
+#define BSD_PROCESS_LIST
+#elif defined(__OpenBSD__) || defined(__NetBSD__)
 #include <sys/sysctl.h>
 #include <sys/param.h>
 #include <sys/proc.h>
@@ -116,7 +123,7 @@
         return result;
     }
 
-    size_t count = procSize / sizeof(struct kinfo_proc);
+    size_t count = procSize / sizeof(*procs);
     for (size_t i = 0; i < count; i++) {
         struct kinfo_proc *p = &procs[i];
         ProcessInfo *info = [[ProcessInfo alloc] init];
@@ -196,19 +203,29 @@
 {
     int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, pid };
     size_t mibSize = sizeof(mib) / sizeof(mib[0]);
-    struct kinfo_proc p;
-    size_t procSize = sizeof(p);
+    struct kinfo_proc *p = NULL;
+    size_t procSize = 0;
 
-    if (sysctl(mib, mibSize, &p, &procSize, NULL, 0) != 0)
+    if (sysctl(mib, mibSize, NULL, &procSize, NULL, 0) != 0)
         return nil;
 
-    ProcessInfo *info = [[ProcessInfo alloc] init];
-    info.pid = p.ki_pid;
-    info.name = [NSString stringWithUTF8String:p.ki_comm];
-    info.command = [NSString stringWithUTF8String:p.ki_comm];
-    info.rssBytes = (unsigned long long)p.ki_rssize * (unsigned long long)getpagesize();
-    info.virtualBytes = (unsigned long long)p.ki_size;
+    p = malloc(procSize);
+    if (!p)
+        return nil;
 
+    if (sysctl(mib, mibSize, p, &procSize, NULL, 0) != 0) {
+        free(p);
+        return nil;
+    }
+
+    ProcessInfo *info = [[ProcessInfo alloc] init];
+    info.pid = p->ki_pid;
+    info.name = [NSString stringWithUTF8String:p->ki_comm];
+    info.command = [NSString stringWithUTF8String:p->ki_comm];
+    info.rssBytes = (unsigned long long)p->ki_rssize * (unsigned long long)getpagesize();
+    info.virtualBytes = (unsigned long long)p->ki_size;
+
+    free(p);
     return [info autorelease];
 }
 #else
