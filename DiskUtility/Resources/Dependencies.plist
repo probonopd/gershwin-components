@@ -9,6 +9,8 @@
         <string>parted</string>
         <string>mdadm</string>
         <string>e2fsprogs</string>
+        <string>exfatprogs</string>
+        <string>fdisk</string>
     </array>
     <key>os_overrides</key>
     <dict>

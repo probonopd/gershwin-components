@@ -269,37 +269,20 @@ static ODProgressWindow *_progressWin = nil;
 
 + (NSArray *)_missingPackagesFromArray:(NSArray *)packages
 {
-  NSArray *osPrefixes = @[@"linux-", @"freebsd-", @"openbsd-", @"netbsd-", @"darwin-", @"windows-"];
-
   NSMutableArray *missing = [NSMutableArray array];
   for (NSString *pkg in packages)
     {
-      NSString *cmd = nil;
-      for (NSString *prefix in osPrefixes)
-        {
-          if ([pkg.lowercaseString hasPrefix:prefix.lowercaseString])
-            {
-              cmd = [pkg substringFromIndex:[prefix length]];
-              break;
-            }
-        }
-      if (!cmd || [cmd length] == 0)
-        cmd = pkg;
-      if (![self _commandExists:cmd])
+      if (![self _packageInstalled:pkg])
         [missing addObject:pkg];
     }
   return missing;
 }
 
-+ (BOOL)_commandExists:(NSString *)command
++ (BOOL)_packageInstalled:(NSString *)package
 {
-  if (!command || [command length] == 0) return NO;
-  if ([command hasPrefix:@"/"])
-    return [[NSFileManager defaultManager] isExecutableFileAtPath:command];
-
   NSTask *t = [[NSTask alloc] init];
-  [t setLaunchPath:@"/usr/bin/which"];
-  [t setArguments:@[command]];
+  [t setLaunchPath:@"/usr/bin/dpkg"];
+  [t setArguments:@[@"-s", package]];
   NSPipe *p = [NSPipe pipe];
   [t setStandardOutput:p];
   [t setStandardError:[NSPipe pipe]];
