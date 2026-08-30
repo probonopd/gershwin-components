@@ -4,11 +4,11 @@
 <dict>
     <key>packages</key>
     <array>
-        <string>linux-util-linux</string>
-        <string>linux-qemu-img</string>
-        <string>linux-parted</string>
-        <string>linux-mdadm</string>
-        <string>linux-e2fsprogs</string>
+        <string>util-linux</string>
+        <string>qemu-utils</string>
+        <string>parted</string>
+        <string>mdadm</string>
+        <string>e2fsprogs</string>
     </array>
     <key>os_overrides</key>
     <dict>
