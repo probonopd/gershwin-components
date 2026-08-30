@@ -14,32 +14,17 @@
 #include <sys/proc.h>
 #include <sys/user.h>
 #define BSD_PROCESS_LIST
-#define BSD_KERN_PROC_PROC KERN_PROC_PROC
-#define BSD_KI_PID ki_pid
-#define BSD_KI_COMM ki_comm
-#define BSD_KI_RSSIZE ki_rssize
-#define BSD_KI_SIZE ki_size
 #elif defined(__OpenBSD__)
 #include <sys/sysctl.h>
 #include <sys/param.h>
 #include <sys/proc.h>
 #define BSD_PROCESS_LIST
-#define BSD_KERN_PROC_PROC KERN_PROC_ALL
-#define BSD_KI_PID p_pid
-#define BSD_KI_COMM p_comm
-#define BSD_KI_RSSIZE 0
-#define BSD_KI_SIZE 0
 #elif defined(__NetBSD__)
 #include <sys/sysctl.h>
 #include <sys/param.h>
 #include <sys/proc.h>
 #include <sys/user.h>
 #define BSD_PROCESS_LIST
-#define BSD_KERN_PROC_PROC KERN_PROC_PROC
-#define BSD_KI_PID ki_pid
-#define BSD_KI_COMM ki_comm
-#define BSD_KI_RSSIZE ki_rssize
-#define BSD_KI_SIZE ki_size
 #endif
 
 @implementation ProcessMonitor
@@ -126,7 +111,11 @@
 - (NSArray *)bsdProcessList
 {
     NSMutableArray *result = [NSMutableArray array];
-    int mib[4] = { CTL_KERN, KERN_PROC, BSD_KERN_PROC_PROC, 0 };
+#if defined(__OpenBSD__)
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
+#else
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PROC, 0 };
+#endif
     size_t mibSize = sizeof(mib) / sizeof(mib[0]);
     struct kinfo_proc *procs = NULL;
     size_t procSize = 0;
@@ -147,12 +136,19 @@
     for (size_t i = 0; i < count; i++) {
         struct kinfo_proc *p = &procs[i];
         ProcessInfo *info = [[ProcessInfo alloc] init];
-        info.pid = p->BSD_KI_PID;
-        info.name = [NSString stringWithUTF8String:p->BSD_KI_COMM];
-        info.command = [NSString stringWithUTF8String:p->BSD_KI_COMM];
-
-        info.rssBytes = (unsigned long long)p->BSD_KI_RSSIZE * (unsigned long long)getpagesize();
-        info.virtualBytes = (unsigned long long)p->BSD_KI_SIZE;
+#if defined(__OpenBSD__)
+        info.pid = p->p_pid;
+        info.name = [NSString stringWithUTF8String:p->p_comm];
+        info.command = [NSString stringWithUTF8String:p->p_comm];
+        info.rssBytes = 0;
+        info.virtualBytes = 0;
+#else
+        info.pid = p->ki_pid;
+        info.name = [NSString stringWithUTF8String:p->ki_comm];
+        info.command = [NSString stringWithUTF8String:p->ki_comm];
+        info.rssBytes = (unsigned long long)p->ki_rssize * (unsigned long long)getpagesize();
+        info.virtualBytes = (unsigned long long)p->ki_size;
+#endif
 
         [result addObject:[info autorelease]];
     }
@@ -239,11 +235,19 @@
     }
 
     ProcessInfo *info = [[ProcessInfo alloc] init];
-    info.pid = p->BSD_KI_PID;
-    info.name = [NSString stringWithUTF8String:p->BSD_KI_COMM];
-    info.command = [NSString stringWithUTF8String:p->BSD_KI_COMM];
-    info.rssBytes = (unsigned long long)p->BSD_KI_RSSIZE * (unsigned long long)getpagesize();
-    info.virtualBytes = (unsigned long long)p->BSD_KI_SIZE;
+#if defined(__OpenBSD__)
+    info.pid = p->p_pid;
+    info.name = [NSString stringWithUTF8String:p->p_comm];
+    info.command = [NSString stringWithUTF8String:p->p_comm];
+    info.rssBytes = 0;
+    info.virtualBytes = 0;
+#else
+    info.pid = p->ki_pid;
+    info.name = [NSString stringWithUTF8String:p->ki_comm];
+    info.command = [NSString stringWithUTF8String:p->ki_comm];
+    info.rssBytes = (unsigned long long)p->ki_rssize * (unsigned long long)getpagesize();
+    info.virtualBytes = (unsigned long long)p->ki_size;
+#endif
 
     free(p);
     return [info autorelease];
