@@ -10,6 +10,7 @@
 @interface BookshelfController : NSWindowController
 - (void)reload;
 - (void)addBook:(id)sender;
+- (void)openStore:(id)sender;
 // Open a book, hiding the shelf; returns YES if a reader was launched.
 - (BOOL)openBook:(LibraryBook *)book;
 // Find and open the book whose epub lives at the given path.

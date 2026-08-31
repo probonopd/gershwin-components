@@ -10,11 +10,13 @@
 #import "LibraryStore.h"
 #import "LibraryBook.h"
 #import "BookReaderController.h"
+#import "OPDSBrowserController.h"
 
 @interface BookshelfController () <BookshelfViewDelegate, NSWindowDelegate>
 @property (nonatomic, strong) BookshelfView *shelf;
 @property (nonatomic, strong) NSScrollView *scroll;
 @property (nonatomic, strong) NSMutableArray<BookReaderController *> *openReaders;
+@property (nonatomic, strong) OPDSBrowserController *browser;
 @end
 
 @implementation BookshelfController
@@ -54,6 +56,7 @@
   [self addButtonTo:toolbar title:@"Add Book" action:@selector(addBook:) x:16];
   [self addButtonTo:toolbar title:@"Open" action:@selector(openSelected:) x:116];
   [self addButtonTo:toolbar title:@"Remove" action:@selector(removeSelected:) x:206];
+  [self addButtonTo:toolbar title:@"Store" action:@selector(openStore:) x:296];
   [content addSubview:toolbar];
 
   NSRect sv = NSMakeRect(0, 0, r.size.width, r.size.height - 46);
@@ -117,6 +120,13 @@
   [[LibraryStore sharedStore] removeBook:books[_shelf.selectedIndex]];
   _shelf.selectedIndex = -1;
   [self reload];
+}
+
+- (void)openStore:(id)sender
+{
+  if (_browser == nil)
+    _browser = [[OPDSBrowserController alloc] initWithFeedURL:nil title:nil];
+  [_browser showWindow:self];
 }
 
 - (BOOL)openBook:(LibraryBook *)book

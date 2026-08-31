@@ -9,10 +9,12 @@
 #import "BookshelfController.h"
 #import "LibraryStore.h"
 #import "LibraryBook.h"
+#import "OPDSBrowserController.h"
 
 @implementation BooksAppDelegate
 {
   BookshelfController *_shelf;
+  OPDSBrowserController *_browser;
   BOOL _launchedWithFile;
 }
 
@@ -72,6 +74,9 @@
   [fileMenu addItemWithTitle:@"Add Book…"
                        action:@selector(addBookFromMenu:)
                 keyEquivalent:@"o"];
+  [fileMenu addItemWithTitle:@"Browse Store…"
+                       action:@selector(browseStore:)
+                keyEquivalent:@"S"];
   [fileMenu addItemWithTitle:@"Open Library"
                        action:@selector(showShelf:)
                 keyEquivalent:@""];
@@ -119,6 +124,13 @@
   [_shelf showWindow:self];
 }
 
+- (void)browseStore:(id)sender
+{
+  if (_browser == nil)
+    _browser = [[OPDSBrowserController alloc] initWithFeedURL:nil title:nil];
+  [_browser showWindow:self];
+}
+
 - (BOOL)application:(NSApplication *)app openFile:(NSString *)filename
 {
   if ([[filename pathExtension] caseInsensitiveCompare:@"epub"] == NSOrderedSame)
@@ -136,9 +148,14 @@
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app
 {
-  // The shelf is kept open (only hidden) while a book is being read and is
-  // brought back when the last reader closes, so reaching zero windows means
-  // the user closed the shelf itself: quit.
+  // Only quit when the shelf itself is closed. Other windows (reader, store)
+  // closing should not terminate the app while the shelf is still around
+  // (even if hidden).
+  for (NSWindow *win in [app windows])
+    {
+      if ([win isVisible] && win != [_shelf window])
+        return NO;
+    }
   return YES;
 }
 

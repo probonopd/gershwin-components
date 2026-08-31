@@ -22,7 +22,10 @@ Books_OBJC_FILES = \
 	EPUBHTMLConverter.m \
 	EPUBPageLocator.m \
 	EPUBAnnotation.m \
-	AnnotationStore.m
+	AnnotationStore.m \
+	OPDSEntry.m \
+	OPDSFeedParser.m \
+	OPDSBrowserController.m
 
 Books_HEADER_FILES = \
 	BooksAppDelegate.h \
@@ -42,7 +45,10 @@ Books_HEADER_FILES = \
 	EPUBHTMLConverter.h \
 	EPUBPageLocator.h \
 	EPUBAnnotation.h \
-	AnnotationStore.h
+	AnnotationStore.h \
+	OPDSEntry.h \
+	OPDSFeedParser.h \
+	OPDSBrowserController.h
 
 Books_RESOURCE_FILES = \
 	Books.png \

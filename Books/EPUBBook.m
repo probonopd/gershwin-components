@@ -35,6 +35,7 @@
     _spine = [result.spine copy];
     _tableOfContents = [result.tableOfContents copy];
     _pageList = [result.pageList copy];
+    _pageProgressionDirection = [result.pageProgressionDirection copy];
     _extractedRoot = [result.extractedRoot copy];
     return self;
 }
