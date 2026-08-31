@@ -196,14 +196,7 @@ static ODProgressWindow *_progressWin = nil;
 
   while ([_installTask isRunning])
     {
-      NSEvent *event = [NSApp nextEventMatchingMask:NSAnyEventMask
-                                           untilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]
-                                              inMode:NSEventTrackingRunLoopMode
-                                             dequeue:YES];
-      if (event)
-        [NSApp sendEvent:event];
-
-      [_progressWin displayIfNeeded];
+      [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
 
       if ([_progressWin cancelled])
         {
