@@ -5,9 +5,9 @@
 	<key>CFBundleName</key>
 	<string>Network</string>
 	<key>CFBundleDisplayName</key>
-	<string>WLAN</string>
+	<string>Network</string>
 	<key>ApplicationName</key>
-	<string>WLAN</string>
+	<string>Network</string>
 	<key>ApplicationDescription</key>
 	<string>Manage WLAN and wired network connections</string>
 	<key>CFBundleIdentifier</key>
@@ -25,7 +25,9 @@
 	<key>NSPrefPaneIconFile</key>
 	<string>Network.png</string>
 	<key>NSPrefPaneIconLabel</key>
-	<string>WLAN</string>
+	<string>Network</string>
+	<key>NSPrefPaneCategory</key>
+	<string>Network</string>
 	<key>Authors</key>
 	<array>
 		<string>Simon Peter</string>
