@@ -254,6 +254,20 @@
       return YES;
     }
 
+  // FreeBSD's pkg prefix is usr/local/include/, but base system headers
+  // (stdlib.h, unistd.h, math.h, etc.) live in usr/include/.  Check there
+  // as a fallback so base system headers are not reported as missing.
+  if ([distro isEqualToString:@"freebsd"])
+    {
+      NSString *baseSystemPath = [@"/usr/include/" stringByAppendingString:includeName];
+      if ([[NSFileManager defaultManager] fileExistsAtPath:baseSystemPath])
+        {
+          NSLog(@"GWHeaderDatabase <- isHeaderInstalled: %@ / %@ -> YES (%@, base system)",
+                includeName, distro, baseSystemPath);
+          return YES;
+        }
+    }
+
   // The header may be reachable via a -I subdirectory flag even though its
   // canonical path does not exist, e.g. "#include <gphoto2.h>" with
   // -I/usr/include/gphoto2.  Treat any file with the same basename anywhere
