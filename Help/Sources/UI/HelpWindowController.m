@@ -197,7 +197,6 @@ static NSString * const kGSHelpWelcomeURL = @"help://welcome";
                                               defer: NO];
     [_window setTitle: @"Help"];
     [_window setMinSize: NSMakeSize(500, 300)];
-    [_window center];
 
     GSHelpContentView *content =
         [[GSHelpContentView alloc] initWithFrame: frame];

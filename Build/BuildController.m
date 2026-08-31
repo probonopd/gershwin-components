@@ -371,7 +371,6 @@ static const CGFloat kSpace16 = 16.0;
 
     [_window setTitle:name ? name : NSLocalizedString(@"Build", @"Window title")];
     [_window setDelegate:self];
-    [_window center];
     [_window orderFront:nil];
 }
 

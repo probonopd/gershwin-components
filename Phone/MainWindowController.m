@@ -37,8 +37,7 @@
                                                      backing:NSBackingStoreBuffered
                                                        defer:NO];
     [window setTitle:@"Phone"];
-    [window center];
-    
+
     self = [super initWithWindow:window];
     if (self) {
         _sipManager = manager;
