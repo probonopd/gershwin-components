@@ -33,10 +33,7 @@
 
 - (void)buildWindow
 {
-  NSRect screen = [[NSScreen mainScreen] frame];
   NSRect r = NSMakeRect(0, 0, 940, 660);
-  r.origin.x = (screen.size.width - r.size.width) / 2.0;
-  r.origin.y = (screen.size.height - r.size.height) / 2.0;
 
   NSWindow *win = [[NSWindow alloc]
       initWithContentRect:r

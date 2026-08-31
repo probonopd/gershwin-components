@@ -660,9 +660,7 @@
   CGFloat h = MIN(720.0, screen.size.height - 80.0);
   if (w < 620.0) w = 620.0;
   if (h < 420.0) h = 420.0;
-  NSRect r = NSMakeRect((screen.size.width - w) / 2.0,
-                          (screen.size.height - h) / 2.0,
-                          w, h);
+  NSRect r = NSMakeRect(0, 0, w, h);
   NSWindow *win = [[NSWindow alloc]
       initWithContentRect:r
                  styleMask:(NSTitledWindowMask | NSClosableWindowMask |

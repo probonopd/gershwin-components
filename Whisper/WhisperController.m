@@ -2368,7 +2368,7 @@ static const unsigned long long modelMinSizes[] = {
 
 - (void)finishStartup
 {
-    [mainWindow center];
+    // No positioning - let the WM cascade it.
     [mainWindow makeKeyAndOrderFront:self];
     [NSApp activateIgnoringOtherApps:YES];
 }
