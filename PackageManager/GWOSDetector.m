@@ -137,8 +137,9 @@ static NSCharacterSet *_whitespaceSet(void)
       NSLog(@"GWOSDetector -> parsed os-release ID = %@, ID_LIKE = %@", osID, osRelease[@"ID_LIKE"]);
       if (osID && [osID length] > 0)
         {
-          NSLog(@"GWOSDetector <- '%@'", osID);
-          return osID;
+          NSString *lower = [osID lowercaseString];
+          NSLog(@"GWOSDetector <- '%@'", lower);
+          return lower;
         }
     }
 
