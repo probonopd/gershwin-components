@@ -1104,11 +1104,13 @@ NSString *IACheckImageSourceAvailable(void)
     NSDebugLLog(@"gwcomp", @"IAInstallProgressStep: launching installer %@", scriptPath);
 
     NSMutableArray *taskArgs = [NSMutableArray array];
-    /* If not running as root, use sudo */
+    /* If not running as root, use sudo -n (non-interactive) to avoid
+       /dev/tty prompts that would block when stdin is a pipe from NSTask */
     NSString *launchBinary = nil;
     if (getuid() != 0) {
         launchBinary = @"/usr/bin/env";
         [taskArgs addObject:@"sudo"];
+        [taskArgs addObject:@"-n"];
         [taskArgs addObject:scriptPath];
         NSDebugLLog(@"gwcomp", @"IAInstallProgressStep: not root (uid=%u), wrapping in sudo", getuid());
     } else {

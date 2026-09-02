@@ -52,7 +52,7 @@
         NSDebugLLog(@"gwcomp", @"InstallationDelegate: assistantWindowDidFinish - restarting system");
         NSTask *task = [[NSTask alloc] init];
         [task setLaunchPath:@"/usr/bin/env"];
-        [task setArguments:@[@"sudo", @"shutdown", @"-r", @"now"]];
+        [task setArguments:@[@"sudo", @"-n", @"shutdown", @"-r", @"now"]];
         @try {
             [task launch];
         } @catch (NSException *ex) {
