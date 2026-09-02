@@ -528,6 +528,16 @@
     }
 }
 
+- (NSUInteger)pendingMessageCount
+{
+    // Return count of pending messages from the canonical handler
+    id<MenuProtocolHandler> canonicalHandler = [self handlerForType:MenuProtocolTypeCanonical];
+    if (canonicalHandler && [canonicalHandler respondsToSelector:@selector(pendingMessageCount)]) {
+        return [canonicalHandler pendingMessageCount];
+    }
+    return 0;
+}
+
 - (BOOL)refreshMenuStateForWindow:(unsigned long)windowId
 {
     // Find the handler responsible for this window.

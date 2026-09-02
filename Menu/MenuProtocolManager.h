@@ -29,6 +29,7 @@
 - (void)setAppMenuWidget:(AppMenuWidget *)widget;
 - (void)cleanup;
 - (void)processDBusMessages;
+- (NSUInteger)pendingMessageCount;
 // Re-register the global (X11-grabbed) shortcuts for a window's menu after
 // they have been cleared (e.g. on an app switch).  Implemented by the DBus
 // and GTK importers.
@@ -92,6 +93,7 @@ typedef NS_ENUM(NSInteger, MenuProtocolType) {
 // DBus integration
 - (int)getDBusFileDescriptor;
 - (void)processDBusMessages;
+- (NSUInteger)pendingMessageCount;
 
 // AppMenuWidget management
 - (void)updateAllHandlersWithAppMenuWidget:(AppMenuWidget *)appMenuWidget;

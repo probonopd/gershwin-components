@@ -42,6 +42,7 @@
 - (NSMenu *)createTestMenu;
 - (int)getDBusFileDescriptor;
 - (void)processDBusMessages;
+- (NSUInteger)pendingMessageCount;
 
 // DBus method handlers
 - (void)handleDBusMethodCall:(NSDictionary *)callInfo;

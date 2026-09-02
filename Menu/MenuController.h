@@ -70,6 +70,10 @@
 @property (nonatomic, strong) NSTimer *powerKeyTimer;
 @property (nonatomic, assign) BOOL powerKeyTriggered;
 
+// Throttle for DBus fd - backs off when fd fires but no messages arrive
+@property (nonatomic, assign) NSUInteger dbusEmptyProcessingCount;
+@property (nonatomic, assign) NSTimeInterval dbusThrottleUntil;
+
 - (id)init;
 - (NSColor *)backgroundColor;
 - (NSColor *)transparentColor;

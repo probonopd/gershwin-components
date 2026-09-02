@@ -1033,6 +1033,14 @@
     NSDebugLLog(@"gwcomp", @"DBusMenuImporter: This is non-fatal to avoid supervisor restart loops");
 }
 
+- (NSUInteger)pendingMessageCount
+{
+    if (!_dbusConnection) {
+        return 0;
+    }
+    return [_dbusConnection hasPendingMessages] ? 1 : 0;
+}
+
 - (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId
 {
     if (!menu) {

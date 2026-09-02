@@ -177,6 +177,9 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 // (libdbus internal buffering keeps select() returning "ready").
 #define DBUS_REARM_DELAY 0.1
 
+// Maximum throttle delay (seconds) when DBus fd fires but no messages arrive
+#define DBUS_MAX_THROTTLE_DELAY 2.0
+
 - (void)dbusFileDescriptorReady:(NSNotification *)notification {
     MENU_PROFILE_BEGIN(dbusFileDescriptorReady);
 
@@ -189,21 +192,58 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         return;
     }
 
+    // Throttle if DBus fd keeps firing with no messages
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (now < self.dbusThrottleUntil) {
+        // Skip processing but still schedule re-arm after throttle delay
+        [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                                 selector:@selector(rearmDBusSource)
+                                                   object:nil];
+        [self performSelector:@selector(rearmDBusSource)
+                   withObject:nil
+                   afterDelay:(self.dbusThrottleUntil - now)];
+        MENU_PROFILE_END(dbusFileDescriptorReady);
+        return;
+    }
+
     NSDebugLog(@"MenuController: DBus file descriptor reported data available");
 
     // Lock the menu window from redrawing during DBus processing to prevent flashing
     [self.menuBar disableFlushWindow];
 
+    NSUInteger messageCountBefore = [[MenuProtocolManager sharedManager] pendingMessageCount];
     @try {
         [[MenuProtocolManager sharedManager] processDBusMessages];
     }
     @catch (NSException *exception) {
         NSDebugLLog(@"gwcomp", @"MenuController: Exception processing DBus messages: %@", exception);
     }
-    @finally {
-        // Re-enable window drawing and flush all pending updates at once
-        [self.menuBar enableFlushWindow];
-        [self.menuBar flushWindow];
+
+    // Re-enable window drawing and flush all pending updates at once
+    [self.menuBar enableFlushWindow];
+    [self.menuBar flushWindow];
+
+    NSUInteger messageCountAfter = [[MenuProtocolManager sharedManager] pendingMessageCount];
+    BOOL gotMessages = (messageCountAfter > messageCountBefore);
+
+    // If fd fired but we got no messages, implement exponential backoff
+    if (!gotMessages) {
+        self.dbusEmptyProcessingCount++;
+        if (self.dbusEmptyProcessingCount > 3) {
+            // Exponential backoff: 0.1 -> 0.2 -> 0.4 -> 0.8 -> 1.6 -> 2.0 (capped)
+            NSTimeInterval backoffDelay = MIN(DBUS_REARM_DELAY * (1 << (self.dbusEmptyProcessingCount - 3)), DBUS_MAX_THROTTLE_DELAY);
+            self.dbusThrottleUntil = now + backoffDelay;
+            NSDebugLLog(@"gwcomp", @"MenuController: DBus throttle backing off to %.1fs (empty count=%lu)",
+                        backoffDelay, (unsigned long)self.dbusEmptyProcessingCount);
+        }
+    } else {
+        // Got messages - reset throttle state
+        if (self.dbusEmptyProcessingCount > 0) {
+            NSDebugLLog(@"gwcomp", @"MenuController: DBus throttle reset (was %lu empty cycles)",
+                        (unsigned long)self.dbusEmptyProcessingCount);
+        }
+        self.dbusEmptyProcessingCount = 0;
+        self.dbusThrottleUntil = 0;
     }
 
     // Delay re-arm to prevent CPU tight-loop.  The DBus fd is almost always
@@ -214,9 +254,10 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     [NSObject cancelPreviousPerformRequestsWithTarget:self
                                              selector:@selector(rearmDBusSource)
                                                object:nil];
+    NSTimeInterval rearmDelay = gotMessages ? DBUS_REARM_DELAY : MAX(DBUS_REARM_DELAY, self.dbusThrottleUntil - now);
     [self performSelector:@selector(rearmDBusSource)
                withObject:nil
-               afterDelay:DBUS_REARM_DELAY];
+               afterDelay:rearmDelay];
 
     MENU_PROFILE_END(dbusFileDescriptorReady);
 }
