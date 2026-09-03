@@ -466,7 +466,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
                                 pa = [provider displayPriority];
                             if ([ep respondsToSelector:@selector(displayPriority)])
                                 pb = [ep displayPriority];
-                            if (pa < pb) {
+                            if (pa > pb) {
                                 insertIdx = j;
                             }
                             break;
