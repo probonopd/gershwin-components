@@ -9,6 +9,9 @@
 #import <PackageManager/GWHeaderDatabase.h>
 #import <PackageManager/GWPackageManager.h>
 #include <dlfcn.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 /* Label colors: identical to the GSFileLabel / DSStoreLabelColor encodings
  * used by the Workspace stack (1=Red .. 7=Grey).  The classes that apply
@@ -1492,8 +1495,10 @@ static const CGFloat kSpace16 = 16.0;
     return nil;
 }
 
-/* Launch an installed product by its actual path. For apps we use openapp with
-   the full path so it works regardless of the workspace application index. */
+/* Launch an installed product by its actual path.  For apps we fork/exec
+   openapp in a new session (setsid) so the launched app is completely
+   detached from Build.app.  The parent waits for the child to exec and
+   reports success/failure; the launched app continues independently. */
 - (BOOL)launchInstalledAppAtPath:(NSString *)productPath extension:(NSString *)ext
 {
     if ([ext isEqualToString:@"prefPane"]) {
@@ -1501,16 +1506,27 @@ static const CGFloat kSpace16 = 16.0;
     }
     NSString *openapp = [NSTask launchPathForTool:@"openapp"];
     if (!openapp) return NO;
-    NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:openapp];
-    [task setArguments:@[productPath]];
-    [task setStandardInput:[NSFileHandle fileHandleWithNullDevice]];
-    @try {
-        [task launch];
-        return YES;
-    } @catch (NSException *exception) {
-        return NO;
+
+    pid_t pid = fork();
+    if (pid < 0) return NO;
+
+    if (pid == 0) {
+        /* Child: new session so the launched app is fully detached. */
+        setsid();
+        int fd = open("/dev/null", O_RDONLY);
+        if (fd >= 0) { dup2(fd, STDIN_FILENO); close(fd); }
+        const char *path = [openapp fileSystemRepresentation];
+        const char *arg = [productPath fileSystemRepresentation];
+        char *argv[] = {(char *)path, (char *)arg, NULL};
+        execvp(path, argv);
+        _exit(1);
     }
+
+    /* Parent: wait for child to exec (it exits quickly after launching). */
+    int status = 0;
+    waitpid(pid, &status, 0);
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) return YES;
+    return NO;
 }
 
 - (NSString *)displayNameFromMakefile
