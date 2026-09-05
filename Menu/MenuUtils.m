@@ -133,9 +133,15 @@ static dispatch_once_t _sharedDisplayOnce;
         if (classHint.res_class != NULL) {
             className = [NSString stringWithUTF8String:classHint.res_class];
         }
-        if (classHint.res_class != NULL || classHint.res_name != NULL) {
-            char *strings[3] = {classHint.res_class, classHint.res_name, NULL};
-            XFreeStringList(strings);
+        /* XGetClassHint allocates res_class/res_name; each must be freed with
+         * XFree individually.  XFreeStringList must NEVER be used here: it
+         * also frees the list array itself, and this list is on the stack -
+         * freeing it aborts the process ("invalid pointer"). */
+        if (classHint.res_class != NULL) {
+            XFree(classHint.res_class);
+        }
+        if (classHint.res_name != NULL) {
+            XFree(classHint.res_name);
         }
     }
 
@@ -908,9 +914,24 @@ static dispatch_once_t _sharedDisplayOnce;
         return;
     }
 
+    /* Cap the merged list: _NET_SUPPORTED is written by the WM and a
+       pathological value (millions of atoms) would overflow a stack VLA.
+       Beyond the cap, keep the WM's existing entries and drop ours - the WM
+       list is the one other clients rely on. */
+    if (numItems > 4096) {
+        XFree(propData);
+        XChangeProperty(display, root, supportedAtom, XA_ATOM, 32,
+                        PropModeReplace, (unsigned char *)atoms, count);
+        return;
+    }
+
     Atom *existing = (Atom *)propData;
     NSUInteger maxTotal = numItems + count;
-    Atom merged[maxTotal];
+    Atom *merged = (Atom *)malloc(maxTotal * sizeof(Atom));
+    if (!merged) {
+        XFree(propData);
+        return;
+    }
     NSUInteger total = 0;
     for (unsigned long i = 0; i < numItems; i++) {
         merged[total++] = existing[i];
@@ -928,6 +949,7 @@ static dispatch_once_t _sharedDisplayOnce;
 
     XChangeProperty(display, root, supportedAtom, XA_ATOM, 32,
                     PropModeReplace, (unsigned char *)merged, total);
+    free(merged);
 }
 
 + (BOOL)advertiseGlobalMenuSupport

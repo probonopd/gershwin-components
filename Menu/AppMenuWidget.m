@@ -400,8 +400,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         return;
     }
 
-    NSLog(@"AppMenuWidget: Newly registered window 0x%lx is active - forcing menu load", windowId);
-    WindowSwitchContext *ctx = [WindowSwitchContext contextForWindow:windowId
+    NSLog(@"AppMenuWidget: Newly registered window 0x%lx is active - forcing menu load", windowId);    WindowSwitchContext *ctx = [WindowSwitchContext contextForWindow:windowId
                                                     protocolManager:self.protocolManager];
     if (ctx) {
         ctx.hasRegisteredMenu = YES; /* we just received registration */
@@ -553,11 +552,11 @@ static int handleX11Error(Display *display, XErrorEvent *event)
             BOOL unidentifiable = (ctx.pid == 0 &&
                                    (ctx.appName == nil || [ctx.appName length] == 0));
             if (!sameApp && !unidentifiable) {
-                NSLog(@"AppMenuWidget: CLEARING on window change 0x%lx → 0x%lx",
+                NSDebugLLog(@"gwcomp", @"AppMenuWidget: CLEARING on window change 0x%lx -> 0x%lx",
                       self.currentWindowId, windowId);
                 [self clearToSystemOnly];
             } else {
-                NSLog(@"AppMenuWidget: KEEPING menu — transient/same-app window 0x%lx (pid=%d unidentifiable=%d)",
+                NSDebugLLog(@"gwcomp", @"AppMenuWidget: KEEPING menu - transient/same-app window 0x%lx (pid=%d unidentifiable=%d)",
                       windowId, (int)ctx.pid, (int)unidentifiable);
             }
         }
@@ -580,9 +579,9 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         NSLog(@"AppMenuWidget: Exception getting menu for 0x%lx: %@", windowId, exception);
     }
 
-    NSLog(@"AppMenuWidget: HAS_REGISTERED_MENU - windowId=0x%lx got menu=%p", windowId, menu);
+    NSDebugLLog(@"gwcomp", @"AppMenuWidget: HAS_REGISTERED_MENU - windowId=0x%lx got menu=%p", windowId, menu);
     if (!menu || [self isPlaceholderMenu:menu]) {
-        NSLog(@"AppMenuWidget: NIL/PLACEHOLDER menu for 0x%lx — clearing and scheduling retry", windowId);
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: NIL/PLACEHOLDER menu for 0x%lx - clearing and scheduling retry", windowId);
         /* When switching to a different window and fetching its menu returns nil/placeholder,
            clear the old menu immediately. Then retry to discover if the menu loads. */
         if (windowId != self.currentWindowId && self.currentWindowId != 0) {
@@ -704,6 +703,23 @@ static int handleX11Error(Display *display, XErrorEvent *event)
               windowId, MENU_RETRY_MAX);
         /* Mark this window as confirmed to have no menu (30s TTL) to avoid retrying it again soon. */
         NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
+        /* Prune the cache before adding: entries for windows that never come
+           back are only removed if that window is queried again, so without a
+           cap the dictionary grows one entry per no-menu window forever. */
+        if ([self.windowsWithoutMenus count] > 256) {
+            NSDate *oldest = nil;
+            NSNumber *oldestKey = nil;
+            for (NSNumber *key in self.windowsWithoutMenus) {
+                NSDate *stamp = [self.windowsWithoutMenus objectForKey:key];
+                if (!oldest || [stamp compare:oldest] == NSOrderedAscending) {
+                    oldest = stamp;
+                    oldestKey = key;
+                }
+            }
+            if (oldestKey) {
+                [self.windowsWithoutMenus removeObjectForKey:oldestKey];
+            }
+        }
         [self.windowsWithoutMenus setObject:[NSDate date] forKey:windowKey];
         
         /* This retry is for a window that is no longer the one whose menu we
@@ -1234,8 +1250,15 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
         [self setNeedsDisplay:YES];
 
-        /* Diagnostic log. */
-        {
+        /* Diagnostic log - gated so the string building itself (a walk of all
+           top-level item titles on EVERY menu-bar rebuild) only happens when
+           debug logging is enabled. */
+        static BOOL menuBarDiagEnabled = NO;
+        static dispatch_once_t diagOnce;
+        dispatch_once(&diagOnce, ^{
+            menuBarDiagEnabled = (getenv("GDEBUG") != NULL);
+        });
+        if (menuBarDiagEnabled) {
             NSMutableString *desc = [NSMutableString stringWithFormat:@"[MENUBAR win=0x%lx app=%@] ",
                                      self.currentWindowId, self.currentApplicationName ?: @"nil"];
             for (NSUInteger i = 0; i < [items count]; i++) {
@@ -1545,7 +1568,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         return;
     }
 
-    NSLog(@"AppMenuWidget: populateSystemMenu called");
+    NSDebugLLog(@"gwcomp", @"AppMenuWidget: populateSystemMenu called");
 
     /* Use cached app tree if fresh enough. */
     NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
@@ -1553,11 +1576,11 @@ static int handleX11Error(Display *display, XErrorEvent *event)
 
     /* Already populated with current cache — skip. */
     if (cacheValid && self.systemMenuPopulatedFromCache) {
-        NSLog(@"AppMenuWidget: populateSystemMenu skipped (cached), has %ld items", (long)[menu numberOfItems]);
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: populateSystemMenu skipped (cached), has %ld items", (long)[menu numberOfItems]);
         return;
     }
 
-    NSLog(@"AppMenuWidget: populateSystemMenu proceeding (cacheValid=%d, populated=%d)", cacheValid, self.systemMenuPopulatedFromCache);
+    NSDebugLLog(@"gwcomp", @"AppMenuWidget: populateSystemMenu proceeding (cacheValid=%d, populated=%d)", cacheValid, self.systemMenuPopulatedFromCache);
 
     /* The dynamic "Applications" submenu lives above System Preferences: it is
        inserted there on first population and replaced on refresh.  The power
@@ -1597,10 +1620,10 @@ static int handleX11Error(Display *display, XErrorEvent *event)
     NSMenu *appsSubmenu = self.cachedAppsSubmenu;
     if (!appsSubmenu || !cacheValid) {
         appsSubmenu = [[NSMenu alloc] initWithTitle:NSLocalizedString(@"Applications", nil)];
-        NSLog(@"AppMenuWidget: Scanning app tree with %ld root keys", (long)[[appTree allKeys] count]);
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: Scanning app tree with %ld root keys", (long)[[appTree allKeys] count]);
         [self addMenuItemsFromTree:appTree toMenu:appsSubmenu];
         self.cachedAppsSubmenu = appsSubmenu;
-        NSLog(@"AppMenuWidget: (Re)built persistent apps submenu with %ld items", (long)[appsSubmenu numberOfItems]);
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: (Re)built persistent apps submenu with %ld items", (long)[appsSubmenu numberOfItems]);
         if ([appsSubmenu numberOfItems] == 0) {
             NSMenuItem *none = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"No applications found", nil)
                                                           action:nil keyEquivalent:@""];
@@ -1608,7 +1631,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
             [appsSubmenu addItem:none];
         }
     } else {
-        NSLog(@"AppMenuWidget: Reusing cached apps submenu (%ld items)", (long)[appsSubmenu numberOfItems]);
+        NSDebugLLog(@"gwcomp", @"AppMenuWidget: Reusing cached apps submenu (%ld items)", (long)[appsSubmenu numberOfItems]);
     }
 
     [self addLauncherItemWithTitle:NSLocalizedString(@"Applications", nil)
@@ -1617,7 +1640,7 @@ static int handleX11Error(Display *display, XErrorEvent *event)
                            submenu:appsSubmenu
                             toMenu:menu
                             atIndex:startIndex];
-    NSLog(@"AppMenuWidget: Inserted Applications submenu at index %ld, menu has %ld items", (long)startIndex, (long)[menu numberOfItems]);
+    NSDebugLLog(@"gwcomp", @"AppMenuWidget: Inserted Applications submenu at index %ld, menu has %ld items", (long)startIndex, (long)[menu numberOfItems]);
 
     self.systemMenuPopulatedFromCache = YES;
 }
@@ -1655,7 +1678,8 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         if (![fm fileExistsAtPath:root isDirectory:&isDir] || !isDir) continue;
         NSInteger rootPri = priorityForRoot(root);
         NSLog(@"AppMenuWidget: Scanning root %@ (priority %ld)", root, (long)rootPri);
-        [self scanDirectory:root relativeTo:root priority:rootPri into:appsByKey fileManager:fm];
+        [self scanDirectory:root relativeTo:root priority:rootPri
+                       into:appsByKey fileManager:fm depth:0];
     }
 
     NSLog(@"AppMenuWidget: Found %ld applications total", (long)[appsByKey count]);
@@ -1701,7 +1725,12 @@ static int handleX11Error(Display *display, XErrorEvent *event)
              priority:(NSInteger)pri
                  into:(NSMutableDictionary *)appsByKey
           fileManager:(NSFileManager *)fm
+                depth:(NSUInteger)depth
 {
+    /* Cap recursion: a symlink loop under an applications directory would
+       otherwise recurse until the stack overflows. */
+    if (depth > 8) return;
+
     NSArray *contents = [fm contentsOfDirectoryAtPath:dir error:nil];
     if (!contents) return;
 
@@ -1736,7 +1765,8 @@ static int handleX11Error(Display *display, XErrorEvent *event)
         } else if (isDir) {
             /* Subdirectory — recurse (skip hidden directories) */
             if (![entry hasPrefix:@"."]) {
-                [self scanDirectory:fullPath relativeTo:root priority:pri into:appsByKey fileManager:fm];
+                [self scanDirectory:fullPath relativeTo:root priority:pri
+                               into:appsByKey fileManager:fm depth:depth + 1];
             }
         }
     }

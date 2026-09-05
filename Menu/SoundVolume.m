@@ -44,12 +44,15 @@ static BOOL _detectALSA(void)
 
     @try {
         [task launch];
-        [task waitUntilExit];
     } @catch (NSException *e) {
         return NO;
     }
-    if ([task terminationStatus] != 0) return NO;
+    /* Drain the pipe BEFORE waiting for exit: a child that fills the OS pipe
+     * buffer blocks in write() and never exits, so waitUntilExit-first would
+     * deadlock.  readDataToEndOfFile returns at EOF (child exit). */
     NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    [task waitUntilExit];
+    if ([task terminationStatus] != 0) return NO;
     NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (!output) return NO;
 
@@ -83,11 +86,12 @@ static BOOL _detectALSA(void)
 
     @try {
         [task launch];
-        [task waitUntilExit];
     } @catch (NSException *e) {
         return NO;
     }
+    /* Read before wait - see _detectALSA for the pipe deadlock rationale. */
     data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    [task waitUntilExit];
     output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (!output) return NO;
 
@@ -155,11 +159,12 @@ static NSString *_runAmixer(NSArray *args)
 
     @try {
         [task launch];
-        [task waitUntilExit];
     } @catch (NSException *e) {
         return nil;
     }
+    /* Read before wait - see _detectALSA for the pipe deadlock rationale. */
     NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    [task waitUntilExit];
     return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 }
 

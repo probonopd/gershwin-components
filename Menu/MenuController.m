@@ -35,6 +35,20 @@
 @end
 
 @implementation GSVolumeControl
+
+/* Serial queue for volume/mixer work.  The ALSA path shells out to amixer
+ * (an NSTask with waitUntilExit); running that on the main thread froze the
+ * whole menu bar for the duration of every volume-key press. */
++ (dispatch_queue_t)volumeQueue
+{
+    static dispatch_queue_t q = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        q = dispatch_queue_create("io.github.gershwin-desktop.Menu.volume", DISPATCH_QUEUE_SERIAL);
+    });
+    return q;
+}
+
 + (ALSABackend *)sharedBackend
 {
     static ALSABackend *b = nil;
@@ -230,8 +244,15 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     if (!gotMessages) {
         self.dbusEmptyProcessingCount++;
         if (self.dbusEmptyProcessingCount > 3) {
+            /* Cap the shift: dbusEmptyProcessingCount grows without bound while
+             * the fd stays hot-with-no-data, and (1 << 63+) on an NSUInteger
+             * is undefined and would wrap the delay to garbage, defeating the
+             * throttle entirely.  1<<8 * 0.1s = 25.6s, already far above the
+             * DBUS_MAX_THROTTLE_DELAY cap. */
+            NSUInteger shift = self.dbusEmptyProcessingCount - 3;
+            if (shift > 8) shift = 8;
             // Exponential backoff: 0.1 -> 0.2 -> 0.4 -> 0.8 -> 1.6 -> 2.0 (capped)
-            NSTimeInterval backoffDelay = MIN(DBUS_REARM_DELAY * (1 << (self.dbusEmptyProcessingCount - 3)), DBUS_MAX_THROTTLE_DELAY);
+            NSTimeInterval backoffDelay = MIN(DBUS_REARM_DELAY * (double)(1UL << shift), DBUS_MAX_THROTTLE_DELAY);
             self.dbusThrottleUntil = now + backoffDelay;
             NSDebugLLog(@"gwcomp", @"MenuController: DBus throttle backing off to %.1fs (empty count=%lu)",
                         backoffDelay, (unsigned long)self.dbusEmptyProcessingCount);
@@ -1098,7 +1119,12 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             // Found a device with mic mute key
             char path[64];
             snprintf(path, sizeof(path), "/dev/input/event%d", eventNum);
-            int fd = open(path, O_RDONLY);
+            /* O_NONBLOCK: the drain loop below must return EAGAIN when the
+             * event queue is empty instead of blocking in read() forever -
+             * a blocking fd keeps the thread stuck in read() so the 1s poll
+             * timeout and the _micMuteMonitorRunning flag never get a chance
+             * to run, and the thread + fd leak after stop. */
+            int fd = open(path, O_RDONLY | O_NONBLOCK);
             if (fd >= 0) {
                 _micMuteFDs[_micMuteFDCount++] = fd;
             }
@@ -1165,9 +1191,12 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
                 }
                 if (fds[i].revents & POLLIN) {
                     struct input_event ev;
+                    /* fd is O_NONBLOCK: drain until EAGAIN.  Never spin on
+                     * error - a non-EAGAIN failure just ends the drain and
+                     * the next poll() iteration reports HUP/ERR. */
                     while (read(fds[i].fd, &ev, sizeof(ev)) == sizeof(ev)) {
                         if (ev.type == EV_KEY && ev.code == KEY_MICMUTE && ev.value == 1) {
-                            dispatch_async(dispatch_get_main_queue(), ^{
+                            dispatch_async([GSVolumeControl volumeQueue], ^{
                                 [GSVolumeControl toggleMicMute];
                             });
                         }
@@ -1247,7 +1276,9 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             // Found a device with the power key
             char path[64];
             snprintf(path, sizeof(path), "/dev/input/event%d", eventNum);
-            int fd = open(path, O_RDONLY);
+            /* O_NONBLOCK: see the mic-mute monitor for why the drain loop
+             * must never block in read(). */
+            int fd = open(path, O_RDONLY | O_NONBLOCK);
             if (fd >= 0) {
                 _powerKeyFDs[_powerKeyFDCount++] = fd;
             }
@@ -1304,9 +1335,29 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
                 anyValidFD = YES;
                 /* A deleted/replaced input device leaves its fd permanently
                  * readable with POLLHUP/POLLERR, so poll() returns immediately
-                 * and the loop busy-spins at 100% CPU.  Close the dead fd and
-                 * stop polling the slot (poll() ignores entries with fd < 0). */
+                 * and the loop busy-spins at 100% CPU.  Drain any pending
+                 * events first (a power-key RELEASE may still be queued - if
+                 * it is lost while the long-press timer runs, the timer fires
+                 * and shuts the machine down without asking), then close the
+                 * dead fd and stop polling the slot (poll() ignores entries
+                 * with fd < 0). */
                 if (fds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+                    if (fds[i].revents & POLLIN) {
+                        struct input_event ev;
+                        while (read(fds[i].fd, &ev, sizeof(ev)) == sizeof(ev)) {
+                            if (ev.type == EV_KEY && ev.code == KEY_POWER) {
+                                if (ev.value == 1) {
+                                    dispatch_async(dispatch_get_main_queue(), ^{
+                                        [self _xf86PowerKeyPressed];
+                                    });
+                                } else if (ev.value == 0) {
+                                    dispatch_async(dispatch_get_main_queue(), ^{
+                                        [self _xf86PowerKeyReleased];
+                                    });
+                                }
+                            }
+                        }
+                    }
                     close(fds[i].fd);
                     _powerKeyFDs[i] = -1;
                     fds[i].fd = -1;
@@ -1314,6 +1365,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
                 }
                 if (fds[i].revents & POLLIN) {
                     struct input_event ev;
+                    /* fd is O_NONBLOCK: drain until EAGAIN (see mic-mute). */
                     while (read(fds[i].fd, &ev, sizeof(ev)) == sizeof(ev)) {
                         if (ev.type == EV_KEY && ev.code == KEY_POWER && ev.value == 1) {
                             dispatch_async(dispatch_get_main_queue(), ^{

@@ -40,19 +40,28 @@
     
     // Build a dictionary of menu_id -> menu_items for easy lookup
     NSMutableDictionary *menuDict = [NSMutableDictionary dictionary];
-    
+
     for (id menuResult in resultArray) {
         if ([menuResult isKindOfClass:[NSArray class]] && [menuResult count] >= 3) {
             NSArray *menuResultArray = (NSArray *)menuResult;
             NSNumber *menuId = [menuResultArray objectAtIndex:0];
             NSNumber *revision = [menuResultArray objectAtIndex:1];  // Menu revision number
-            NSArray *menuItems = [menuResultArray objectAtIndex:2];
-            
+            id menuItems = [menuResultArray objectAtIndex:2];
+
+            /* Type-check before storing: a malformed reply delivering a
+               non-array here would raise NSInvalidArgumentException further
+               down when the parser fast-enumerates it. */
+            if (![menuItems isKindOfClass:[NSArray class]]) {
+                NSDebugLog(@"GTKMenuParser: Menu %@ (revision %@) has non-array items (%@), skipping",
+                      menuId, revision, [menuItems class]);
+                continue;
+            }
+
             // Store as tuple key (menu_id, revision) - this is what the data actually represents
             NSArray *menuKey = @[menuId, revision];
             [menuDict setObject:menuItems forKey:menuKey];
-            
-            NSDebugLog(@"GTKMenuParser: Menu ID %@ (revision %@) has %lu items", 
+
+            NSDebugLog(@"GTKMenuParser: Menu ID %@ (revision %@) has %lu items",
                   menuId, revision, (unsigned long)[menuItems count]);
         }
     }
@@ -81,13 +90,56 @@
                 actionPath:(NSString *)actionPath
             dbusConnection:(GNUDBusConnection *)dbusConnection
 {
+    /* The menu graph comes straight from the (app-controlled) D-Bus reply.
+       A section/submenu reference that points back at its own group would
+       recurse forever (stack overflow), and a shared (DAG) reference re-expands
+       the whole subtree per reference.  Track expanded group IDs so each group
+       is expanded at most once per parse, and cap the depth defensively. */
+    NSMutableSet *visited = [NSMutableSet set];
+    return [self exploreGTKMenu:menuId
+                     withLabels:labelList
+                       menuDict:menuDict
+                    serviceName:serviceName
+                     actionPath:actionPath
+                 dbusConnection:dbusConnection
+                          depth:0
+                        visited:visited];
+}
+
++ (NSMenu *)exploreGTKMenu:(NSArray *)menuId
+                withLabels:(NSArray *)labelList
+                  menuDict:(NSMutableDictionary *)menuDict
+               serviceName:(NSString *)serviceName
+                actionPath:(NSString *)actionPath
+            dbusConnection:(GNUDBusConnection *)dbusConnection
+                     depth:(NSUInteger)depth
+                   visited:(NSMutableSet *)visited
+{
     NSDebugLog(@"GTKMenuParser: Exploring GTK menu %@ with labels %@", menuId, labelList);
-    
-    NSArray *menuItems = [menuDict objectForKey:menuId];
-    if (!menuItems) {
-        NSDebugLog(@"GTKMenuParser: No menu items found for menu ID %@", menuId);
+
+    if (depth > 32) {
+        NSDebugLog(@"GTKMenuParser: Menu nesting exceeds depth limit at %@ - stopping", menuId);
         return nil;
     }
+
+    if (![menuId isKindOfClass:[NSArray class]] || [menuId count] < 2) {
+        return nil;
+    }
+    NSString *groupKey = [NSString stringWithFormat:@"%@|%@",
+                          [menuId objectAtIndex:0], [menuId objectAtIndex:1]];
+    if ([visited containsObject:groupKey]) {
+        NSDebugLog(@"GTKMenuParser: Menu group %@ already expanded (cycle/share) - skipping", menuId);
+        return nil;
+    }
+    [visited addObject:groupKey];
+
+    id menuItemsObj = [menuDict objectForKey:menuId];
+    if (![menuItemsObj isKindOfClass:[NSArray class]]) {
+        NSDebugLog(@"GTKMenuParser: No menu items found for menu ID %@", menuId);
+        [visited removeObject:groupKey];
+        return nil;
+    }
+    NSArray *menuItems = (NSArray *)menuItemsObj;
     
     NSString *menuTitle = ([labelList count] > 0) ? [labelList lastObject] : @"GTK Menu";
     NSMenu *menu = [[NSMenu alloc] initWithTitle:menuTitle];
@@ -146,7 +198,9 @@
                                                   menuDict:menuDict
                                                serviceName:serviceName
                                                 actionPath:actionPath
-                                            dbusConnection:dbusConnection];
+                                            dbusConnection:dbusConnection
+                                                     depth:depth + 1
+                                                   visited:visited];
                 
                 if (sectionMenu) {
                     NSDebugLog(@"GTKMenuParser: Section menu %@ has %lu items, adding to parent", 
@@ -229,8 +283,10 @@
                                                       menuDict:menuDict
                                                    serviceName:serviceName
                                                     actionPath:actionPath
-                                                dbusConnection:dbusConnection];
-                        
+                                                dbusConnection:dbusConnection
+                                                         depth:depth + 1
+                                                       visited:visited];
+
                         if (submenu) {
                             [item setSubmenu:submenu];
                             NSDebugLog(@"GTKMenuParser: Added immediate submenu to item '%@'", displayLabel);
@@ -271,7 +327,9 @@
                                                           menuDict:menuDict
                                                        serviceName:serviceName
                                                         actionPath:actionPath
-                                                    dbusConnection:dbusConnection];
+                                                    dbusConnection:dbusConnection
+                                                             depth:depth + 1
+                                                           visited:visited];
                             
                             if (submenu) {
                                 [item setSubmenu:submenu];
@@ -316,6 +374,9 @@
     }
     
     NSDebugLog(@"GTKMenuParser: Created GTK menu '%@' with %lu items", menuTitle, (unsigned long)[menu numberOfItems]);
+    /* Group fully expanded: allow other parents to reference it (sharing),
+       while the in-progress registration above still catches true cycles. */
+    [visited removeObject:groupKey];
     return menu;
 }
 
@@ -330,10 +391,16 @@
             NSNumber *menuId1 = [menuEntry objectAtIndex:1];
             NSArray *menuId = @[menuId0, menuId1];
             id menuItems = [menuEntry objectAtIndex:2];
-            
+
+            if (![menuItems isKindOfClass:[NSArray class]]) {
+                NSDebugLog(@"GTKMenuParser: Menu (%@, %@) has non-array items (%@), skipping",
+                      menuId0, menuId1, [menuItems class]);
+                continue;
+            }
+
             [menuDict setObject:menuItems forKey:menuId];
-            NSDebugLog(@"GTKMenuParser: Added menu (%@, %@) with %lu items to dict", 
-                  menuId0, menuId1, 
+            NSDebugLog(@"GTKMenuParser: Added menu (%@, %@) with %lu items to dict",
+                  menuId0, menuId1,
                   [menuItems isKindOfClass:[NSArray class]] ? (unsigned long)[menuItems count] : 0);
         }
     }

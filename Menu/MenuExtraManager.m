@@ -153,6 +153,18 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
 - (void)collectBundlesInDirectory:(NSString *)dirPath
                            result:(NSMutableDictionary *)bundlesById
 {
+    [self collectBundlesInDirectory:dirPath result:bundlesById depth:0];
+}
+
+- (void)collectBundlesInDirectory:(NSString *)dirPath
+                           result:(NSMutableDictionary *)bundlesById
+                            depth:(NSUInteger)depth
+{
+    /* Cap recursion: a symlink loop in a MenuExtras search directory (or
+       simply a pathologically deep tree) would otherwise recurse until the
+       stack overflows and kills the process. */
+    if (depth > 5) return;
+
     NSFileManager *fm = [NSFileManager defaultManager];
     NSError *error = nil;
     NSArray *contents = [fm contentsOfDirectoryAtPath:dirPath error:&error];
@@ -174,7 +186,7 @@ static NSString *const GSMenuExtraOrderKey = @"GSMenuExtraOrder";
                 NSLog(@"GSMenuExtra: discovered %@ at %@", ident, fullPath);
             }
         } else {
-            [self collectBundlesInDirectory:fullPath result:bundlesById];
+            [self collectBundlesInDirectory:fullPath result:bundlesById depth:depth + 1];
         }
     }
 }

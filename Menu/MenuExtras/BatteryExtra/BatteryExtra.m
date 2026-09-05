@@ -56,11 +56,13 @@ static const BOOL kShowTextInMenuBar = NO;
     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
     @try {
         [task launch];
-        [task waitUntilExit];
     } @catch (NSException *e) {
         return nil;
     }
+    /* Read before wait - a child that fills the pipe buffer would deadlock
+     * against waitUntilExit-first. */
     NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    [task waitUntilExit];
     NSString *s = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     return [s stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }

@@ -198,9 +198,24 @@ int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) 
             // GNUstep's [NSApp run] may return when it detects no regular windows.
             // The menu bar is borderless (NSBorderlessWindowMask) and is not counted.
             // Keep the run loop alive manually to prevent premature exit.
+            // Defensive guard: if the run loop ever starts returning with NO
+            // work done (no sources attached, backend gone), do not spin at
+            // 100% CPU - only loop iterations that returned instantly (< 1ms,
+            // i.e. nothing ran at all) count toward the backoff; normal
+            // re-entry after processing events resets it.
+            unsigned degenerateReturns = 0;
             while (YES) {
+                NSTimeInterval t0 = [NSDate timeIntervalSinceReferenceDate];
                 @autoreleasepool {
                     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate distantFuture]];
+                }
+                if ([NSDate timeIntervalSinceReferenceDate] - t0 < 0.001) {
+                    if (degenerateReturns < 1000000) degenerateReturns++;
+                    if (degenerateReturns > 20) {
+                        usleep(100000); // 100ms - caps a degenerate loop at ~10 wakeups/s
+                    }
+                } else {
+                    degenerateReturns = 0;
                 }
             }
             

@@ -221,7 +221,6 @@ custom-install: $(APP_NAME).app
 		cp -R MenuExtras/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
 		cp -R MenuExtras/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
 		cp -R MenuExtras/BuildMonitorExtra/BuildMonitor.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
-		cp -R MenuExtras/TimeDisplay/Time.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
 	else \
 		echo "Installing $(APP_NAME) to $(INSTALL_APPS_DIR)"; \
 		rm -rf /System/Applications/$(APP_NAME).app || true; \
@@ -240,7 +239,6 @@ custom-install: $(APP_NAME).app
 			cp -R MenuExtras/SoundExtra/Sound.gsmenuextra /System/Library/MenuExtras/ || true; \
 			cp -R MenuExtras/BrightnessExtra/Brightness.gsmenuextra /System/Library/MenuExtras/ || true; \
 			cp -R MenuExtras/BuildMonitorExtra/BuildMonitor.gsmenuextra /System/Library/MenuExtras/ || true; \
-			cp -R MenuExtras/TimeDisplay/Time.gsmenuextra /System/Library/MenuExtras/ || true; \
 	fi
 # Override uninstall target to properly support DESTDIR and PREFIX
 uninstall:: custom-uninstall

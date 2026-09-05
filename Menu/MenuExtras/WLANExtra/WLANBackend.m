@@ -44,11 +44,13 @@ static NSString *runCommand(NSString *path, NSArray *args)
     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
     @try {
         [task launch];
-        [task waitUntilExit];
     } @catch (NSException *e) {
         return nil;
     }
+    /* Read before wait: a child that fills the OS pipe buffer blocks in
+     * write() and never exits, so waitUntilExit-first would deadlock. */
     NSData *data = [[outPipe fileHandleForReading] readDataToEndOfFile];
+    [task waitUntilExit];
     NSString *s = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     return [s stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }

@@ -343,22 +343,28 @@
     
     // Wrap DBus calls in try/catch to handle service disappearing mid-call
     @try {
-        // First, try to introspect the service to see what interfaces it supports
-        id introspectResult = [self.dbusConnection callMethod:@"Introspect"
-                                                onService:serviceName
-                                               objectPath:objectPath
-                                                interface:@"org.freedesktop.DBus.Introspectable"
-                                                arguments:nil];
-    
-        if (introspectResult) {
-            NSDebugLog(@"DBusMenuImporter: Service introspection successful");
-            if ([introspectResult isKindOfClass:[NSString class]]) {
-                NSDebugLog(@"DBusMenuImporter: Introspection XML:\n%@", introspectResult);
+        // First, try to introspect the service to see what interfaces it supports.
+        // This result is ONLY used for debug logging, and it is a synchronous
+        // 5s-timeout D-Bus round trip on the main thread - a hung menu service
+        // would freeze the menu bar here on every uncached menu load.  Only
+        // pay that cost when debug logging is actually enabled.
+        if (getenv("GDEBUG") != NULL) {
+            id introspectResult = [self.dbusConnection callMethod:@"Introspect"
+                                                    onService:serviceName
+                                                   objectPath:objectPath
+                                                    interface:@"org.freedesktop.DBus.Introspectable"
+                                                    arguments:nil];
+
+            if (introspectResult) {
+                NSDebugLog(@"DBusMenuImporter: Service introspection successful");
+                if ([introspectResult isKindOfClass:[NSString class]]) {
+                    NSDebugLog(@"DBusMenuImporter: Introspection XML:\n%@", introspectResult);
+                } else {
+                    NSDebugLog(@"DBusMenuImporter: Introspection result (non-string): %@", introspectResult);
+                }
             } else {
-                NSDebugLog(@"DBusMenuImporter: Introspection result (non-string): %@", introspectResult);
+                NSDebugLog(@"DBusMenuImporter: Service introspection failed - service may not be available");
             }
-        } else {
-            NSDebugLog(@"DBusMenuImporter: Service introspection failed - service may not be available");
         }
     
         // Call GetLayout method on the dbusmenu interface
@@ -543,29 +549,28 @@
     // and display its menu after a short delay to let the window stabilize.
     // This prevents crashes when windows are opened and closed quickly.
     if (self.appMenuWidget) {
-        // Defer menu loading by 150ms to allow window to stabilize
-        // Using NSTimer for GNUstep compatibility
-        NSDictionary *userInfo = @{@"windowId": [NSNumber numberWithUnsignedLong:windowId]};
-        [NSTimer scheduledTimerWithTimeInterval:0.15
-                                         target:self
-                                       selector:@selector(deferredMenuCheck:)
-                                       userInfo:userInfo
-                                        repeats:NO];
+        /* Coalesce per window with a cancellable perform: a misbehaving app
+         * that spams RegisterWindow would otherwise schedule an unbounded
+         * pile-up of one-shot NSTimers (each one a full menu check). */
+        [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                                 selector:@selector(deferredMenuCheckForWindowId:)
+                                                   object:windowKey];
+        [self performSelector:@selector(deferredMenuCheckForWindowId:)
+                   withObject:windowKey
+                   afterDelay:0.15];
     } else {
         NSDebugLog(@"DBusMenuImporter: AppMenuWidget not set, cannot check for immediate menu display");
     }
 }
 
-// Called after a delay to load menu for a newly registered window
-// This delay prevents crashes when windows are closed immediately after opening
-- (void)deferredMenuCheck:(NSTimer *)timer
+/* Called after a delay to load menu for a newly registered window
+ * (cancellable via cancelPreviousPerformRequestsWithTarget:, unlike NSTimer).
+ * This delay prevents crashes when windows are closed immediately after
+ * opening. */
+- (void)deferredMenuCheckForWindowId:(NSNumber *)windowIdNum
 {
-    NSDictionary *userInfo = [timer userInfo];
-    if (!userInfo) return;
-    
-    NSNumber *windowIdNum = [userInfo objectForKey:@"windowId"];
     if (!windowIdNum) return;
-    
+
     unsigned long windowId = [windowIdNum unsignedLongValue];
     
     @try {
@@ -1050,7 +1055,7 @@
     NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
     NSString *serviceName = [self.registeredWindows objectForKey:windowKey];
     NSString *objectPath = [self.windowMenuPaths objectForKey:windowKey];
-    NSLog(@"REREGDBG dbus importer: window 0x%lx service=%@ path=%@", (unsigned long)windowId, serviceName, objectPath);
+    NSDebugLLog(@"gwcomp", @"reregister dbus importer: window 0x%lx service=%@ path=%@", (unsigned long)windowId, serviceName, objectPath);
     
     if (!serviceName || !objectPath) {
         NSDebugLog(@"DBusMenuImporter: Cannot re-register shortcuts - missing service/object path");

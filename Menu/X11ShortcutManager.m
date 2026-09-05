@@ -278,8 +278,12 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     // Stop event monitoring
     if (_eventMonitorThread && !_shouldStopEventMonitoring) {
         _shouldStopEventMonitoring = YES;
-        // Wait for thread to finish
-        while (_eventMonitorThread && ![_eventMonitorThread isFinished]) {
+        // Wait for the thread to finish, but NEVER unboundedly: the monitor
+        // exits within ~1s (its select() timeout), so a longer wait means it
+        // is wedged - give up waiting rather than stalling the menu bar.
+        NSDate *joinDeadline = [NSDate dateWithTimeIntervalSinceNow:2.0];
+        while (_eventMonitorThread && ![_eventMonitorThread isFinished]
+               && [joinDeadline timeIntervalSinceNow] > 0) {
             [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
         }
         _eventMonitorThread = nil;
@@ -398,7 +402,12 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     // If we have no grabbed keys left, stop event monitoring thread gracefully
     if ([_grabbedKeys count] == 0 && _eventMonitorThread) {
         _shouldStopEventMonitoring = YES;
-        while (_eventMonitorThread && ![_eventMonitorThread isFinished]) {
+        /* Bounded join: same reasoning as unregisterAllShortcuts - never let
+         * a wedged monitor thread stall the caller (this runs on the main
+         * thread during every menu rebuild). */
+        NSDate *joinDeadline = [NSDate dateWithTimeIntervalSinceNow:2.0];
+        while (_eventMonitorThread && ![_eventMonitorThread isFinished]
+               && [joinDeadline timeIntervalSinceNow] > 0) {
             [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
         }
         _eventMonitorThread = nil;
@@ -1131,7 +1140,11 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                             
                             KeySym ks = XkbKeycodeToKeysym(_display, keyEvent->keycode, 0, 0);
                             const char *ksname = ks != NoSymbol ? XKeysymToString(ks) : "(none)";
-                            NSLog(@"X11ShortcutManager: KeyPress event - keycode=%d, keysym=%s, state=%u (filtered from %u), window=%lu", 
+                            /* Runtime-gated: this fires for EVERY grabbed key
+                             * event, including autorepeat floods; an
+                             * unconditional NSLog here turned key repeats into
+                             * a log-I/O burn. */
+                            NSDebugLLog(@"gwcomp", @"X11ShortcutManager: KeyPress event - keycode=%d, keysym=%s, state=%u (filtered from %u), window=%lu",
                                   keyEvent->keycode, ksname, filteredState, keyEvent->state, keyEvent->window);
                             
                             // Create key for lookup using the filtered state (no swapping needed)
@@ -1153,7 +1166,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                             // Find the menu item for this shortcut
                             NSString *menuItemKey = [_grabbedKeys objectForKey:keycodeModifierKey];
                             if (menuItemKey) {
-                                NSLog(@"X11ShortcutManager: Found matching shortcut for key: %@", keycodeModifierKey);
+                                NSDebugLLog(@"gwcomp", @"X11ShortcutManager: Found matching shortcut for key: %@", keycodeModifierKey);
                                 // Trigger the menu action on the main thread
                                 dispatch_async(dispatch_get_main_queue(), ^{
                                     [self triggerMenuActionForKey:menuItemKey];
@@ -1163,7 +1176,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                                 NSNumber *ksNum = @((unsigned long)ks);
                                 NSDictionary *action = [_xf86Actions objectForKey:ksNum];
                                 if (action) {
-                                    NSLog(@"X11ShortcutManager: Found XF86 key action for keysym 0x%lx (%s)", (unsigned long)ks, ksname);
+                                    NSDebugLLog(@"gwcomp", @"X11ShortcutManager: Found XF86 key action for keysym 0x%lx (%s)", (unsigned long)ks, ksname);
                                     dispatch_async(dispatch_get_main_queue(), ^{
                                         [self triggerXF86Action:action];
                                     });
@@ -1182,7 +1195,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                                 NSNumber *ksNum = @((unsigned long)ks);
                                 NSDictionary *action = [_xf86ReleaseActions objectForKey:ksNum];
                                 if (action) {
-                                    NSLog(@"X11ShortcutManager: Found XF86 key release action for keysym 0x%lx (%s)", (unsigned long)ks, XKeysymToString(ks));
+                                    NSDebugLLog(@"gwcomp", @"X11ShortcutManager: Found XF86 key release action for keysym 0x%lx (%s)", (unsigned long)ks, XKeysymToString(ks));
                                     dispatch_async(dispatch_get_main_queue(), ^{
                                         [self triggerXF86Action:action];
                                     });

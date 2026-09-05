@@ -1542,8 +1542,9 @@ static GNUStepMenuImporter *sSharedImporter = nil;
                                        menuData:(bycopy NSDictionary *)menuData
                                      clientName:(bycopy NSString *)clientName
 {
-    NSLog(@"GNUStepMenuImporter: updateMenuEnabledStatesForWindow called - windowId=%@", windowId);
-
+    /* No logging before the throttle gate: GWorkspace fires this path
+       thousands of times per second, and an unconditional NSLog here burned
+       CPU on string formatting + log I/O for every dropped call. */
     /* Throttle to 50 ms: GWorkspace fires this path thousands of times per second.
        50 ms is imperceptible to the user but cuts CPU by ~98%.  Enabled-state
        changes (Copy/Paste becoming available after text selection) are visible to
@@ -1551,6 +1552,8 @@ static GNUStepMenuImporter *sSharedImporter = nil;
        The on-demand pull path (menuWillOpen: → refreshMenuStateForWindow:) ensures
        states are always fresh by the time the user actually opens a submenu. */
     if (_shouldThrottleDO(&_lastStateUpdateAccepted, DO_STATE_UPDATE_MIN_NS)) return;
+
+    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: updateMenuEnabledStatesForWindow accepted - windowId=%@", windowId);
 
     (void)clientName;
     // Validate parameters — we're on a background DO thread.

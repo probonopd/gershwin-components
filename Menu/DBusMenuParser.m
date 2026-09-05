@@ -41,6 +41,15 @@ static void cacheShortcut(NSString *service, NSNumber *itemId,
     }
     NSMutableDictionary *byService = [_shortcutCache objectForKey:service];
     if (!byService) {
+        /* Cap the number of cached services: apps come and go over a long
+           session and this cache has no eviction - without a cap it grows
+           one entry per app forever. */
+        if ([_shortcutCache count] >= 32) {
+            id firstService = [[_shortcutCache allKeys] firstObject];
+            if (firstService) {
+                [_shortcutCache removeObjectForKey:firstService];
+            }
+        }
         byService = [[NSMutableDictionary alloc] init];
         [_shortcutCache setObject:byService forKey:service];
     }

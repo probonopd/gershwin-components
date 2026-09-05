@@ -101,12 +101,13 @@ static id<NetworkBackend> CreateNetworkBackend(void)
     [task setStandardError:[NSPipe pipe]];
     @try {
         [task launch];
-        [task waitUntilExit];
     } @catch (NSException *e) {
         NSLog(@"WLANExtra: nmcli failed: %@", e);
         return nil;
     }
+    /* Read before wait - see WLANBackend runCommand for the deadlock rationale. */
     NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    [task waitUntilExit];
     NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (!output) return nil;
     for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
@@ -257,12 +258,13 @@ static NSString *findTool(NSString *name)
     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
     @try {
         [task launch];
-        [task waitUntilExit];
     } @catch (NSException *e) {
         return nil;
     }
-    if ([task terminationStatus] != 0) return nil;
+    /* Read before wait - see WLANBackend runCommand for the deadlock rationale. */
     NSData *data = [[outPipe fileHandleForReading] readDataToEndOfFile];
+    [task waitUntilExit];
+    if ([task terminationStatus] != 0) return nil;
     NSString *password = [[NSString alloc] initWithData:data
                                                encoding:NSUTF8StringEncoding];
     password = [password stringByTrimmingCharactersInSet:
@@ -285,14 +287,24 @@ static NSString *findTool(NSString *name)
     }
     if (!target) return;
 
-    NSString *password = nil;
-    if ([security length] > 0) {
-        password = [self runPasswordPanelForSSID:ssid];
-        if (!password) return;
-    }
+    /* The password helper (wlanauth) blocks until the user answers its dialog,
+       and nmcli connect can take seconds.  Running any of that on the main
+       thread froze the entire menu bar for the duration.  Do it all on a
+       background queue; the state refresh is marshalled back to the main
+       thread. */
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSString *password = nil;
+        if ([security length] > 0) {
+            password = [self runPasswordPanelForSSID:ssid];
+            if (!password) return;
+        }
 
-    [_backend connectToWLAN:target withPassword:password];
-    [self updateState];
+        WLAN *connectTarget = target;
+        [_backend connectToWLAN:connectTarget withPassword:password];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateState];
+        });
+    });
 }
 
 #pragma mark - GSMenuExtra

@@ -81,8 +81,12 @@ static NSLock *connectionCacheLock = nil;
         return;
     }
 
-    // Execute the IPC callback on the main thread to keep the NSConnection stable
-    // The oneway call is non-blocking, so this should not freeze Menu.app
+    // Execute the IPC callback on the main thread to keep the NSConnection stable.
+    // GNUstep DO requires connection/proxy traffic to run on the thread that
+    // services the connection (the main run loop); sending from a GCD worker
+    // thread silently fails and poisons the cached connection, which broke all
+    // GNUstep menu actions when this was briefly moved to a background queue.
+    // The oneway call is non-blocking, so this should not freeze Menu.app.
     NSDictionary *backgroundInfo = @{ @"clientName": clientName, @"windowId": windowId, @"indexPath": indexPath, @"menuItemTitle": [menuItem title] };
     [self _performMenuActionInBackground:backgroundInfo];
 }
