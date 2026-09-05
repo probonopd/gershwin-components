@@ -16,7 +16,44 @@ typedef struct DBusConnection DBusConnectionStruct;
 // Forward declaration for internal method
 @interface GNUDBusConnection (Private)
 - (id)parseDBusMessageIterator:(DBusMessageIter *)iter;
+- (BOOL)handleIncomingMessage:(DBusMessage *)message;
 @end
+
+/* ── Real libdbus object-path dispatch ─────────────────────────────
+ *
+ * Incoming method calls must be handled DURING dbus_connection_dispatch,
+ * not by the pop-message loop that runs after it: dispatch() CONSUMES any
+ * method call that is already in the incoming queue and auto-replies
+ * UnknownMethod (verified with a standalone probe).  With the fd throttle
+ * re-arming on a delay, registrar calls (e.g. Chromium's RegisterWindow)
+ * typically arrive as single-message batches, were always consumed by
+ * dispatch, and never reached the manual handler - which broke global
+ * menus for Chromium/Chrome.  Registering the object path with a vtable
+ * makes dispatch route the call to handleIncomingMessage: directly, so
+ * registration is deterministic regardless of batching or timing.
+ *
+ * user_data is the GNUDBusConnection instance (the session-bus singleton
+ * lives for the whole process, so no extra retain is needed).
+ */
+static DBusHandlerResult gw_dbus_object_path_message_handler(DBusConnection *connection,
+                                                             DBusMessage *message,
+                                                             void *user_data)
+{
+    (void)connection;
+    if (!message || !user_data) {
+        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+    }
+
+    /* Method returns/errors/signals are consumed by the pending-call
+     * machinery or ignored; only surface method calls to the ObjC layer. */
+    if (dbus_message_get_type(message) != DBUS_MESSAGE_TYPE_METHOD_CALL) {
+        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+    }
+
+    GNUDBusConnection *self = (__bridge GNUDBusConnection *)user_data;
+    BOOL handled = [self handleIncomingMessage:message];
+    return handled ? DBUS_HANDLER_RESULT_HANDLED : DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+}
 
 @implementation GNUDBusConnection
 
@@ -129,18 +166,34 @@ typedef struct DBusConnection DBusConnectionStruct;
     return YES;
 }
 
-- (BOOL)registerObjectPath:(NSString *)objectPath 
-                 interface:(NSString *)interfaceName 
+- (BOOL)registerObjectPath:(NSString *)objectPath
+                 interface:(NSString *)interfaceName
                    handler:(id)handler
 {
     if (!self.connected || !self.connection) {
         return NO;
     }
-    
+
     // Store the handler for this object path
     NSString *key = [NSString stringWithFormat:@"%@:%@", objectPath, interfaceName];
     [self.messageHandlers setObject:handler forKey:key];
-    
+
+    /* Register a real libdbus object path so dispatch() routes incoming
+     * method calls to gw_dbus_object_path_message_handler (see the comment
+     * above it for why the pop-message loop alone loses calls). */
+    static DBusObjectPathVTable gwVTable;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        gwVTable.message_function = gw_dbus_object_path_message_handler;
+        gwVTable.unregister_function = NULL;
+    });
+    if (!dbus_connection_register_object_path((DBusConnectionStruct *)self.connection,
+                                              [objectPath UTF8String],
+                                              &gwVTable,
+                                              (__bridge void *)self)) {
+        NSDebugLLog(@"gwcomp", @"DBusConnection: failed to register object path %@", objectPath);
+    }
+
     // NSLog(@"DBusConnection: Registered handler for %@ on %@", interfaceName, objectPath);
     return YES;
 }
@@ -806,35 +859,35 @@ typedef struct DBusConnection DBusConnectionStruct;
     return result == TRUE;
 }
 
-- (void)handleIncomingMessage:(DBusMessage*)message
+- (BOOL)handleIncomingMessage:(DBusMessage*)message
 {
-    if (!message) return;
-    
+    if (!message) return NO;
+
     const char *path = dbus_message_get_path(message);
     const char *interface = dbus_message_get_interface(message);
     const char *method = dbus_message_get_member(message);
-    
+
     if (!path || !interface || !method) {
-        return;
+        return NO;
     }
-    
+
     NSString *pathStr = [NSString stringWithUTF8String:path];
     NSString *interfaceStr = [NSString stringWithUTF8String:interface];
     NSString *methodStr = [NSString stringWithUTF8String:method];
-    
+
     // NSLog(@"DBusConnection: Received method call: %@.%@ on %@", interfaceStr, methodStr, pathStr);
-    
+
     // Handle introspection requests
-    if ([interfaceStr isEqualToString:@"org.freedesktop.DBus.Introspectable"] && 
+    if ([interfaceStr isEqualToString:@"org.freedesktop.DBus.Introspectable"] &&
         [methodStr isEqualToString:@"Introspect"]) {
         [self handleIntrospectRequest:message];
-        return;
+        return YES;
     }
-    
+
     // Find and call the appropriate handler
     NSString *key = [NSString stringWithFormat:@"%@:%@", pathStr, interfaceStr];
     id handler = [self.messageHandlers objectForKey:key];
-    
+
     if (handler && [handler respondsToSelector:@selector(handleDBusMethodCall:)]) {
         NSDictionary *callInfo = @{
             @"message": [NSValue valueWithPointer:message],
@@ -843,9 +896,13 @@ typedef struct DBusConnection DBusConnectionStruct;
             @"method": methodStr
         };
         [handler performSelector:@selector(handleDBusMethodCall:) withObject:callInfo];
-    } else {
-        NSDebugLLog(@"gwcomp", @"DBusConnection: No handler found for %@.%@ on %@", interfaceStr, methodStr, pathStr);
+        return YES;
     }
+
+    NSDebugLLog(@"gwcomp", @"DBusConnection: No handler found for %@.%@ on %@", interfaceStr, methodStr, pathStr);
+    /* Returning NO makes the vtable decline the message, so libdbus sends
+     * the caller the standard UnknownMethod error instead of a 25s timeout. */
+    return NO;
 }
 
 - (void)handleIntrospectRequest:(DBusMessage*)message
