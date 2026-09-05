@@ -4,12 +4,20 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#define _GNU_SOURCE 1
 
 #import "MBConnection.h"
+#import "MBDaemon.h"
 #import "MBTransport.h"
 #import "MBMessage.h"
 #import <sys/socket.h>
+#import <sys/un.h>
+#if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
 #import <sys/ucred.h>
+#endif
+#if defined(__OpenBSD__)
+#import <unistd.h>
+#endif
 
 // D-Bus protocol constants
 #define DBUS_LITTLE_ENDIAN 'l'
@@ -55,11 +63,7 @@ typedef enum {
         _serverGuid = @"12345678901234567890123456789012"; // Fixed GUID for simplicity
         _authFailures = 0;
         _maxAuthFailures = 6;
-        
-        // Initialize debug counters
-        _processIncomingDataCallCount = 0;
-        _processAuthenticationCallCount = 0;
-        
+
         NSDebugLLog(@"gwcomp", @"Created connection for socket %d", socket);
     }
     return self;
@@ -76,7 +80,7 @@ typedef enum {
 }
 
 - (BOOL)verifySocketCredentials:(int)socket withClaimedUID:(uid_t)claimedUID {
-#ifdef SO_PEERCRED
+#if defined(SO_PEERCRED)
     struct ucred cred;
     socklen_t len = sizeof(cred);
     
@@ -89,6 +93,28 @@ typedef enum {
         // Fallback - allow if we can't verify
         return YES;
     }
+#elif defined(LOCAL_PEERCRED)
+    struct xucred cred;
+    socklen_t len = sizeof(cred);
+    
+    if (getsockopt(socket, 0, LOCAL_PEERCRED, &cred, &len) == 0 && cred.cr_version == XUCRED_VERSION) {
+        NSDebugLLog(@"gwcomp", @"Socket credentials: uid=%d, claimed uid=%d", cred.cr_uid, claimedUID);
+        return (cred.cr_uid == claimedUID);
+    } else {
+        NSDebugLLog(@"gwcomp", @"Failed to get socket credentials: %s", strerror(errno));
+        return YES;
+    }
+#elif defined(HAVE_GETPEEREID)
+    uid_t uid;
+    gid_t gid;
+    
+    if (getpeereid(socket, &uid, &gid) == 0) {
+        NSDebugLLog(@"gwcomp", @"Socket credentials: uid=%d, claimed uid=%d", uid, claimedUID);
+        return (uid == claimedUID);
+    } else {
+        NSDebugLLog(@"gwcomp", @"Failed to get socket credentials: %s", strerror(errno));
+        return YES;
+    }
 #else
     // No socket credential support, allow authentication
     NSDebugLLog(@"gwcomp", @"No socket credential support, allowing authentication");
@@ -98,15 +124,8 @@ typedef enum {
 
 - (NSArray *)processIncomingData
 {
-    _processIncomingDataCallCount++;
-    NSDebugLLog(@"gwcomp", @"processIncomingData called #%d for socket %d", _processIncomingDataCallCount, _socket);
-    
-    if (_processIncomingDataCallCount > 5000) { // Increased limit for complex clients like xfce4-panel
-        NSDebugLLog(@"gwcomp", @"ERROR: processIncomingData called too many times (%d), stopping to prevent CPU overload", _processIncomingDataCallCount);
-        [self close];
-        return [NSArray array];
-    }
-    
+    NSDebugLLog(@"gwcomp", @"processIncomingData for socket %d", _socket);
+
     // Read incoming data from socket
     NSData *data = [MBTransport receiveDataFromSocket:_socket];
     if (!data) {
@@ -115,35 +134,32 @@ typedef enum {
         [self close];
         return [NSArray array];
     }
-    
+
     // Only proceed if we actually received new data
     if ([data length] == 0) {
         // No new data available, don't process anything
-        NSDebugLLog(@"gwcomp", @"processIncomingData: empty data received");
         return [NSArray array];
     }
-    
+
+    // Guard against a runaway peer: disconnect instead of buffering forever
+    if ([_readBuffer length] + [data length] > 16 * 1024 * 1024) {
+        NSDebugLLog(@"gwcomp", @"Connection %d buffer exceeds 16 MiB, disconnecting", _socket);
+        [self close];
+        return [NSArray array];
+    }
+
     [_readBuffer appendData:data];
     NSDebugLLog(@"gwcomp", @"Received %lu bytes on socket %d, total buffer: %lu", (unsigned long)[data length], _socket, (unsigned long)[_readBuffer length]);
-    
+
     if (_state == MBConnectionStateWaitingForAuth) {
-        NSDebugLLog(@"gwcomp", @"processIncomingData: processing authentication");
         [self processAuthentication];
         // After authentication, check if state changed and we have remaining data
         if (_state != MBConnectionStateWaitingForAuth && [_readBuffer length] > 0) {
-            NSDebugLLog(@"gwcomp", @"Authentication completed, processing %lu bytes of message data", (unsigned long)[_readBuffer length]);
             return [self parseMessages];
         }
         return [NSArray array]; // No messages during auth
     } else {
-        // Process D-Bus messages (active or waiting for hello)
-        NSDebugLLog(@"gwcomp", @"processIncomingData: processing D-Bus messages");
-        NSArray *messages = [self parseMessages];
-        if ([messages count] == 0) {
-            // No messages parsed - add small delay to prevent CPU spinning
-            usleep(1000); // 1ms delay
-        }
-        return messages;
+        return [self parseMessages];
     }
 }
 
@@ -153,15 +169,7 @@ typedef enum {
 }
 
 - (BOOL)processAuthentication {
-    _processAuthenticationCallCount++;
-    NSDebugLLog(@"gwcomp", @"processAuthentication called #%d for socket %d", _processAuthenticationCallCount, _socket);
-    
-    // CPU protection: limit authentication processing calls
-    if (_processAuthenticationCallCount > 10) {
-        NSDebugLLog(@"gwcomp", @"ERROR: processAuthentication called too many times (%d), forcing disconnect to prevent CPU overload", _processAuthenticationCallCount);
-        [self close];
-        return NO;
-    }
+    NSDebugLLog(@"gwcomp", @"processAuthentication for socket %d", _socket);
     
     // Move new data from read buffer to auth buffer (BUG FIX: do not append _authIncoming to itself!)
     if ([_readBuffer length] > 0) {
@@ -181,7 +189,7 @@ typedef enum {
     // 7. Ready for D-Bus messages
     
     int commandCount = 0;
-    int maxCommands = 5;  // Reduced from 10 to 5 for CPU protection
+    int maxCommands = 10;
     while (commandCount < maxCommands) {
         BOOL hasCommand = [self processOneAuthCommand];
         if (!hasCommand) {
@@ -204,10 +212,6 @@ typedef enum {
                   (unsigned long)[_authIncoming length]);
             break;
         }
-    }
-    
-    if (commandCount >= maxCommands) {
-        NSDebugLLog(@"gwcomp", @"WARNING: Hit maximum auth command limit (%d), stopping processing", maxCommands);
     }
     
     NSDebugLLog(@"gwcomp", @"processAuthentication finished, auth state: %d, remaining buffer: %lu bytes", 
@@ -472,133 +476,49 @@ typedef enum {
 
 - (NSArray *)parseMessages
 {
-    // Parse D-Bus messages from buffer
+    // Parse complete D-Bus messages from the buffer, keeping any trailing
+    // partial message for the next read.
     if ([_readBuffer length] == 0) {
         return [NSArray array];
     }
 
-    NSDebugLLog(@"gwcomp", @"parseMessages called with %lu bytes in buffer", (unsigned long)[_readBuffer length]);
-    
-    // DEBUGGING: Dump full buffer when we get large problematic buffers
-    if ([_readBuffer length] > 800) {
-        NSDebugLLog(@"gwcomp", @"=== LARGE BUFFER DETECTED (%lu bytes) - DUMPING FOR ANALYSIS ===", (unsigned long)[_readBuffer length]);
-        const uint8_t *debugBytes = [_readBuffer bytes];
-        for (NSUInteger i = 0; i < [_readBuffer length] && i < 1024; i += 16) {
-            NSMutableString *hexLine = [NSMutableString string];
-            NSMutableString *asciiLine = [NSMutableString string];
-            for (NSUInteger j = 0; j < 16 && i + j < [_readBuffer length]; j++) {
-                uint8_t byte = debugBytes[i + j];
-                [hexLine appendFormat:@"%02x ", byte];
-                [asciiLine appendFormat:@"%c", (byte >= 32 && byte < 127) ? byte : '.'];
-            }
-            NSDebugLLog(@"gwcomp", @"  %04lx: %-48s %@", i, [hexLine UTF8String], asciiLine);
+    NSMutableData *buffer = _readBuffer;
+    NSMutableArray *messages = [NSMutableArray array];
+
+    while ([buffer length] > 0) {
+        NSUInteger total = [MBMessage messageLengthFromData:buffer];
+        if (total == 0) {
+            // Need more bytes for the fixed header
+            break;
         }
-        NSDebugLLog(@"gwcomp", @"=== END BUFFER DUMP ===");
-    }
-    
-    // CPU protection: limit buffer size to prevent memory/CPU attacks
-    if ([_readBuffer length] > 262144) { // 256KB limit - reduced from 1MB
-        NSDebugLLog(@"gwcomp", @"Buffer too large (%lu bytes), clearing to prevent memory exhaustion", (unsigned long)[_readBuffer length]);
-        [_readBuffer setData:[NSData data]];
-        return [NSArray array];
-    }
-    
-    // If buffer grows beyond normal limits during parsing issues, truncate it more aggressively
-    if ([_readBuffer length] > 32768) { // 32KB limit for problematic data - reduced from 64KB
-        NSDebugLLog(@"gwcomp", @"Buffer size (%lu bytes) exceeds normal limits, truncating to prevent issues", (unsigned long)[_readBuffer length]);
-        NSData *truncatedData = [NSData dataWithBytes:[_readBuffer bytes] length:32768];
-        [_readBuffer setData:truncatedData];
-    }
-    
-    // Show first few bytes for debugging
-    const uint8_t *bytes = [_readBuffer bytes];
-    NSMutableString *hexString = [NSMutableString string];
-    for (NSUInteger i = 0; i < MIN([_readBuffer length], 16); i++) {
-        [hexString appendFormat:@"%02x ", bytes[i]];
-    }
-    NSDebugLLog(@"gwcomp", @"Buffer hex: %@", hexString);
-     // Early validation: if buffer doesn't start with valid endian byte, search for one
-    NSUInteger bufferOffset = 0;
-    if ([_readBuffer length] > 0 && bytes[0] != DBUS_LITTLE_ENDIAN && bytes[0] != DBUS_BIG_ENDIAN) {
-        NSDebugLLog(@"gwcomp", @"Buffer doesn't start with valid D-Bus endian byte (0x%02x), searching for valid start", bytes[0]);
-        
-        NSUInteger validOffset = NSNotFound;
-        for (NSUInteger i = 0; i < MIN([_readBuffer length], 256); i++) { // Only search first 256 bytes
-            if (bytes[i] == DBUS_LITTLE_ENDIAN || bytes[i] == DBUS_BIG_ENDIAN) {
-                // Found potential start, validate if it looks like a D-Bus header
-                if (i + 4 < [_readBuffer length]) {
-                    uint8_t type = bytes[i + 1];
-                    uint8_t version = bytes[i + 3];
-                    if (type >= 1 && type <= 4 && version == 1) {
-                        validOffset = i;
-                        NSDebugLLog(@"gwcomp", @"Found potential valid D-Bus message start at offset %lu", (unsigned long)i);
-                        break;
-                    }
-                }
-            }
-        }
-        
-        if (validOffset != NSNotFound && validOffset > 0) {
-            // Instead of modifying the buffer, track the offset
-            bufferOffset = validOffset;
-            NSDebugLLog(@"gwcomp", @"Will skip %lu bytes of invalid data at start of buffer", (unsigned long)bufferOffset);
-        } else if (validOffset == NSNotFound) {
-            // No valid D-Bus data found, clear the buffer
-            NSDebugLLog(@"gwcomp", @"No valid D-Bus data found in buffer, clearing %lu bytes", (unsigned long)[_readBuffer length]);
+        if (total == NSNotFound) {
+            NSDebugLLog(@"gwcomp", @"Protocol error on socket %d: invalid message header, disconnecting", _socket);
             [_readBuffer setData:[NSData data]];
-            return [NSArray array];
+            [self close];
+            break;
         }
+        if (total > [buffer length]) {
+            // Partial message: wait for the rest
+            NSDebugLLog(@"gwcomp", @"Buffer holds %lu of %lu bytes of a message on socket %d",
+                  (unsigned long)[buffer length], (unsigned long)total, _socket);
+            break;
+        }
+
+        NSUInteger consumed = 0;
+        NSData *slice = [NSData dataWithBytes:[buffer bytes] length:total];
+        NSArray *parsed = [MBMessage messagesFromData:slice consumedBytes:&consumed];
+        if ([parsed count] == 0 || consumed == 0) {
+            NSDebugLLog(@"gwcomp", @"Protocol error on socket %d: failed to parse complete message, disconnecting", _socket);
+            [_readBuffer setData:[NSData data]];
+            [self close];
+            break;
+        }
+
+        [messages addObjectsFromArray:parsed];
+        [_readBuffer replaceBytesInRange:NSMakeRange(0, consumed) withBytes:NULL length:0];
     }
 
-    @try {
-        NSUInteger consumedBytes = 0;
-        // Create a slice of the buffer starting from the valid offset
-        NSData *parseData;
-        if (bufferOffset > 0) {
-            parseData = [NSData dataWithBytes:bytes + bufferOffset 
-                                       length:[_readBuffer length] - bufferOffset];
-        } else {
-            parseData = _readBuffer;
-        }
-        
-        NSArray *messages = [MBMessage messagesFromData:parseData consumedBytes:&consumedBytes];
-        
-        if ([messages count] > 0) {
-            NSDebugLLog(@"gwcomp", @"Parsed %lu D-Bus messages, consumed %lu bytes (including %lu offset bytes)", 
-                  (unsigned long)[messages count], consumedBytes, (unsigned long)bufferOffset);
-        }
-        
-        // Remove consumed bytes from buffer, accounting for the buffer offset
-        NSUInteger totalConsumed = consumedBytes + bufferOffset;
-        if (totalConsumed > 0) {
-            NSUInteger remainingBytes = [_readBuffer length] - totalConsumed;
-            if (remainingBytes > 0) {
-                NSData *remainingData = [NSData dataWithBytes:((uint8_t *)[_readBuffer bytes] + totalConsumed) 
-                                                       length:remainingBytes];
-                [_readBuffer setData:remainingData];
-                NSDebugLLog(@"gwcomp", @"Kept %lu unconsumed bytes in buffer", remainingBytes);
-            } else {
-                [_readBuffer setData:[NSData data]];
-            }
-        } else if ([messages count] == 0) {
-            // If no messages were parsed and we have a large buffer, it's likely corrupted
-            if ([_readBuffer length] > 1024) {
-                NSDebugLLog(@"gwcomp", @"No messages parsed from large buffer (%lu bytes), clearing to prevent issues", (unsigned long)[_readBuffer length]);
-                [_readBuffer setData:[NSData data]];
-            } else {
-                NSDebugLLog(@"gwcomp", @"No messages parsed, keeping small buffer (%lu bytes) for next attempt", (unsigned long)[_readBuffer length]);
-            }
-        }
-        
-        return messages;
-    }
-    @catch (NSException *exception) {
-        NSDebugLLog(@"gwcomp", @"Exception in message parsing: %@", exception);
-        // Clear buffer to prevent infinite loop
-        NSDebugLLog(@"gwcomp", @"Clearing buffer to prevent infinite loop");
-        [_readBuffer setData:[NSData data]];
-        return [NSArray array];
-    }
+    return messages;
 }
 
 - (void)close
@@ -617,6 +537,11 @@ typedef enum {
 
 - (BOOL)sendMessage:(MBMessage *)message
 {
+    return [self sendMessage:message mirrorToMonitors:YES];
+}
+
+- (BOOL)sendMessage:(MBMessage *)message mirrorToMonitors:(BOOL)mirror
+{
     if (_state != MBConnectionStateActive && 
         _state != MBConnectionStateWaitingForHello && 
         _state != MBConnectionStateMonitor) {
@@ -630,6 +555,12 @@ typedef enum {
         NSDebugLLog(@"gwcomp", @"Serialized message to %lu bytes", (unsigned long)[messageData length]);
         BOOL result = [MBTransport sendData:messageData onSocket:_socket];
         NSDebugLLog(@"gwcomp", @"Send result: %@", result ? @"SUCCESS" : @"FAILED");
+        if (result && mirror && _state != MBConnectionStateMonitor) {
+            // Let the daemon mirror this message to monitor connections
+            // (dbus-monitor). Monitor recipients are excluded to avoid
+            // recursion.
+            [_daemon monitorOutgoingMessage:message];
+        }
         return result;
     }
     NSDebugLLog(@"gwcomp", @"Failed to serialize message");

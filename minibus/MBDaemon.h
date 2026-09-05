@@ -101,6 +101,12 @@
 - (void)handleBecomeMonitor:(MBMessage *)message fromConnection:(MBConnection *)connection;
 
 /**
+ * Mirror a message the daemon just delivered to a client to all monitor
+ * connections (called from MBConnection after a successful send).
+ */
+- (void)monitorOutgoingMessage:(MBMessage *)message;
+
+/**
  * Handle standard D-Bus interface methods
  */
 - (void)handlePing:(MBMessage *)message fromConnection:(MBConnection *)connection;

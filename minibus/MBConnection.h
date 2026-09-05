@@ -31,10 +31,6 @@ typedef enum {
     MBDaemon *_daemon;
     NSMutableData *_readBuffer;
     BOOL _authProcessed;  // Track if AUTH command was processed
-    
-    // Debug counters
-    int _processIncomingDataCallCount;
-    int _processAuthenticationCallCount;
 }
 
 @property (nonatomic, readonly) int socket;
@@ -48,9 +44,15 @@ typedef enum {
 - (instancetype)initWithSocket:(int)socket daemon:(MBDaemon *)daemon;
 
 /**
- * Send message to this connection
+ * Send message to this connection (mirrors to bus monitors)
  */
 - (BOOL)sendMessage:(MBMessage *)message;
+
+/**
+ * Send message; when mirrorToMonitors is NO the daemon will not copy this
+ * message to monitor connections (used when a mirror was already sent).
+ */
+- (BOOL)sendMessage:(MBMessage *)message mirrorToMonitors:(BOOL)mirror;
 
 /**
  * Send multiple messages atomically in a single write

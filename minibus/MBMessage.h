@@ -105,6 +105,24 @@ typedef enum {
  */
 + (NSArray *)parseArgumentsFromBodyData:(NSData *)bodyData signature:(NSString *)signature endianness:(uint8_t)endianness;
 
+/**
+ * Infer a D-Bus signature for a list of Foundation values
+ */
++ (NSString *)signatureForArguments:(NSArray *)arguments;
+
+/**
+ * Infer a D-Bus signature for a single Foundation value
+ */
++ (NSString *)signatureForValue:(id)value;
+
+/**
+ * Total wire length of the first message in data.
+ * Returns 0 if fewer than 16 bytes (fixed header) are available,
+ * NSNotFound if the bytes do not start with a valid message header,
+ * otherwise the complete message length including header, padding and body.
+ */
++ (NSUInteger)messageLengthFromData:(NSData *)data;
+
 @end
 
 #endif // MB_MESSAGE_H
