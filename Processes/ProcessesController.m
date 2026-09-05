@@ -911,6 +911,7 @@ static ProcessesController *sharedController = nil;
     NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
     [windowMenu addItemWithTitle:@"Minimize" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
     [windowMenu addItemWithTitle:@"Zoom" action:@selector(performZoom:) keyEquivalent:@""];
+    [windowMenu addItemWithTitle:@"Close" action:@selector(performClose:) keyEquivalent:@"w"];
     [mainMenu setSubmenu:windowMenu forItem:windowMenuItem];
     [NSApp setWindowsMenu:windowMenu];
     
