@@ -28,6 +28,7 @@ install: $(NSS_LIB)
 	install -d $(INSTALL_DIR)
 	install -m 755 $(NSS_LIB) $(INSTALL_DIR)/$(NSS_LIB)
 ifeq ($(findstring linux,$(GNUSTEP_HOST_OS)),linux)
+	install -d /etc/ld.so.conf.d
 	@echo "$(INSTALL_DIR)" > /etc/ld.so.conf.d/gershwin.conf
 	ldconfig
 endif
