@@ -190,6 +190,7 @@ static ProcessesController *sharedController = nil;
         _processesLock = [[NSLock alloc] init];
         _refreshInterval = 5.0; // Refresh every 5 seconds
         _prevCpuTimes = [[NSMutableDictionary alloc] init];
+        _searchFilter = @"";
     }
     return self;
 }
@@ -688,6 +689,41 @@ static ProcessesController *sharedController = nil;
     _isRefreshing = NO;
 }
 
+- (NSArray *)_filteredProcesses
+{
+    if (_searchFilter == nil || [_searchFilter length] == 0) {
+        return _processes;
+    }
+    NSMutableArray *filtered = [NSMutableArray array];
+    NSString *lowerFilter = [_searchFilter lowercaseString];
+    for (ProcessInfo *info in _processes) {
+        if ([[info.command lowercaseString] containsString:lowerFilter] ||
+            [[info.user lowercaseString] containsString:lowerFilter]) {
+            [filtered addObject:info];
+        }
+    }
+    return filtered;
+}
+
+- (void)controlTextDidChange:(NSNotification *)notification
+{
+    if ([notification object] == _searchField) {
+        _searchFilter = [_searchField stringValue];
+        [_processesTableView reloadData];
+    }
+}
+
+- (void)clearSearchFilter
+{
+    _searchFilter = @"";
+    [_processesTableView reloadData];
+}
+
+- (void)handleSearchFieldClear:(NSNotification *)notification
+{
+    [self clearSearchFilter];
+}
+
 - (IBAction)forceQuitProcess:(id)sender
 {
     NSInteger selectedRow = [_processesTableView selectedRow];
@@ -739,7 +775,8 @@ static ProcessesController *sharedController = nil;
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
 {
     [_processesLock lock];
-    NSInteger count = [_processes count];
+    NSArray *displayProcesses = [self _filteredProcesses];
+    NSInteger count = [displayProcesses count];
     [_processesLock unlock];
     PC_DBG(@"numberOfRowsInTableView returning %ld", (long)count);
     return count;
@@ -748,11 +785,12 @@ static ProcessesController *sharedController = nil;
 - (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
     [_processesLock lock];
-    if (row < 0 || row >= [_processes count]) {
+    NSArray *displayProcesses = [self _filteredProcesses];
+    if (row < 0 || row >= [displayProcesses count]) {
         [_processesLock unlock];
         return @"";
     }
-    ProcessInfo *info = [_processes objectAtIndex:row];
+    ProcessInfo *info = [displayProcesses objectAtIndex:row];
     [_processesLock unlock];
     
     NSString *identifier = [tableColumn identifier];
@@ -781,9 +819,10 @@ static ProcessesController *sharedController = nil;
     NSInteger selectedRow = [_processesTableView selectedRow];
     if (selectedRow >= 0) {
         [_processesLock lock];
+        NSArray *displayProcesses = [self _filteredProcesses];
         ProcessInfo *info = nil;
-        if (selectedRow < [_processes count]) {
-            info = [_processes objectAtIndex:selectedRow];
+        if (selectedRow < [displayProcesses count]) {
+            info = [displayProcesses objectAtIndex:selectedRow];
         }
         [_processesLock unlock];
         
@@ -933,8 +972,16 @@ static ProcessesController *sharedController = nil;
     [self setupMenu];
     PC_FILE_LOG(@"createUI: setupMenu done");
     
+    // Search field at the top
+    _searchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(0, 0, 200, 22)];
+    [_searchField setPlaceholderString:@"Filter processes..."];
+    [_searchField setDelegate:self];
+    [[_searchField cell] setRecentsAutosaveName:@"ProcessesFilter"];
+    PC_FILE_LOG(@"createUI: searchField done");
+    
     // Create scroll view for table
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:[[_mainWindow contentView] bounds]];
+    NSRect contentViewBounds = [[_mainWindow contentView] bounds];
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, NSWidth(contentViewBounds), NSHeight(contentViewBounds) - 26)];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:YES];
     [scrollView setAutohidesScrollers:YES];
@@ -998,6 +1045,11 @@ static ProcessesController *sharedController = nil;
     [scrollView setDocumentView:_processesTableView];
     [[_mainWindow contentView] addSubview:scrollView];
     PC_FILE_LOG(@"createUI: documentView + subview done");
+
+    // Position search field at top-right
+    [_searchField setFrame:NSMakeRect(NSWidth(contentViewBounds) - 220, NSHeight(contentViewBounds) - 26, 200, 22)];
+    [[_mainWindow contentView] addSubview:_searchField];
+    PC_FILE_LOG(@"createUI: searchField positioned");
 
 #if PROCESSES_DEBUG
     // Diagnostic: log frames and column count to ensure table is visible and sized correctly

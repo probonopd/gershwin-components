@@ -7,7 +7,7 @@
 #import <AppKit/AppKit.h>
 #import "ProcessInfo.h"
 
-@interface ProcessesController : NSObject <NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate>
+@interface ProcessesController : NSObject <NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate, NSTextFieldDelegate>
 {
     NSMutableArray *_processes;
     NSTimer *_refreshTimer;
@@ -16,14 +16,16 @@
     
     // UI References
     NSWindow *_mainWindow;
+    NSSearchField *_searchField;
     NSTableView *_processesTableView;
     NSDrawer *_infoDrawer;
     NSTextField *_infoTextField;
     NSButton *_forceQuitButton;
-    
+
     NSArray *_sortDescriptors;
     NSMutableDictionary *_prevCpuTimes; // pid -> NSDictionary with keys: @"totalTicks", @"time"
     BOOL _isRefreshing;
+    NSString *_searchFilter;
 }
 
 @property (nonatomic, strong) NSMutableArray *processes;
@@ -41,6 +43,7 @@
 // UI Actions
 - (void)setupMenu;
 - (IBAction)forceQuitProcess:(id)sender;
+- (void)clearSearchFilter;
 
 // Sorting
 - (void)sortProcesses;
