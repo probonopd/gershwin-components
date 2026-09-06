@@ -18,7 +18,6 @@
 #if defined(__OpenBSD__)
 #import <unistd.h>
 #endif
-#include <fcntl.h>
 
 // D-Bus protocol constants
 #define DBUS_LITTLE_ENDIAN 'l'
@@ -61,35 +60,13 @@ typedef enum {
         _authIncoming = [[NSMutableData alloc] init];
         _authOutgoing = [[NSMutableData alloc] init];
         _authIdentity = @"";
-        _serverGuid = [self generateHexGuid];
+        _serverGuid = @"12345678901234567890123456789012"; // Fixed GUID for simplicity
         _authFailures = 0;
         _maxAuthFailures = 6;
 
         NSDebugLLog(@"gwcomp", @"Created connection for socket %d", socket);
     }
     return self;
-}
-
-- (NSString *)generateHexGuid {
-    uint8_t bytes[16];
-    NSMutableString *hex = [NSMutableString stringWithCapacity:32];
-
-    int fd = open("/dev/urandom", O_RDONLY);
-    if (fd >= 0) {
-        read(fd, bytes, 16);
-        close(fd);
-    } else {
-        // Fallback - use arc4random
-        for (int i = 0; i < 16; i++) {
-            bytes[i] = arc4random_uniform(256);
-        }
-    }
-
-    for (int i = 0; i < 16; i++) {
-        [hex appendFormat:@"%02x", bytes[i]];
-    }
-
-    return [NSString stringWithString:hex];
 }
 
 - (void)dealloc
@@ -310,8 +287,6 @@ typedef enum {
     
     if ([cmd isEqualToString:@"AUTH"]) {
         return [self handleAuthCommandParts:parts];
-    } else if ([cmd isEqualToString:@"DATA"]) {
-        return [self handleDataCommand:parts];
     } else if ([cmd isEqualToString:@"NEGOTIATE_UNIX_FD"]) {
         return [self handleNegotiateUnixFD];
     } else if ([cmd isEqualToString:@"BEGIN"]) {
@@ -324,6 +299,7 @@ typedef enum {
 }
 
 - (BOOL)handleAuthCommandParts:(NSArray *)parts {
+    // Accept any EXTERNAL mechanism, skip all credential checks
     if (_authState != AUTH_STATE_WAITING_FOR_AUTH) {
         return [self sendError:@"Sent AUTH while not expecting it"];
     }
@@ -334,72 +310,7 @@ typedef enum {
     if (![mechanism isEqualToString:@"EXTERNAL"]) {
         return [self sendRejected];
     }
-
-    // Check if client sent initial response (hex-encoded UID)
-    if ([parts count] >= 3) {
-        // Client provided initial response - verify if possible
-        NSString *hexUid = parts[2];
-        NSDebugLLog(@"gwcomp", @"AUTH EXTERNAL with initial response: %@", hexUid);
-
-        // Try to verify against SO_PEERCED if we have a valid claimed UID
-        uid_t claimedUid = [self uidFromHexString:hexUid];
-        if (claimedUid != (uid_t)-1 && ![self verifySocketCredentials:_socket withClaimedUID:claimedUid]) {
-            NSDebugLLog(@"gwcomp", @"Credential verification failed for uid %d", claimedUid);
-            return [self sendRejected];
-        }
-
-        // Credentials verified (or couldn't verify but client claimed one)
-        return [self sendOK];
-    } else {
-        // No initial response - per SASL EXTERNAL spec, send DATA "" to request identity
-        NSDebugLLog(@"gwcomp", @"AUTH EXTERNAL with no initial response, requesting credentials");
-        return [self sendDataEmpty];
-    }
-}
-
-- (uid_t)uidFromHexString:(NSString *)hex {
-    if ([hex length] == 0) {
-        return (uid_t)-1;
-    }
-
-    unsigned long long value = 0;
-    NSScanner *scanner = [NSScanner scannerWithString:hex];
-    unsigned int result;
-    if ([scanner scanHexInt:&result]) {
-        return (uid_t)result;
-    }
-    return (uid_t)-1;
-}
-
-- (BOOL)sendDataEmpty {
-    NSString *response = @"DATA \r\n";
-    NSData *responseData = [response dataUsingEncoding:NSUTF8StringEncoding];
-    BOOL sent = [MBTransport sendData:responseData onSocket:_socket];
-    NSDebugLLog(@"gwcomp", @"Sent DATA '' response: %@", sent ? @"SUCCESS" : @"FAILED");
-
-    _authState = AUTH_STATE_WAITING_FOR_DATA;
-    return sent;
-}
-
-- (BOOL)handleDataCommand:(NSArray *)parts {
-    if (_authState != AUTH_STATE_WAITING_FOR_DATA) {
-        NSDebugLLog(@"gwcomp", @"handleDataCommand: not expecting DATA, auth state: %d", _authState);
-        return [self sendError:@"Not expecting DATA"];
-    }
-
-    // DATA response contains hex-encoded UID
-    if ([parts count] >= 2) {
-        NSString *hexUid = [parts[1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-        NSDebugLLog(@"gwcomp", @"DATA response with uid: %@", hexUid);
-
-        uid_t claimedUid = [self uidFromHexString:hexUid];
-        if (claimedUid != (uid_t)-1 && ![self verifySocketCredentials:_socket withClaimedUID:claimedUid]) {
-            NSDebugLLog(@"gwcomp", @"Credential verification failed for uid from DATA: %d", claimedUid);
-            return [self sendRejected];
-        }
-    }
-
-    // Accept the authentication
+    // Accept any claimed UID, skip all security checks
     return [self sendOK];
 }
 

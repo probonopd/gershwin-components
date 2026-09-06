@@ -401,6 +401,40 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
     return YES;
 }
 
+- (BOOL)getCloudStatus
+{
+    // Check if rclone RC daemon is running by connecting to the port
+    NSURL *testUrl = [NSURL URLWithString: @"http://localhost:5572/config/providers"];
+    if (testUrl == nil) {
+        return NO;
+    }
+
+    NSMutableURLRequest *testRequest = [NSMutableURLRequest requestWithURL: testUrl];
+    [testRequest setHTTPMethod: @"POST"];
+    [testRequest setTimeoutInterval: 0.5];
+    NSURLResponse *resp = nil;
+    NSError *connectErr = nil;
+    [NSURLConnection sendSynchronousRequest: testRequest returningResponse: &resp error: &connectErr];
+    return (connectErr == nil);
+}
+
+- (BOOL)getCloudInstalled
+{
+    // Check if rclone is installed by looking for it in PATH
+    NSDictionary *env = [[NSProcessInfo processInfo] environment];
+    NSString *pathsStr = [env objectForKey: @"PATH"];
+    NSArray *pathDirs = [pathsStr componentsSeparatedByString: @":"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    for (NSString *dir in pathDirs) {
+        NSString *fullPath = [dir stringByAppendingPathComponent: @"rclone"];
+        if ([fm isExecutableFileAtPath: fullPath]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
 - (NSString *)getLocalIPAddress
 {
     NSMutableString *addresses = [NSMutableString string];
@@ -803,8 +837,109 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
                        @"• Fedora/RHEL: sudo dnf install xrdp\n"
                        @"• FreeBSD: sudo pkg install xrdp\n"
                        @"• Arch: sudo pacman -S xrdp",
-                       @"OK", nil, nil);
+                        @"OK", nil, nil);
     }
+}
+
+- (void)toggleCloud:(id)sender
+{
+    BOOL shouldEnable = [cloudCheckbox state] == NSOnState;
+
+    NSDebugLog(@"SharingController: %@ Cloud Sync", shouldEnable ? @"Starting" : @"Stopping");
+
+    if (shouldEnable) {
+        [self startRcloneDaemon];
+    } else {
+        [self stopRcloneDaemon];
+    }
+
+    [self refreshStatus:nil];
+    NSDebugLog(@"SharingController: Cloud Sync %@", shouldEnable ? @"started" : @"stopped");
+}
+
+- (void)startRcloneDaemon
+{
+    if (![self getCloudInstalled]) {
+        NSRunAlertPanel(@"rclone not found",
+                       @"rclone is not installed. Please install rclone to use Cloud Sync.",
+                       @"OK", nil, nil);
+        [cloudCheckbox setState:NSOffState];
+        return;
+    }
+
+    if ([self getCloudStatus]) {
+        NSDebugLog(@"SharingController: rclone RC daemon already running");
+        return;
+    }
+
+    NSString *rclone = nil;
+    NSDictionary *env = [[NSProcessInfo processInfo] environment];
+    NSString *pathsStr = [env objectForKey: @"PATH"];
+    NSArray *pathDirs = [pathsStr componentsSeparatedByString: @":"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    for (NSString *dir in pathDirs) {
+        NSString *fullPath = [dir stringByAppendingPathComponent: @"rclone"];
+        if ([fm isExecutableFileAtPath: fullPath]) {
+            rclone = fullPath;
+            break;
+        }
+    }
+
+    if (rclone == nil) {
+        NSRunAlertPanel(@"rclone not found",
+                       @"rclone is not in PATH.",
+                       @"OK", nil, nil);
+        [cloudCheckbox setState:NSOffState];
+        return;
+    }
+
+    // Redirect output to log file for debugging
+    NSString *logPath = @"/tmp/rclone-daemon.log";
+    NSString *errPath = @"/tmp/rclone-daemon.err";
+
+    FILE *out = fopen([logPath UTF8String], "a");
+    FILE *err = fopen([errPath UTF8String], "a");
+    if (out) fprintf(out, "Starting rclone daemon...\n");
+    if (err) fprintf(err, "Starting rclone daemon...\n");
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child process - become session leader and redirect output
+        if (setsid() == -1) {
+            if (err) fprintf(err, "setsid failed: %d\n", errno);
+        }
+        if (out) freopen([logPath UTF8String], "a", stdout);
+        if (err) freopen([errPath UTF8String], "a", stderr);
+
+        execl([rclone UTF8String], [rclone UTF8String], "rcd", "--rc-no-auth", "--rc-addr", "localhost:5572", (char *)NULL);
+
+        if (err) fprintf(err, "execl failed: %d\n", errno);
+        _exit(1);
+    }
+
+    // Parent
+    if (out) fclose(out);
+    if (err) fclose(err);
+
+    if (pid > 0) {
+        [NSThread sleepForTimeInterval: 1.0];
+        NSDebugLog(@"SharingController: Started rclone RC daemon with pid %d", pid);
+    } else {
+        NSDebugLog(@"SharingController: fork failed");
+    }
+}
+
+- (void)stopRcloneDaemon
+{
+    NSTask *pkill = [[NSTask alloc] init];
+    [pkill setLaunchPath: @"/bin/pkill"];
+    [pkill setArguments: [NSArray arrayWithObjects: @"-f", @"rclone rcd", nil]];
+    [pkill launch];
+    [pkill waitUntilExit];
+    [pkill release];
+
+    NSDebugLog(@"SharingController: Stopped rclone RC daemon");
 }
 
 - (void)toggleMedia:(id)sender
@@ -937,6 +1072,7 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
         BOOL web  = [self getWebStatus];
         BOOL media  = [self getMediaStatus];
         BOOL rdp  = [self getRDPStatus];
+        BOOL cloud = [self getCloudStatus];
         // Also query installation state for each service
         BOOL isSshInstalled  = [self getSSHInstalled];
         BOOL isVncInstalled  = [self getVNCInstalled];
@@ -946,24 +1082,25 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
         BOOL isWebInstalled  = [self getWebInstalled];
         BOOL isMediaInstalled  = [self getMediaInstalled];
         BOOL isRdpInstalled  = [self getRDPInstalled];
+        BOOL isCloudInstalled = [self getCloudInstalled];
 
         dispatch_async(dispatch_get_main_queue(), ^{
             isRefreshingStatus = NO;
             [self updateUIWithHostname:hostname
-                                   ssh:ssh vnc:vnc sftp:sftp afp:afp smb:smb web:web media:media rdp:rdp
+                                   ssh:ssh vnc:vnc sftp:sftp afp:afp smb:smb web:web media:media rdp:rdp cloud:cloud
                           sshInstalled:isSshInstalled vncInstalled:isVncInstalled
                          sftpInstalled:isSftpInstalled afpInstalled:isAfpInstalled
-                          smbInstalled:isSmbInstalled webInstalled:isWebInstalled mediaInstalled:isMediaInstalled rdpInstalled:isRdpInstalled];
+                          smbInstalled:isSmbInstalled webInstalled:isWebInstalled mediaInstalled:isMediaInstalled rdpInstalled:isRdpInstalled cloudInstalled:isCloudInstalled];
         });
     });
 }
 
 - (void)updateUIWithHostname:(NSString *)hostname
                           ssh:(BOOL)ssh vnc:(BOOL)vnc sftp:(BOOL)sftp
-                          afp:(BOOL)afp smb:(BOOL)smb web:(BOOL)web media:(BOOL)media rdp:(BOOL)rdp
+                          afp:(BOOL)afp smb:(BOOL)smb web:(BOOL)web media:(BOOL)media rdp:(BOOL)rdp cloud:(BOOL)cloud
                  sshInstalled:(BOOL)isSshInstalled vncInstalled:(BOOL)isVncInstalled
                 sftpInstalled:(BOOL)isSftpInstalled afpInstalled:(BOOL)isAfpInstalled
-                 smbInstalled:(BOOL)isSmbInstalled webInstalled:(BOOL)isWebInstalled mediaInstalled:(BOOL)isMediaInstalled rdpInstalled:(BOOL)isRdpInstalled
+                 smbInstalled:(BOOL)isSmbInstalled webInstalled:(BOOL)isWebInstalled mediaInstalled:(BOOL)isMediaInstalled rdpInstalled:(BOOL)isRdpInstalled cloudInstalled:(BOOL)isCloudInstalled
 {
     // Safety check in case the pane was unselected while we were querying
     if (!hostnameField || !sshCheckbox) {
@@ -1354,6 +1491,33 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
             }
         }
     }
+
+    // --- Cloud Sync ---
+    if (!isCloudInstalled) {
+        [cloudCheckbox setEnabled:NO];
+        [cloudCheckbox setState:NSOffState];
+        [cloudStatusLabel setStringValue:@"N/A"];
+        [cloudStatusLabel setTextColor:naColor];
+        [cloudInfoLabel setStringValue:@"Install rclone to enable Cloud Sync."];
+        [cloudInfoLabel setHidden:NO];
+    } else {
+        [cloudCheckbox setEnabled:YES];
+        cloudEnabled = cloud;
+        [cloudCheckbox setState:cloudEnabled ? NSOnState : NSOffState];
+
+        if (cloudEnabled) {
+            [cloudStatusLabel setStringValue:@"On"];
+            [cloudStatusLabel setTextColor:[NSColor colorWithCalibratedRed:0.0 green:0.6 blue:0.0 alpha:1.0]];
+
+            NSString *info = [NSString stringWithFormat:@"Cloud Sync running at http://localhost:5572"];
+            [cloudInfoLabel setStringValue:info];
+            [cloudInfoLabel setHidden:NO];
+        } else {
+            [cloudStatusLabel setStringValue:@"Off"];
+            [cloudStatusLabel setTextColor:[NSColor grayColor]];
+            [cloudInfoLabel setHidden:YES];
+        }
+    }
 }
 
 #pragma mark - UI Creation
@@ -1560,10 +1724,24 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
     }
     [serviceTabView addTabViewItem:webTab];
     [webTab release];
-    
+
+    // Tab 4: Cloud (Cloud Sync via rclone)
+    NSTabViewItem *cloudTab = [[NSTabViewItem alloc] initWithIdentifier:@"cloud"];
+    [cloudTab setLabel:@"Cloud"];
+    {
+        NSView *tv = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, tabContentH)];
+        CGFloat ty = tabContentH - kTabContentTop;
+        addService(tv, ty, &cloudCheckbox, &cloudStatusLabel, &cloudInfoLabel,
+                   @"Cloud Sync (rclone)", @"Off", @selector(toggleCloud:), YES);
+        [cloudTab setView:tv];
+        [tv release];
+    }
+    [serviceTabView addTabViewItem:cloudTab];
+    [cloudTab release];
+
     // Don't call refreshStatus here - it will be called in mainViewDidLoad
     // when the pane is actually displayed
-    
+
     return [mainView autorelease];
 }
 
