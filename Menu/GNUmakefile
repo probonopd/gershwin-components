@@ -41,17 +41,18 @@ Menu_OBJC_FILES = \
 	X11ShortcutManager.m \
 	RoundedCornersView.m \
 	ActionSearch.m \
-	StatusItemManager.m \
-	StatusItemsView.m \
-	StatusItemView.m \
+	SystemActions.m \
+	MenuExtraManager.m \
+	GSMenuExtraContext.m \
+	GSMenuExtraBundle.m \
+	GSMenuExtraInstance.m \
+	MenuExtrasPrefPanel.m \
 	WindowMonitor.m \
 	AppMenuImporter.m \
 	WindowSwitchContext.m \
-	StatusItems/TimeDisplay/TimeDisplayProvider.m \
-	StatusItems/SystemMonitor/SystemMonitorProvider.m \
 	SysfsBacklightBackend.m \
 	EvdevBrightnessKeySource.m \
-	SoundVolume.m
+	TintedMenuItemCell.m
 
 # Header files
 Menu_HEADER_FILES = \
@@ -80,10 +81,13 @@ Menu_HEADER_FILES = \
 	X11ShortcutManager.h \
 	RoundedCornersView.h \
 	ActionSearch.h \
-	StatusItemProvider.h \
-	StatusItemManager.h \
-	StatusItemsView.h \
-	StatusItemView.h \
+	SystemActions.h \
+	GSMenuExtra.h \
+	GSMenuExtraContext.h \
+	GSMenuExtraBundle.h \
+	GSMenuExtraInstance.h \
+	MenuExtrasPrefPanel.h \
+	MenuExtraManager.h \
 	WindowMonitor.h \
 	AppMenuImporter.h \
 	WindowSwitchContext.h \
@@ -91,17 +95,42 @@ Menu_HEADER_FILES = \
 	BrightnessKeySource.h \
 	SysfsBacklightBackend.h \
 	EvdevBrightnessKeySource.h \
-	SoundVolume.h
+	SoundVolume.h \
+	TintedMenuItemCell.h
 
 # Resources
 Menu_RESOURCE_FILES = \
 	Menu.png \
-	Info.plist
+	Resources/Icons/battery.png \
+	Resources/Icons/battery-medium.png \
+	Resources/Icons/battery-low.png \
+	Resources/Icons/battery-charged.png \
+	Resources/Icons/battery-charging.png \
+	Resources/Icons/volume-high.png \
+	Resources/Icons/volume-medium.png \
+	Resources/Icons/volume-low.png \
+	Resources/Icons/volume-muted.png \
+	Resources/Icons/wlan.png \
+	Resources/Icons/wlan-good.png \
+	Resources/Icons/wlan-ok.png \
+	Resources/Icons/wlan-weak.png \
+	Resources/Icons/wlan-disabled.png \
+	Resources/Icons/wlan-off.png \
+	Resources/Icons/brightness.png \
+	Resources/Icons/clock.png \
+	Resources/Icons/cpu.png \
+	Resources/Icons/ram.png
 
+
+# SVG-to-PNG conversion rules
+before-build:: $(patsubst %.svg,%.png,$(wildcard Resources/Icons/*.svg))
+
+Resources/Icons/%.png: Resources/Icons/%.svg
+	convert -background none -define png:color-type=6 $< -resize 18x18! $@
 
 # Libraries and frameworks - configured by configure script
 Menu_TOOL_LIBS += -ldbus-1 -lX11
-Menu_GUI_LIBS += -L/System/Library/Libraries -lgnustep-gui -lgnustep-base -lobjc -ldispatch
+Menu_GUI_LIBS += -L/System/Library/Libraries -lgnustep-gui -lgnustep-base -lobjc -ldispatch -lSoundBackend -lNetworkBackend
 Menu_LDFLAGS += -Wl,--export-dynamic -L/System/Library/Libraries -Wl,-rpath,/System/Library/Libraries -Wl,--no-as-needed
 
 # Compiler flags - Force use of /System GNUstep and objc2 with ARC
@@ -110,18 +139,26 @@ Menu_LDFLAGS += -Wl,--export-dynamic -L/System/Library/Libraries -Wl,-rpath,/Sys
 UNAME_S := $(shell uname -s)
 DBUS_CFLAGS := $(shell pkg-config --cflags dbus-1 2>/dev/null || echo "-I/usr/include/dbus-1.0 -I/usr/lib/dbus-1.0/include")
 ifeq ($(UNAME_S),Linux)
-	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_GNU_SOURCE
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_GNU_SOURCE -I.
 	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
 endif
 ifeq ($(UNAME_S),FreeBSD)
-	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE -I.
 	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
 	Menu_TOOL_LIBS += -lexecinfo
 endif
-ifeq ($(UNAME_S),OpenBSD)
-	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter
+ifeq ($(UNAME_S),NextBSD)
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE -I.
 	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
 	Menu_TOOL_LIBS += -lexecinfo
+	Menu_GUI_LIBS += -L/usr/lib/system
+	Menu_LDFLAGS += -Wl,-rpath,/usr/lib/system
+endif
+ifeq ($(UNAME_S),OpenBSD)
+	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE -I.
+	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
+	Menu_TOOL_LIBS += -L/usr/local/lib -lexecinfo
+	Menu_GUI_LIBS += -lc++abi
 endif
 
 # Profiling: build with  make PROFILE=1  to enable CPU instrumentation.
@@ -130,10 +167,25 @@ ifeq ($(PROFILE),1)
 ADDITIONAL_OBJCFLAGS += -DMENU_PROFILING=1
 endif
 
+ADDITIONAL_OBJCFLAGS += -I../Sound -I../Network -I../Libraries/NetworkBackend -I/System/Library/Headers/SoundBackend -I/System/Library/Headers/NetworkBackend
+# --as-needed avoids unnecessary libm dependency (needed on FreeBSD)
+ADDITIONAL_LDFLAGS = $(shell ld --help 2>/dev/null | grep -q -- '--as-needed' && echo '-Wl,--as-needed' || echo '')
+AS_NEEDED_FLAG = $(shell ld --help 2>/dev/null | grep -q -- '--as-needed' && echo 'ADDITIONAL_LDFLAGS=-Wl,--as-needed' || echo '')
+
 # Canonical install location for Menu.app
 INSTALL_APPS_DIR = /System/Library/CoreServices/Applications
 
 include $(GNUSTEP_MAKEFILES)/application.make
+
+# Build standalone .gsmenuextra bundles after main app is compiled
+after-Menu-all::
+	@echo "Building standalone menu extra bundles..."
+	@for d in ClockExtra BatteryExtra CPUExtra RAMExtra WLANExtra SoundExtra BrightnessExtra BuildMonitorExtra; do \
+		(cd MenuExtras/$$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) $(AS_NEEDED_FLAG) all 2>/dev/null) || echo "  ($$d skipped)"; \
+	done
+	@(cd MenuExtras/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all 2>/dev/null || echo "  (wlanauth skipped)")
+	@cp MenuExtras/WLANExtra/wlanauth/obj/wlanauth Resources/ 2>/dev/null || true
+	@echo "Done building bundles."
 
 # Custom install target that completely overrides built-in behavior
 .PHONY: custom-install custom-uninstall
@@ -141,10 +193,15 @@ include $(GNUSTEP_MAKEFILES)/application.make
 install:: custom-install
 
 custom-install: $(APP_NAME).app
-	@echo "Building status item bundles..."
-	@(cd StatusItems/SystemMonitor && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
-	@(cd StatusItems/TimeDisplay && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
-	@echo "Status item bundles built successfully"
+	@echo "Building menu extra bundles..."
+	@for d in ClockExtra BatteryExtra CPUExtra RAMExtra WLANExtra SoundExtra BrightnessExtra BuildMonitorExtra; do \
+		(cd MenuExtras/$$d && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) $(AS_NEEDED_FLAG) all) || exit 1; \
+	done
+	@(cd MenuExtras/WLANExtra/wlanauth && GNUSTEP_MAKEFILES=$(GNUSTEP_MAKEFILES) $(MAKE) all)
+	@if [ -f MenuExtras/WLANExtra/wlanauth/obj/wlanauth ]; then \
+		cp MenuExtras/WLANExtra/wlanauth/obj/wlanauth $(APP_NAME).app/Resources/; \
+	fi
+	@echo "Menu extra bundles built successfully"
 	@if [ -n "$(DESTDIR)" ]; then \
 		echo "Installing $(APP_NAME) to $(DESTDIR)$(INSTALL_APPS_DIR)"; \
 		rm -rf $(DESTDIR)/System/Applications/$(APP_NAME).app || true; \
@@ -154,21 +211,34 @@ custom-install: $(APP_NAME).app
 		cp -R $(APP_NAME).app $(DESTDIR)$(INSTALL_APPS_DIR)/; \
 		mkdir -p $(DESTDIR)$(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources; \
 		cp Menu.png $(DESTDIR)$(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources/; \
-		echo "Installing status item bundles..."; \
-		mkdir -p $(DESTDIR)/System/Library/Menu/StatusItems; \
-		cp -R StatusItems/SystemMonitor/SystemMonitor.bundle $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
-		cp -R StatusItems/TimeDisplay/TimeDisplay.bundle $(DESTDIR)/System/Library/Menu/StatusItems/ || true; \
+		echo "Installing menu extra bundles..."; \
+		mkdir -p $(DESTDIR)/System/Library/MenuExtras; \
+		cp -R MenuExtras/ClockExtra/Clock.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/BatteryExtra/Battery.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/CPUExtra/CPU.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/RAMExtra/RAM.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/WLANExtra/WLAN.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/SoundExtra/Sound.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/BrightnessExtra/Brightness.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
+		cp -R MenuExtras/BuildMonitorExtra/BuildMonitor.gsmenuextra $(DESTDIR)/System/Library/MenuExtras/ || true; \
 	else \
 		echo "Installing $(APP_NAME) to $(INSTALL_APPS_DIR)"; \
-		rm -rf $(GNUSTEP_SYSTEM_APPS)/$(APP_NAME).app || true; \
+		rm -rf /System/Applications/$(APP_NAME).app || true; \
 		mkdir -p $(INSTALL_APPS_DIR); \
 		cp -R $(APP_NAME).app $(INSTALL_APPS_DIR)/; \
 		mkdir -p $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources; \
 		cp Menu.png $(INSTALL_APPS_DIR)/$(APP_NAME).app/Resources/; \
-			echo "Installing status item bundles..."; \
-			mkdir -p /System/Library/Menu/StatusItems; \
-			cp -R StatusItems/SystemMonitor/SystemMonitor.bundle /System/Library/Menu/StatusItems/ || true; \
-			cp -R StatusItems/TimeDisplay/TimeDisplay.bundle /System/Library/Menu/StatusItems/ || true; \
+		echo "Installing menu extra bundles..."; \
+			mkdir -p /System/Library/MenuExtras; \
+			mkdir -p /Local/Library/MenuExtras; \
+			cp -R MenuExtras/ClockExtra/Clock.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/BatteryExtra/Battery.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/CPUExtra/CPU.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/RAMExtra/RAM.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/WLANExtra/WLAN.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/SoundExtra/Sound.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/BrightnessExtra/Brightness.gsmenuextra /System/Library/MenuExtras/ || true; \
+			cp -R MenuExtras/BuildMonitorExtra/BuildMonitor.gsmenuextra /System/Library/MenuExtras/ || true; \
 	fi
 # Override uninstall target to properly support DESTDIR and PREFIX
 uninstall:: custom-uninstall

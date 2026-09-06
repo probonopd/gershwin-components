@@ -17,6 +17,11 @@
 #import <errno.h>
 #import <dlfcn.h>
 
+// When FreeRDP is available we build the real RDP backend; otherwise the
+// methods that depend on it become no-ops and isFreeRDPAvailable reports NO,
+// so the app still builds and VNC keeps working.
+#ifdef HAVE_FREERDP
+
 // FreeRDP includes
 #include <freerdp/freerdp.h>
 #include <freerdp/constants.h>
@@ -34,6 +39,8 @@ typedef struct {
 // Suppress deprecation warnings for FreeRDP 3 settings that are still functional
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
+#endif /* HAVE_FREERDP */
 
 @implementation RDPClient
 
@@ -114,6 +121,8 @@ typedef struct {
 }
 
 #pragma mark - FreeRDP Callbacks
+
+#ifdef HAVE_FREERDP
 
 static BOOL rdp_pre_connect(freerdp *instance)
 {
@@ -270,6 +279,8 @@ static BOOL rdp_authenticate(freerdp *instance, char **username, char **password
     return TRUE;
 }
 
+#endif /* HAVE_FREERDP */
+
 #pragma mark - Connection Management
 
 - (BOOL)connectToHost:(NSString *)hostname port:(NSInteger)port
@@ -330,6 +341,7 @@ static BOOL rdp_authenticate(freerdp *instance, char **username, char **password
     
     // Close RDP connection
     if (_rdpContext) {
+#ifdef HAVE_FREERDP
         RDPCustomContext *customContext = (RDPCustomContext *)_rdpContext;
         freerdp *instance = customContext->context.instance;
         
@@ -338,6 +350,7 @@ static BOOL rdp_authenticate(freerdp *instance, char **username, char **password
             freerdp_context_free(instance);
             freerdp_free(instance);
         }
+#endif /* HAVE_FREERDP */
         
         _rdpContext = NULL;
     }
@@ -373,6 +386,8 @@ static BOOL rdp_authenticate(freerdp *instance, char **username, char **password
 }
 
 #pragma mark - Connection Thread
+
+#ifdef HAVE_FREERDP
 
 - (void)connectionThreadMain:(id)object
 {
@@ -501,6 +516,18 @@ cleanup:
     [pool release];
 }
 
+#else /* !HAVE_FREERDP */
+
+// RDP backend unavailable at build time: the connect methods already refuse to
+// start a connection, so this thread body just reports the failure.
+- (void)connectionThreadMain:(id)object
+{
+    (void)object;
+    [self notifyConnectionResult:NO error:@"FreeRDP support was not built in"];
+}
+
+#endif /* HAVE_FREERDP */
+
 - (void)notifyConnectionResult:(BOOL)success error:(NSString *)error
 {
     if (_delegate) {
@@ -515,6 +542,8 @@ cleanup:
 }
 
 #pragma mark - Input Handling
+
+#ifdef HAVE_FREERDP
 
 - (void)sendKeyboardEvent:(NSUInteger)key pressed:(BOOL)pressed
 {
@@ -564,10 +593,34 @@ cleanup:
     }
 }
 
+#else /* !HAVE_FREERDP */
+
+- (void)sendKeyboardEvent:(NSUInteger)key pressed:(BOOL)pressed
+{
+    (void)key;
+    (void)pressed;
+    if (!_connected || !_rdpContext) {
+        return;
+    }
+}
+
+- (void)sendMouseEvent:(NSPoint)position buttons:(NSUInteger)buttonMask
+{
+    (void)position;
+    (void)buttonMask;
+    if (!_connected || !_rdpContext) {
+        return;
+    }
+}
+
+#endif /* HAVE_FREERDP */
+
 - (void)sendMouseMoveEvent:(NSPoint)position
 {
     [self sendMouseEvent:position buttons:0];
 }
+
+#ifdef HAVE_FREERDP
 
 - (void)sendMouseButtonEvent:(NSUInteger)button pressed:(BOOL)pressed position:(NSPoint)position
 {
@@ -602,6 +655,20 @@ cleanup:
         freerdp_input_send_mouse_event(instance->context->input, flags, x, y);
     }
 }
+
+#else /* !HAVE_FREERDP */
+
+- (void)sendMouseButtonEvent:(NSUInteger)button pressed:(BOOL)pressed position:(NSPoint)position
+{
+    (void)button;
+    (void)pressed;
+    (void)position;
+    if (!_connected || !_rdpContext) {
+        return;
+    }
+}
+
+#endif /* HAVE_FREERDP */
 
 #pragma mark - Framebuffer Access
 
@@ -711,6 +778,8 @@ cleanup:
     }
 }
 
+#ifdef HAVE_FREERDP
 #pragma GCC diagnostic pop
+#endif
 
 @end

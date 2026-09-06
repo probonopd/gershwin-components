@@ -137,8 +137,9 @@ static NSCharacterSet *_whitespaceSet(void)
       NSLog(@"GWOSDetector -> parsed os-release ID = %@, ID_LIKE = %@", osID, osRelease[@"ID_LIKE"]);
       if (osID && [osID length] > 0)
         {
-          NSLog(@"GWOSDetector <- '%@'", osID);
-          return osID;
+          NSString *lower = [osID lowercaseString];
+          NSLog(@"GWOSDetector <- '%@'", lower);
+          return lower;
         }
     }
 
@@ -197,6 +198,78 @@ static NSCharacterSet *_whitespaceSet(void)
   NSArray *fallback = @[[self currentOSIdentifier]];
   NSLog(@"GWOSDetector <- osSearchOrder (fallback) = %@", fallback);
   return fallback;
+}
+
++ (NSString *)packageManagerFamily
+{
+  NSString *osID = [self currentOSIdentifier];
+
+  // Keep these lists in sync with the backend factory in GWPackageManager.m.
+  if ([osID isEqualToString:@"debian"] ||
+      [osID isEqualToString:@"ubuntu"] ||
+      [osID isEqualToString:@"devuan"] ||
+      [osID isEqualToString:@"kali"] ||
+      [osID isEqualToString:@"linuxmint"] ||
+      [osID isEqualToString:@"raspbian"] ||
+      [osID isEqualToString:@"pop"] ||
+      [osID isEqualToString:@"elementary"] ||
+      [osID isEqualToString:@"zorin"])
+    return @"debian";
+
+  if ([osID isEqualToString:@"arch"] ||
+      [osID isEqualToString:@"manjaro"] ||
+      [osID isEqualToString:@"endeavouros"] ||
+      [osID isEqualToString:@"arcolinux"])
+    return @"arch";
+
+  if ([osID isEqualToString:@"freebsd"] ||
+      [osID isEqualToString:@"ghostbsd"] ||
+      [osID isEqualToString:@"dragonfly"] ||
+      // NextBSD is a FreeBSD-derived OS (ID_LIKE=freebsd) and uses the
+      // same pkg(8) tooling, so it belongs to the FreeBSD family.
+      [osID isEqualToString:@"nextbsd"])
+    return @"freebsd";
+
+  if ([osID isEqualToString:@"openbsd"])
+    return @"openbsd";
+
+  NSLog(@"GWOSDetector <- packageManagerFamily: unknown OS '%@'", osID);
+  return nil;
+}
+
++ (NSString *)currentArchitecture
+{
+  // AppImages are architecture-specific binaries; we normalize the machine
+  // architecture to the two tuples our plist schema understands so a
+  // publisher can address x86_64 and aarch64 independently.
+  NSString *machine = nil;
+  @try
+    {
+      NSTask *t = [[NSTask alloc] init];
+      [t setLaunchPath:@"uname"];
+      [t setArguments:@[@"-m"]];
+      NSPipe *outPipe = [NSPipe pipe];
+      [t setStandardOutput:outPipe];
+      [t launch];
+      [t waitUntilExit];
+      NSData *data = [[outPipe fileHandleForReading] readDataToEndOfFile];
+      machine = [[NSString alloc] initWithData:data
+                                      encoding:NSUTF8StringEncoding];
+      machine = [machine stringByTrimmingCharactersInSet:
+                 [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    }
+  @catch (NSException *e)
+    {
+      NSLog(@"GWOSDetector <- currentArchitecture: uname failed: %@", e);
+    }
+
+  NSString *m = [machine lowercaseString];
+  if ([m isEqualToString:@"x86_64"] || [m isEqualToString:@"amd64"])
+    return @"x86_64";
+  if ([m isEqualToString:@"aarch64"] || [m isEqualToString:@"arm64"])
+    return @"aarch64";
+
+  return machine ? machine : @"unknown";
 }
 
 @end

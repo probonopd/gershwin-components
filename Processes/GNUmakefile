@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 GNUSTEP_SYSTEM_APPS := $(GNUSTEP_SYSTEM_APPS)/Utilities
 GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
@@ -23,7 +24,6 @@ Processes_RESOURCE_FILES = Resources/Processes.png
 
 Processes_MAIN_MODEL_FILE =
 
-Processes_INFO_PLIST = ProcessesInfo.plist
 
 Processes_APPLICATION_ICON = Processes.icns
 

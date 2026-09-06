@@ -7,15 +7,11 @@
 
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
-#import "GNUstepGUI/GSTheme.h"
 
 @interface MenuBarView : NSView
 {
-    NSColor *_cachedBackgroundColor;
     BOOL _needsRedraw;
 }
-
-@property (nonatomic, strong) NSColor *backgroundColor;
 
 - (void)drawRect:(NSRect)dirtyRect;
 - (void)setNeedsRedraw;

@@ -9,7 +9,11 @@
 @interface GNUStepMenuActionHandler : NSObject
 + (void)performMenuAction:(id)sender;
 
-// Returns a cached (or newly created) NSConnection to the given client.
-// The connection is shared across action and validation calls.
-+ (NSConnection *)cachedConnectionForClient:(NSString *)clientName;
+// Returns the cached connection WITHOUT performing a DO name lookup, or nil.
+// Safe to call on the main thread even if the client is stalled.
++ (NSConnection *)existingConnectionForClient:(NSString *)clientName;
+
+// Records a connection discovered by a background probe so later main-thread
+// lookups are served from the cache and never block on the name server.
++ (void)cacheConnection:(NSConnection *)connection forClient:(NSString *)clientName;
 @end

@@ -14,6 +14,7 @@
 #import "GWPackageManagerBackend.h"
 #import "GWOSDetector.h"
 #import "GWPackageInstallSpec.h"
+#import "GWAppImageDownloader.h"
 
 // Backend imports — included at compile time; only the relevant one is used
 #import "GWDebBackend.h"
@@ -31,43 +32,30 @@
 
 static id<GWPackageManagerBackend> _createBackend(void)
 {
-  NSString *osID = [GWOSDetector currentOSIdentifier];
+  NSString *family = [GWOSDetector packageManagerFamily];
 
-  if ([osID isEqualToString:@"debian"] ||
-      [osID isEqualToString:@"ubuntu"] ||
-      [osID isEqualToString:@"devuan"] ||
-      [osID isEqualToString:@"kali"] ||
-      [osID isEqualToString:@"linuxmint"] ||
-      [osID isEqualToString:@"raspbian"] ||
-      [osID isEqualToString:@"pop"] ||
-      [osID isEqualToString:@"elementary"] ||
-      [osID isEqualToString:@"zorin"])
+  if ([family isEqualToString:@"debian"])
     {
       return [[GWDebBackend alloc] init];
     }
 
-  if ([osID isEqualToString:@"arch"] ||
-      [osID isEqualToString:@"manjaro"] ||
-      [osID isEqualToString:@"endeavouros"] ||
-      [osID isEqualToString:@"arcolinux"])
+  if ([family isEqualToString:@"arch"])
     {
       return [[GWArchBackend alloc] init];
     }
 
-  if ([osID isEqualToString:@"freebsd"] ||
-      [osID isEqualToString:@"ghostbsd"] ||
-      [osID isEqualToString:@"dragonfly"])
+  if ([family isEqualToString:@"freebsd"])
     {
       return [[GWFreeBSDBackend alloc] init];
     }
 
-  if ([osID isEqualToString:@"openbsd"])
+  if ([family isEqualToString:@"openbsd"])
     {
       return [[GWOpenBSDBackend alloc] init];
     }
 
   // Fallback: try debian-style as most common
-  NSLog(@"GWPackageManager: Unknown OS '%@', falling back to Debian backend", osID);
+  NSLog(@"GWPackageManager: Unknown OS, falling back to Debian backend");
   return [[GWDebBackend alloc] init];
 }
 
@@ -397,10 +385,36 @@ static GWPackageManager *sharedManager = nil;
   return YES;
 }
 
+#pragma mark - AppImage download
+
+- (BOOL)downloadAppImageFromURL:(NSString *)url
+                         appName:(NSString *)appName
+                        progress:(nullable id<GWInstallProgressHandler>)progress
+                           error:(NSError **)error
+{
+  GWAppImageDownloader *downloader = [[GWAppImageDownloader alloc] init];
+  return [downloader downloadAppImageFromURL:url
+                                     appName:appName
+                                    progress:progress
+                                       error:error];
+}
+
+- (BOOL)downloadAppImageFromGitHubRepo:(NSString *)repo
+                                appName:(NSString *)appName
+                               progress:(nullable id<GWInstallProgressHandler>)progress
+                                  error:(NSError **)error
+{
+  GWAppImageDownloader *downloader = [[GWAppImageDownloader alloc] init];
+  return [downloader downloadAppImageFromGitHubRepo:repo
+                                            appName:appName
+                                           progress:progress
+                                              error:error];
+}
+
 #pragma mark - User-Friendly Error Messages
 
 + (NSString *)friendlyErrorMessageForError:(NSError *)error
-                                   appName:(NSString *)appName
+                                    appName:(NSString *)appName
 {
   NSString *name = [appName length] > 0 ? appName : @"This application";
 

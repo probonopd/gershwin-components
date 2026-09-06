@@ -360,7 +360,7 @@
     NSString *rootfs = [bootOptions objectForKey:@"vfs.root.mountfrom"];
     
     if (!kernelPath) kernelPath = @"/boot/kernel/kernel";
-    if (!rootfs) rootfs = @"ufs:/dev/ada0p2";
+    if (!rootfs) rootfs = @"zfs:";
     
     // Check if we already have this boot environment
     BOOL alreadyExists = NO;
@@ -502,7 +502,7 @@
     if (isEdit && config) {
         [rootfsField setStringValue:[config rootfs]];
     } else {
-        [rootfsField setStringValue:@"ufs:/dev/ada0p2"];
+        [rootfsField setStringValue:@"zfs:"];
     }
     [contentView addSubview:rootfsField];
     
@@ -600,6 +600,11 @@
     
     if ([kernel length] == 0) {
         [self showErrorDialog:@"Validation Error" message:@"Kernel path is required."];
+        return;
+    }
+
+    if (![rootfs hasPrefix:@"zfs:"]) {
+        [self showErrorDialog:@"Validation Error" message:@"Root FS must be a ZFS filesystem (zfs:...)."];
         return;
     }
     

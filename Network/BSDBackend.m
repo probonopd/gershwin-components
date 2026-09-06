@@ -206,6 +206,12 @@ static NSArray *ethernetPrefixes(void)
     [task setStandardOutput:outPipe];
     [task setStandardError:[NSPipe pipe]];
 
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     int status = -1;
     @try {
         [task launch];
@@ -873,7 +879,22 @@ static NSArray *ethernetPrefixes(void)
 
 - (BOOL)saveConnection:(NetworkConnection *)connection
 {
-    return YES; /* Connections are persisted by wpa_supplicant */
+    return YES;
+}
+
+- (NSString *)connectedWLANSSID
+{
+    return [[self connectedWLAN] ssid];
+}
+
+- (NSString *)clonedMacAddressForSSID:(NSString *)ssid
+{
+    return @"permanent";
+}
+
+- (BOOL)setClonedMacAddress:(NSString *)value forSSID:(NSString *)ssid
+{
+    return YES;
 }
 
 - (NetworkConnection *)createConnectionForInterface:(NetworkInterface *)interface

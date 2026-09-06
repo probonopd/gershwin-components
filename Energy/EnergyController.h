@@ -9,6 +9,9 @@
 @interface EnergyController : NSObject
 {
     NSView *mainView;
+    NSBox *powerBox;
+    NSBox *displayBox;
+    NSBox *powerMgmtBox;
 
     // Power Source
     NSTextField *sourceLabel;
@@ -39,6 +42,7 @@
 }
 
 - (NSView *)createMainView;
+- (void)relayoutWithWidth:(CGFloat)width;
 - (void)refreshFromSystem;
 - (IBAction)settingChanged:(id)sender;
 - (void)pollBattery;

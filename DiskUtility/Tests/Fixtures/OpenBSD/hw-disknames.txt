@@ -1,0 +1,4 @@
+# Raw `sysctl -n hw.disknames` output on OpenBSD: ONE line, entries joined
+# with commas, each entry "unit[:duid]" where the DUID tail is optional and
+# empty for unlabeled units (kern_sysctl.c prints "%s:%s," per disk).
+sd0:17f0a3b400000001,sd1:,wd0:5e1a8f9200000002,cd0:

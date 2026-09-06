@@ -7,6 +7,7 @@
  */
 
 #import "ALSABackend.h"
+#import "WavScale.h"
 #import <AppKit/AppKit.h>
 #import <dispatch/dispatch.h>
 
@@ -126,6 +127,8 @@ static NSString *const kMicControl = @"Mic";
         }
     }
     
+    NSLog(@"ALSABackend findToolPaths: amixer=%@ aplay=%@ arecord=%@ alsactl=%@",
+          amixerPath, aplayPath, arecordPath, alsactlPath);
     return (amixerPath != nil && aplayPath != nil);
 }
 
@@ -178,9 +181,13 @@ static NSString *const kMicControl = @"Mic";
     [cachedOutputDevices removeAllObjects];
     [cachedInputDevices removeAllObjects];
     
+    NSLog(@"ALSABackend enumerateDevices: starting");
+
     // Get playback devices: aplay -l
     NSString *playbackOutput = [self runCommand:aplayPath 
                                   withArguments:@[@"-l"]];
+    NSLog(@"ALSABackend enumerateDevices: aplay -l output = %@",
+          playbackOutput ?: @"(nil)");
     if (playbackOutput) {
         [self parsePlaybackDevices:playbackOutput];
     }
@@ -191,6 +198,10 @@ static NSString *const kMicControl = @"Mic";
     if (captureOutput) {
         [self parseCaptureDevices:captureOutput];
     }
+    
+    NSLog(@"ALSABackend enumerateDevices: outputDevices=%lu inputDevices=%lu",
+          (unsigned long)[cachedOutputDevices count],
+          (unsigned long)[cachedInputDevices count]);
     
     // Update mixer controls for each device
     for (AudioDevice *device in cachedOutputDevices) {
@@ -216,8 +227,10 @@ static NSString *const kMicControl = @"Mic";
     //   Subdevice #0: subdevice #0
 
     NSArray *lines = [output componentsSeparatedByString:@"\n"];
+    NSLog(@"ALSABackend parsePlaybackDevices: %lu lines", (unsigned long)[lines count]);
 
     for (NSString *line in lines) {
+        NSLog(@"ALSABackend parsePlaybackDevices: line = '%@'", line);
         if ([line hasPrefix:@"card "]) {
             AudioDevice *device = [[AudioDevice alloc] init];
             device.direction = AudioDeviceDirectionOutput;
@@ -295,7 +308,10 @@ static NSString *const kMicControl = @"Mic";
             // Probe device to verify it's actually attached and usable.
             // aplay -l lists all cards registered by kernel drivers, but
             // some (e.g., HDMI without a connected display) fail to open.
-            if (![self isOutputDeviceUsable:device]) {
+            BOOL usable = [self isOutputDeviceUsable:device];
+            NSLog(@"ALSABackend parsePlaybackDevices: device %@ usable=%d",
+                  device.identifier, usable);
+            if (!usable) {
                 NSDebugLLog(@"gwcomp",
                     @"Skipping unusable output device %@ (%@) — probe failed",
                     device.displayName, device.identifier);
@@ -497,49 +513,43 @@ static NSString *const kMicControl = @"Mic";
     }
     NSString *output = [self runCommandCaptureError:@"/bin/sh"
                                       withArguments:@[@"-c", cmd]];
-    if (!output) return 1; // Could not launch command → assume usable
-    if ([output length] == 0) return 1; // Command ran, no errors → success
+    NSLog(@"ALSABackend probeOutput: cmd='%@' output='%@'", cmd,
+          output ?: @"(nil)");
+    if (!output) return 1;
+    if ([output length] == 0) return 1;
     if ([output containsString:@"Device or resource busy"]) return 1;
     if ([output containsString:@"audio open error"]) return 0;
-    // Other errors (format not available, etc.) → device may still work
-    // with a different format; caller should decide.
     return -1;
 }
 
 - (BOOL)isOutputDeviceUsable:(AudioDevice *)device
 {
-    if (!aplayPath) return NO;
-
-    // Probe device by trying to open it briefly.
-    // aplay -l lists every card the kernel registered, but cards without
-    // a physically connected sink (e.g. HDMI with no display) fail at
-    // open() with "audio open error".  We run aplay silently for 1 ms
-    // and capture stderr; any "audio open error" *other* than
-    // "Device or resource busy" means the sink is not connected.
-    // "Device or resource busy" means the device IS present — it is
-    // just being used by another process (e.g. currently playing audio),
-    // so we must not filter it out.
-
-    // Some devices (HDMI/SPDIF) do not support the default S16_LE format.
-    // If the first probe fails with a format-related error, retry with
-    // IEC958_SUBFRAME_LE which is the standard for HDMI audio.
+    if (!aplayPath) {
+        NSLog(@"ALSABackend isOutputDeviceUsable: no aplayPath, returning NO");
+        return NO;
+    }
 
     NSString *probeId = [NSString stringWithFormat:@"hw:%d,%d",
                          device.cardIndex, device.deviceIndex];
+    NSLog(@"ALSABackend isOutputDeviceUsable: probing %@", probeId);
 
-    // Try standard S16_LE at 48kHz first — nearly all modern hardware
-    // supports this format.  The old probe defaulted to U8/8kHz (by passing
-    // nil) which most devices reject, causing every probe to be inconclusive.
     int result = [self probeOutputWithFormat:@"S16_LE"
                                 channels:@"2" rate:@"48000" probeId:probeId];
-    if (result != -1) return (BOOL)result;
+    if (result != -1) {
+        NSLog(@"ALSABackend isOutputDeviceUsable: S16_LE result=%d -> %@",
+              result, result ? @"usable" : @"NOT usable");
+        return (BOOL)result;
+    }
 
-    // Format error — retry with IEC958_SUBFRAME_LE (HDMI/SPDIF)
     result = [self probeOutputWithFormat:@"IEC958_SUBFRAME_LE"
                                 channels:@"2" rate:@"48000" probeId:probeId];
-    if (result != -1) return (BOOL)result;
+    if (result != -1) {
+        NSLog(@"ALSABackend isOutputDeviceUsable: IEC958 result=%d -> %@",
+              result, result ? @"usable" : @"NOT usable");
+        return (BOOL)result;
+    }
 
-    // Both probes were inconclusive.  Assume the device is usable anyway.
+    NSLog(@"ALSABackend isOutputDeviceUsable: both inconclusive, assuming usable");
     return YES;
 }
 
@@ -605,6 +615,12 @@ static NSString *const kMicControl = @"Mic";
     [task setArguments:args];
     [task setStandardOutput:outPipe];
     [task setStandardError:errPipe];
+
+    // Force C locale so probing error messages are in English.
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
 
     @try {
         [task launch];
@@ -1548,6 +1564,11 @@ static NSString *const kMicControl = @"Mic";
         for (NSString *file in files) {
             NSString *ext = [[file pathExtension] lowercaseString];
             if ([extensions containsObject:ext]) {
+                // "Glass" is reserved for progress bars reaching 100% and must
+                // never be selectable as an alert sound
+                if ([[file stringByDeletingPathExtension]
+                        isEqualToString:@"Glass"]) continue;
+
                 AlertSound *sound = [[AlertSound alloc] init];
                 sound.name = [file stringByDeletingPathExtension];
                 sound.displayName = sound.name;
@@ -1640,34 +1661,26 @@ static NSString *const kMicControl = @"Mic";
     NSString *device = defaultOutput ?
         [NSString stringWithFormat:@"plughw:%d", currentOutputCard] : @"default";
 
-    // --- Apply alert volume by temporarily scaling the output mixer ---
-    float savedVolume = -1.0;
-    NSString *mixerControl = nil;
-
-    if (cachedAlertVolume < 0.99 && defaultOutput) {
-        mixerControl = [self preferredMixerControlNameForDevice:defaultOutput isOutput:YES];
-        if (!mixerControl) mixerControl = kMasterControl;
-
-        NSString *output = [self runCommand:amixerPath
-                              withArguments:@[@"-c",
-                                [NSString stringWithFormat:@"%d", currentOutputCard],
-                                @"sget", mixerControl]];
-        if (output) {
-            savedVolume = [self parseVolumeFromMixerOutput:output];
-            float targetVol = savedVolume * cachedAlertVolume;
-            if (targetVol < 0.02) targetVol = 0.02;
-
-            int percent = (int)(targetVol * 100.0);
-            if (percent < 1) percent = 1;
-            NSString *value = [NSString stringWithFormat:@"%d%%", percent];
-            [self setMixerControl:mixerControl value:value card:currentOutputCard];
+    // --- Scale the sound file itself so only the alert plays quieter ---
+    NSString *playPath = sound.path;
+    NSString *tempPath = nil;
+    if (cachedAlertVolume < 0.99) {
+        NSData *wav = [NSData dataWithContentsOfFile:sound.path];
+        NSData *quiet = wav ? SoundScaleWavData(wav, cachedAlertVolume) : nil;
+        if (quiet) {
+            tempPath = [NSTemporaryDirectory()
+                        stringByAppendingPathComponent:
+                        [NSString stringWithFormat:@"gs-alert-%d.wav", getpid()]];
+            if ([quiet writeToFile:tempPath atomically:YES]) {
+                playPath = tempPath;
+            }
         }
     }
 
     // --- Play the sound (synchronously on the calling queue) ---
     NSTask *task = [[NSTask alloc] init];
     [task setLaunchPath:aplayPath];
-    [task setArguments:@[@"-D", device, @"-q", sound.path]];
+    [task setArguments:@[@"-D", device, @"-q", playPath]];
 
     BOOL success = YES;
     @try {
@@ -1679,11 +1692,8 @@ static NSString *const kMicControl = @"Mic";
     }
     [task release];
 
-    // --- Restore original volume ---
-    if (savedVolume >= 0 && mixerControl) {
-        int percent = (int)(savedVolume * 100.0);
-        NSString *value = [NSString stringWithFormat:@"%d%%", percent];
-        [self setMixerControl:mixerControl value:value card:currentOutputCard];
+    if (tempPath) {
+        [[NSFileManager defaultManager] removeItemAtPath:tempPath error:NULL];
     }
 
     if (!success) {
@@ -2765,6 +2775,13 @@ static NSString *const kMicControl = @"Mic";
         [task setArguments:args];
         [task setStandardOutput:pipe];
         [task setStandardError:errorPipe];
+
+        // Force C locale so parsing of aplay -l / arecord -l / amixer output
+        // does not break on non-English systems.
+        NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+        [env setObject:@"C" forKey:@"LC_ALL"];
+        [task setEnvironment:env];
+        [env release];
 
         @try {
             [task launch];

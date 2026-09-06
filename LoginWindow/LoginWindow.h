@@ -33,6 +33,7 @@
     NSWindow *loginWindow;
     NSTextField *usernameField;
     NSSecureTextField *passwordField;
+    NSTextField *usernameLabel;
     NSTextField *passwordLabel;
     NSButton *loginButton;
     NSButton *shutdownButton;
@@ -41,6 +42,8 @@
     NSTextField *statusLabel;
     LoginWindowPAM *pamAuth;
     NSPopUpButton *sessionDropdown;
+    NSPopUpButton *languageDropdown;
+    NSPopUpButton *keyboardDropdown;
     NSArray *availableSessions;
     NSArray *availableSessionExecs;
     NSString *selectedSessionExec;
@@ -66,6 +69,8 @@
 - (void)startUserSession:(NSString *)username;
 - (void)showStatus:(NSString *)message;
 - (void)sessionChanged:(id)sender;
+- (void)languageChanged:(id)sender;
+- (void)keyboardLayoutChanged:(id)sender;
 - (void)resetLoginWindow;
 - (void)monitorSession;
 - (BOOL)trySystemAction:(NSString *)actionType;
@@ -85,5 +90,6 @@
 - (void)clearFieldsAndShake;
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector;
 - (void)showKeyboardLayoutLog:(id)sender;
+- (void)updateLocalizedStrings;
 
 @end

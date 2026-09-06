@@ -20,4 +20,32 @@
 // Returns YES when the NSMenu was successfully refreshed.
 - (BOOL)refreshMenuStateForWindow:(unsigned long)windowId;
 
+// Returns YES when the window's enabled/checkmark states are known to be
+// current (pulled or pushed within the TTL), so the click path can skip the
+// synchronous pull.  Windows we do not track report YES.
+- (BOOL)menuStatesAreFreshForWindow:(unsigned long)windowId withinTTL:(NSTimeInterval)ttl;
+
+// The authoritative current menu client name for a window (from the last
+// accepted menu push).  Menu item actions use this instead of the possibly
+// stale client name embedded in a menu item left over from a previous app
+// instance that reused the X window ID.
++ (NSString *)currentClientNameForWindow:(unsigned long)windowId;
+
+// Number of windows that currently have a cached menu tree.  Used by the CPU
+// profiler to detect unbounded growth from windows that closed without
+// unregistering.  Must stay bounded thanks to reconcileMenusWithLiveWindows.
++ (NSUInteger)cachedMenuCount;
+
+/* Application-level (windowless-app) menu support.  These back the menu bar
+   for the frontmost app when no window owns a window-level menu. */
+- (BOOL)hasApplicationMenuForPID:(pid_t)pid;
+- (NSMenu *)getApplicationMenuForPID:(pid_t)pid;
+// Synchronously pull fresh enabled/state values for the app menu from the
+// client.  Returns YES on success; returns YES immediately when the states
+// were refreshed within the TTL (avoids a blocking DO round-trip).
+- (BOOL)refreshApplicationMenuStateForPID:(pid_t)pid;
+// Ask a client (by name) to re-push its application-level menu.  Only uses
+// cached connections so the main thread never blocks on a DO name lookup.
+- (void)requestApplicationMenuUpdateForClient:(NSString *)clientName;
+
 @end

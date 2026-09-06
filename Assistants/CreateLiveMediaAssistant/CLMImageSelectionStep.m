@@ -59,8 +59,8 @@
     // Fit step view to installer card inner area
     _stepView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 354, 228)];
     
-    // Repository selection (flush top)
-    NSTextField *repoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 210, 86, 16)];
+    // Repository selection (flush top) - 24px side margins per HIG
+    NSTextField *repoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 210, 86, 16)];
     [repoLabel setStringValue:NSLocalizedString(@"Repository:", @"")];
     [repoLabel setBezeled:NO];
     [repoLabel setDrawsBackground:NO];
@@ -68,7 +68,7 @@
     [repoLabel setSelectable:NO];
     [_stepView addSubview:repoLabel];
     
-    _repositoryPopUp = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(96, 208, 250, 20)];
+    _repositoryPopUp = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(112, 208, 218, 20)];
     NSArray<NSString *> *repos = CLMAvailableRepositories();
     for (NSString *repoURL in repos) {
         NSString *repoTitle = repoURL;
@@ -89,7 +89,7 @@
     [_stepView addSubview:_repositoryPopUp];
     
     // Prerelease checkbox
-    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(8, 188, 220, 18)];
+    _prereleaseCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(24, 188, 220, 18)];
     [_prereleaseCheckbox setButtonType:NSSwitchButton];
     [_prereleaseCheckbox setTitle:@"Show Pre-release builds"];
     [_prereleaseCheckbox setState:NSOffState];
@@ -113,8 +113,8 @@
     [_loadingLabel setHidden:YES];
     [_stepView addSubview:_loadingLabel];
     
-    // Release table (flush below checkbox)
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(8, 86, 338, 100)];
+    // Release table (flush below checkbox) - 24px side margins per HIG
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(24, 86, 306, 100)];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:NO];
     [scrollView setBorderType:NSBezelBorder];
@@ -159,7 +159,7 @@
                                                object:_releaseTableView];
     
     // Info labels below the table
-    _dateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 70, 338, 14)];
+    _dateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 70, 306, 14)];
     [_dateLabel setStringValue:NSLocalizedString(@"", @"")];
     [_dateLabel setBezeled:NO];
     [_dateLabel setDrawsBackground:NO];
@@ -168,7 +168,7 @@
     [_dateLabel setFont:[NSFont systemFontOfSize:10]];
     [_stepView addSubview:_dateLabel];
     
-    _urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 26, 338, 42)];
+    _urlLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 26, 306, 42)];
     [_urlLabel setStringValue:NSLocalizedString(@"", @"")];
     [_urlLabel setBezeled:NO];
     [_urlLabel setDrawsBackground:NO];
@@ -179,7 +179,7 @@
     [[_urlLabel cell] setUsesSingleLineMode:NO];
     [_stepView addSubview:_urlLabel];
     
-    _sizeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(8, 10, 338, 14)];
+    _sizeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 10, 306, 14)];
     [_sizeLabel setStringValue:NSLocalizedString(@"", @"")];
     [_sizeLabel setBezeled:NO];
     [_sizeLabel setDrawsBackground:NO];
@@ -272,7 +272,14 @@
         [openPanel setCanChooseFiles:YES];
         [openPanel setCanChooseDirectories:NO];
         [openPanel setAllowsMultipleSelection:NO];
-        [openPanel setAllowedFileTypes:@[@"iso", @"img", @"gz", @"xz", @"bz2", @"zst", @"lz", @"lzma"]];
+        [openPanel setAllowedFileTypes:@[@"iso", @"img",
+                                         @"gz", @"gzip",
+                                         @"xz",
+                                         @"bz2", @"bzip2",
+                                         @"zst", @"zstd",
+                                         @"lz", @"lzma",
+                                         @"Z",
+                                         @"zip"]];
         
         NSInteger result = [openPanel runModal];
         if (result == NSFileHandlingPanelOKButton) {
@@ -356,6 +363,42 @@
     [_releaseArrayController setSelectionIndex:0];
     
     [self requestNavigationUpdate];
+
+    // Fetch the real size via a HEAD request so the UI shows it and the
+    // disk-space check can use it. Size stays 0 (unknown) until it arrives,
+    // but the selection is already usable.
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        NSURL *url = [NSURL URLWithString:urlString];
+        NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+        [req setHTTPMethod:@"HEAD"];
+        [req setTimeoutInterval:15.0];
+
+        NSHTTPURLResponse *response = nil;
+        NSError *error = nil;
+        [NSURLConnection sendSynchronousRequest:req
+                              returningResponse:&response
+                                          error:&error];
+        long long size = 0;
+        if (!error && response) {
+            size = [response expectedContentLength];
+        }
+        NSLog(@"CLMImageSelectionStep: HEAD %@ -> size=%lld err=%@",
+              urlString, size, error);
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(weakSelf) strongSelf2 = weakSelf;
+            if (!strongSelf2 || size <= 0) return;
+            [asset setObject:[NSNumber numberWithLongLong:size] forKey:@"size"];
+            [asset setObject:[GSDiskUtilities formatSize:size] forKey:@"sizeFormatted"];
+            [strongSelf2->_releaseArrayController rearrangeObjects];
+            [strongSelf2->_releaseTableView reloadData];
+            [strongSelf2 requestNavigationUpdate];
+        });
+    });
 }
 
 - (void)loadLocalFile:(NSString *)filePath
@@ -521,7 +564,9 @@
             NSString *url = [selectedRelease objectForKey:@"url"];
             NSString *name = [selectedRelease objectForKey:@"name"];
             NSDebugLLog(@"gwcomp", @"CLMImageSelectionStep: name=%@ url=%@ size=%@", name, url, size);
-            if ([url length] > 0 && [size longLongValue] > 0 &&
+            // Size may be 0 (unknown) for direct download URLs; the image name
+            // check is enough to allow continuing.
+            if ([url length] > 0 &&
                 [CLMStreamOperation isImageAssetName:name]) {
                 NSDebugLLog(@"gwcomp", @"CLMImageSelectionStep: canContinue = YES");
                 return YES;

@@ -5,6 +5,7 @@
  */
 
 #import "StartupDiskController.h"
+#import "AppearanceMetrics.h"
 
 // Global timer for boot order changes
 NSDate *bootOrderChangedTime = nil;
@@ -55,15 +56,16 @@ NSDate *bootOrderChangedTime = nil;
     NSRect textRect = cellFrame;
     
     if (cellImage) {
-        // Leave space for the icon (16x16 with some padding)
+        // 16px icon, HIG 8px gap between a control and its text label.
         imageRect.size.width = 16;
         imageRect.size.height = 16;
         imageRect.origin.y += (cellFrame.size.height - 16) / 2; // Center vertically
-        imageRect.origin.x += 4; // Small left margin
+        imageRect.origin.x += METRICS_SPACE_8 / 2;              // 4px left margin
         
-        // Adjust text rect to start after the icon
-        textRect.origin.x += 24; // Icon width + padding
-        textRect.size.width -= 24;
+        // Adjust text rect to start after the icon + gap.
+        const CGFloat textInset = 16 + METRICS_SPACE_8;
+        textRect.origin.x += textInset;
+        textRect.size.width -= textInset;
         
         // Draw the image
         [cellImage drawInRect:imageRect 
@@ -190,6 +192,8 @@ NSDate *bootOrderChangedTime = nil;
     if (self) {
         bootEntries = [[NSMutableArray alloc] init];
         bootOrderChanged = NO;
+        isFetching = NO;
+        helperLock = [[NSLock alloc] init];
         
         // Initialize helper process variables
         helperTask = nil;
@@ -219,6 +223,9 @@ NSDate *bootOrderChangedTime = nil;
     }
     
     mainView = view;
+    if ([view respondsToSelector:@selector(setLayoutOwner:)]) {
+        [view performSelector:@selector(setLayoutOwner:) withObject:self];
+    }
     NSDebugLLog(@"gwcomp", @"StartupDiskController: Set mainView, about to call setupUI");
     [self setupUI];
     NSDebugLLog(@"gwcomp", @"StartupDiskController: setMainView completed");
@@ -238,20 +245,18 @@ NSDate *bootOrderChangedTime = nil;
     
     // Title label
     NSDebugLLog(@"gwcomp", @"StartupDiskController: Creating title label");
-    titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, frame.size.height - 50, frame.size.width - 40, 24)];
+    titleLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
     [titleLabel setStringValue:@"Drag boot entries to arrange their priority order"];
     [titleLabel setBezeled:NO];
     [titleLabel setDrawsBackground:NO];
     [titleLabel setEditable:NO];
     [titleLabel setSelectable:NO];
     [titleLabel setFont:[NSFont systemFontOfSize:13]];
-    NSDebugLLog(@"gwcomp", @"StartupDiskController: Adding title label to mainView");
     [mainView addSubview:titleLabel];
-    NSDebugLLog(@"gwcomp", @"StartupDiskController: Title label added successfully");
     
     // Instruction label
     NSDebugLLog(@"gwcomp", @"StartupDiskController: Creating instruction label");
-    instructionLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, frame.size.height - 75, frame.size.width - 40, 20)];
+    instructionLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
     [instructionLabel setStringValue:@"The first entry in the list will be used as the default startup disk"];
     [instructionLabel setBezeled:NO];
     [instructionLabel setDrawsBackground:NO];
@@ -259,22 +264,17 @@ NSDate *bootOrderChangedTime = nil;
     [instructionLabel setSelectable:NO];
     [instructionLabel setFont:[NSFont systemFontOfSize:11]];
     [instructionLabel setTextColor:[NSColor secondaryLabelColor]];
-    NSDebugLLog(@"gwcomp", @"StartupDiskController: Adding instruction label to mainView");
     [mainView addSubview:instructionLabel];
-    NSDebugLLog(@"gwcomp", @"StartupDiskController: Instruction label added successfully");
     
     // Scroll view and table view for boot entries
     NSDebugLLog(@"gwcomp", @"StartupDiskController: Creating scroll view and table view");
-    scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 100, frame.size.width - 40, frame.size.height - 200)];
+    scrollView = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:NO];
     [scrollView setBorderType:NSBezelBorder];
-    [scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-    NSDebugLLog(@"gwcomp", @"StartupDiskController: Scroll view frame = %@", NSStringFromRect([scrollView frame]));
     
-    NSRect tableFrame = NSMakeRect(0, 0, frame.size.width - 60, 200);
+    NSRect tableFrame = NSMakeRect(0, 0, 100, 100);
     tableView = [[EasyDragTableView alloc] initWithFrame:tableFrame];
-    [tableView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [tableView setDataSource:self];
     [tableView setDelegate:self];
     [tableView setRowHeight:22];
@@ -300,27 +300,79 @@ NSDate *bootOrderChangedTime = nil;
     [column release];
     
     [scrollView setDocumentView:tableView];
-    NSDebugLLog(@"gwcomp", @"StartupDiskController: Adding scroll view to mainView");
     [mainView addSubview:scrollView];
-    NSDebugLLog(@"gwcomp", @"StartupDiskController: Scroll view added successfully");
     
     // Restart button
     NSDebugLLog(@"gwcomp", @"StartupDiskController: Creating restart button");
-    restartButton = [[NSButton alloc] initWithFrame:NSMakeRect(frame.size.width - 160, 60, 120, 32)];
+    restartButton = [[NSButton alloc] initWithFrame:NSZeroRect];
     [restartButton setTitle:@"Restart..."];
+    [restartButton setBezelStyle:NSRoundedBezelStyle];
     [restartButton setTarget:self];
     [restartButton setAction:@selector(restartClicked:)];
-    [restartButton setAutoresizingMask:NSViewMinXMargin];
-    NSDebugLLog(@"gwcomp", @"StartupDiskController: Adding restart button to mainView");
     [mainView addSubview:restartButton];
-    NSDebugLLog(@"gwcomp", @"StartupDiskController: Restart button added successfully");
+    
+    [self relayoutWithWidth:NSWidth(frame)];
     
     NSDebugLLog(@"gwcomp", @"StartupDiskController: setupUI completed - mainView now has %lu subviews", (unsigned long)[[mainView subviews] count]);
+}
+
+/* Lay out the pane against the actual view size (HIG metrics): 24px side
+   margins, 15px top, 20px bottom.  Title and instruction at the top, the
+   boot-entry table filling the space above the button row, and the Restart
+   button bottom-anchored on the right. */
+- (void)relayoutWithWidth:(CGFloat)width
+{
+    NSRect bounds = [mainView bounds];
+    CGFloat w = (width > 0) ? width : NSWidth(bounds);
+    CGFloat h = NSHeight(bounds);
+    if (h <= 0) h = 400;
+    
+    const CGFloat side = METRICS_CONTENT_SIDE_MARGIN;      /* 24 */
+    const CGFloat topMargin = METRICS_CONTENT_TOP_MARGIN;  /* 15 */
+    const CGFloat bottom = METRICS_CONTENT_BOTTOM_MARGIN;  /* 20 */
+    const CGFloat space8 = METRICS_SPACE_8;
+    const CGFloat space12 = METRICS_SPACE_12;
+    const CGFloat labelH = 18;
+    const CGFloat buttonH = METRICS_BUTTON_HEIGHT;          /* 20 */
+    const CGFloat buttonW = METRICS_BUTTON_MIN_WIDTH;       /* 100 */
+    
+    CGFloat y = h - topMargin - labelH;
+    [titleLabel setFrame:NSMakeRect(side, y, w - 2 * side, labelH)];
+    
+    y -= labelH + space8;
+    [instructionLabel setFrame:NSMakeRect(side, y, w - 2 * side, labelH)];
+    
+    // Table fills the space between the instruction label and the button
+    // row, with the HIG 8px gap below the label.
+    CGFloat buttonY = bottom;
+    CGFloat tableY = buttonY + buttonH + space12;
+    CGFloat tableH = y - space8 - tableY;
+    if (tableH < 60) tableH = 60;
+    [scrollView setFrame:NSMakeRect(side, tableY, w - 2 * side, tableH)];
+    
+    [restartButton setFrame:NSMakeRect(w - side - buttonW, buttonY, buttonW, buttonH)];
+    
+    // Make the table column track the scroll view width (leave 20px for the
+    // vertical scroller, per METRICS_SCROLLBAR_WIDTH 11 + margin).
+    if ([tableView tableColumns] && [[tableView tableColumns] count] > 0) {
+        NSTableColumn *col = [[tableView tableColumns] objectAtIndex:0];
+        [col setWidth:NSWidth([scrollView frame]) - 20];
+    }
 }
 
 - (void)refreshBootEntries
 {
     NSDebugLLog(@"gwcomp", @"StartupDiskController: refreshBootEntries called");
+    
+    /* Skip if a fetch is already in flight.  mainViewDidLoad, didSelect and
+       the 5s refresh timer can all fire refreshBootEntries; without this
+       guard multiple background threads would read the helper's output pipe
+       concurrently and corrupt it (fragmented READY/RESULT lines). */
+    if (isFetching) {
+        NSDebugLLog(@"gwcomp", @"StartupDiskController: fetch already in progress, skipping");
+        return;
+    }
+    isFetching = YES;
     
     // Don't refresh if the user has made changes that haven't been applied yet
     // But add a safety mechanism - if bootOrderChanged has been true for too long, reset it
@@ -393,6 +445,8 @@ NSDate *bootOrderChangedTime = nil;
 }
 - (void)handleBootEntriesResult:(NSDictionary *)resultDict
 {
+    isFetching = NO;
+    
     // Safely extract values with null checks
     if (!resultDict) {
         NSDebugLLog(@"gwcomp", @"StartupDiskController: handleBootEntriesResult called with nil resultDict");
@@ -780,6 +834,16 @@ NSDate *bootOrderChangedTime = nil;
 
 - (BOOL)startHelperProcess
 {
+    /* Serialize helper startup: a fetch thread and an apply/restart path may
+       race to start the helper and drain its READY line. */
+    [helperLock lock];
+    BOOL started = [self startHelperProcessLocked];
+    [helperLock unlock];
+    return started;
+}
+
+- (BOOL)startHelperProcessLocked
+{
     if (helperTask && [helperTask isRunning]) {
         NSDebugLLog(@"gwcomp", @"StartupDiskController: Helper process already running");
         return YES;
@@ -862,24 +926,37 @@ NSDate *bootOrderChangedTime = nil;
     @try {
         [helperTask launch];
         
-        // Wait for the "READY" message
-        NSData *readyData = [helperOutputHandle availableData];
-        NSString *readyMessage = [[NSString alloc] initWithData:readyData encoding:NSUTF8StringEncoding];
-        
-        // Give it a moment to start up properly
-        sleep(1);
-        
-        // Try reading the ready message again if we didn't get it
-        if (![readyMessage containsString:@"READY"]) {
-            readyData = [helperOutputHandle availableData];
-            [readyMessage release];
-            readyMessage = [[NSString alloc] initWithData:readyData encoding:NSUTF8StringEncoding];
+        // Wait for the "READY" line.  availableData may return a fragment
+        // (e.g. "EADY\n" with the "R" still in flight), and since the same
+        // pipe later carries the command response, a stray partial line
+        // would corrupt the first "RESULT:" line.  Buffer and consume
+        // complete lines only.
+        NSMutableString *readyBuffer = [NSMutableString string];
+        NSDate *readyTimeout = [NSDate dateWithTimeIntervalSinceNow:10.0];
+        BOOL gotReady = NO;
+        while (!gotReady && [[NSDate date] compare:readyTimeout] == NSOrderedAscending) {
+            NSData *readyData = [helperOutputHandle availableData];
+            if ([readyData length] > 0) {
+                NSString *chunk = [[NSString alloc] initWithData:readyData encoding:NSUTF8StringEncoding];
+                [readyBuffer appendString:chunk];
+                [chunk release];
+                NSRange r;
+                while ((r = [readyBuffer rangeOfString:@"\n"]).location != NSNotFound) {
+                    NSString *line = [readyBuffer substringToIndex:r.location];
+                    [readyBuffer deleteCharactersInRange:NSMakeRange(0, r.location + 1)];
+                    if ([line isEqualToString:@"READY"]) {
+                        gotReady = YES;
+                        break;
+                    }
+                }
+            } else {
+                usleep(50000); // 50ms
+            }
         }
         
-        NSDebugLLog(@"gwcomp", @"StartupDiskController: Helper process started, ready message: %@", readyMessage);
-        [readyMessage release];
+        NSDebugLLog(@"gwcomp", @"StartupDiskController: Helper process started, ready message: %@", gotReady ? @"READY" : @"(timeout)");
         
-        return YES;
+        return gotReady;
     }
     @catch (NSException *exception) {
         NSDebugLLog(@"gwcomp", @"StartupDiskController: Failed to start helper process: %@", exception);
@@ -916,6 +993,17 @@ NSDate *bootOrderChangedTime = nil;
 
 - (BOOL)sendHelperCommand:(NSString *)command withResponse:(NSString **)response withError:(NSString **)error
 {
+    /* Serialize command/response: only one thread may write to and read from
+       the helper's pipes at a time, otherwise fragmented output corrupts the
+       RESULT:/OUTPUT_START markers. */
+    [helperLock lock];
+    BOOL ok = [self sendHelperCommandLocked:command withResponse:response withError:error];
+    [helperLock unlock];
+    return ok;
+}
+
+- (BOOL)sendHelperCommandLocked:(NSString *)command withResponse:(NSString **)response withError:(NSString **)error
+{
     if (!helperTask || ![helperTask isRunning]) {
         if (error) {
             *error = @"Helper process not running";
@@ -931,9 +1019,12 @@ NSDate *bootOrderChangedTime = nil;
         NSData *commandData = [commandWithNewline dataUsingEncoding:NSUTF8StringEncoding];
         [helperInputHandle writeData:commandData];
         
-        // Read response
+        // Read response.  availableData may return a fragment in the middle
+        // of a line (the RESULT:/OUTPUT_START markers can be split across
+        // chunks), so accumulate a buffer and only process complete lines.
         NSMutableString *responseBuffer = [NSMutableString string];
         NSMutableString *errorBuffer = [NSMutableString string];
+        NSMutableString *lineBuffer = [NSMutableString string];
         BOOL inOutput = NO;
         BOOL inError = NO;
         BOOL commandComplete = NO;
@@ -946,9 +1037,14 @@ NSDate *bootOrderChangedTime = nil;
             NSData *data = [helperOutputHandle availableData];
             if ([data length] > 0) {
                 NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-                NSArray *lines = [output componentsSeparatedByString:@"\n"];
+                [lineBuffer appendString:output];
+                [output release];
                 
-                for (NSString *line in lines) {
+                NSRange r;
+                while ((r = [lineBuffer rangeOfString:@"\n"]).location != NSNotFound) {
+                    NSString *line = [lineBuffer substringToIndex:r.location];
+                    [lineBuffer deleteCharactersInRange:NSMakeRange(0, r.location + 1)];
+                    
                     NSDebugLLog(@"gwcomp", @"StartupDiskController: Helper output line: %@", line);
                     if ([line hasPrefix:@"RESULT:"]) {
                         result = [[line substringFromIndex:7] intValue];
@@ -973,8 +1069,7 @@ NSDate *bootOrderChangedTime = nil;
                         [errorBuffer appendString:@"\n"];
                     }
                 }
-                
-                [output release];
+                if (commandComplete) break;
             } else {
                 // Small delay to prevent busy waiting
                 usleep(50000); // 50ms
@@ -1326,6 +1421,7 @@ NSDate *bootOrderChangedTime = nil;
 - (void)dealloc
 {
     [self stopHelperProcess];
+    [helperLock release];
     [bootEntries release];
     [titleLabel release];
     [instructionLabel release];

@@ -5,6 +5,7 @@
  */
 
 #import "GlobalShortcutsController.h"
+#import "AppearanceMetrics.h"
 #include <dirent.h>
 #include <ctype.h>
 #include <string.h>
@@ -97,6 +98,38 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
 
 @end
 
+@class GlobalShortcutsController;
+
+/* The pane view. When the host window gives us a width (which is not the
+   560px base we built at), re-lay out the group boxes so the left/right
+   margins to the window edge stay symmetric. */
+@interface GlobalShortcutsMainView : NSView
+{
+    GlobalShortcutsController *_layoutOwner;
+}
+@end
+
+@implementation GlobalShortcutsMainView
+- (void)setFrameSize:(NSSize)newSize
+{
+    [super setFrameSize:newSize];
+    [_layoutOwner relayoutWithWidth:newSize.width];
+}
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window] && [self superview]) {
+        /* GNUstep's setFrame: bypasses setFrameSize:, so re-lay out explicitly */
+        [self setFrame:[[self superview] bounds]];
+        [_layoutOwner relayoutWithWidth:[self bounds].size.width];
+    }
+}
+- (void)setLayoutOwner:(GlobalShortcutsController *)owner
+{
+    _layoutOwner = owner;
+}
+@end
+
 @implementation GlobalShortcutsController
 
 - (id)init
@@ -120,26 +153,38 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
     if (mainView) {
         return mainView;
     }
-    
-    // Create main view
-    mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 600, 400)];
-    
-    // Remove status label below the table
-    // Create table view with scroll view
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(12, 60, mainView.frame.size.width - 24, 280)];
+
+    const CGFloat winW = 560, winH = 440;
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;      /* 24 */
+    const CGFloat topMargin = METRICS_CONTENT_TOP_MARGIN;        /* 15 */
+    const CGFloat bottomMargin = METRICS_SPACE_12;               /* under status */
+    const CGFloat statusH = 18;
+    const CGFloat buttonH = METRICS_BUTTON_HEIGHT;               /* 20 */
+    const CGFloat rowGap = METRICS_SPACE_8;
+
+    mainView = [[GlobalShortcutsMainView alloc] initWithFrame:NSMakeRect(0, 0, winW, winH)];
+    [(GlobalShortcutsMainView *)mainView setLayoutOwner:self];
+    [mainView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    CGFloat contentW = winW - 2 * sideMargin;
+
+    /* ---- Shortcuts table (single item, no group box) ---- */
+    CGFloat statusY = bottomMargin;
+    CGFloat buttonsY = statusY + statusH + rowGap;
+    CGFloat tableBottom = buttonsY + buttonH;
+    CGFloat tableTop = winH - topMargin;
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:
+        NSMakeRect(sideMargin, tableBottom, contentW, tableTop - tableBottom)];
     [scrollView setAutoresizingMask:NSViewWidthSizable];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:NO];
     [scrollView setBorderType:NSBezelBorder];
-    
+
     shortcutsTable = [[NSTableView alloc] initWithFrame:[scrollView bounds]];
-    [shortcutsTable setAutoresizingMask:NSViewWidthSizable];
     [shortcutsTable setDelegate:self];
     [shortcutsTable setDataSource:self];
     [shortcutsTable setDoubleAction:@selector(tableDoubleClicked:)];
     [shortcutsTable setTarget:self];
-    
-    // Create columns
+
     NSTableColumn *keyColumn = [[NSTableColumn alloc] initWithIdentifier:@"keyCombo"];
     [keyColumn setTitle:@"Key Combination"];
     [keyColumn setWidth:180];
@@ -148,57 +193,111 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
     [keyColumn setEditable:NO];
     [shortcutsTable addTableColumn:keyColumn];
     [keyColumn release];
-    
+
     NSTableColumn *commandColumn = [[NSTableColumn alloc] initWithIdentifier:@"command"];
     [commandColumn setTitle:@"Command"];
-    [commandColumn setWidth:shortcutsTable.frame.size.width - 180 - 20];
+    [commandColumn setWidth:contentW - 180 - 20];
     [commandColumn setMinWidth:100];
     [commandColumn setResizingMask:NSTableColumnAutoresizingMask];
     [commandColumn setEditable:NO];
     [shortcutsTable addTableColumn:commandColumn];
     [commandColumn release];
-    
+
     [scrollView setDocumentView:shortcutsTable];
     [mainView addSubview:scrollView];
     [scrollView release];
-    
-    // Place buttons below the table, horizontally centered and autoresizing
-    CGFloat buttonY = 20;
-    CGFloat buttonWidth = 80;
-    CGFloat buttonSpacing = 20;
-    CGFloat totalButtonWidth = buttonWidth * 3 + buttonSpacing * 2;
-    CGFloat startX = 12 + (mainView.frame.size.width - 24 - totalButtonWidth) / 2;
-    
-    addButton = [[NSButton alloc] init];
-    [addButton setTitle:@"Add"];
-    [addButton setTarget:self];
-    [addButton setAction:@selector(addShortcut:)];
-    [addButton sizeToFit];
-    [addButton setFrame:NSMakeRect(startX, buttonY, buttonWidth, addButton.frame.size.height)];
-    [addButton setAutoresizingMask:NSViewMinXMargin | NSViewMaxXMargin];
-    [mainView addSubview:addButton];
-    
-    editButton = [[NSButton alloc] init];
-    [editButton setTitle:@"Edit"];
-    [editButton setTarget:self];
-    [editButton setAction:@selector(editShortcut:)];
-    [editButton setEnabled:NO];
-    [editButton sizeToFit];
-    [editButton setFrame:NSMakeRect(startX + buttonWidth + buttonSpacing, buttonY, buttonWidth, editButton.frame.size.height)];
-    [editButton setAutoresizingMask:NSViewMinXMargin | NSViewMaxXMargin];
-    [mainView addSubview:editButton];
-    
-    deleteButton = [[NSButton alloc] init];
-    [deleteButton setTitle:@"Delete"];
-    [deleteButton setTarget:self];
-    [deleteButton setAction:@selector(deleteShortcut:)];
+
+    /* ---- Add / Delete buttons (rectangular "+" / "-"), left-aligned ---- */
+    const CGFloat miniButtonW = 28;
+    CGFloat bx = sideMargin;
+    addButton = [self makePlusMinusButtonWithTitle:@"+"
+                                            action:@selector(addShortcut:)
+                                             frame:NSMakeRect(bx, buttonsY, miniButtonW, buttonH)];
+    bx += miniButtonW - 1;
+
+    deleteButton = [self makePlusMinusButtonWithTitle:@"-"
+                                               action:@selector(deleteShortcut:)
+                                                frame:NSMakeRect(bx, buttonsY, miniButtonW, buttonH)];
     [deleteButton setEnabled:NO];
-    [deleteButton sizeToFit];
-    [deleteButton setFrame:NSMakeRect(startX + (buttonWidth + buttonSpacing) * 2, buttonY, buttonWidth, deleteButton.frame.size.height)];
-    [deleteButton setAutoresizingMask:NSViewMinXMargin | NSViewMaxXMargin];
-    [mainView addSubview:deleteButton];
-    
+
+    /* ---- Status label at the bottom ---- */
+    statusLabel = [[NSTextField alloc] initWithFrame:
+        NSMakeRect(sideMargin, statusY, contentW, statusH)];
+    [statusLabel setBezeled:NO];
+    [statusLabel setEditable:NO];
+    [statusLabel setSelectable:NO];
+    [statusLabel setDrawsBackground:NO];
+    [statusLabel setFont:[NSFont systemFontOfSize:10]];
+    [statusLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMaxYMargin)];
+    [mainView addSubview:statusLabel];
+
     return mainView;
+}
+
+/* Re-lay out the pane for the given width. Positions are computed
+   bottom-up and explicitly so nothing relies on autoresizing quirks. */
+- (void)relayoutWithWidth:(CGFloat)width
+{
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;  /* 24 */
+    const CGFloat bottomMargin = METRICS_SPACE_12;
+    const CGFloat statusH = 18;
+    const CGFloat buttonH = METRICS_BUTTON_HEIGHT;
+    const CGFloat rowGap = METRICS_SPACE_8;
+    CGFloat height = [mainView bounds].size.height;
+    CGFloat contentW = width - 2 * sideMargin;
+    CGFloat statusY = bottomMargin;
+    CGFloat buttonsY = statusY + statusH + rowGap;
+    CGFloat tableBottom = buttonsY + buttonH;
+    CGFloat tableTop = height - METRICS_CONTENT_TOP_MARGIN;
+    NSRect f;
+
+    if (statusLabel) {
+        f = [statusLabel frame];
+        f.origin.x = sideMargin;
+        f.size.width = contentW;
+        f.origin.y = statusY;
+        f.size.height = statusH;
+        [statusLabel setFrame:f];
+    }
+
+    if ([addButton superview]) {
+        const CGFloat miniButtonW = 28;
+        NSRect bf = [addButton frame];
+        CGFloat bx = sideMargin;
+        bf.origin.x = bx; bf.origin.y = buttonsY; bf.size.height = buttonH; bf.size.width = miniButtonW;
+        [addButton setFrame:bf];
+        bx += miniButtonW - 1;
+        bf = [deleteButton frame];
+        bf.origin.x = bx; bf.origin.y = buttonsY; bf.size.height = buttonH; bf.size.width = miniButtonW;
+        [deleteButton setFrame:bf];
+    }
+
+    if (shortcutsTable) {
+        NSScrollView *sv = [shortcutsTable enclosingScrollView];
+        f = [sv frame];
+        f.origin.x = sideMargin;
+        f.size.width = contentW;
+        f.origin.y = tableBottom;
+        f.size.height = tableTop - tableBottom;
+        [sv setFrame:f];
+    }
+}
+
+/* A push button helper (METRICS_BUTTON_HEIGHT tall). */
+/* A rectangular "+"/"-" button helper (METRICS_BUTTON_HEIGHT tall). */
+- (NSButton *)makePlusMinusButtonWithTitle:(NSString *)title
+                                    action:(SEL)action
+                                     frame:(NSRect)frame
+{
+    NSButton *button = [[NSButton alloc] initWithFrame:frame];
+    [button setTitle:title];
+    [button setButtonType:NSMomentaryPushInButton];
+    [button setBezelStyle:NSRegularSquareBezelStyle];
+    [button setTarget:self];
+    [button setAction:action];
+    [button setAutoresizingMask:NSViewMaxYMargin];
+    [mainView addSubview:button];
+    return button;
 }
 
 - (void)refreshShortcuts:(NSTimer *)timer
@@ -494,7 +593,6 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
     NSInteger selectedRow = [shortcutsTable selectedRow];
     BOOL hasSelection = (selectedRow >= 0);
     
-    [editButton setEnabled:hasSelection];
     [deleteButton setEnabled:hasSelection];
 }
 
@@ -633,72 +731,96 @@ NSArray *parseKeyComboInPrefPane(NSString *keyCombo) {
     isCapturingKeyCombo = NO;
     capturedModifiers = [[NSMutableArray alloc] init];
     
-    // Create edit window using custom window class
-    editWindow = [[ShortcutEditWindow alloc] initWithContentRect:NSMakeRect(0, 0, 500, 150)
+    /* Dialog layout per AppearanceMetrics: 24px side margins, 110px
+       right-aligned labels, 8px label/control gap, Cancel left of OK
+       (12px apart), OK default in the lower-right corner. */
+    const CGFloat winW = 520, winH = 130;
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;   /* 24 */
+    const CGFloat labelW = 110;
+    const CGFloat gap = METRICS_SPACE_8;
+    const CGFloat setButtonW = 60;
+    const CGFloat rowH = METRICS_TEXT_INPUT_FIELD_HEIGHT;     /* 22 */
+    const CGFloat buttonW = 80;
+    const CGFloat buttonH = METRICS_BUTTON_HEIGHT;            /* 20 */
+    const CGFloat contentW = winW - 2 * sideMargin;
+
+    editWindow = [[ShortcutEditWindow alloc] initWithContentRect:NSMakeRect(0, 0, winW, winH)
                                              styleMask:NSTitledWindowMask
                                                backing:NSBackingStoreBuffered
                                                  defer:NO];
-    
     [(ShortcutEditWindow *)editWindow setEditController:self];
-    
     [editWindow setTitle:editing ? @"Edit Shortcut" : @"Add Shortcut"];
-    
+
     NSView *contentView = [editWindow contentView];
-    
-    // Key combination label and field
-    NSTextField *keyLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 100, 120, 20)];
+    CGFloat y = winH - METRICS_CONTENT_TOP_MARGIN - rowH;
+
+    /* Row 1: Key Combination label + field + Set button */
+    NSTextField *keyLabel = [[NSTextField alloc] initWithFrame:
+        NSMakeRect(sideMargin, y + 1, labelW, 20)];
     [keyLabel setEditable:NO];
     [keyLabel setSelectable:NO];
     [keyLabel setBezeled:NO];
     [keyLabel setDrawsBackground:NO];
+    [keyLabel setAlignment:NSRightTextAlignment];
     [keyLabel setStringValue:@"Key Combination:"];
     [contentView addSubview:keyLabel];
     [keyLabel release];
-    
-    keyComboField = [[NSTextField alloc] initWithFrame:NSMakeRect(150, 100, 180, 22)];
+
+    CGFloat fieldW = contentW - labelW - gap - setButtonW - gap;
+    keyComboField = [[NSTextField alloc] initWithFrame:
+        NSMakeRect(sideMargin + labelW + gap, y, fieldW, rowH)];
     [keyComboField setStringValue:[currentShortcut objectForKey:@"keyCombo"]];
     [contentView addSubview:keyComboField];
-    
-    setButton = [[NSButton alloc] init];
+
+    setButton = [[NSButton alloc] initWithFrame:
+        NSMakeRect(sideMargin + labelW + gap + fieldW + gap, y, setButtonW, buttonH)];
     [setButton setTitle:@"Set"];
+    [setButton setButtonType:NSMomentaryPushInButton];
+    [setButton setBezelStyle:NSRoundedBezelStyle];
     [setButton setTarget:self];
     [setButton setAction:@selector(setKeyComboClicked:)];
-    [setButton sizeToFit];
-    [setButton setFrame:NSMakeRect(340, 100, 60, setButton.frame.size.height)];
     [contentView addSubview:setButton];
-    
-    // Command label and field
-    NSTextField *commandLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 70, 120, 20)];
+
+    y -= rowH + METRICS_SPACE_16;
+
+    /* Row 2: Command label + field */
+    NSTextField *commandLabel = [[NSTextField alloc] initWithFrame:
+        NSMakeRect(sideMargin, y + 1, labelW, 20)];
     [commandLabel setEditable:NO];
     [commandLabel setSelectable:NO];
     [commandLabel setBezeled:NO];
     [commandLabel setDrawsBackground:NO];
+    [commandLabel setAlignment:NSRightTextAlignment];
     [commandLabel setStringValue:@"Command:"];
     [contentView addSubview:commandLabel];
     [commandLabel release];
-    
-    commandField = [[NSTextField alloc] initWithFrame:NSMakeRect(150, 70, 250, 22)];
+
+    commandField = [[NSTextField alloc] initWithFrame:
+        NSMakeRect(sideMargin + labelW + gap, y, contentW - labelW - gap, rowH)];
     [commandField setStringValue:[currentShortcut objectForKey:@"command"]];
     [contentView addSubview:commandField];
-    
-    // Buttons
-    cancelButton = [[NSButton alloc] init];
-    [cancelButton setTitle:@"Cancel"];
-    [cancelButton setTarget:self];
-    [cancelButton setAction:@selector(cancelClicked:)];
-    [cancelButton sizeToFit];
-    [cancelButton setFrame:NSMakeRect(270, 20, 80, cancelButton.frame.size.height)];
-    [contentView addSubview:cancelButton];
-    
-    okButton = [[NSButton alloc] init];
+
+    /* Bottom: Cancel left of OK (12px apart), OK default right-aligned */
+    CGFloat by = METRICS_CONTENT_BOTTOM_MARGIN;
+    okButton = [[NSButton alloc] initWithFrame:
+        NSMakeRect(winW - sideMargin - buttonW, by, buttonW, buttonH)];
     [okButton setTitle:@"OK"];
+    [okButton setButtonType:NSMomentaryPushInButton];
+    [okButton setBezelStyle:NSRoundedBezelStyle];
     [okButton setTarget:self];
     [okButton setAction:@selector(okClicked:)];
     [okButton setKeyEquivalent:@"\r"];
-    [okButton sizeToFit];
-    [okButton setFrame:NSMakeRect(360, 20, 80, okButton.frame.size.height)];
     [contentView addSubview:okButton];
-    
+
+    cancelButton = [[NSButton alloc] initWithFrame:
+        NSMakeRect(winW - sideMargin - buttonW - METRICS_SPACE_12 - buttonW, by, buttonW, buttonH)];
+    [cancelButton setTitle:@"Cancel"];
+    [cancelButton setButtonType:NSMomentaryPushInButton];
+    [cancelButton setBezelStyle:NSRoundedBezelStyle];
+    [cancelButton setTarget:self];
+    [cancelButton setAction:@selector(cancelClicked:)];
+    [contentView addSubview:cancelButton];
+
     [NSApp beginSheet:editWindow modalForWindow:parentWindow modalDelegate:nil didEndSelector:nil contextInfo:nil];
 }
 

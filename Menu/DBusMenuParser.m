@@ -41,6 +41,15 @@ static void cacheShortcut(NSString *service, NSNumber *itemId,
     }
     NSMutableDictionary *byService = [_shortcutCache objectForKey:service];
     if (!byService) {
+        /* Cap the number of cached services: apps come and go over a long
+           session and this cache has no eviction - without a cap it grows
+           one entry per app forever. */
+        if ([_shortcutCache count] >= 32) {
+            id firstService = [[_shortcutCache allKeys] firstObject];
+            if (firstService) {
+                [_shortcutCache removeObjectForKey:firstService];
+            }
+        }
         byService = [[NSMutableDictionary alloc] init];
         [_shortcutCache setObject:byService forKey:service];
     }
@@ -234,6 +243,7 @@ static void cacheShortcut(NSString *service, NSNumber *itemId,
         }
         NSDebugLog(@"DBusMenuParser: Creating root menu with title: '%@'", menuTitle);
         menu = [[NSMenu alloc] initWithTitle:menuTitle];
+        [menu setAutoenablesItems:NO];
 
         // Process children of root item
         NSDebugLog(@"DBusMenuParser: Processing %lu children of root item", (unsigned long)[children count]);
@@ -333,6 +343,7 @@ static void cacheShortcut(NSString *service, NSNumber *itemId,
         }
         NSDebugLog(@"DBusMenuParser: Creating root menu with title: '%@'", menuTitle);
         menu = [[NSMenu alloc] initWithTitle:menuTitle];
+        [menu setAutoenablesItems:NO];
         
         // Process children of root item
         NSDebugLog(@"DBusMenuParser: Processing %lu children of root item", (unsigned long)[children count]);
@@ -541,10 +552,14 @@ static void cacheShortcut(NSString *service, NSNumber *itemId,
     // Store the DBus item ID in representedObject for later use in activation
     [menuItem setRepresentedObject:itemId];
     
-    // Set enabled state BEFORE setting shortcuts
-    if (enabled) {
+    // Set enabled state BEFORE setting shortcuts.
+    // Top-level items with submenus must NEVER be disabled — they always
+    // open their dropdown regardless of the app's transient enabled state.
+    if (enabled && !isSubmenu) {
         [menuItem setEnabled:[enabled boolValue]];
         NSDebugLog(@"DBusMenuParser: Set enabled state to: %@", [enabled boolValue] ? @"YES" : @"NO");
+    } else if (enabled && isSubmenu) {
+        NSDebugLog(@"DBusMenuParser: Ignoring enabled=false for submenu item (always enabled)");
     } else {
         NSDebugLog(@"DBusMenuParser: No enabled property, using default");
     }
@@ -633,6 +648,7 @@ static void cacheShortcut(NSString *service, NSNumber *itemId,
         NSDebugLog(@"DBusMenuParser: Submenu detected - dbus connection: %@", dbusConnection ? @"available" : @"none");
         
         NSMenu *submenu = [[NSMenu alloc] initWithTitle:label ? label : @""];
+        [submenu setAutoenablesItems:NO];
         NSDebugLog(@"DBusMenuParser: Created NSMenu object for submenu: %@", submenu);
         
         // Create submenu items - but mark that we may need to refresh them via AboutToShow

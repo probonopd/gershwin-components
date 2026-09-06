@@ -1,0 +1,10 @@
+# Copy the .desktop file, the OS icon set and the embedded framework into the
+# app bundle after the standard build has assembled it.
+after-all::
+	cp -f Resources/SystemEmulator.desktop $(APP_NAME).app/Resources/
+	cp -rf Resources/Icons $(APP_NAME).app/Resources/
+	@echo "Copying GSAssistantFramework into app bundle..."
+	@mkdir -p $(APP_NAME).app/Frameworks
+	@if [ "$$(uname -s)" = "OpenBSD" ]; then rm -rf $(APP_NAME).app/Frameworks/GSAssistantFramework.framework; fi
+	@cp -R ../AssistantFramework/GSAssistantFramework.framework $(APP_NAME).app/Frameworks/
+	@echo "Framework embedded in $(APP_NAME).app/Frameworks/"

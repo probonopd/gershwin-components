@@ -1,0 +1,29 @@
+Geom name: ada0
+Providers:
+1. Name: ada0
+   Mediasize: 160041885696 (149G)
+   Sectorsize: 512
+   Stripesize: 0
+   Stripeoffset: 0
+   Mode: r1w1e3
+   fwheads: 16
+   fwsectors: 63
+   lasterror: 0
+   descr: Samsung SSD 850 EVO
+   ident: S21PNXAG123456X
+   rotationrate: 0
+
+Geom name: da0
+Providers:
+1. Name: da0
+   Mediasize: 7739806720 (7.2G)
+   Sectorsize: 512
+   Stripesize: 0
+   Stripeoffset: 0
+   Mode: r0w0e0
+   fwheads: 255
+   fwsectors: 63
+   lasterror: 0
+   descr: SanDisk Cruzer Blade
+   ident: 4C530001123456789012
+   rotationrate: 0

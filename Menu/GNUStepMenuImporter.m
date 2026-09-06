@@ -14,6 +14,8 @@
 #import <dispatch/dispatch.h>
 #import <time.h>
 #import <X11/Xlib.h>
+#import <signal.h>
+#import <errno.h>
 
 /* Coarse DO-call throttle for full menu rebuilds.
    GWorkspace can fire updateMenuForWindow: thousands of times per second via DO.
@@ -24,6 +26,10 @@
 #define DO_STATE_UPDATE_MIN_NS   50000000LL   /*  50 ms */
 static struct timespec _lastMenuUpdateAccepted;
 static struct timespec _lastStateUpdateAccepted;
+/* App-level menu pushes use their own throttle gates so a windowless app's
+   menu updates never collide with (and get dropped by) the window-level ones. */
+static struct timespec _lastApplicationMenuUpdateAccepted;
+static struct timespec _lastApplicationStateUpdateAccepted;
 
 /* ============================================================
    PER-WINDOW PROXY MATERIALIZATION CACHE  —  DO NOT REMOVE!
@@ -98,30 +104,86 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
 @property (nonatomic, strong) NSMutableDictionary *clientNamesByWindow;
 @property (nonatomic, strong) NSMutableDictionary *lastMenuDataByWindow;
 @property (nonatomic, strong) NSMutableDictionary *lastMenuUpdateTimeByWindow;
+// Window -> NSTimeInterval of the last successful enabled/state refresh or
+// push.  Lets the click path skip the synchronous DO pull when states are
+// known to be current, so repeated menu opens are lag-free.
+@property (nonatomic, strong) NSMutableDictionary *lastStateRefreshByWindow;
+// Application-level menus, keyed by clientName ("org.gnustep.Gershwin.MenuClient.<pid>").
+// These back the menu bar for windowless frontmost apps.  clientPidByClientName
+// lets us advertise the set of menu-bearing apps to the WM (root property
+// _GERSHWIN_MENU_APPS) so Alt-Tab can list windowless apps.
+@property (nonatomic, strong) NSMutableDictionary *menusByClient;
+@property (nonatomic, strong) NSMutableDictionary *clientPidByClientName;
+@property (nonatomic, strong) NSMutableDictionary *lastApplicationMenuDataByClient;
+@property (nonatomic, strong) NSMutableDictionary *lastApplicationStateRefreshByClient;
 @property (nonatomic, strong) NSConnection *menuServerConnection;
 // Workaround: retry attempts when registering DO server fails
 @property (nonatomic) NSInteger registerRetryAttempts;
+// Serial queue for per-window client probes.  A blocking DO name lookup
+// (connectionWithRegisteredName:) must never run on the main thread, or the
+// whole menu bar freezes while a window switch is being processed.
+@property (nonatomic) dispatch_queue_t menuScanQueue;
 @end
 
 @implementation GNUStepMenuImporter
+
+static GNUStepMenuImporter *sSharedImporter = nil;
+
+/* Menu item actions (GNUStepMenuActionHandler) resolve the client by name.
+ * The items shown may still carry a client name from a previous app instance
+ * (X reuses window IDs), so the handler asks us for the CURRENT client for the
+ * window - the authoritative mapping from the last accepted menu push. */
++ (NSString *)currentClientNameForWindow:(unsigned long)windowId
+{
+    if (sSharedImporter == nil) return nil;
+    return [sSharedImporter.clientNamesByWindow objectForKey:
+      [NSNumber numberWithUnsignedLong:windowId]];
+}
+
+/* Number of windows that currently have a cached menu tree.  Used by the CPU
+   profiler to detect unbounded growth from windows that closed without
+   unregistering.  Must stay bounded thanks to reconcileMenusWithLiveWindows. */
++ (NSUInteger)cachedMenuCount
+{
+    if (sSharedImporter == nil) return 0;
+    return [sSharedImporter.menusByWindow count];
+}
 
 - (instancetype)init
 {
     self = [super init];
     if (self) {
+        sSharedImporter = self;
         _menusByWindow = [[NSMutableDictionary alloc] init];
         _clientNamesByWindow = [[NSMutableDictionary alloc] init];
         _lastMenuDataByWindow = [[NSMutableDictionary alloc] init];
         _lastMenuUpdateTimeByWindow = [[NSMutableDictionary alloc] init];
+        _lastStateRefreshByWindow = [[NSMutableDictionary alloc] init];
+        _menusByClient = [[NSMutableDictionary alloc] init];
+        _clientPidByClientName = [[NSMutableDictionary alloc] init];
+        _lastApplicationMenuDataByClient = [[NSMutableDictionary alloc] init];
+        _lastApplicationStateRefreshByClient = [[NSMutableDictionary alloc] init];
 
         static dispatch_once_t onceToken;
         dispatch_once(&onceToken, ^{
             _materializationTimeByWindow = [[NSMutableDictionary alloc] init];
         });
+
+        _menuScanQueue = dispatch_queue_create("io.github.gershwin-desktop.menu.gnustep-scan", DISPATCH_QUEUE_SERIAL);
         
         // Register the GNUstep menu server immediately so apps can connect
         // This must happen early, before any GNUstep apps try to connect
         [self registerService];
+
+        /* Reconcile cached menu state against live X windows periodically so
+           windows that close without unregistering (crash, no DO unregister)
+           do not accumulate in menusByWindow forever.  The sweep is cheap: a
+           per-window XGetWindowAttributes existence check. */
+        [NSTimer scheduledTimerWithTimeInterval: 30.0
+                                         target: self
+                                       selector: @selector(reconcileMenusWithLiveWindows)
+                                       userInfo: nil
+                                        repeats: YES];
     }
     return self;
 }
@@ -139,7 +201,13 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
         return YES;
     }
 
-    NSConnection *connection = [NSConnection defaultConnection];
+    /* Use a dedicated NSConnection, NOT [NSConnection defaultConnection].
+       The default connection is a process-wide singleton: once a name is
+       registered on it, a later registerName: for the same name is a no-op
+       even if a name-server restart wiped the registry - so a lost
+       MenuServer registration could never be recovered.  A fresh connection
+       re-registers cleanly. */
+    NSConnection *connection = [[NSConnection alloc] init];
     [connection setRootObject:self];
 
     BOOL registered = NO;
@@ -150,9 +218,11 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Exception while registering server name: %@", e);
     }
 
-    // Keep the connection reference even if registration failed. We'll retry and use
-    // a polling fallback so menus can still be imported when we can't register the DO server.
-    self.menuServerConnection = connection;
+    if (registered) {
+        self.menuServerConnection = connection;
+    } else {
+        connection = nil;
+    }
 
     if (!registered) {
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Failed to register GNUstep menu server name %@", kGershwinMenuServerName);
@@ -180,6 +250,12 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     dispatch_async(dispatch_get_main_queue(), ^{
         [self scanForExistingMenuServices];
     });
+
+    /* Keep the registration alive across name-server restarts.  The first
+       verification runs after a delay so startup lookups are not disturbed. */
+    [self performSelector: @selector(scheduleMenuServerVerification)
+               withObject: nil
+               afterDelay: 5.0];
 
     return YES;
 }
@@ -270,6 +346,149 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     }
 }
 
+/* Verify that our MenuServer registration still exists on the DO name server
+   and re-register if it vanished.  A name-server restart (gdnc) wipes the
+   whole names registry but the NSConnection object stays valid, so neither
+   registerService: nor NSConnectionDidDieNotification notices the loss - the
+   result is that Menu.app can no longer be found and NO GNUstep app shows an
+   app menu.  Check by re-resolving the name; if the lookup fails, drop the
+   stale connection and register fresh.  Runs on a timer so any user's desktop
+   recovers automatically. */
+- (void)verifyMenuServerRegistration
+{
+    @try {
+        NSConnection *found = [NSConnection connectionWithRegisteredName:
+            kGershwinMenuServerName host: @""];
+        if (found) {
+            [found invalidate];
+            /* Registration is alive.  Reschedule so the check keeps running
+               (the timer is non-repeating). */
+            [self scheduleMenuServerVerification];
+            return;
+        }
+        /* The name is gone - our connection's registration was lost.  Drop the
+           stale connection so registerService: creates a fresh one. */
+        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: MenuServer registration lost - re-registering");
+        NSPort *oldPort = [self.menuServerConnection receivePort];
+        if (oldPort) {
+            [[NSRunLoop currentRunLoop] removePort: oldPort
+                                           forMode: NSRunLoopCommonModes];
+        }
+        [self.menuServerConnection invalidate];
+        self.menuServerConnection = nil;
+        [self registerService];
+        [self scheduleMenuServerVerification];
+    } @catch (NSException *e) {
+        /* Lookup threw - the name server itself may be restarting.  Try again
+           on the next tick. */
+        [self scheduleMenuServerVerification];
+    }
+}
+
+- (void)scheduleMenuServerVerification
+{
+    /* Low frequency: a name-server restart is a rare event and the lookup is
+       cheap, but polling every second would waste CPU for nothing. */
+    [NSTimer scheduledTimerWithTimeInterval: 30.0
+                                     target: self
+                                   selector: @selector(verifyMenuServerRegistration)
+                                   userInfo: nil
+                                    repeats: NO];
+}
+
+#pragma mark - Stale-window reconcile
+
+/* Purge menu state for windows that no longer exist in X.  Menu entries are
+   only removed by unregisterWindow:, which relies on the client app calling
+   the DO unregister when it closes a window.  Apps that crash, or that close
+   a window without unregistering, leave their menu tree cached in
+   menusByWindow forever.  Over a long session this grows RSS unboundedly and
+   turns every app-switch menu replacement (menusByWindow[windowId] = menu)
+   into a deep dealloc storm of the replaced tree on the main thread.  Run
+   periodically and drop entries whose X window is gone. */
+- (void)reconcileMenusWithLiveWindows
+{
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self reconcileMenusWithLiveWindows];
+        });
+        return;
+    }
+
+    NSArray *keys = [self.menusByWindow allKeys];
+    NSMutableArray *staleKeys = [NSMutableArray array];
+    for (NSNumber *windowKey in keys) {
+        unsigned long windowId = [windowKey unsignedLongValue];
+        if (windowId != 0 && ![MenuUtils isWindowValid:windowId]) {
+            [staleKeys addObject:windowKey];
+        }
+    }
+
+    if ([staleKeys count] == 0) {
+        return;
+    }
+
+    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Reconcile purging %lu stale window(s)",
+          (unsigned long)[staleKeys count]);
+    for (NSNumber *windowKey in staleKeys) {
+        [self.menusByWindow removeObjectForKey:windowKey];
+        [self.clientNamesByWindow removeObjectForKey:windowKey];
+        [self.lastMenuDataByWindow removeObjectForKey:windowKey];
+        [self.lastMenuUpdateTimeByWindow removeObjectForKey:windowKey];
+        [self.lastStateRefreshByWindow removeObjectForKey:windowKey];
+        @synchronized (_materializationTimeByWindow) {
+            NSString *prefix = [NSString stringWithFormat:@"%lu:",
+                                          [windowKey unsignedLongValue]];
+            NSArray *mkeys = [_materializationTimeByWindow allKeys];
+            for (NSString *mk in mkeys) {
+                if ([mk hasPrefix:prefix])
+                    [_materializationTimeByWindow removeObjectForKey:mk];
+            }
+        }
+    }
+
+    /* Drop application-level menus whose owning process has exited.  A
+       windowless app can disappear without sending unregisterApplication:
+       (crash, SIGKILL); without this sweep its menu stays in menusByClient
+       and the Alt-Tab menu-app list goes stale. */
+    [self reconcileApplicationMenusWithLiveProcesses];
+}
+
+/* Remove app-level menus for clients whose process is no longer alive. */
+- (void)reconcileApplicationMenusWithLiveProcesses
+{
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self reconcileApplicationMenusWithLiveProcesses];
+        });
+        return;
+    }
+
+    NSArray *clientNames = [self.menusByClient allKeys];
+    NSMutableArray *deadClients = [NSMutableArray array];
+    for (NSString *clientName in clientNames) {
+        NSNumber *pidNum = [self.clientPidByClientName objectForKey:clientName];
+        if (!pidNum || [pidNum unsignedIntValue] == 0) {
+            continue;
+        }
+        pid_t pid = [pidNum intValue];
+        /* kill(pid, 0) reports ESRCH for a dead process (and EPERM for a
+           live one owned by someone else, which still means alive). */
+        if (kill(pid, 0) == -1 && errno == ESRCH) {
+            [deadClients addObject:clientName];
+        }
+    }
+
+    if ([deadClients count] == 0) {
+        return;
+    }
+    for (NSString *clientName in deadClients) {
+        [self removeApplicationMenuForClient:clientName];
+    }
+    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Reconcile purged %lu stale application menu(s)",
+          (unsigned long)[deadClients count]);
+}
+
 - (BOOL)hasMenuForWindow:(unsigned long)windowId
 {
     NSNumber *key = [NSNumber numberWithUnsignedLong:windowId];
@@ -357,6 +576,10 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
             @try {
                 NSConnection *connection = [NSConnection connectionWithRegisteredName:clientName host:nil];
                 if (connection && [connection isValid]) {
+                    /* Cache the connection so the main-thread state refresh can
+                       use it without a blocking name lookup (which would wedge
+                       the menu bar if this client is stalled). */
+                    [GNUStepMenuActionHandler cacheConnection:connection forClient:clientName];
                     id proxy = [connection rootProxy];
                     if (proxy) {
                         // Log success if we connect
@@ -428,12 +651,19 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     [self.clientNamesByWindow removeObjectForKey:windowKey];
     [self.lastMenuDataByWindow removeObjectForKey:windowKey];
     [self.lastMenuUpdateTimeByWindow removeObjectForKey:windowKey];
+    [self.lastStateRefreshByWindow removeObjectForKey:windowKey];
 
     /* Clear the materialization cache for this window so that if the window
        reopens (same or new app instance), the next updateMenuForWindow: call
-       performs a fresh proxy materialization instead of skipping it. */
+       performs a fresh proxy materialization instead of skipping it.  Keys are
+       "<windowId>:<clientName>", so remove every entry for this window. */
     @synchronized (_materializationTimeByWindow) {
-        [_materializationTimeByWindow removeObjectForKey:windowKey];
+        NSString *prefix = [NSString stringWithFormat:@"%lu:", windowId];
+        NSArray *keys = [_materializationTimeByWindow allKeys];
+        for (NSString *k in keys) {
+            if ([k hasPrefix:prefix])
+                [_materializationTimeByWindow removeObjectForKey:k];
+        }
     }
 
     if (self.appMenuWidget && self.appMenuWidget.currentWindowId == windowId) {
@@ -450,14 +680,18 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
 
     // Get all visible windows; attempt to contact any GNUstep clients that may be
     // associated with those windows by PID. If we can reach a client, ask it to
-    // push its current menu for that window via requestMenuUpdateForWindow:
+    // push its current menu for that window via requestMenuUpdateForWindow:.
+    // The per-window probe (PID lookup + blocking DO name lookup + DO call) is
+    // dispatched to a background queue so the main thread is never stalled by
+    // connectionWithRegisteredName:, which can block for a long time if the DO
+    // name server is slow or a stale registration is being resolved.
     NSArray *allWindows = [MenuUtils getAllWindows];
     if (!allWindows || [allWindows count] == 0) {
         NSDebugLog(@"GNUStepMenuImporter: No windows to scan");
         return;
     }
 
-    int found = 0;
+    NSUInteger probesDispatched = 0;
     for (NSNumber *windowNum in allWindows) {
         unsigned long windowId = [windowNum unsignedLongValue];
 
@@ -466,50 +700,55 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
             continue;
         }
 
-        // Try to determine PID for the window
-        pid_t pid = [MenuUtils getWindowPID:windowId];
-        if (pid == 0) {
-            // Not all windows provide PID - skip
-            continue;
-        }
+        probesDispatched++;
+        dispatch_async(self.menuScanQueue, ^{
+            // Try to determine PID for the window
+            pid_t pid = [MenuUtils getWindowPID:windowId];
+            if (pid == 0) {
+                // Not all windows provide PID - skip
+                return;
+            }
 
-        NSString *clientName = [NSString stringWithFormat:@"org.gnustep.Gershwin.MenuClient.%d", pid];
-        NSDebugLog(@"GNUStepMenuImporter: Found window %@ (pid: %d) - probing client %@", windowNum, pid, clientName);
+            NSString *clientName = [NSString stringWithFormat:@"org.gnustep.Gershwin.MenuClient.%d", pid];
+            NSDebugLog(@"GNUStepMenuImporter: Found window %@ (pid: %d) - probing client %@", windowNum, pid, clientName);
 
-        @try {
-            NSConnection *connection = [NSConnection connectionWithRegisteredName:clientName host:nil];
-            if (connection && [connection isValid]) {
-                id proxy = [connection rootProxy];
-                if (proxy) {
-                    // Tell the proxy which protocol it implements so selectors are known
-                    @try {
-                        [proxy setProtocolForProxy:@protocol(GSGNUstepMenuClient)];
-                    } @catch (NSException *e) {
-                        NSDebugLog(@"GNUStepMenuImporter: Failed to set protocol for proxy of %@: %@", clientName, e);
-                    }
+            @try {
+                NSConnection *connection = [NSConnection connectionWithRegisteredName:clientName host:nil];
+                if (connection && [connection isValid]) {
+                    /* Cache for the main-thread refresh path (avoids a blocking
+                       DO name lookup if this client stalls later). */
+                    [GNUStepMenuActionHandler cacheConnection:connection forClient:clientName];
+                    id proxy = [connection rootProxy];
+                    if (proxy) {
+                        // Tell the proxy which protocol it implements so selectors are known
+                        @try {
+                            [proxy setProtocolForProxy:@protocol(GSGNUstepMenuClient)];
+                        } @catch (NSException *e) {
+                            NSDebugLog(@"GNUStepMenuImporter: Failed to set protocol for proxy of %@: %@", clientName, e);
+                        }
 
-                    // Ask client to send its menu for this window
-                    @try {
-                        NSDebugLog(@"GNUStepMenuImporter: Requesting menu update from client %@ for window %lu", clientName, windowId);
-                        [(id)proxy requestMenuUpdateForWindow:@(windowId)];
-                        found++;
-                    } @catch (NSException *e) {
-                        NSDebugLog(@"GNUStepMenuImporter: Exception requesting menu update from %@: %@", clientName, e);
+                        // Ask client to send its menu for this window
+                        @try {
+                            NSDebugLog(@"GNUStepMenuImporter: Requesting menu update from client %@ for window %lu", clientName, windowId);
+                            [(id)proxy requestMenuUpdateForWindow:@(windowId)];
+                        } @catch (NSException *e) {
+                            NSDebugLog(@"GNUStepMenuImporter: Exception requesting menu update from %@: %@", clientName, e);
+                        }
                     }
                 }
             }
-        }
-        @catch (NSException *ex) {
-            NSDebugLog(@"GNUStepMenuImporter: Exception probing client %@: %@", clientName, ex);
-        }
+            @catch (NSException *ex) {
+                NSDebugLog(@"GNUStepMenuImporter: Exception probing client %@: %@", clientName, ex);
+            }
+        });
     }
 
-    if (found == 0) {
+    if (probesDispatched == 0) {
         NSDebugLog(@"GNUStepMenuImporter: No GNUstep menu clients discovered during scan.");
         // Do NOT reschedule automatically. Scans are triggered by window-change events
         // and registration retries, so there is no need for an unbounded polling loop.
     } else {
-        NSDebugLog(@"GNUStepMenuImporter: Requested menu updates from %d clients", found);
+        NSDebugLog(@"GNUStepMenuImporter: Requested menu updates from %lu client probes", (unsigned long)probesDispatched);
     }
 
     NSDebugLog(@"GNUStepMenuImporter: scanForExistingMenuServices COMPLETED");
@@ -578,13 +817,19 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
                data.
 
                OWNERSHIP: only updateMenuForWindow: writes to _materializationTimeByWindow.
-               updateMenuEnabledStatesForWindow: must never write to it (see comments there). */
+               updateMenuEnabledStatesForWindow: must never write to it (see comments there).
+
+               Keyed by windowId AND clientName: X reuses window IDs across app relaunches, so a
+               new app instance pushing for the same windowId must materialize fresh, not be
+               skipped because an earlier instance already walked this window. */
+            NSString *materializeKey = [NSString stringWithFormat:@"%lu:%@",
+              [safeWindowId unsignedLongValue], safeClientName];
             @synchronized (_materializationTimeByWindow) {
-                if (_materializationTimeByWindow[safeWindowId]) {
+                if (_materializationTimeByWindow[materializeKey]) {
                     NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Skipping proxy materialization for window %@ (already cached)", safeWindowId);
                     return;
                 }
-                _materializationTimeByWindow[safeWindowId] = @YES;
+                _materializationTimeByWindow[materializeKey] = @YES;
             }
 
             /* Materialize proxy menuData by serialization. */
@@ -662,7 +907,14 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     (void)now; (void)startupTime; (void)lastTime;
 
     NSDictionary *lastMenuData = [self.lastMenuDataByWindow objectForKey:windowId];
-    if (lastMenuData && [lastMenuData isEqual:menuData]) {
+    /* Only deduplicate when the SAME client re-sends the SAME content for the
+       window.  X reuses window IDs across app relaunches, so a fresh app
+       instance pushing an identical menu for the same windowId must NOT be
+       dropped as a duplicate - that made the global menu work only on the
+       first launch of an app. */
+    NSString *lastClient = [self.clientNamesByWindow objectForKey:windowId];
+    if (lastClient && [lastClient isEqualToString:clientName]
+        && lastMenuData && [lastMenuData isEqual:menuData]) {
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Skipping duplicate menu update for window %@", windowId);
         return;
     }
@@ -684,10 +936,23 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     }
 
     // NSLog(@"GNUStepMenuImporter: Successfully built menu with %ld top-level items", (long)[menu numberOfItems]);
+    NSString *oldClient = [self.clientNamesByWindow objectForKey:windowId];
     self.menusByWindow[windowId] = menu;
     self.clientNamesByWindow[windowId] = clientName;
     self.lastMenuDataByWindow[windowId] = [menuData copy];
     self.lastMenuUpdateTimeByWindow[windowId] = @(now);
+
+    /* If the client (app instance) changed for a window that is currently
+       displayed, the visible menu still carries menu items bound to the OLD
+       client - a relaunched app reuses the X window ID, so those actions would
+       target a dead process.  Force a reload of the displayed menu so the new
+       instance's items (with the new clientName) are shown.  loadMenu:'s
+       same-PID skip does not apply because the PID changed. */
+    if (oldClient && ![oldClient isEqualToString:clientName]
+        && self.appMenuWidget
+        && self.appMenuWidget.currentWindowId == windowValue) {
+        [self.appMenuWidget loadMenu:menu forWindow:windowValue];
+    }
 
     // If this window is currently displayed, apply the fresh enabled/state values
     // directly to the visible menu right now.  loadMenu:forWindow: skips rebuilds
@@ -722,6 +987,336 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     @catch (NSException *exception) {
         NSLog(@"GNUStepMenuImporter: Exception in unregisterWindow: %@", exception);
     }
+}
+
+#pragma mark - Application-level menus
+
+/* Parse the pid embedded in a GNUstep menu client name
+   ("org.gnustep.Gershwin.MenuClient.<pid>").  Returns 0 when unparseable. */
+- (pid_t)_pidFromClientName:(NSString *)clientName
+{
+    if (!clientName || [clientName length] == 0) return 0;
+    NSArray *parts = [clientName componentsSeparatedByString:@"."];
+    NSString *pidPart = [parts lastObject];
+    if (!pidPart || [pidPart length] == 0) return 0;
+    return (pid_t)[pidPart integerValue];
+}
+
+/* Rewrite the _GERSHWIN_MENU_APPS root property with the PIDs of every app
+   that currently has an application-level menu.  The window manager reads
+   this so its Alt-Tab switcher can list windowless apps (apps with a menu
+   but no windows) alongside regular windows. */
+- (void)publishMenuAppsProperty
+{
+    NSMutableArray *pids = [NSMutableArray array];
+    NSArray *clientNames = [self.clientPidByClientName allKeys];
+    for (NSString *clientName in clientNames) {
+        NSNumber *pidNum = [self.clientPidByClientName objectForKey:clientName];
+        if (pidNum && [pidNum unsignedIntValue] != 0) {
+            [pids addObject:pidNum];
+        }
+    }
+    /* Sort so the property is stable and diffable. */
+    [pids sortUsingSelector:@selector(compare:)];
+    [MenuUtils setMenuApps:pids];
+}
+
+/* Store an application-level menu for a client (removing any stale entry) and
+   refresh the menu bar if that client is the currently displayed app.  The
+   app is the "currently displayed app" when the widget shows an app-level
+   menu (currentWindowId == 0) for the same PID. */
+- (void)storeApplicationMenu:(NSMenu *)menu
+                    menuData:(NSDictionary *)menuData
+                  clientName:(NSString *)clientName
+{
+    BOOL isNew = ([self.menusByClient objectForKey:clientName] == nil);
+    NSString *oldClient = nil;
+    if (isNew) {
+        /* If the same PID previously pushed under a differently-formatted name,
+           drop it so we do not end up with two entries for one app. */
+        pid_t pid = [self _pidFromClientName:clientName];
+        for (NSString *candidate in [self.clientPidByClientName allKeys]) {
+            if ([[self.clientPidByClientName objectForKey:candidate] intValue] == (int)pid
+                && ![candidate isEqualToString:clientName]) {
+                [self removeApplicationMenuForClient:candidate];
+            }
+        }
+    } else {
+        oldClient = clientName;
+    }
+
+    self.menusByClient[clientName] = menu;
+    pid_t pid = [self _pidFromClientName:clientName];
+    if (pid > 0) {
+        self.clientPidByClientName[clientName] = @(pid);
+    }
+    self.lastApplicationMenuDataByClient[clientName] = [menuData copy];
+    self.lastApplicationStateRefreshByClient[clientName] =
+      @([NSDate timeIntervalSinceReferenceDate]);
+    [self publishMenuAppsProperty];
+
+    /* If this client's app menu is currently displayed (windowless app shown
+       in the bar) and its menu changed, reload the visible menu so the user
+       sees the update immediately. */
+    AppMenuWidget *widget = self.appMenuWidget;
+    if (widget && widget.currentWindowId == 0 && widget.currentWindowPID != 0) {
+        pid_t widgetPid = widget.currentWindowPID;
+        if ((pid > 0 && widgetPid == pid)
+            || (oldClient && [oldClient isEqualToString:clientName])) {
+            [self.appMenuWidget loadApplicationMenu:menu forPID:widgetPid];
+        }
+    }
+}
+
+/* Remove an application-level menu for a client and update the menu bar if it
+   was being displayed. */
+- (void)removeApplicationMenuForClient:(NSString *)clientName
+{
+    if (!clientName) return;
+    BOOL hadMenu = ([self.menusByClient objectForKey:clientName] != nil);
+    [self.menusByClient removeObjectForKey:clientName];
+    [self.clientPidByClientName removeObjectForKey:clientName];
+    [self.lastApplicationMenuDataByClient removeObjectForKey:clientName];
+    [self.lastApplicationStateRefreshByClient removeObjectForKey:clientName];
+
+    if (!hadMenu) {
+        [self publishMenuAppsProperty];
+        return;
+    }
+    [self publishMenuAppsProperty];
+
+    AppMenuWidget *widget = self.appMenuWidget;
+    if (widget && widget.currentWindowId == 0 && widget.currentWindowPID != 0) {
+        pid_t pid = [self _pidFromClientName:clientName];
+        if (pid > 0 && widget.currentWindowPID == pid) {
+            /* The frontmost windowless app's menu disappeared (app quit or
+               unregistered).  Re-evaluate what to show. */
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [widget updateForActiveWindow];
+            });
+        }
+    }
+}
+
+- (oneway void)updateMenuForApplication:(bycopy NSDictionary *)menuData
+                             clientName:(bycopy NSString *)clientName
+{
+    /* Early throttle: drop rapid-fire duplicate pushes before any work. */
+    if (_shouldThrottleDO(&_lastApplicationMenuUpdateAccepted, DO_MENU_UPDATE_MIN_NS)) return;
+
+    @try {
+        if (!menuData || !clientName) return;
+
+        NSString *safeClientName = [(id)clientName isProxy] ?
+          [NSString stringWithString:(NSString *)clientName] : clientName;
+        if (!safeClientName || [safeClientName length] == 0) return;
+
+        NSDictionary *safeMenuData;
+        if ([(id)menuData isProxy]) {
+            NSData *data = [NSPropertyListSerialization
+                            dataWithPropertyList:menuData
+                            format:NSPropertyListBinaryFormat_v1_0
+                            options:0
+                            error:NULL];
+            if (!data) {
+                NSLog(@"GNUStepMenuImporter: Failed to serialize proxy app menuData for %@", clientName);
+                return;
+            }
+            safeMenuData = [NSPropertyListSerialization
+                            propertyListWithData:data
+                            options:NSPropertyListImmutable
+                            format:NULL
+                            error:NULL];
+        } else {
+            safeMenuData = menuData;
+        }
+        if (!safeMenuData) return;
+
+        NSDictionary *payload = @{ @"menuData": safeMenuData,
+                                   @"clientName": safeClientName };
+        if ([NSThread isMainThread]) {
+            [self processApplicationMenuUpdateWithPayload:payload];
+        } else {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self processApplicationMenuUpdateWithPayload:payload];
+            });
+        }
+    }
+    @catch (NSException *exception) {
+        NSLog(@"GNUStepMenuImporter: Exception in updateMenuForApplication: %@", exception);
+    }
+}
+
+- (void)processApplicationMenuUpdateWithPayload:(NSDictionary *)payload
+{
+    NSDictionary *menuData = payload[@"menuData"];
+    NSString *clientName = payload[@"clientName"];
+
+    NSDictionary *lastMenuData = [self.lastApplicationMenuDataByClient objectForKey:clientName];
+    if (lastMenuData && [lastMenuData isEqual:menuData]) {
+        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Skipping duplicate app menu for %@", clientName);
+        return;
+    }
+
+    NSMenu *menu = [self menuFromData:menuData
+                             windowId:0
+                           clientName:clientName
+                                path:@[]];
+    if (!menu) {
+        NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: Failed to build app menu for %@", clientName);
+        return;
+    }
+    [self storeApplicationMenu:menu menuData:menuData clientName:clientName];
+}
+
+- (oneway void)unregisterApplication:(bycopy NSString *)clientName
+{
+    @try {
+        if (!clientName) return;
+        NSString *safeClientName = [(id)clientName isProxy] ?
+          [NSString stringWithString:(NSString *)clientName] : clientName;
+        if (!safeClientName) return;
+        [self removeApplicationMenuForClient:safeClientName];
+    }
+    @catch (NSException *exception) {
+        NSLog(@"GNUStepMenuImporter: Exception in unregisterApplication: %@", exception);
+    }
+}
+
+- (oneway void)updateApplicationMenuEnabledStates:(bycopy NSDictionary *)menuData
+                                        clientName:(bycopy NSString *)clientName
+{
+    /* Early throttle: same 50ms gate as the window-level state path. */
+    if (_shouldThrottleDO(&_lastApplicationStateUpdateAccepted, DO_STATE_UPDATE_MIN_NS)) return;
+
+    @try {
+        if (!menuData || !clientName) return;
+        NSString *safeClientName = [(id)clientName isProxy] ?
+          [NSString stringWithString:(NSString *)clientName] : clientName;
+        if (!safeClientName) return;
+
+        NSDictionary *safeMenuData;
+        if ([(id)menuData isProxy]) {
+            NSData *data = [NSPropertyListSerialization
+                            dataWithPropertyList:menuData
+                            format:NSPropertyListBinaryFormat_v1_0
+                            options:0
+                            error:NULL];
+            if (!data) return;
+            safeMenuData = [NSPropertyListSerialization
+                            propertyListWithData:data
+                            options:NSPropertyListImmutable
+                            format:NULL
+                            error:NULL];
+        } else {
+            safeMenuData = menuData;
+        }
+        if (!safeMenuData) return;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSMenu *menu = [self.menusByClient objectForKey:safeClientName];
+            if (menu) {
+                [self applyEnabledStatesFromData:safeMenuData toMenu:menu depth:0];
+                self.lastApplicationStateRefreshByClient[safeClientName] =
+                  @([NSDate timeIntervalSinceReferenceDate]);
+                /* Mirror to the visible menu if this app is currently shown. */
+                AppMenuWidget *widget = self.appMenuWidget;
+                if (widget && widget.currentWindowId == 0 && widget.currentMenu
+                    && widget.currentWindowPID != 0
+                    && widget.currentWindowPID == [self _pidFromClientName:safeClientName]) {
+                    [self applyEnabledStatesFromData:safeMenuData
+                                              toMenu:widget.currentMenu
+                                               depth:0];
+                }
+            }
+        });
+    }
+    @catch (NSException *exception) {
+        NSLog(@"GNUStepMenuImporter: Exception in updateApplicationMenuEnabledStates: %@", exception);
+    }
+}
+
+/* Ask a client to re-push its application-level menu (startup recovery when
+   Menu.app started after a windowless app).  Uses only cached connections so
+   the main thread never blocks on a DO name lookup. */
+- (void)requestApplicationMenuUpdateForClient:(NSString *)clientName
+{
+    if (!clientName) return;
+    NSConnection *connection = [GNUStepMenuActionHandler existingConnectionForClient:clientName];
+    if (connection && [connection isValid]) {
+        @try {
+            id proxy = [connection rootProxy];
+            if (proxy) {
+                [proxy setProtocolForProxy:@protocol(GSGNUstepMenuClient)];
+                [(id)proxy requestApplicationMenuUpdate];
+            }
+        } @catch (NSException *e) {
+            NSDebugLog(@"GNUStepMenuImporter: Exception requesting app menu update from %@: %@", clientName, e);
+        }
+    }
+}
+
+/* MenuProtocolHandler / unified API for app-level menus. */
+
+- (BOOL)hasApplicationMenuForPID:(pid_t)pid
+{
+    if (pid <= 0) return NO;
+    for (NSString *clientName in [self.clientPidByClientName allKeys]) {
+        if ([[self.clientPidByClientName objectForKey:clientName] intValue] == (int)pid
+            && [self.menusByClient objectForKey:clientName]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+- (NSMenu *)getApplicationMenuForPID:(pid_t)pid
+{
+    if (pid <= 0) return nil;
+    for (NSString *clientName in [self.clientPidByClientName allKeys]) {
+        if ([[self.clientPidByClientName objectForKey:clientName] intValue] == (int)pid) {
+            return [self.menusByClient objectForKey:clientName];
+        }
+    }
+    return nil;
+}
+
+- (BOOL)refreshApplicationMenuStateForPID:(pid_t)pid
+{
+    if (pid <= 0) return NO;
+    for (NSString *clientName in [self.clientPidByClientName allKeys]) {
+        if ([[self.clientPidByClientName objectForKey:clientName] intValue] != (int)pid) {
+            continue;
+        }
+        NSMenu *menu = [self.menusByClient objectForKey:clientName];
+        if (!menu) return NO;
+        NSNumber *last = [self.lastApplicationStateRefreshByClient objectForKey:clientName];
+        if (last && ([NSDate timeIntervalSinceReferenceDate] - [last doubleValue]) < 2.0) {
+            return YES; /* states known current within TTL */
+        }
+        /* No cached connection means nothing fresh to pull; the client's own
+           pushes keep states current for windowless apps. */
+        NSConnection *connection = [GNUStepMenuActionHandler existingConnectionForClient:clientName];
+        if (connection && [connection isValid]) {
+            @try {
+                id proxy = [connection rootProxy];
+                if (proxy) {
+                    [proxy setProtocolForProxy:@protocol(GSGNUstepMenuClient)];
+                    id flat = [(id)proxy validateMenuStateForWindow:@(0)];
+                    if ([flat isKindOfClass:[NSArray class]]) {
+                        [self applyEnabledStatesFromFlatArray:flat toMenu:menu];
+                        self.lastApplicationStateRefreshByClient[clientName] =
+                          @([NSDate timeIntervalSinceReferenceDate]);
+                        return YES;
+                    }
+                }
+            } @catch (NSException *e) {
+                NSDebugLog(@"GNUStepMenuImporter: Exception refreshing app menu state for %@: %@", clientName, e);
+            }
+        }
+        return NO;
+    }
+    return NO;
 }
 
 #pragma mark - Menu State Refresh
@@ -868,7 +1463,13 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
        system item at index 0. */
     id rawResult = nil;
 
-    NSConnection *connection = [GNUStepMenuActionHandler cachedConnectionForClient:clientName];
+    /* Only use a connection that is ALREADY cached.  Doing the DO name lookup
+       here (connectionWithRegisteredName:) on the main thread would block the
+       whole menu bar while a stalled client (e.g. Workspace) resolves.  The
+       background probes cache connections when they succeed, so a healthy
+       client is found here; an uncached client means we have nothing fresh to
+       offer, so fall through to the stale-state path instead of blocking. */
+    NSConnection *connection = [GNUStepMenuActionHandler existingConnectionForClient:clientName];
     if (connection && [connection isValid]) {
         [connection setRequestTimeout:0.3];
         id proxy = [connection rootProxy];
@@ -903,6 +1504,35 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
     } else {
         [safeMenu update];
     }
+
+    /* Mark states as freshly refreshed so repeated menu opens skip the
+       synchronous DO pull for STATE_REFRESH_TTL seconds. */
+    @synchronized (self) {
+        self.lastStateRefreshByWindow[@(windowId)] = @([NSDate timeIntervalSinceReferenceDate]);
+    }
+    return YES;
+}
+
+/* Returns YES when the enabled/checkmark states for the window are known to be
+   current, i.e. they were pulled or pushed within the given TTL.  Windows we do
+   not track (GTK/DBus menus, which have no state-pull path) are reported as
+   fresh so the caller skips the useless pull. */
+- (BOOL)menuStatesAreFreshForWindow:(unsigned long)windowId
+                          withinTTL:(NSTimeInterval)ttl
+{
+    NSNumber *key = @(windowId);
+    NSMenu *menu = nil;
+    @synchronized (self) {
+        menu = [self.menusByWindow objectForKey:key];
+        if (menu) {
+            NSNumber *ts = [self.lastStateRefreshByWindow objectForKey:key];
+            if (!ts) return NO;
+            NSTimeInterval age = [NSDate timeIntervalSinceReferenceDate] - [ts doubleValue];
+            return (age < ttl);
+        }
+    }
+    /* No tracked menu for this window — nothing for us to refresh. */
+    return YES;
 }
 
 // Lightweight oneway push from Eau: applies only enabled/state in-place on the
@@ -912,8 +1542,9 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
                                        menuData:(bycopy NSDictionary *)menuData
                                      clientName:(bycopy NSString *)clientName
 {
-    NSLog(@"GNUStepMenuImporter: updateMenuEnabledStatesForWindow called - windowId=%@", windowId);
-
+    /* No logging before the throttle gate: GWorkspace fires this path
+       thousands of times per second, and an unconditional NSLog here burned
+       CPU on string formatting + log I/O for every dropped call. */
     /* Throttle to 50 ms: GWorkspace fires this path thousands of times per second.
        50 ms is imperceptible to the user but cuts CPU by ~98%.  Enabled-state
        changes (Copy/Paste becoming available after text selection) are visible to
@@ -921,6 +1552,8 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
        The on-demand pull path (menuWillOpen: → refreshMenuStateForWindow:) ensures
        states are always fresh by the time the user actually opens a submenu. */
     if (_shouldThrottleDO(&_lastStateUpdateAccepted, DO_STATE_UPDATE_MIN_NS)) return;
+
+    NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: updateMenuEnabledStatesForWindow accepted - windowId=%@", windowId);
 
     (void)clientName;
     // Validate parameters — we're on a background DO thread.
@@ -1002,6 +1635,9 @@ static NSString *const kGershwinMenuServerName = @"org.gnustep.Gershwin.MenuServ
             widget.currentMenu != nil &&
             widget.currentMenu != menu) {
             [self applyEnabledStatesFromData:safeData toMenu:widget.currentMenu depth:0];
+        }
+        @synchronized (self) {
+            self.lastStateRefreshByWindow[safeId] = @([NSDate timeIntervalSinceReferenceDate]);
         }
         NSDebugLLog(@"gwcomp", @"GNUStepMenuImporter: updateMenuEnabledStatesForWindow: applied states for window %@", safeId);
     });

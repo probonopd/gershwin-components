@@ -9,8 +9,10 @@
 #import "DBusConnection.h"
 #import "WindowMonitor.h"
 #import "MenuUtils.h"
+#import "ActionSearch.h"
 #import <Foundation/Foundation.h>
 #import <X11/Xlib.h>
+#import <X11/XKBlib.h>
 #import <X11/keysym.h>
 #import <X11/XF86keysym.h>
 #import <dispatch/dispatch.h>
@@ -63,6 +65,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     
     // XF86 special key shortcuts (volume, brightness, etc.)
     NSMutableDictionary *_xf86Actions;  // keysym NSNumber -> @{@"target": id, @"action": NSString}
+    NSMutableDictionary *_xf86ReleaseActions;  // keysym NSNumber -> @{@"target": id, @"action": NSString}
     unsigned int _alt_mask;      // detected mask for Alt (Mod1/Mod2/..)
     unsigned int _super_mask;    // detected mask for Super/Cmd (Mod4/..)
 }
@@ -89,6 +92,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
         _menuItemToConnectionMap = [[NSMutableDictionary alloc] init];
         _menuItemToActionNameMap = [[NSMutableDictionary alloc] init];
         _xf86Actions = [[NSMutableDictionary alloc] init];
+        _xf86ReleaseActions = [[NSMutableDictionary alloc] init];
         
         // Initialize X11 display for shortcuts
         _display = XOpenDisplay(NULL);
@@ -274,8 +278,12 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     // Stop event monitoring
     if (_eventMonitorThread && !_shouldStopEventMonitoring) {
         _shouldStopEventMonitoring = YES;
-        // Wait for thread to finish
-        while (_eventMonitorThread && ![_eventMonitorThread isFinished]) {
+        // Wait for the thread to finish, but NEVER unboundedly: the monitor
+        // exits within ~1s (its select() timeout), so a longer wait means it
+        // is wedged - give up waiting rather than stalling the menu bar.
+        NSDate *joinDeadline = [NSDate dateWithTimeIntervalSinceNow:2.0];
+        while (_eventMonitorThread && ![_eventMonitorThread isFinished]
+               && [joinDeadline timeIntervalSinceNow] > 0) {
             [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
         }
         _eventMonitorThread = nil;
@@ -394,7 +402,12 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     // If we have no grabbed keys left, stop event monitoring thread gracefully
     if ([_grabbedKeys count] == 0 && _eventMonitorThread) {
         _shouldStopEventMonitoring = YES;
-        while (_eventMonitorThread && ![_eventMonitorThread isFinished]) {
+        /* Bounded join: same reasoning as unregisterAllShortcuts - never let
+         * a wedged monitor thread stall the caller (this runs on the main
+         * thread during every menu rebuild). */
+        NSDate *joinDeadline = [NSDate dateWithTimeIntervalSinceNow:2.0];
+        while (_eventMonitorThread && ![_eventMonitorThread isFinished]
+               && [joinDeadline timeIntervalSinceNow] > 0) {
             [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
         }
         _eventMonitorThread = nil;
@@ -425,6 +438,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     @try {
         [self unregisterAllShortcuts];
         [_xf86Actions removeAllObjects];
+        [_xf86ReleaseActions removeAllObjects];
         
         if (_display) {
             XCloseDisplay(_display);
@@ -439,38 +453,61 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
 
 - (BOOL)registerXF86Key:(KeySym)keysym target:(id)target action:(SEL)action
 {
+    return [self registerXF86Key:keysym target:target action:action
+                   releaseTarget:nil releaseAction:NULL];
+}
+
+- (BOOL)registerXF86Key:(KeySym)keysym
+                 target:(id)target
+                 action:(SEL)action
+          releaseTarget:(id)releaseTarget
+          releaseAction:(SEL)releaseAction
+{
     if (!_display || keysym == NoSymbol) {
         return NO;
     }
 
-    KeyCode keycode = XKeysymToKeycode(_display, keysym);
-    if (keycode == 0) {
-        NSLog(@"X11ShortcutManager: No keycode for XF86 keysym 0x%lx", (unsigned long)keysym);
-        return NO;
-    }
-
-    // Grab with AnyModifier to capture regardless of NumLock etc.
-    // The event handler filters out lock masks.
-    for (unsigned int mods = 0; mods <= 2; mods++) {
-        unsigned int mod = (mods == 0) ? AnyModifier :
-                           (mods == 1) ? 0 :
-                           _numlock_mask;
-        XGrabKey(_display, keycode, mod, DefaultRootWindow(_display), True,
-                 GrabModeAsync, GrabModeAsync);
-    }
-    XSync(_display, False);
-
+    // Always register the action so keysym-based dispatch in the event handler
+    // can find it, even when XKeysymToKeycode returns 0 (some keys like mute
+    // may not have a dedicated keycode but still generate root-window events).
     NSNumber *ksNum = @((unsigned long)keysym);
     NSDictionary *actionDict = @{@"target": target,
                                  @"action": NSStringFromSelector(action)};
     [_xf86Actions setObject:actionDict forKey:ksNum];
+
+    if (releaseTarget && releaseAction) {
+        NSDictionary *releaseDict = @{@"target": releaseTarget,
+                                      @"action": NSStringFromSelector(releaseAction)};
+        [_xf86ReleaseActions setObject:releaseDict forKey:ksNum];
+    }
+
+    KeyCode keycode = XKeysymToKeycode(_display, keysym);
+    if (keycode != 0) {
+        // Grab with AnyModifier to capture regardless of NumLock etc.
+        // The event handler filters out lock masks.
+        for (unsigned int mods = 0; mods <= 2; mods++) {
+            unsigned int mod = (mods == 0) ? AnyModifier :
+                               (mods == 1) ? 0 :
+                               _numlock_mask;
+            XGrabKey(_display, keycode, mod, DefaultRootWindow(_display), True,
+                     GrabModeAsync, GrabModeAsync);
+        }
+        XSync(_display, False);
+
+        // Store in _grabbedKeys so suspend/resumeKeyGrabs can re-grab them
+        NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", keycode, AnyModifier];
+        [_grabbedKeys setObject:[ksNum stringValue] forKey:keycodeModifierKey];
+
+        NSLog(@"X11ShortcutManager: Registered XF86 key 0x%lx with keycode %d", (unsigned long)keysym, keycode);
+    } else {
+        NSLog(@"X11ShortcutManager: Registered XF86 key 0x%lx (keysym-only, no keycode mapping)", (unsigned long)keysym);
+    }
 
     // Start event monitoring if this is the first XF86 key
     if (!_eventMonitorThread) {
         [self startX11EventMonitoring];
     }
 
-    NSLog(@"X11ShortcutManager: Registered XF86 key 0x%lx with keycode %d", (unsigned long)keysym, keycode);
     return YES;
 }
 
@@ -718,6 +755,23 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     return !grabbed_successfully; // Return YES if taken, NO if available
 }
 
+/* Alt+Space is Menu.app's reserved global shortcut for the Action Search box.
+   True when the (keycode, modifier) pair is the space key under the Alt/Mod1
+   modifier - the X11 form of the Cmd+Space the user presses. */
+- (BOOL)isReservedActionSearchShortcut:(KeyCode)keycode modifier:(unsigned int)x11_modifier
+{
+    if (!_display) return NO;
+
+    KeySym space = XStringToKeysym("space");
+    KeyCode spaceCode = (space != NoSymbol) ? XKeysymToKeycode(_display, space) : 0;
+    if (spaceCode == 0) return NO;
+
+    /* The command key maps to Alt (Mod1); the reserved combo is Alt+space.
+       Ignore lock-key bits when comparing the modifier state. */
+    unsigned int mod = x11_modifier & ~(_numlock_mask | _capslock_mask | _scrolllock_mask);
+    return (keycode == spaceCode && (mod & Mod1Mask) != 0);
+}
+
 #pragma mark - Private Methods
 
 - (NSUInteger)getSwappedModifierMask:(NSUInteger)modifierMask
@@ -749,6 +803,16 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                    menuItemKey:(NSString *)menuItemKey 
                 shortcutString:(NSString *)shortcutString
 {
+    /* Alt+Space (Action Search) is reserved for Menu.app itself.  No app menu
+       may claim it - otherwise the desktop's menu (or any Control/Command
+       shortcut that maps to Alt+key) steals the global Action Search grab and
+       Alt+Space stops opening the search box. */
+    if ([self isReservedActionSearchShortcut:keycode modifier:x11_modifier]) {
+        NSDebugLog(@"X11ShortcutManager: Refusing %@ - Alt+Space is reserved for Action Search",
+              shortcutString);
+        return NO;
+    }
+
     // Check if this shortcut is already taken
     if ([self isShortcutAlreadyTaken:keycode modifier:x11_modifier]) {
         // Retry once — the old ungrab from a window switch may not have
@@ -1009,8 +1073,10 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
     // Without this, XGrabKey won't deliver events to us
     Window root = DefaultRootWindow(_display);
     
-    // Use KeyPressMask and also StructureNotifyMask for better event handling
-    XSelectInput(_display, root, KeyPressMask | StructureNotifyMask);
+    // Use KeyPressMask, KeyReleaseMask and also StructureNotifyMask for
+    // better event handling.  KeyReleaseMask is needed for XF86 keys that
+    // distinguish short from long press (e.g. the power key).
+    XSelectInput(_display, root, KeyPressMask | KeyReleaseMask | StructureNotifyMask);
     XSync(_display, False);
     
     // Make sure the X11 connection is flushed
@@ -1072,19 +1138,35 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                             unsigned int filteredState = keyEvent->state;
                             filteredState &= ~(_numlock_mask | _capslock_mask | _scrolllock_mask);
                             
-                            KeySym ks = XKeycodeToKeysym(_display, keyEvent->keycode, 0);
+                            KeySym ks = XkbKeycodeToKeysym(_display, keyEvent->keycode, 0, 0);
                             const char *ksname = ks != NoSymbol ? XKeysymToString(ks) : "(none)";
-                            NSLog(@"X11ShortcutManager: KeyPress event - keycode=%d, keysym=%s, state=%u (filtered from %u), window=%lu", 
+                            /* Runtime-gated: this fires for EVERY grabbed key
+                             * event, including autorepeat floods; an
+                             * unconditional NSLog here turned key repeats into
+                             * a log-I/O burn. */
+                            NSDebugLLog(@"gwcomp", @"X11ShortcutManager: KeyPress event - keycode=%d, keysym=%s, state=%u (filtered from %u), window=%lu",
                                   keyEvent->keycode, ksname, filteredState, keyEvent->state, keyEvent->window);
                             
                             // Create key for lookup using the filtered state (no swapping needed)
                             NSString *keycodeModifierKey = [NSString stringWithFormat:@"%d_%u", 
                                                           keyEvent->keycode, filteredState];
                             
+                            /* Alt+Space always opens the Action Search - even if an app
+                               menu managed to claim the grab, dispatch toggleSearch:
+                               directly.  This is Menu.app's own reserved global key. */
+                            if ([self isReservedActionSearchShortcut:keyEvent->keycode
+                                                             modifier:filteredState]) {
+                                NSDebugLog(@"X11ShortcutManager: Reserved Alt+Space - opening Action Search");
+                                dispatch_async(dispatch_get_main_queue(), ^{
+                                    [[ActionSearchController sharedController] toggleSearch:nil];
+                                });
+                                continue;
+                            }
+                            
                             // Find the menu item for this shortcut
                             NSString *menuItemKey = [_grabbedKeys objectForKey:keycodeModifierKey];
                             if (menuItemKey) {
-                                NSLog(@"X11ShortcutManager: Found matching shortcut for key: %@", keycodeModifierKey);
+                                NSDebugLLog(@"gwcomp", @"X11ShortcutManager: Found matching shortcut for key: %@", keycodeModifierKey);
                                 // Trigger the menu action on the main thread
                                 dispatch_async(dispatch_get_main_queue(), ^{
                                     [self triggerMenuActionForKey:menuItemKey];
@@ -1094,7 +1176,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                                 NSNumber *ksNum = @((unsigned long)ks);
                                 NSDictionary *action = [_xf86Actions objectForKey:ksNum];
                                 if (action) {
-                                    NSLog(@"X11ShortcutManager: Found XF86 key action for keysym 0x%lx (%s)", (unsigned long)ks, ksname);
+                                    NSDebugLLog(@"gwcomp", @"X11ShortcutManager: Found XF86 key action for keysym 0x%lx (%s)", (unsigned long)ks, ksname);
                                     dispatch_async(dispatch_get_main_queue(), ^{
                                         [self triggerXF86Action:action];
                                     });
@@ -1103,6 +1185,21 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                                 }
                             } else {
                                 NSDebugLog(@"X11ShortcutManager: No matching shortcut found for key: %@", keycodeModifierKey);
+                            }
+                        } else if (event.type == KeyRelease) {
+                            // Dispatch XF86 key release actions (e.g. power key
+                            // short/long-press detection needs the release event).
+                            XKeyEvent *keyEvent = &event.xkey;
+                            KeySym ks = XkbKeycodeToKeysym(_display, keyEvent->keycode, 0, 0);
+                            if (ks != NoSymbol && [_xf86ReleaseActions count] > 0) {
+                                NSNumber *ksNum = @((unsigned long)ks);
+                                NSDictionary *action = [_xf86ReleaseActions objectForKey:ksNum];
+                                if (action) {
+                                    NSDebugLLog(@"gwcomp", @"X11ShortcutManager: Found XF86 key release action for keysym 0x%lx (%s)", (unsigned long)ks, XKeysymToString(ks));
+                                    dispatch_async(dispatch_get_main_queue(), ^{
+                                        [self triggerXF86Action:action];
+                                    });
+                                }
                             }
                         }
                     }
@@ -1332,7 +1429,7 @@ static int handleX11GrabError(Display *display, XErrorEvent *event)
                 _scrolllock_mask = mask;
             else if (kc != 0) {
                 // Try to detect Alt and Super by looking up keysym for the keycode
-                KeySym ks = XKeycodeToKeysym(_display, kc, 0);
+                KeySym ks = XkbKeycodeToKeysym(_display, kc, 0, 0);
                 if (ks == XK_Alt_L || ks == XK_Alt_R) {
                     _alt_mask = mask;
                 } else if (ks == XK_Super_L || ks == XK_Super_R) {

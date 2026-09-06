@@ -1,32 +1,40 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
+<plist version="0.9">
 <dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>English</string>
-	<key>CFBundleExecutable</key>
-	<string>StartupDisk</string>
-	<key>CFBundleIconFile</key>
-	<string>StartupDisk.png</string>
-	<key>CFBundleIdentifier</key>
-	<string>org.gnustep.StartupDisk</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>StartupDisk</string>
-	<key>CFBundlePackageType</key>
-	<string>BNDL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
-	<key>CFBundleSignature</key>
-	<string>????</string>
+	<key>CFBundleDisplayName</key>
+	<string>Startup Disk</string>
+	<key>ApplicationName</key>
+	<string>Startup Disk</string>
+	<key>ApplicationDescription</key>
+	<string>Choose the disk to start the computer from</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.StartupDisk.prefpane</string>
+	<key>CFBundleExecutable</key>
+	<string>StartupDisk</string>
 	<key>CFBundleVersion</key>
 	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>NSPrincipalClass</key>
+	<string>StartupDiskPane</string>
 	<key>NSPrefPaneIconFile</key>
 	<string>StartupDisk.png</string>
 	<key>NSPrefPaneIconLabel</key>
 	<string>Startup Disk</string>
-	<key>NSPrincipalClass</key>
-	<string>StartupDiskPane</string>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
 </dict>
 </plist>

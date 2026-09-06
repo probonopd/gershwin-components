@@ -1,0 +1,23 @@
+#!/usr/bin/env run_uitest
+# Screenshot: the screenshot utility must start, show its window and its
+# capture controls, then quit. Screenshot is a capture app: activating it
+# (raising it to front) is exactly what a real user would do right before
+# grabbing the screen, so the test never activates it - and therefore never
+# quits it via the global menu bar either (Menu.app switches its bar only for
+# the frontmost app).  Instead the Quit item is selected in-process, which
+# performs the same action without touching the on-screen bar.
+#
+# Leaves the computer as it was found: the app is quit at the end.
+#
+# Run with: run_uitest Screenshot/Tests/screenshot.uitest
+launch application "Screenshot"
+wait until window "Screenshot" timeout 15s
+assert window "Screenshot"
+assert text contains "Ready to take screenshot"
+assert button "Window"
+assert button "Full Screen"
+assert menu item "Screenshot/Quit" shortcut "Cmd+Q"
+select menu "Screenshot/Quit"
+wait until not exists window "Screenshot" timeout 5s
+assert not exists application "Screenshot"
+log "Screenshot starts, shows its controls and quits"

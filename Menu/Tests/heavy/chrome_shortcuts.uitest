@@ -1,0 +1,60 @@
+#!/usr/bin/env run_uitest
+# Chrome's menu shortcuts must keep working after switching to another app and
+# back.  The shortcuts live in Menu.app's global menu (Chrome is a GTK/DBus
+# app); pressing Alt+N (Command+N in GNUstep terms, where Command = Alt) opens
+# a NEW Chrome window.  The whole-X-display xwindow scan counts real
+# application windows (ICCCM/EWMH-filtered), so the test compares against a
+# baseline captured at runtime and is robust to Chrome restoring windows.
+#
+# The second press happens after switching away to the desktop and back, which
+# releases and must re-register Chrome's global shortcuts.
+#
+# Leaves the computer as it was found: the Chrome windows this test opened are
+# closed again at the end (the test cleans up after itself; the harness does
+# not).
+#
+# Run with: run_uitest Menu/Tests/heavy/chrome_shortcuts.uitest
+# (Chrome must already be running - launch it with the .app wrapper first.)
+activate application "Menu"
+wait until xwindow "Google Chrome"
+
+# Baseline: how many Chrome windows there were before this test opened any.
+setcount ORIGINAL = count xwindow "Google Chrome"
+
+# Activate Chrome so its menu is shown and its shortcuts are registered.
+activate xwindow "Google Chrome"
+wait 500ms
+
+# First trigger: Alt+N must open a new Chrome window.
+setcount BASE = count xwindow "Google Chrome"
+press "Alt+N"
+wait until xwindow "Google Chrome" count > ${BASE}
+
+# Switch to another app (the desktop carries no app menu) - this releases
+# Chrome's global shortcuts.
+activate xwindow "Desktop"
+wait 500ms
+
+# Switch back to Chrome - its shortcuts must be registered again.
+activate xwindow "Google Chrome"
+wait 500ms
+
+# Second trigger after switching back: must again open a new Chrome window.
+setcount BASE = count xwindow "Google Chrome"
+press "Alt+N"
+wait until xwindow "Google Chrome" count > ${BASE}
+
+# Leave the computer as it was found: close the two Chrome windows this test
+# opened, back to the baseline count.  Chrome itself keeps running (it was
+# running before the test).
+activate xwindow "Google Chrome"
+wait 300ms
+setcount BASE = count xwindow "Google Chrome"
+press "Alt+F4"
+wait until xwindow "Google Chrome" count < ${BASE} timeout 5s
+setcount BASE = count xwindow "Google Chrome"
+press "Alt+F4"
+wait until xwindow "Google Chrome" count < ${BASE} timeout 5s
+assert xwindow "Google Chrome" count = ${ORIGINAL}
+
+log "chrome shortcuts work after switch-back"

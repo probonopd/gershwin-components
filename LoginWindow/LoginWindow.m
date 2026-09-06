@@ -42,6 +42,7 @@
 #import <limits.h>
 #import <stdlib.h>
 #import <X11/Xlib.h>
+#import <X11/Xutil.h>
 #import <X11/Xauth.h>
 #import <X11/cursorfont.h>
 #import <X11/Xatom.h>
@@ -205,15 +206,13 @@ static Display* safeXOpenDisplay(const char *display_name, int timeout_seconds) 
 
 // Signal handler for cleanup on termination
 void signalHandler(int sig) {
-    NSDebugLLog(@"gwcomp", @"[DEBUG] Received signal %d, performing cleanup", sig);
-    // We can't safely call Objective-C methods from a signal handler,
-    // but we can at least try to kill processes using the global variables
-    // Note: This is not the safest approach, but it's better than nothing
-    if (sig == SIGTERM || sig == SIGINT) {
-        exit(0); // This will trigger applicationWillTerminate
-    } else if (sig == SIGCHLD) {
+    // NSDebugLLog/NSLog is NOT async-signal-safe — do not call from here
+    if (sig == SIGCHLD) {
         // Child process died - we'll handle this in the main event loop
-        // Don't do complex operations in signal handler
+        return;
+    }
+    if (sig == SIGTERM || sig == SIGINT) {
+        _exit(0); // _exit is async-signal-safe
     }
 }
 
@@ -268,21 +267,30 @@ void signalHandler(int sig) {
     // the subsequent user session use the correct layout.
     _keyboardManager = [[KeyboardManager alloc] init];
     [_keyboardManager setupWithPasswd:NULL];
-    
+
+    // Set the UI language on NSUserDefaults based on detected keyboard
+    // layout before any NSLocalizedString call is made.
+    [self applyDetectedLanguage];
+
     [self createLogWindow];
     [self createLoginWindow];
-    
+
+    // Apply localized strings to the already-created UI elements.
+    // This ensures the correct language is displayed even if the
+    // bundle cached a different language before detection ran.
+    [self updateLocalizedStrings];
+
     // Validate LoginWindow.plist security BEFORE anything accesses it
     if (![self validateLoginWindowPreferencesFile]) {
-        NSDebugLLog(@"gwcomp", @"[WARNING] LoginWindow.plist validation failed, skipping auto-login");
+        NSDebugLLog(@"gwcomp", @"[DEBUG] LoginWindow.plist validation failed, skipping auto-login");
     } else {
         // Check for auto-login user after window is created but before showing it
         [self checkAutoLogin];
     }
-    
-    // Set X11 background to mid grey BEFORE showing the window
-    [self setX11BackgroundMidGrey];
-    
+
+    // Load desktop background (image or solid color) and set X11 root window background
+    [self loadDesktopBackground];
+
     [loginWindow makeKeyAndOrderFront:self];
     [NSApp activateIgnoringOtherApps:YES];
 
@@ -312,83 +320,558 @@ void signalHandler(int sig) {
     }
 }
 
-- (void)setX11BackgroundMidGrey
+- (void)applyDetectedLanguage
 {
-    NSDebugLLog(@"gwcomp", @"[DEBUG] Setting X11 background to mid grey with persistent pixmap and cursor");
-    
-    Display *display = safeXOpenDisplay(NULL, 5);  // 5 second timeout
-    if (!display) {
-        NSDebugLLog(@"gwcomp", @"[WARNING] Could not open X display");
+    // Map ISO 639-1 language codes to GNUstep .lproj directory names.
+    static const char *langMap[][2] = {
+        {"de", "German"},    {"fr", "French"},    {"es", "Spanish"},
+        {"it", "Italian"},   {"pt", "Portuguese"}, {"ru", "Russian"},
+        {"nl", "Dutch"},     {"tr", "Turkish"},   {"il", "Hebrew"},
+        {"dk", "Danish"},    {"se", "Swedish"},   {"no", "Norwegian"},
+        {"fi", "Finnish"},   {"jp", "Japanese"},  {"kr", "Korean"},
+        {"cn", "Chinese"},   {"cz", "Czech"},     {"hu", "Hungarian"},
+        {"pl", "Polish"},    {"sk", "Slovak"},    {"bg", "Bulgarian"},
+        {"ua", "Ukrainian"}, {"hr", "Croatian"},  {"ro", "Romanian"},
+        {"si", "Slovenian"}, {"ee", "Estonian"},  {"lv", "Latvian"},
+        {"lt", "Lithuanian"},{"is", "Icelandic"}, {"gr", "Greek"},
+        {"vn", "Vietnamese"},{"th", "Thai"},      {"by", "Belarusian"},
+        {"mk", "Macedonian"},{"mt", "Maltese"},   {"ca", "French"},
+        {"gb", "English"},   {"us", "English"},   {"br", "Portuguese"},
+        {NULL, NULL}
+    };
+
+    NSString *localeStr = _keyboardManager.language;  // e.g. "de_DE.UTF-8"
+    if (!localeStr) {
+        NSLog(@"[LoginWindow] Language: no locale from keyboard detection");
         return;
     }
 
-    // Set close down mode to RetainPermanent so resources persist after disconnect
-    XSetCloseDownMode(display, RetainPermanent);
-    
-    int screen_count = ScreenCount(display);
-    NSDebugLLog(@"gwcomp", @"[DEBUG] Found %d X11 screen(s)", screen_count);
-    
-    for (int i = 0; i < screen_count; i++) {
-        int screen = i;
-        Window root = RootWindow(display, screen);
-        Colormap colormap = DefaultColormap(display, screen);
-        
-        // Mid grey: RGB(128, 128, 128) = 0x808080
-        XColor color;
-        color.red = 0x8080;
-        color.green = 0x8080;
-        color.blue = 0x8080;
-        color.flags = DoRed | DoGreen | DoBlue;
-        
-        if (!XAllocColor(display, colormap, &color)) {
-            NSDebugLLog(@"gwcomp", @"[WARNING] Could not allocate mid grey color on screen %d", i);
-            continue;
-        }
-        
-        NSDebugLLog(@"gwcomp", @"[DEBUG] Allocated color pixel: 0x%lx on screen %d", color.pixel, i);
-        
-        // Create a 1x1 pixmap with the mid-grey color
-        unsigned int depth = DefaultDepth(display, screen);
-        Pixmap pixmap = XCreatePixmap(display, root, 1, 1, depth);
-        
-        if (!pixmap) {
-            NSDebugLLog(@"gwcomp", @"[WARNING] Could not create pixmap on screen %d", i);
-            continue;
-        }
-        
-        NSDebugLLog(@"gwcomp", @"[DEBUG] Created pixmap 0x%lx on screen %d", pixmap, i);
-        
-        // Fill the pixmap with the mid-grey color
-        GC gc = XCreateGC(display, pixmap, 0, NULL);
-        XSetForeground(display, gc, color.pixel);
-        XFillRectangle(display, pixmap, gc, 0, 0, 1, 1);
-        XFreeGC(display, gc);
-        
-        // Set the root window's background to use this pixmap
-        XSetWindowBackgroundPixmap(display, root, pixmap);
-        XClearWindow(display, root);
-        
-        // Free the pixmap (it will persist due to RetainPermanent mode)
-        XFreePixmap(display, pixmap);
-        
-        NSDebugLLog(@"gwcomp", @"[DEBUG] Screen %d root window background set with persistent pixmap", i);
-
-        // Set the standard arrow cursor (XC_left_ptr) on the root window
-        Cursor cursor = XCreateFontCursor(display, XC_left_ptr);
-        if (cursor) {
-            XDefineCursor(display, root, cursor);
-            XFreeCursor(display, cursor);
-            NSDebugLLog(@"gwcomp", @"[DEBUG] Standard arrow cursor set on screen %d root window", i);
+    // Extract the two-letter language code: "de_DE.UTF-8" → "de"
+    NSString *langCode = nil;
+    NSRange underscore = [localeStr rangeOfString:@"_"];
+    if (underscore.location != NSNotFound) {
+        langCode = [localeStr substringToIndex:underscore.location];
+    } else {
+        // No region part — try stripping encoding: "de.UTF-8" → "de"
+        NSRange dot = [localeStr rangeOfString:@"."];
+        if (dot.location != NSNotFound) {
+            langCode = [localeStr substringToIndex:dot.location];
         } else {
-            NSDebugLLog(@"gwcomp", @"[WARNING] Could not create standard arrow cursor on screen %d", i);
+            langCode = localeStr;
         }
     }
-    
+
+    if (!langCode || [langCode length] < 2) {
+        NSLog(@"[LoginWindow] Language: could not parse locale \"%@\"",
+              localeStr);
+        return;
+    }
+
+    // Look up GNUstep language name from the two-letter code
+    NSString *gsLanguage = nil;
+    for (int i = 0; langMap[i][0]; i++) {
+        if ([[NSString stringWithUTF8String:langMap[i][0]]
+                isEqualToString:langCode]) {
+            gsLanguage = [NSString stringWithUTF8String:langMap[i][1]];
+            break;
+        }
+    }
+
+    if (!gsLanguage) {
+        NSLog(@"[LoginWindow] Language: no mapping for \"%@\", keeping default",
+              langCode);
+        return;
+    }
+
+    // Set the language preference so NSLocalizedString picks it up.
+    // English is the fallback if the chosen language has no .lproj.
+    [[NSUserDefaults standardUserDefaults] setObject:
+        @[gsLanguage, @"English"] forKey:@"Languages"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+
+    NSLog(@"[LoginWindow] Language: set UI language to \"%@\" (from locale %@)",
+          gsLanguage, localeStr);
+}
+
+- (NSString *)detectedGSLanguage
+{
+    // Extract the GNUstep language name from the detected keyboard language
+    // (same logic as applyDetectedLanguage but returns the name).
+    static const char *langMap[][2] = {
+        {"de","German"},{"fr","French"},{"es","Spanish"},
+        {"it","Italian"},{"pt","Portuguese"},{"ru","Russian"},
+        {"nl","Dutch"},{"tr","Turkish"},{"il","Hebrew"},
+        {"dk","Danish"},{"se","Swedish"},{"no","Norwegian"},
+        {"fi","Finnish"},{"jp","Japanese"},{"kr","Korean"},
+        {"cn","Chinese"},{"cz","Czech"},{"hu","Hungarian"},
+        {"pl","Polish"},{"sk","Slovak"},{"bg","Bulgarian"},
+        {"ua","Ukrainian"},{"hr","Croatian"},{"ro","Romanian"},
+        {"si","Slovenian"},{"ee","Estonian"},{"lv","Latvian"},
+        {"lt","Lithuanian"},{"is","Icelandic"},{"gr","Greek"},
+        {"vn","Vietnamese"},{"th","Thai"},{"by","Belarusian"},
+        {"mk","Macedonian"},{"mt","Maltese"},{"ca","French"},
+        {"gb","English"},{"us","English"},{"br","Portuguese"},
+        {NULL,NULL}
+    };
+
+    NSString *localeStr = _keyboardManager.language;
+    if (!localeStr) return nil;
+
+    NSString *langCode = nil;
+    NSRange underscore = [localeStr rangeOfString:@"_"];
+    if (underscore.location != NSNotFound)
+        langCode = [localeStr substringToIndex:underscore.location];
+    else {
+        NSRange dot = [localeStr rangeOfString:@"."];
+        if (dot.location != NSNotFound)
+            langCode = [localeStr substringToIndex:dot.location];
+        else
+            langCode = localeStr;
+    }
+    if (!langCode || [langCode length] < 2) return nil;
+
+    for (int i = 0; langMap[i][0]; i++) {
+        if ([[NSString stringWithUTF8String:langMap[i][0]]
+                isEqualToString:langCode]) {
+            return [NSString stringWithUTF8String:langMap[i][1]];
+        }
+    }
+    return nil;
+}
+
+// Parse a GNUstep .strings file and return a dictionary of key→value pairs.
+// Handles the format:  "key" = "value";  with /* comments */.
+static NSDictionary *parseStringsFile(NSString *path)
+{
+    if (!path) return nil;
+    NSString *content = [NSString stringWithContentsOfFile:path
+                                                  encoding:NSUTF8StringEncoding
+                                                     error:NULL];
+    if (!content) return nil;
+
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    NSUInteger len = [content length];
+    NSCharacterSet *ws = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+
+    NSUInteger i = 0;
+    while (i < len) {
+        unichar c = [content characterAtIndex:i];
+
+        // Skip whitespace
+        if ([ws characterIsMember:c]) { i++; continue; }
+
+        // Skip /* ... */ comments
+        if (c == '/' && i + 1 < len && [content characterAtIndex:i+1] == '*') {
+            i += 2;
+            while (i < len) {
+                if ([content characterAtIndex:i] == '*'
+                    && i + 1 < len
+                    && [content characterAtIndex:i+1] == '/') {
+                    i += 2;
+                    break;
+                }
+                i++;
+            }
+            continue;
+        }
+
+        // Expect opening quote of key
+        if (c != '"') { i++; continue; }
+        i++; // skip opening quote
+
+        // Read key string
+        NSMutableString *key = [NSMutableString string];
+        while (i < len) {
+            c = [content characterAtIndex:i];
+            if (c == '"') { i++; break; }  // end of key
+            if (c == '\\' && i + 1 < len) {
+                i++;
+                unichar esc = [content characterAtIndex:i];
+                switch (esc) {
+                    case 'n': [key appendString:@"\n"]; break;
+                    case 't': [key appendString:@"\t"]; break;
+                    case 'r': [key appendString:@"\r"]; break;
+                    case '"': [key appendString:@"\""]; break;
+                    case '\\':[key appendString:@"\\"]; break;
+                    case 'u': {
+                        // \uXXXX — read 4 hex digits
+                        if (i + 4 < len) {
+                            NSString *hex = [content substringWithRange:
+                                NSMakeRange(i+1, 4)];
+                            unsigned int code;
+                            [[NSScanner scannerWithString:hex] scanHexInt:&code];
+                            [key appendFormat:@"%C", (unichar)code];
+                            i += 4;
+                        }
+                        break;
+                    }
+                    default:
+                        [key appendFormat:@"%C", esc];
+                        break;
+                }
+                i++;
+            } else {
+                [key appendFormat:@"%C", c];
+                i++;
+            }
+        }
+
+        // Skip whitespace and =
+        while (i < len && [ws characterIsMember:[content characterAtIndex:i]]) i++;
+        if (i < len && [content characterAtIndex:i] == '=') {
+            i++;
+            while (i < len && [ws characterIsMember:[content characterAtIndex:i]]) i++;
+        }
+
+        // Expect opening quote of value
+        if (i >= len || [content characterAtIndex:i] != '"') continue;
+        i++; // skip opening quote
+
+        // Read value string (same escape handling)
+        NSMutableString *value = [NSMutableString string];
+        while (i < len) {
+            c = [content characterAtIndex:i];
+            if (c == '"') { i++; break; }
+            if (c == '\\' && i + 1 < len) {
+                i++;
+                unichar esc = [content characterAtIndex:i];
+                switch (esc) {
+                    case 'n': [value appendString:@"\n"]; break;
+                    case 't': [value appendString:@"\t"]; break;
+                    case 'r': [value appendString:@"\r"]; break;
+                    case '"': [value appendString:@"\""]; break;
+                    case '\\':[value appendString:@"\\"]; break;
+                    case 'u': {
+                        if (i + 4 < len) {
+                            NSString *hex = [content substringWithRange:
+                                NSMakeRange(i+1, 4)];
+                            unsigned int code;
+                            [[NSScanner scannerWithString:hex] scanHexInt:&code];
+                            [value appendFormat:@"%C", (unichar)code];
+                            i += 4;
+                        }
+                        break;
+                    }
+                    default:
+                        [value appendFormat:@"%C", esc];
+                        break;
+                }
+                i++;
+            } else {
+                [value appendFormat:@"%C", c];
+                i++;
+            }
+        }
+
+        // Skip whitespace and ;
+        while (i < len && [ws characterIsMember:[content characterAtIndex:i]]) i++;
+        if (i < len && [content characterAtIndex:i] == ';') i++;
+
+        if ([key length] > 0) {
+            [result setObject:value forKey:key];
+        }
+    }
+
+    return result;
+}
+
+- (void)updateLocalizedStrings
+{
+    // Determine the currently selected language from NSUserDefaults.
+    NSArray *langs = [[NSUserDefaults standardUserDefaults]
+        arrayForKey:@"Languages"];
+    NSString *langName = ([langs count] > 0) ? [langs objectAtIndex:0] : @"English";
+
+    // Read the .strings file for the selected language.
+    NSString *path = [[NSBundle mainBundle] pathForResource:@"Localizable"
+                                                     ofType:@"strings"
+                                                inDirectory:
+        [NSString stringWithFormat:@"%@.lproj", langName]];
+    NSDictionary *strings = parseStringsFile(path);
+    if (!strings) {
+        // Fallback to English
+        path = [[NSBundle mainBundle] pathForResource:@"Localizable"
+                                               ofType:@"strings"
+                                          inDirectory:@"English.lproj"];
+        strings = parseStringsFile(path);
+    }
+    if (!strings) return;
+
+    // Apply all known keys to UI elements.
+    NSString *val;
+
+    val = [strings objectForKey:@"Username:"];
+    if (val && usernameLabel) [usernameLabel setStringValue:val];
+
+    val = [strings objectForKey:@"Password:"];
+    if (val && passwordLabel) [passwordLabel setStringValue:val];
+
+    val = [strings objectForKey:@"Shut Down"];
+    if (val && shutdownButton) [shutdownButton setTitle:val];
+
+    val = [strings objectForKey:@"Restart"];
+    if (val && restartButton) [restartButton setTitle:val];
+
+    val = [strings objectForKey:@"Log In"];
+    if (val && loginButton) [loginButton setTitle:val];
+
+    val = [strings objectForKey:@"Keyboard Layout Log"];
+    if (val && _logWindow) [_logWindow setTitle:val];
+}
+
+- (void)loadDesktopBackground
+{
+    //Read desktop background preferences from global defaults
+    NSString *prefsPath = @"/System/Library/Preferences/GlobalDefaults/org.gnustep.Workspace.plist";
+    NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:prefsPath];
+    NSDictionary *dskinfo = [prefs objectForKey:@"desktopinfo"];
+
+    // Default: light grey (GNUstep workspace default)
+    double bgRed   = 0.95;
+    double bgGreen = 0.95;
+    double bgBlue  = 0.95;
+    BOOL haveImage = NO;
+    BOOL imageWasSet = NO;
+    NSString *imagePath = nil;
+
+    if (!prefs) {
+        NSLog(@"[LoginWindow] Desktop background: no preferences file at %@, "
+              @"using default grey", prefsPath);
+    } else if (!dskinfo) {
+        NSLog(@"[LoginWindow] Desktop background: no desktopinfo in preferences, "
+              @"using default grey");
+    } else {
+        NSDictionary *backcolor = [dskinfo objectForKey:@"backcolor"];
+        if (backcolor) {
+            bgRed   = [[backcolor objectForKey:@"red"]   doubleValue];
+            bgGreen = [[backcolor objectForKey:@"green"] doubleValue];
+            bgBlue  = [[backcolor objectForKey:@"blue"]  doubleValue];
+            bgRed   = MAX(0.0, MIN(1.0, bgRed));
+            bgGreen = MAX(0.0, MIN(1.0, bgGreen));
+            bgBlue  = MAX(0.0, MIN(1.0, bgBlue));
+            NSLog(@"[LoginWindow] Desktop background: loaded backcolor "
+                  @"(%.3f, %.3f, %.3f)", bgRed, bgGreen, bgBlue);
+        } else {
+            NSLog(@"[LoginWindow] Desktop background: no backcolor in preferences, "
+                  @"using default grey");
+        }
+
+        if ([[dskinfo objectForKey:@"usebackimage"] boolValue]) {
+            imagePath = [dskinfo objectForKey:@"imagepath"];
+            if (imagePath) {
+                haveImage = YES;
+                NSLog(@"[LoginWindow] Desktop background: image configured: %@",
+                      imagePath);
+            } else {
+                NSLog(@"[LoginWindow] Desktop background: usebackimage is YES "
+                      @"but no imagepath set, using solid color");
+            }
+        } else {
+            NSLog(@"[LoginWindow] Desktop background: usebackimage not set, "
+                  @"using solid color");
+        }
+    }
+
+    // Open X display for all X11 operations
+    Display *display = safeXOpenDisplay(NULL, 5);
+    if (!display) {
+        NSLog(@"[LoginWindow] Desktop background: could not open X display, "
+              @"skipping background setup");
+        return;
+    }
+
+    XSetCloseDownMode(display, RetainPermanent);
+    int screenCount = ScreenCount(display);
+    NSLog(@"[LoginWindow] Desktop background: opened display, %d screen(s)",
+          screenCount);
+
+    if (haveImage) {
+        // Try to load and set the desktop image on the root window
+        @autoreleasepool {
+            NSImage *image = [[NSImage alloc] initWithContentsOfFile:imagePath];
+            if (!image) {
+                NSLog(@"[LoginWindow] Desktop background: failed to load image "
+                      @"at %@, falling back to solid color", imagePath);
+                haveImage = NO;
+            } else {
+                NSSize srcSize = [image size];
+                if (srcSize.width < 1.0 || srcSize.height < 1.0) {
+                    NSLog(@"[LoginWindow] Desktop background: image has invalid "
+                          @"size (%.0fx%.0f), falling back to solid color",
+                          srcSize.width, srcSize.height);
+                    [image release];
+                    image = nil;
+                    haveImage = NO;
+                } else {
+                    // Scale to screen size
+                    uint16_t outW = 0, outH = 0;
+                    NSScreen *mainScreen = [NSScreen mainScreen];
+                    if (mainScreen) {
+                        NSSize scrSize = [mainScreen frame].size;
+                        outW = (uint16_t)scrSize.width;
+                        outH = (uint16_t)scrSize.height;
+                    }
+                    if (outW < 1 || outH < 1) {
+                        // Fallback: use first X11 screen size
+                        outW = (uint16_t)DisplayWidth(display, 0);
+                        outH = (uint16_t)DisplayHeight(display, 0);
+                    }
+                    if (outW < 1 || outH < 1) {
+                        NSLog(@"[LoginWindow] Desktop background: could not "
+                              @"determine screen size, falling back to solid color");
+                        [image release];
+                        image = nil;
+                        haveImage = NO;
+                    } else {
+                        // Scale image to screen dimensions
+                        NSImage *scaled = [[NSImage alloc] initWithSize:
+                            NSMakeSize(outW, outH)];
+                        [scaled lockFocus];
+                        [image drawInRect:NSMakeRect(0, 0, outW, outH)
+                                fromRect:NSZeroRect
+                               operation:NSCompositeCopy
+                                fraction:1.0];
+                        [scaled unlockFocus];
+                        [image release];
+
+                        // Convert to bitmap pixel data
+                        NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc]
+                            initWithData:[scaled TIFFRepresentation]];
+                        [scaled release];
+                        if (!bitmap) {
+                            NSLog(@"[LoginWindow] Desktop background: bitmap "
+                                  @"conversion failed, falling back to solid color");
+                            haveImage = NO;
+                        } else {
+                            int srcW = (int)[bitmap pixelsWide];
+                            int srcH = (int)[bitmap pixelsHigh];
+                            int bpl = outW * 4;
+                            char *imgData = malloc((size_t)outH * (size_t)bpl);
+                            if (!imgData) {
+                                NSLog(@"[LoginWindow] Desktop background: malloc "
+                                      @"failed, falling back to solid color");
+                                [bitmap release];
+                                haveImage = NO;
+                            } else {
+                                // Copy pixels: BGRx format for X
+                                NSUInteger pixel[4];
+                                for (int y = 0; y < outH && y < srcH; y++) {
+                                    for (int x = 0; x < outW && x < srcW; x++) {
+                                        [bitmap getPixel:pixel atX:x y:y];
+                                        int off = y * bpl + x * 4;
+                                        imgData[off + 0] = (char)pixel[2]; // B
+                                        imgData[off + 1] = (char)pixel[1]; // G
+                                        imgData[off + 2] = (char)pixel[0]; // R
+                                        imgData[off + 3] = 0;             // pad
+                                    }
+                                }
+                                [bitmap release];
+
+                                // Upload image to each X11 screen
+                                unsigned int depth = 24;
+                                XImage *ximg = XCreateImage(display,
+                                    DefaultVisual(display, 0), depth, ZPixmap,
+                                    0, imgData, outW, outH, 32, bpl);
+                                if (ximg) {
+                                    for (int s = 0; s < screenCount; s++) {
+                                        Window root = RootWindow(display, s);
+                                        Pixmap pm = XCreatePixmap(display,
+                                            root, outW, outH, depth);
+                                        if (pm) {
+                                            GC gc = XCreateGC(display, pm,
+                                                0, NULL);
+                                            XPutImage(display, pm, gc, ximg,
+                                                0, 0, 0, 0, outW, outH);
+                                            XFreeGC(display, gc);
+                                            XSetWindowBackgroundPixmap(display,
+                                                root, pm);
+                                            XClearWindow(display, root);
+                                            XFreePixmap(display, pm);
+                                        } else {
+                                            NSLog(@"[LoginWindow] Desktop "
+                                                  @"background: could not "
+                                                  @"create pixmap on screen %d",
+                                                  s);
+                                        }
+                                        // Set cursor on each screen
+                                        Cursor cursor = XCreateFontCursor(
+                                            display, XC_left_ptr);
+                                        if (cursor) {
+                                            XDefineCursor(display, root,
+                                                cursor);
+                                            XFreeCursor(display, cursor);
+                                        }
+                                    }
+                                    imgData = NULL; // XImage owns it
+                                    haveImage = NO; // mark as handled
+                                    imageWasSet = YES;
+                                    NSLog(@"[LoginWindow] Desktop background: "
+                                          @"set image %@ (%dx%d -> %dx%d)",
+                                          imagePath, (int)srcSize.width,
+                                          (int)srcSize.height, outW, outH);
+                                } else {
+                                    free(imgData);
+                                    imgData = NULL;
+                                    NSLog(@"[LoginWindow] Desktop background: "
+                                          @"XCreateImage failed, falling back "
+                                          @"to solid color");
+                                }
+                                haveImage = NO; // done, will skip solid color
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (!imageWasSet) {
+        // Fallback: solid color on root window
+        int screensProcessed = 0;
+        for (int s = 0; s < screenCount; s++) {
+            Window root = RootWindow(display, s);
+            Colormap cmap = DefaultColormap(display, s);
+            XColor xc;
+            xc.red   = (unsigned short)(bgRed   * 0xFFFF);
+            xc.green = (unsigned short)(bgGreen * 0xFFFF);
+            xc.blue  = (unsigned short)(bgBlue  * 0xFFFF);
+            xc.flags = DoRed | DoGreen | DoBlue;
+            if (XAllocColor(display, cmap, &xc)) {
+                unsigned int depth = DefaultDepth(display, s);
+                Pixmap pm = XCreatePixmap(display, root, 1, 1, depth);
+                if (pm) {
+                    GC gc = XCreateGC(display, pm, 0, NULL);
+                    XSetForeground(display, gc, xc.pixel);
+                    XFillRectangle(display, pm, gc, 0, 0, 1, 1);
+                    XFreeGC(display, gc);
+                    XSetWindowBackgroundPixmap(display, root, pm);
+                    XClearWindow(display, root);
+                    XFreePixmap(display, pm);
+                    screensProcessed++;
+                } else {
+                    NSLog(@"[LoginWindow] Desktop background: could not "
+                          @"create pixmap on screen %d", s);
+                }
+            } else {
+                NSLog(@"[LoginWindow] Desktop background: could not allocate "
+                      @"color on screen %d", s);
+            }
+            // Set cursor even if color allocation failed
+            Cursor cursor = XCreateFontCursor(display, XC_left_ptr);
+            if (cursor) {
+                XDefineCursor(display, root, cursor);
+                XFreeCursor(display, cursor);
+            }
+        }
+        NSLog(@"[LoginWindow] Desktop background: set solid color "
+              @"(%.3f, %.3f, %.3f) on %d/%d screen(s)",
+              bgRed, bgGreen, bgBlue, screensProcessed, screenCount);
+    }
+
     XFlush(display);
     XSync(display, False);
     XCloseDisplay(display);
-    
-    NSDebugLLog(@"gwcomp", @"[DEBUG] X11 background set to mid grey with persistent pixmap");
+    NSLog(@"[LoginWindow] Desktop background: done");
 }
 
 - (void)dealloc
@@ -504,8 +987,8 @@ void signalHandler(int sig) {
         } else {
             // Add new Gershwin entry
             [sessions addObject:@"Gershwin"];
-            [execs addObject:@"/System/Library/Scripts/Gershwin-X11"];
-            NSDebugLLog(@"gwcomp", @"[DEBUG] Added Gershwin session: /System/Library/Scripts/Gershwin-X11");
+            [execs addObject:@"/System/Library/Scripts/Gershwin.sh"];
+            NSDebugLLog(@"gwcomp", @"[DEBUG] Added Gershwin session: /System/Library/Scripts/Gershwin.sh");
         }
     }
     
@@ -522,7 +1005,7 @@ void signalHandler(int sig) {
 {
     [self scanAvailableSessions];
     
-    NSRect windowFrame = NSMakeRect(0, 0, 400, 310);
+    NSRect windowFrame = NSMakeRect(0, 0, 400, 370);
     
     char hostname[256] = "";
     gethostname(hostname, sizeof(hostname));
@@ -554,7 +1037,7 @@ void signalHandler(int sig) {
     NSView *contentView = [loginWindow contentView];
     
     // Title
-    NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 230+12, 300, 40)];
+    NSTextField *titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 230+12+60, 300, 40)];
     [titleLabel setStringValue:computerName];
     [titleLabel setAlignment:NSCenterTextAlignment];
     [titleLabel setFont:[NSFont boldSystemFontOfSize:24]];
@@ -565,15 +1048,15 @@ void signalHandler(int sig) {
     [contentView addSubview:titleLabel];
 
     // Username field
-    NSTextField *usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 180+12, 100, 20)];
-    [usernameLabel setStringValue:@"Username:"];
+    usernameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 180+12+60, 100, 20)];
+    [usernameLabel setStringValue:NSLocalizedString(@"Username:", @"Label for username field")];
     [usernameLabel setBezeled:NO];
     [usernameLabel setDrawsBackground:NO];
     [usernameLabel setEditable:NO];
     [usernameLabel setSelectable:NO];
     [contentView addSubview:usernameLabel];
 
-    usernameField = [[NSTextField alloc] initWithFrame:NSMakeRect(160, 180+12, 190, 22)];
+    usernameField = [[NSTextField alloc] initWithFrame:NSMakeRect(160, 180+12+60, 190, 22)];
     [usernameField setBezeled:YES];
     [usernameField setBezelStyle:NSTextFieldSquareBezel];
     [usernameField setEditable:YES];
@@ -583,15 +1066,15 @@ void signalHandler(int sig) {
     [contentView addSubview:usernameField];
 
     // Password field
-    passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 150+12, 100, 20)];
-    [passwordLabel setStringValue:@"Password:"];
+    passwordLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 150+12+60, 100, 20)];
+    [passwordLabel setStringValue:NSLocalizedString(@"Password:", @"Label for password field")];
     [passwordLabel setBezeled:NO];
     [passwordLabel setDrawsBackground:NO];
     [passwordLabel setEditable:NO];
     [passwordLabel setSelectable:NO];
     [contentView addSubview:passwordLabel];
 
-    passwordField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(160, 150+12, 190, 22)];
+    passwordField = [[NSSecureTextField alloc] initWithFrame:NSMakeRect(160, 150+12+60, 190, 22)];
     [passwordField setBezeled:YES];
     [passwordField setBezelStyle:NSTextFieldSquareBezel];
     [passwordField setEditable:YES];
@@ -600,10 +1083,26 @@ void signalHandler(int sig) {
     [passwordField setDelegate:self];
     [contentView addSubview:passwordField];
 
+    // --- Language dropdown ---
+    languageDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(50, 115+12+60, 135, METRICS_BUTTON_SMALL_HEIGHT)];
+    [languageDropdown setFont:METRICS_FONT_SYSTEM_REGULAR_11];
+    [self populateLanguageDropdown];
+    [languageDropdown setTarget:self];
+    [languageDropdown setAction:@selector(languageChanged:)];
+    [contentView addSubview:languageDropdown];
+
+    // --- Keyboard layout dropdown ---
+    keyboardDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(210, 115+12+60, 140, METRICS_BUTTON_SMALL_HEIGHT)];
+    [keyboardDropdown setFont:METRICS_FONT_SYSTEM_REGULAR_11];
+    [self populateKeyboardDropdown];
+    [keyboardDropdown setTarget:self];
+    [keyboardDropdown setAction:@selector(keyboardLayoutChanged:)];
+    [contentView addSubview:keyboardDropdown];
+
     // Session dropdown
     BOOL showDropdown = [availableSessions count] > 1;
     if (showDropdown) {
-        sessionDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(50, 110+12, 300, 24)];
+        sessionDropdown = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(50, 80+12+60, 300, 24)];
         [sessionDropdown addItemsWithTitles:availableSessions];
         
         // Load last chosen session and select it
@@ -622,9 +1121,9 @@ void signalHandler(int sig) {
         [sessionDropdown setTarget:self];
         [sessionDropdown setAction:@selector(sessionChanged:)];
         [contentView addSubview:sessionDropdown];
-        statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 40+12, 300, 20)];
+        statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 40+12+60, 300, 20)];
     } else {
-        statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 60+12, 300, 20)];
+        statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(50, 60+12+60, 300, 20)];
     }
     [statusLabel setStringValue:@""];
     [statusLabel setAlignment:NSCenterTextAlignment];
@@ -644,19 +1143,19 @@ void signalHandler(int sig) {
     CGFloat rightX = windowFrame.size.width - buttonWidth - METRICS_CONTENT_SIDE_MARGIN;
 
     shutdownButton = [[NSButton alloc] initWithFrame:NSMakeRect(leftX, buttonY, buttonWidth, buttonHeight)];
-    [shutdownButton setTitle:@"Shut Down"];
+    [shutdownButton setTitle:NSLocalizedString(@"Shut Down", @"Shutdown button")];
     [shutdownButton setTarget:self];
     [shutdownButton setAction:@selector(shutdownButtonPressed:)];
     [contentView addSubview:shutdownButton];
 
     restartButton = [[NSButton alloc] initWithFrame:NSMakeRect(leftX + buttonWidth + buttonSpacing, buttonY, buttonWidth, buttonHeight)];
-    [restartButton setTitle:@"Restart"];
+    [restartButton setTitle:NSLocalizedString(@"Restart", @"Restart button")];
     [restartButton setTarget:self];
     [restartButton setAction:@selector(restartButtonPressed:)];
     [contentView addSubview:restartButton];
 
     loginButton = [[NSButton alloc] initWithFrame:NSMakeRect(rightX, buttonY, buttonWidth, buttonHeight)];
-    [loginButton setTitle:@"Log In"];
+    [loginButton setTitle:NSLocalizedString(@"Log In", @"Login button")];
     [loginButton setTarget:self];
     [loginButton setAction:@selector(loginButtonPressed:)];
     [loginButton setKeyEquivalent:@"\r"];
@@ -699,7 +1198,7 @@ void signalHandler(int sig) {
     NSString *password = [passwordField stringValue];
     
     if ([username length] == 0) {
-        [self showStatus:@"Please enter username"];
+        [self showStatus:NSLocalizedString(@"Please enter username", @"Status when username is empty")];
         [self shakeWindow];
         return;
     }
@@ -713,7 +1212,7 @@ void signalHandler(int sig) {
         [self startUserSession:username];
     } else {
         NSDebugLLog(@"gwcomp", @"[DEBUG] authenticateUser:password: returned NO");
-        [self showStatus:@"Authentication failed"];
+        [self showStatus:NSLocalizedString(@"Authentication failed", @"Status on auth failure")];
 
         // Show detailed error message if available
         NSString *errorMsg = [pamAuth lastErrorMessage];
@@ -723,8 +1222,8 @@ void signalHandler(int sig) {
                 NSDebugLLog(@"gwcomp", @"[DEBUG] Authentication failure (wrong password) — shaking only");
             } else {
                 NSDebugLLog(@"gwcomp", @"[ERROR] Showing PAM error to user: %@", errorMsg);
-                NSAlert *alert = [NSAlert alertWithMessageText:@"Authentication Error"
-                                                 defaultButton:@"OK"
+                NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Authentication Error", @"Auth error alert title")
+                                                 defaultButton:NSLocalizedString(@"OK", @"OK button")
                                                alternateButton:nil
                                                    otherButton:nil
                                      informativeTextWithFormat:@"%@", errorMsg];
@@ -831,10 +1330,10 @@ void signalHandler(int sig) {
 - (void)shutdownButtonPressed:(id)sender
 {
     NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:@"Shutdown Computer"];
-    [alert setInformativeText:@"Are you sure you want to shut down now?"];
-    [alert addButtonWithTitle:@"Shut Down"];
-    [alert addButtonWithTitle:@"Cancel"];
+    [alert setMessageText:NSLocalizedString(@"Shutdown Computer", @"Shutdown alert title")];
+    [alert setInformativeText:NSLocalizedString(@"Are you sure you want to shut down now?", @"Shutdown confirmation")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Shut Down", @"Shutdown button")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Cancel button")];
     
     NSInteger result = [alert runModal];
     [alert release];
@@ -843,9 +1342,9 @@ void signalHandler(int sig) {
         BOOL success = [self trySystemAction:@"shutdown"];
         if (!success) {
             NSAlert *errorAlert = [[NSAlert alloc] init];
-            [errorAlert setMessageText:@"Error"];
-            [errorAlert setInformativeText:@"Failed to execute shutdown command. No suitable command found."];
-            [errorAlert addButtonWithTitle:@"OK"];
+            [errorAlert setMessageText:NSLocalizedString(@"Error", @"Error alert title")];
+            [errorAlert setInformativeText:NSLocalizedString(@"Failed to execute shutdown command. No suitable command found.", @"Shutdown error message")];
+            [errorAlert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
             [errorAlert runModal];
             [errorAlert release];
         }
@@ -855,10 +1354,10 @@ void signalHandler(int sig) {
 - (void)restartButtonPressed:(id)sender
 {
     NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:@"Restart Computer"];
-    [alert setInformativeText:@"Are you sure you want to restart now?"];
-    [alert addButtonWithTitle:@"Restart"];
-    [alert addButtonWithTitle:@"Cancel"];
+    [alert setMessageText:NSLocalizedString(@"Restart Computer", @"Restart alert title")];
+    [alert setInformativeText:NSLocalizedString(@"Are you sure you want to restart now?", @"Restart confirmation")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Restart", @"Restart button")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Cancel button")];
     
     NSInteger result = [alert runModal];
     [alert release];
@@ -867,9 +1366,9 @@ void signalHandler(int sig) {
         BOOL success = [self trySystemAction:@"restart"];
         if (!success) {
             NSAlert *errorAlert = [[NSAlert alloc] init];
-            [errorAlert setMessageText:@"Error"];
-            [errorAlert setInformativeText:@"Failed to execute restart command. No suitable command found."];
-            [errorAlert addButtonWithTitle:@"OK"];
+            [errorAlert setMessageText:NSLocalizedString(@"Error", @"Error alert title")];
+            [errorAlert setInformativeText:NSLocalizedString(@"Failed to execute restart command. No suitable command found.", @"Restart error message")];
+            [errorAlert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
             [errorAlert runModal];
             [errorAlert release];
         }
@@ -890,7 +1389,7 @@ void signalHandler(int sig) {
     
     if (!pwd) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] User not found: %@", username);
-        [self showStatus:@"User not found"];
+        [self showStatus:NSLocalizedString(@"User not found", @"Status user not found")];
         return;
     }
     
@@ -900,6 +1399,51 @@ void signalHandler(int sig) {
     // Save the current session choice before starting
     [self saveLastSession:selectedSessionExec];
     
+    // Log the final locale and layout decisions before launching the session.
+    // The dropdown always has the last word over auto-detected values.
+    NSString *finalLang  = _keyboardManager.language ?: @"(not set)";
+    NSString *finalLayout = _keyboardManager.layout ?: @"(not set)";
+    NSString *finalVariant = _keyboardManager.variant ?: @"";
+    NSArray *finalLangs = [[NSUserDefaults standardUserDefaults]
+        arrayForKey:@"Languages"];
+    NSString *finalUILang = ([finalLangs count] > 0)
+        ? [finalLangs objectAtIndex:0] : @"English";
+
+    NSLog(@"[LoginWindow] ═══════════ Session Environment ═══════════");
+    NSLog(@"[LoginWindow]   UI language (NSUserDefaults): %@", finalUILang);
+    NSLog(@"[LoginWindow]   Locale (LANG):                %@", finalLang);
+    NSLog(@"[LoginWindow]   Keyboard layout:              %@", finalLayout);
+    if ([finalVariant length] > 0) {
+        NSLog(@"[LoginWindow]   Keyboard variant:             %@", finalVariant);
+    }
+    NSLog(@"[LoginWindow]   Selected session:             %@",
+          selectedSessionExec ?: @"(default)");
+
+    {
+        // Collect env vars that will be exported
+        NSMutableArray *envVars = [NSMutableArray array];
+        [envVars addObject:[NSString stringWithFormat:@"LANG=%@", finalLang]];
+        if (finalLang) {
+            NSString *langNo = [[finalLang componentsSeparatedByString:@"."]
+                firstObject];
+            if (langNo) {
+                [envVars addObject:[NSString stringWithFormat:
+                    @"LANGUAGE=%@", langNo]];
+                [envVars addObject:[NSString stringWithFormat:
+                    @"LC_ALL=%@", finalLang]];
+            }
+        }
+        [envVars addObject:[NSString stringWithFormat:@"DISPLAY=:0"]];
+        [envVars addObject:[NSString stringWithFormat:@"USER=%@", username]];
+        [envVars addObject:[NSString stringWithFormat:@"HOME=%s", pwd->pw_dir]];
+
+        for (NSString *ev in envVars) {
+            NSLog(@"[LoginWindow]   Export: %@", ev);
+        }
+    }
+
+    NSLog(@"[LoginWindow] ═══════════════════════════════════════════");
+
     // Get PAM environment
     char **pam_envlist = [pamAuth getEnvironmentList];
     NSDebugLLog(@"gwcomp", @"[DEBUG] PAM environment list obtained: %p", pam_envlist);
@@ -914,13 +1458,13 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Cannot change to home directory: %s", pwd->pw_dir);
         NSString *errorMsg = [NSString stringWithFormat:@"Cannot change to home directory: %s\n\nError: %s", 
                              pwd->pw_dir, strerror(errno)];
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Home Directory Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Home Directory Error", @"Home dir error title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
                              informativeTextWithFormat:@"%@", errorMsg];
         [alert runModal];
-        [self showStatus:@"Cannot change to home directory"];
+        [self showStatus:NSLocalizedString(@"Cannot change to home directory", @"Status chdir failure")];
         [pamAuth closeSession];
         return;
     }
@@ -934,13 +1478,13 @@ void signalHandler(int sig) {
     // Check if socket exists
     if (access(x_socket_path, F_OK) != 0) {
         NSDebugLLog(@"gwcomp", @"[ERROR] X11 unix socket does not exist at %s: %s", x_socket_path, strerror(errno));
-        NSAlert *alert = [NSAlert alertWithMessageText:@"X Server Socket Not Found"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"X Server Socket Not Found", @"X socket error title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
-                             informativeTextWithFormat:@"The X server unix socket at %s does not exist. The X server may not be running properly.", x_socket_path];
+                             informativeTextWithFormat:NSLocalizedString(@"The X server unix socket at %s does not exist. The X server may not be running properly.", @"X socket missing message"), x_socket_path];
         [alert runModal];
-        [self showStatus:@"X server socket not found"];
+        [self showStatus:NSLocalizedString(@"X server socket not found", @"Status X socket missing")];
         [pamAuth closeSession];
         return;
     }
@@ -958,14 +1502,14 @@ void signalHandler(int sig) {
             if (socket_stat.st_uid != pwd->pw_uid && socket_stat.st_gid != pwd->pw_gid) {
                 NSDebugLLog(@"gwcomp", @"[WARNING] User %d may not have access to X socket (owner: %d, group: %d)",
                       pwd->pw_uid, socket_stat.st_uid, socket_stat.st_gid);
-                NSAlert *alert = [NSAlert alertWithMessageText:@"X Server Access Warning"
-                                                 defaultButton:@"Continue Anyway"
-                                               alternateButton:@"Cancel"
+                NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"X Server Access Warning", @"X access warning title")
+                                                 defaultButton:NSLocalizedString(@"Continue Anyway", @"Continue anyway button")
+                                               alternateButton:NSLocalizedString(@"Cancel", @"Cancel button")
                                                    otherButton:nil
-                                     informativeTextWithFormat:@"The user %s may not have access to the X server socket. The X session may not work properly.", user_cstr];
+                                     informativeTextWithFormat:NSLocalizedString(@"The user %s may not have access to the X server socket. The X session may not work properly.", @"X access warning message"), user_cstr];
                 NSInteger response = [alert runModal];
                 if (response != NSAlertDefaultReturn) {
-                    [self showStatus:@"Login cancelled"];
+                    [self showStatus:NSLocalizedString(@"Login cancelled", @"Status login cancelled")];
                     [pamAuth closeSession];
                     return;
                 }
@@ -999,10 +1543,11 @@ void signalHandler(int sig) {
             close(fd);
         }
         
-        // Detect and persist keyboard config while we are still root
-        KeyboardManager *kbMgr = [[KeyboardManager alloc] init];
-        [kbMgr detectKeyboardWithPasswd:pwd];
-        [kbMgr persistConfiguration];
+        // Use the parent's detected/selected values — the dropdown
+        // always has the last word.  No re-detection in the child.
+        NSString *childLang = _keyboardManager.language;
+        NSString *childLayout = _keyboardManager.layout;
+        NSString *childVariant = _keyboardManager.variant;
         
         NSDebugLLog(@"gwcomp", @"[DEBUG] About to set user context for user: %s (uid=%d, gid=%d)", pwd->pw_name, pwd->pw_uid, pwd->pw_gid);
         
@@ -1129,10 +1674,14 @@ void signalHandler(int sig) {
             NSDebugLLog(@"gwcomp", @"[DEBUG] No PAM environment variables to set");
         }
         
-        // Apply keyboard layout to X server (as user, DISPLAY is set above)
-        NSDebugLLog(@"gwcomp", @"[DEBUG] Applying keyboard layout to X server");
-        [kbMgr applyToXServer];
-        [kbMgr release];
+        // Apply keyboard layout and language to X server (as user, DISPLAY is set above).
+        // _keyboardManager was copied on fork and reflects the user's dropdown choices.
+        NSDebugLLog(@"gwcomp", @"[DEBUG] Applying keyboard layout '%@' to X server",
+              childLayout);
+        [_keyboardManager applyLayout:childLayout variant:childVariant];
+        NSDebugLLog(@"gwcomp", @"[DEBUG] Applying language: %@",
+              childLang ?: @"(none)");
+        [_keyboardManager applyLanguage];
         
         // Change to user's home directory
         if (chdir(pwd->pw_dir) != 0) {
@@ -1150,7 +1699,7 @@ void signalHandler(int sig) {
         
         if (!sessionToExecute || [sessionToExecute length] == 0) {
             NSDebugLLog(@"gwcomp", @"[DEBUG] No session selected, using default: GWorkspace");
-            sessionToExecute = @"/System/Applications/GWorkspace.app/GWorkspace";
+            sessionToExecute = @"/System/Applications/Workspace.app/Workspace";
         }
         
         NSDebugLLog(@"gwcomp", @"[DEBUG] Final session to execute: '%@'", sessionToExecute);
@@ -1169,7 +1718,7 @@ void signalHandler(int sig) {
             } else {
                 NSDebugLLog(@"gwcomp", @"[DEBUG] Session executable not found: %@", mainExecutable);
                 // Try fallback
-                sessionToExecute = @"/System/Applications/GWorkspace.app/GWorkspace";
+                sessionToExecute = @"/System/Applications/Workspace.app/Workspace";
                 NSDebugLLog(@"gwcomp", @"[DEBUG] Using fallback session: %@", sessionToExecute);
             }
         } else {
@@ -1208,13 +1757,13 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Fork failed");
         NSString *errorMsg = [NSString stringWithFormat:@"Failed to fork process for session\n\nError: %s", 
                              strerror(errno)];
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Session Start Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Session Start Error", @"Session error title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
                              informativeTextWithFormat:@"%@", errorMsg];
         [alert runModal];
-        [self showStatus:@"Failed to start session"];
+        [self showStatus:NSLocalizedString(@"Failed to start session", @"Status session start failure")];
         [pamAuth closeSession];
     }
 }
@@ -1236,11 +1785,11 @@ void signalHandler(int sig) {
     // Check if file is owned by root (uid 0)
     if (fileStat.st_uid != 0) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Warning: LoginWindow.plist is not owned by root (owner uid: %d)", fileStat.st_uid);
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Autologin File Permission Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Autologin File Permission Error", @"Autologin permission title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
-                             informativeTextWithFormat:@"The autologin configuration file is not owned by root. Please check file permissions."];
+                             informativeTextWithFormat:NSLocalizedString(@"The autologin configuration file is not owned by root. Please check file permissions.", @"Autologin permission message")];
         [alert runModal];
         return NO;
     }
@@ -1250,11 +1799,11 @@ void signalHandler(int sig) {
     if ((fileStat.st_mode & 0777) != expectedMode) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Warning: LoginWindow.plist has incorrect permissions (expected 0644, got 0%o)", 
               fileStat.st_mode & 0777);
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Autologin File Permission Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Autologin File Permission Error", @"Autologin permission title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
-                             informativeTextWithFormat:@"The autologin configuration file has incorrect permissions (expected 0644). This is a security risk."];
+                             informativeTextWithFormat:NSLocalizedString(@"The autologin configuration file has incorrect permissions (expected 0644). This is a security risk.", @"Autologin bad permissions message")];
         [alert runModal];
         return NO;
     }
@@ -1313,7 +1862,7 @@ void signalHandler(int sig) {
     
     if (!pwd) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Auto-login user not found: %@", username);
-        [self showStatus:@"Auto-login user not found"];
+        [self showStatus:NSLocalizedString(@"Auto-login user not found", @"Status auto-login user missing")];
         [loginWindow makeKeyAndOrderFront:self];
         return;
     }
@@ -1326,14 +1875,14 @@ void signalHandler(int sig) {
     if (![pamAuth openSessionForUser:username]) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Failed to open PAM session for auto-login user");
         NSString *errorMsg = [pamAuth getLastError];
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Auto-Login PAM Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Auto-Login PAM Error", @"Auto-login PAM title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
                              informativeTextWithFormat:@"%@", errorMsg];
         [alert runModal];
         // Fall back to showing login window
-        [self showStatus:@"Failed to open session for auto-login"];
+        [self showStatus:NSLocalizedString(@"Failed to open session for auto-login", @"Status auto-login PAM failure")];
         [loginWindow makeKeyAndOrderFront:self];
         return;
     }
@@ -1354,13 +1903,13 @@ void signalHandler(int sig) {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Cannot change to home directory: %s", pwd->pw_dir);
         NSString *errorMsg = [NSString stringWithFormat:@"Cannot change to home directory: %s\n\nError: %s", 
                              pwd->pw_dir, strerror(errno)];
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Auto-Login Home Directory Error"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Auto-Login Home Directory Error", @"Auto-login home dir title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
                              informativeTextWithFormat:@"%@", errorMsg];
         [alert runModal];
-        [self showStatus:@"Cannot change to home directory"];
+        [self showStatus:NSLocalizedString(@"Cannot change to home directory", @"Status chdir failure")];
         [pamAuth closeSession];
         [loginWindow makeKeyAndOrderFront:self];
         return;
@@ -1375,13 +1924,13 @@ void signalHandler(int sig) {
     // Check if socket exists
     if (access(x_socket_path_autologin, F_OK) != 0) {
         NSDebugLLog(@"gwcomp", @"[ERROR] X11 unix socket does not exist at %s: %s", x_socket_path_autologin, strerror(errno));
-        NSAlert *alert = [NSAlert alertWithMessageText:@"Auto-Login X Server Socket Not Found"
-                                         defaultButton:@"OK"
+        NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Auto-Login X Server Socket Not Found", @"Auto-login X socket title")
+                                         defaultButton:NSLocalizedString(@"OK", @"OK button")
                                        alternateButton:nil
                                            otherButton:nil
-                             informativeTextWithFormat:@"The X server unix socket at %s does not exist. Falling back to login window.", x_socket_path_autologin];
+                             informativeTextWithFormat:NSLocalizedString(@"The X server unix socket at %s does not exist. Falling back to login window.", @"Auto-login X socket missing message"), x_socket_path_autologin];
         [alert runModal];
-        [self showStatus:@"X server socket not found"];
+        [self showStatus:NSLocalizedString(@"X server socket not found", @"Status X socket missing")];
         [pamAuth closeSession];
         [loginWindow makeKeyAndOrderFront:self];
         return;
@@ -1400,13 +1949,13 @@ void signalHandler(int sig) {
             if (socket_stat_autologin.st_uid != pwd->pw_uid && socket_stat_autologin.st_gid != pwd->pw_gid) {
                 NSDebugLLog(@"gwcomp", @"[WARNING] Auto-login user %d may not have access to X socket (owner: %d, group: %d)",
                       pwd->pw_uid, socket_stat_autologin.st_uid, socket_stat_autologin.st_gid);
-                NSAlert *alert = [NSAlert alertWithMessageText:@"Auto-Login X Server Access Warning"
-                                                 defaultButton:@"OK"
+                NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Auto-Login X Server Access Warning", @"Auto-login X access title")
+                                                 defaultButton:NSLocalizedString(@"OK", @"OK button")
                                                alternateButton:nil
                                                    otherButton:nil
-                                     informativeTextWithFormat:@"The auto-login user %s may not have access to the X server socket. Falling back to login window.", user_cstr];
+                                     informativeTextWithFormat:NSLocalizedString(@"The auto-login user %s may not have access to the X server socket. Falling back to login window.", @"Auto-login X access warning message"), user_cstr];
                 [alert runModal];
-                [self showStatus:@"Auto-login socket access failed"];
+                [self showStatus:NSLocalizedString(@"Auto-login socket access failed", @"Status auto-login X socket")];
                 [pamAuth closeSession];
                 [loginWindow makeKeyAndOrderFront:self];
                 return;
@@ -1586,9 +2135,11 @@ void signalHandler(int sig) {
             NSDebugLLog(@"gwcomp", @"[DEBUG] No PAM environment variables to set for auto-login");
         }
         
-        // Apply keyboard layout to X server (as user, DISPLAY is set above)
+        // Apply keyboard layout and language to X server (as user, DISPLAY is set above)
         NSDebugLLog(@"gwcomp", @"[DEBUG] Applying keyboard layout to X server for auto-login");
         [kbMgr applyToXServer];
+        NSDebugLLog(@"gwcomp", @"[DEBUG] Applying language for auto-login");
+        [kbMgr applyLanguage];
         [kbMgr release];
         
         // Change to user's home directory
@@ -1663,7 +2214,7 @@ void signalHandler(int sig) {
         [self performSelector:@selector(monitorSession) withObject:nil afterDelay:1.0];
     } else {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Fork failed for auto-login");
-        [self showStatus:@"Failed to start auto-login session"];
+        [self showStatus:NSLocalizedString(@"Failed to start auto-login session", @"Status auto-login session failed")];
         [pamAuth closeSession];
         [loginWindow makeKeyAndOrderFront:self];
     }
@@ -1714,8 +2265,8 @@ void signalHandler(int sig) {
                            sessionDuration];
             }
             
-            NSAlert *alert = [NSAlert alertWithMessageText:@"Session Startup Error"
-                                             defaultButton:@"OK"
+            NSAlert *alert = [NSAlert alertWithMessageText:NSLocalizedString(@"Session Startup Error", @"Session startup error")
+                                             defaultButton:NSLocalizedString(@"OK", @"OK button")
                                            alternateButton:nil
                                                otherButton:nil
                                  informativeTextWithFormat:@"%@", errorMsg];
@@ -2010,6 +2561,120 @@ static bool isDetachedDaemon(const char *comm)
     } else {
         NSDebugLLog(@"gwcomp", @"[DEBUG] Invalid session index: %ld (count: %lu)", (long)idx, (unsigned long)[availableSessionExecs count]);
     }
+}
+
+- (void)populateLanguageDropdown
+{
+    // Clear existing items
+    [languageDropdown removeAllItems];
+
+    // List all available .lproj language directories
+    NSArray *languageNames = @[
+        @"English", @"German", @"French", @"Spanish"
+    ];
+    [languageDropdown addItemsWithTitles:languageNames];
+
+    // Select auto-detected language
+    NSString *detected = [self detectedGSLanguage];
+    if (detected) {
+        [languageDropdown selectItemWithTitle:detected];
+    }
+}
+
+- (void)populateKeyboardDropdown
+{
+    [keyboardDropdown removeAllItems];
+
+    // Common keyboard layouts with display names
+    static const char *commonLayouts[][2] = {
+        {"us", "US"}, {"de", "German"}, {"fr", "French"},
+        {"es", "Spanish"}, {"it", "Italian"}, {"pt", "Portuguese"},
+        {"ru", "Russian"}, {"nl", "Dutch"}, {"dk", "Danish"},
+        {"se", "Swedish"}, {"no", "Norwegian"}, {"fi", "Finnish"},
+        {"jp", "Japanese"}, {"kr", "Korean"}, {"cn", "Chinese"},
+        {"cz", "Czech"}, {"hu", "Hungarian"}, {"pl", "Polish"},
+        {"gb", "UK"}, {"br", "Brazilian"}, {"ca", "Canadian"},
+        {"tr", "Turkish"}, {"il", "Hebrew"}, {"gr", "Greek"},
+        {NULL, NULL}
+    };
+
+    for (int i = 0; commonLayouts[i][0]; i++) {
+        NSString *label = [NSString stringWithFormat:@"%s (%s)",
+            commonLayouts[i][1], commonLayouts[i][0]];
+        [keyboardDropdown addItemWithTitle:label];
+
+        // Tag the item with its layout code
+        [[keyboardDropdown lastItem] setRepresentedObject:
+            [NSString stringWithUTF8String:commonLayouts[i][0]]];
+    }
+
+    // Select auto-detected layout
+    NSString *detected = _keyboardManager.layout;
+    if (detected) {
+        for (NSMenuItem *item in [keyboardDropdown itemArray]) {
+            NSString *obj = [item representedObject];
+            if ([obj isEqualToString:detected]) {
+                [keyboardDropdown selectItem:item];
+                break;
+            }
+        }
+    }
+}
+
+- (void)languageChanged:(id)sender
+{
+    NSString *selected = [[languageDropdown selectedItem] title];
+    if (!selected) return;
+
+    // Map GNUstep language name back to a locale string
+    static const char *gsToLocale[][2] = {
+        {"English","en_US.UTF-8"},  {"German","de_DE.UTF-8"},
+        {"French","fr_FR.UTF-8"},  {"Spanish","es_ES.UTF-8"},
+        {"Italian","it_IT.UTF-8"}, {"Portuguese","pt_PT.UTF-8"},
+        {"Russian","ru_RU.UTF-8"}, {"Dutch","nl_NL.UTF-8"},
+        {"Danish","da_DK.UTF-8"},  {"Swedish","sv_SE.UTF-8"},
+        {"Norwegian","nb_NO.UTF-8"},{"Finnish","fi_FI.UTF-8"},
+        {"Japanese","ja_JP.UTF-8"},{"Korean","ko_KR.UTF-8"},
+        {"Chinese","zh_CN.UTF-8"}, {"Czech","cs_CZ.UTF-8"},
+        {"Hungarian","hu_HU.UTF-8"},{"Polish","pl_PL.UTF-8"},
+        {NULL,NULL}
+    };
+    NSString *localeStr = nil;
+    for (int i = 0; gsToLocale[i][0]; i++) {
+        if ([[NSString stringWithUTF8String:gsToLocale[i][0]]
+                isEqualToString:selected]) {
+            localeStr = [NSString stringWithUTF8String:gsToLocale[i][1]];
+            break;
+        }
+    }
+
+    // Set the language preference for NSLocalizedString
+    [[NSUserDefaults standardUserDefaults] setObject:
+        @[selected, @"English"] forKey:@"Languages"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+
+    // Persist language and update environment for the upcoming session.
+    // The dropdown always has the last word.
+    if (localeStr) {
+        [_keyboardManager applyUserLanguage:localeStr];
+    }
+
+    // Refresh all UI strings
+    [self updateLocalizedStrings];
+
+    NSLog(@"[LoginWindow] Language changed to \"%@\"", selected);
+}
+
+- (void)keyboardLayoutChanged:(id)sender
+{
+    id item = [keyboardDropdown selectedItem];
+    NSString *layout = [item representedObject];
+    if (!layout) return;
+
+    // Apply the new layout immediately to the X server
+    [_keyboardManager applyLayout:layout variant:nil];
+
+    NSLog(@"[LoginWindow] Keyboard layout changed to \"%@\"", layout);
 }
 
 - (void)resetLoginWindow
@@ -2858,7 +3523,7 @@ static bool isDetachedDaemon(const char *comm)
                             | NSWindowStyleMaskMiniaturizable)
                     backing:NSBackingStoreBuffered
                       defer:NO];
-    [_logWindow setTitle:@"Keyboard Layout Log"];
+    [_logWindow setTitle:NSLocalizedString(@"Keyboard Layout Log", @"Log window title")];
     [_logWindow setMinSize:NSMakeSize(400, 150)];
 
     NSScrollView *scrollView = [[NSScrollView alloc]
@@ -2909,9 +3574,10 @@ static bool isDetachedDaemon(const char *comm)
         as = [[NSAttributedString alloc] initWithString:log attributes:attrs];
     } else {
         as = [[NSAttributedString alloc] initWithString:
-            @"No keyboard layout detection data available.\n"
-            @"The layout was detected before the logging\n"
-            @"infrastructure was initialized."
+            NSLocalizedString(@"No keyboard layout detection data available.\n"
+                              @"The layout was detected before the logging\n"
+                              @"infrastructure was initialized.",
+                              @"Fallback log message when no detection data")
                                             attributes:attrs];
     }
     [[_logTextView textStorage] setAttributedString:as];

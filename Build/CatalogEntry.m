@@ -8,10 +8,47 @@
 
 @implementation CatalogEntry
 
++ (NSString *)remoteCatalogURLString
+{
+    return @"https://raw.githubusercontent.com/gershwin-desktop/gershwin-components/refs/heads/dev/Build/Resources/Catalog.plist";
+}
+
+/* Path to the cached catalog in the user Caches directory, creating the
+   app-specific subdirectory if needed. Returns nil if Caches is unavailable. */
++ (NSString *)catalogCachePath
+{
+    NSArray *dirs = NSSearchPathForDirectoriesInDomains(NSCachesDirectory,
+                                                        NSUserDomainMask, YES);
+    if ([dirs count] == 0) return nil;
+    NSString *cacheDir = [dirs objectAtIndex:0];
+    NSString *appDir = [cacheDir stringByAppendingPathComponent:
+                        [[NSBundle mainBundle] bundleIdentifier]];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:appDir]) {
+        [fm createDirectoryAtPath:appDir
+          withIntermediateDirectories:YES
+                           attributes:nil
+                                error:NULL];
+    }
+    return [appDir stringByAppendingPathComponent:@"Catalog.plist"];
+}
+
+/* The catalog is never bundled; it is always fetched from the server into
+   Caches. Return the Caches path (which may not exist yet on a fresh run);
+   the loader tolerates a missing file by yielding an empty list until the
+   first fetch completes. */
++ (NSString *)localCatalogPath
+{
+    return [self catalogCachePath];
+}
+
 + (NSArray *)loadCatalog
 {
-    NSBundle *bundle = [NSBundle mainBundle];
-    NSString *catalogPath = [[bundle resourcePath] stringByAppendingPathComponent:@"Catalog.plist"];
+    return [self loadCatalogFromPath:[self localCatalogPath]];
+}
+
++ (NSArray *)loadCatalogFromPath:(NSString *)catalogPath
+{
     NSArray *entries = [NSArray arrayWithContentsOfFile:catalogPath];
     if (!entries) return @[];
 

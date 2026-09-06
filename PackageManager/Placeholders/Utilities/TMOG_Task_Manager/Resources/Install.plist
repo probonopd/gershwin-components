@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AppImage</key>
+	<dict>
+		<key>x86_64</key>
+		<string>https://tmog.org/downloads/TMOG-Task-Manager-Linux-x86_64.AppImage?v=0.1.1-free</string>
+	</dict>
+</dict>
+</plist>

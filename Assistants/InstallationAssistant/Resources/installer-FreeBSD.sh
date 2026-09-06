@@ -38,19 +38,25 @@ report_progress() {
     echo "PROGRESS:$1:$2:$3"
 }
 
-# Checks - detect FreeBSD even under Linux compatibility layer
+# Checks - detect FreeBSD / NextBSD
 IS_FREEBSD=0
-if [ "$(uname -s)" = "FreeBSD" ]; then
-    IS_FREEBSD=1
-elif [ -x /bin/freebsd-version ]; then
-    IS_FREEBSD=1
-elif [ -f /etc/rc.conf ] && sysctl -n kern.ostype 2>/dev/null | grep -q FreeBSD; then
-    IS_FREEBSD=1
+OS_NAME="FreeBSD"
+case "$(uname -s)" in
+    FreeBSD) IS_FREEBSD=1; OS_NAME="FreeBSD" ;;
+    NextBSD) IS_FREEBSD=1; OS_NAME="NextBSD" ;;
+esac
+if [ "$IS_FREEBSD" != "1" ]; then
+    if [ -x /bin/freebsd-version ]; then
+        IS_FREEBSD=1
+    elif [ -f /etc/rc.conf ] && sysctl -n kern.ostype 2>/dev/null | grep -q FreeBSD; then
+        IS_FREEBSD=1
+    fi
 fi
 if [ "$IS_FREEBSD" != "1" ]; then
-    echo "ERROR: This script must be run on FreeBSD."
+    echo "ERROR: This script must be run on FreeBSD or NextBSD."
     exit 1
 fi
+OS_NAME_LOWER=$(echo "$OS_NAME" | tr '[:upper:]' '[:lower:]')
 
 if [ "$LIST_DISKS" != "1" ] && [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: This script must be run as root."
@@ -64,13 +70,28 @@ disable_automounter() {
         if service devd onestatus 2>/dev/null; then
             AUTOMOUNTER_DEVD=1
             echo "Stopping devd..."
-            service devd onestop 2>/dev/null || true
+            service devd stop || true
+            sleep 2
         fi
     fi
-    # Forceful fallback if service stop didn't work
+    # If still alive, escalate
     if pgrep -q devd 2>/dev/null; then
         AUTOMOUNTER_DEVD=1
-        killall -q devd 2>/dev/null || true
+        echo "devd still running, trying killall..."
+        killall devd 2>/dev/null || true
+        sleep 2
+    fi
+    if pgrep -q devd 2>/dev/null; then
+        AUTOMOUNTER_DEVD=1
+        echo "devd still running, forcing kill..."
+        killall -9 devd 2>/dev/null || true
+        sleep 1
+    fi
+    # Refuse to proceed if devd is still alive
+    if pgrep -q devd 2>/dev/null; then
+        echo "ERROR: Cannot stop devd. It may be automatically respawning."
+        echo "Please stop it manually and try again."
+        exit 1
     fi
     # Stop automountd too if present
     if command -v service >/dev/null 2>&1; then
@@ -447,7 +468,7 @@ report_progress "Copying" 25 "Starting system copy from $SRC..."
 echo "Copying system from $SRC to $MNT..."
 
 # Exclude runtime dirs
-EXCLUDES="dev proc sys tmp mnt media efi private run var/run var/tmp var/cache compat"
+EXCLUDES="dev proc sys tmp mnt media efi run var/run var/tmp var/cache compat"
 
 # For non-image installations, also exclude /Local (it will be initialized with dscli init
 # because DirectoryServices requires specific permissions and ownership that are hard to preserve during copying)
@@ -501,11 +522,44 @@ else
     report_progress "Copying" 80 "File copy complete."
 fi
 
-# Create the directories we skipped during copying
+# Create the directories we skipped during copying.
+# Some paths may have parent directories that are symlinks to other
+# excluded paths (e.g. /var -> private/var on FreeBSD).  In that case
+# mkdir -p would fail because the symlink target is missing, so we
+# first walk each path and resolve any dangling symlinks along the way.
 for d in $EXCLUDES; do
-    mkdir -p "$MNT/$d"
+    if [ ! -d "$MNT/$d" ]; then
+        path="$MNT"
+        rest="$d"
+        while [ -n "$rest" ]; do
+            part="${rest%%/*}"
+            rest="${rest#*/}"
+            path="$path/$part"
+            if [ -L "$path" ] && [ ! -d "$path" ]; then
+                tgt=$(readlink "$path")
+                case "$tgt" in
+                    /*) mkdir -p "$MNT$tgt" 2>/dev/null || true ;;
+                    *)  mkdir -p "$(dirname "$path")/$tgt" 2>/dev/null || true ;;
+                esac
+            fi
+            [ "$rest" = "$part" ] && rest=""
+        done
+        mkdir -p "$MNT/$d"
+    fi
 done
 chmod 1777 "$MNT/tmp"
+
+# Resolve any dangling symlinks whose targets are under excluded
+# directories (e.g. /var -> private/var when private was excluded on
+# older FreeBSD, or /etc -> private/etc on NextBSD).  Catches any
+# symlinks that would prevent writing config files later.
+find "$MNT" -type l ! -type d 2>/dev/null | while read -r link; do
+    target=$(readlink "$link")
+    case "$target" in
+        /*) mkdir -p "$MNT$target" 2>/dev/null || true ;;
+        *)  mkdir -p "$(dirname "$link")/$target" 2>/dev/null || true ;;
+    esac
+done
 
 # For non-image installations, copy /boot from the ISO
 if [ "$IMAGE_MODE" = "0" ] && [ -n "$MP" ]; then
@@ -537,8 +591,8 @@ if [ "$BOOT_METHOD" = "UEFI" ]; then
     echo "Installing UEFI bootloader..."
     mkdir -p "$MNT/efi/EFI/BOOT"
     cp /boot/loader.efi "$MNT/efi/EFI/BOOT/BOOTX64.EFI"
-    mkdir -p "$MNT/efi/EFI/freebsd"
-    cp /boot/loader.efi "$MNT/efi/EFI/freebsd/loader.efi"
+    mkdir -p "$MNT/efi/EFI/$OS_NAME_LOWER"
+    cp /boot/loader.efi "$MNT/efi/EFI/$OS_NAME_LOWER/loader.efi"
 
     # Register boot entry
     report_progress "Bootloader" 86 "Registering UEFI boot entry..."
@@ -547,10 +601,29 @@ if [ "$BOOT_METHOD" = "UEFI" ]; then
     umount "$MNT/efi"
     mkdir -p /boot/efi
     mount -t msdosfs "$EFI_PART" /boot/efi
-    efibootmgr -c -d "$DISK" -p 1 -L "FreeBSD" -l /boot/efi/EFI/freebsd/loader.efi
-    # Set as BootNext to ensure it boots from the new disk next time
-    NEW_BOOT_ENTRY=$(efibootmgr | grep "FreeBSD" | head -n 1 | sed -E 's/.*Boot([0-9A-Fa-f]{4}).*/\1/')
+    # Remove stale UEFI boot entries whose partition GUID is no longer
+    # present on any disk (we just wiped the old GPT and created a new one).
+    CURRENT_GUIDS=$(gpart list 2>/dev/null | awk '/rawuuid:/ {print tolower($2)}')
+    efibootmgr -v 2>/dev/null | while read -r efi_line; do
+        case "$efi_line" in
+            Boot*)
+                boot_num=$(echo "$efi_line" | sed -n 's/Boot\([0-9A-Fa-f]*\).*/\1/p')
+                [ -z "$boot_num" ] && continue
+                guid=$(echo "$efi_line" | sed -n 's/.*HD([^,]*,GPT,\([^,]*\),.*/\1/p' | tr '[:upper:]' '[:lower:]')
+                [ -z "$guid" ] && continue
+                if ! echo "$CURRENT_GUIDS" | grep -qF "$guid"; then
+                    echo "Removing stale boot entry Boot$boot_num (GUID $guid no longer exists)"
+                    efibootmgr -b "$boot_num" -B 2>/dev/null || true
+                fi
+                ;;
+        esac
+    done
+
+    efibootmgr -c -d "$DISK" -p 1 -L "$OS_NAME" -l "/boot/efi/EFI/$OS_NAME_LOWER/loader.efi"
+    NEW_BOOT_ENTRY=$(efibootmgr | grep "$OS_NAME" | head -n 1 | sed -E 's/.*Boot([0-9A-Fa-f]{4}).*/\1/')
     if [ -n "$NEW_BOOT_ENTRY" ]; then
+        echo "Activating boot entry $NEW_BOOT_ENTRY"
+        efibootmgr -a -b "$NEW_BOOT_ENTRY"
         echo "Setting BootNext to $NEW_BOOT_ENTRY"
         efibootmgr -n -b "$NEW_BOOT_ENTRY"
     fi

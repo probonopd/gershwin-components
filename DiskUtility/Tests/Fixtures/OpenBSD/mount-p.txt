@@ -1,0 +1,3 @@
+/dev/sd0a / ffs rw,local 1 1
+/dev/sd0d /usr ffs rw,nodev,nosuid,local 1 2
+/dev/sd0i /mnt/data msdos rw,local 0 0

@@ -33,7 +33,6 @@ RemoteDesktop_OBJC_FILES = \
 	RDPWindow.m
 
 RemoteDesktop_RESOURCE_FILES = \
-	Info.plist \
 	RemoteDesktop.icns
 
 RemoteDesktop_LOCALIZED_RESOURCE_FILES =

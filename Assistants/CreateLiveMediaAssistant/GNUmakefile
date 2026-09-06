@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 GNUSTEP_SYSTEM_APPS := $(GNUSTEP_SYSTEM_APPS)/Utilities
 GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
@@ -53,32 +54,36 @@ CreateLiveMediaAssistant_CPPFLAGS += -Wall -Wextra -fobjc-arc -Werror -Wno-unuse
 CreateLiveMediaAssistant_LDFLAGS += -L$(shell pwd)/../AssistantFramework/GSAssistantFramework.framework/Versions/1 -lGSAssistantFramework $(CLM_DEP_LIBS) -Wl,-rpath,'$$ORIGIN/Frameworks/GSAssistantFramework.framework/Versions/1' -Wl,-rpath,/System/Library/Libraries
 CreateLiveMediaAssistant_LDFLAGS += -ldispatch
 
+# --- Helper tool ---
+TOOL_NAME = clm-helper
+clm-helper_OBJC_FILES = clm-helper/main.m
+clm-helper_TOOL_LIBS = -lgnustep-base
+clm-helper_CPPFLAGS = -Wall -Wextra -fobjc-arc -Werror -Wno-unused-parameter -O2
+
 include $(GNUSTEP_MAKEFILES)/application.make
+include $(GNUSTEP_MAKEFILES)/tool.make
 
 before-install::
 	mkdir -p $(GNUSTEP_APPS)
 
-# Copy framework into app bundle after building
+# Copy framework and helper into app bundle after building
 after-all::
 	@echo "Copying GSAssistantFramework into app bundle..."
 	@mkdir -p $(APP_NAME).app/Frameworks
-	@# after-all runs more than once. On OpenBSD, cp cannot overwrite the
-	@# already-embedded framework's symlinked Versions/Current on the second
-	@# pass, so remove the prior copy first there only. Linux/FreeBSD cp handle
-	@# the re-copy fine, so their behaviour is unchanged.
 	@if [ "$$(uname -s)" = "OpenBSD" ]; then rm -rf $(APP_NAME).app/Frameworks/GSAssistantFramework.framework; fi
 	@cp -R ../AssistantFramework/GSAssistantFramework.framework $(APP_NAME).app/Frameworks/
 	@echo "Framework embedded in $(APP_NAME).app/Frameworks/"
+	@echo "Copying clm-helper into app bundle..."
+	@cp obj/clm-helper $(APP_NAME).app/Resources/clm-helper
+	@echo "clm-helper embedded in $(APP_NAME).app/Resources/"
 	@echo "Fixing localized resource structure..."
 	@mkdir -p $(APP_NAME).app/Resources/en.lproj
 	@mkdir -p $(APP_NAME).app/Resources/de.lproj
-	@# Remove any flattened Localizable.strings; GNUstep may have overwritten it
-	@# with the last-listed language (de), so we cannot rely on its contents.
 	@rm -f $(APP_NAME).app/Resources/Localizable.strings
-	@# Explicitly copy each localization from source to guarantee correct content.
 	@cp Resources/en.lproj/Localizable.strings $(APP_NAME).app/Resources/en.lproj/
 	@cp Resources/de.lproj/Localizable.strings $(APP_NAME).app/Resources/de.lproj/
 	@echo "Localized resource structure fixed"
 
 clean::
 	@echo "Cleaning CreateLiveMediaAssistant..."
+

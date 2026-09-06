@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 APP_NAME = ItemFlowDemo
 
@@ -12,3 +13,4 @@ ADDITIONAL_LIB_DIRS += -L../ItemFlow.framework
 ADDITIONAL_LDFLAGS += -lGL -lGLU
 
 include $(GNUSTEP_MAKEFILES)/application.make
+

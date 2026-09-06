@@ -1,3 +1,4 @@
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 .PHONY: all server install clean
 
 # Top-level helper Makefile for building the Server.
@@ -12,3 +13,4 @@ install:
 
 clean:
 	$(MAKE) -C Server clean
+

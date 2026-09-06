@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 GNUSTEP_SYSTEM_APPS := $(GNUSTEP_SYSTEM_APPS)/Utilities
 GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
@@ -23,9 +24,6 @@ BackupAssistant_RESOURCE_FILES = \
 	Resources/backup_icon.png \
 	Resources/backup_watermark.png \
 	Resources/en.lproj/Localizable.strings
-
-# Info.plist
-BackupAssistant_INFOPLIST_FILE = BackupAssistantInfo.plist
 
 # Required frameworks and libraries - use GNUstep naming
 BackupAssistant_GUI_LIBS += -lgnustep-gui -lgnustep-base
@@ -74,3 +72,4 @@ launch:
 	@echo './$(APP_NAME).app/$(APP_NAME)' >> launch.sh
 	@chmod +x launch.sh
 	@echo "Created launch script: launch.sh"
+

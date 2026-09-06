@@ -1,0 +1,7 @@
+.DS_Store
+obj/
+*.app/
+*.o
+*~
+*.spice
+!Resources/SystemEmulator.desktop

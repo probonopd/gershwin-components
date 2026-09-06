@@ -20,6 +20,7 @@
 #import <Foundation/NSProcessInfo.h>
 #import <Foundation/NSFileManager.h>
 #import <Foundation/NSTimer.h>
+#import <Foundation/NSTask.h>
 #import <unistd.h>
 
 @implementation ScreenshotController
@@ -31,6 +32,9 @@
 @synthesize fullScreenButton;
 @synthesize saveButton;
 @synthesize copyButton;
+@synthesize titleCheckButton;
+@synthesize shadowCheckButton;
+@synthesize prefsWindow;
 @synthesize delayField;
 @synthesize progressIndicator;
 
@@ -43,14 +47,35 @@
         capturedImagePNG = nil;
         countdownTimer = nil;
         delayCountdown = 0;
+        prefsWindow = nil;
+
+        // Window capture options are persisted; default to on
+        NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
+        NSString *titleKey = @"ScreenshotIncludeWindowTitle";
+        NSString *shadowKey = @"ScreenshotIncludeWindowShadow";
+        includeTitle = [defs objectForKey:titleKey] == nil ? YES : [defs boolForKey:titleKey];
+        includeShadow = [defs objectForKey:shadowKey] == nil ? YES : [defs boolForKey:shadowKey];
     }
     return self;
+}
+
+- (NSString *)findTool:(NSString *)name
+{
+    NSString *pathEnv = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
+    if (!pathEnv) return nil;
+    for (NSString *dir in [pathEnv componentsSeparatedByString:@":"]) {
+        NSString *full = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:full])
+            return full;
+    }
+    return nil;
 }
 
 - (void)dealloc {
     [lastSavedPath release];
     [capturedImage release];
     [capturedImagePNG release];
+    [prefsWindow release];
     if (countdownTimer) {
         [countdownTimer invalidate];
         [countdownTimer release];
@@ -67,6 +92,12 @@
     NSMenuItem *appMenuItem = [[NSMenuItem alloc] initWithTitle:@"Screenshot" action:NULL keyEquivalent:@""];
     NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"Screenshot"];
     [appMenu addItemWithTitle:@"About Screenshot" action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
+    [appMenu addItem:[NSMenuItem separatorItem]];
+    id<NSMenuItem> prefsItem = [appMenu addItemWithTitle:@"Preferences..."
+                                               action:@selector(showPreferences:)
+                                        keyEquivalent:@","];
+    // The controller is not in the key responder chain, so target it directly
+    [prefsItem setTarget:self];
     [appMenu addItem:[NSMenuItem separatorItem]];
     [appMenu addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@"q"];
     [appMenuItem setSubmenu:appMenu];
@@ -304,6 +335,84 @@
     [self performScreenshotWithMode:ScreenshotModeFullScreen];
 }
 
+- (IBAction)toggleIncludeTitle:(id)sender {
+    includeTitle = ([titleCheckButton state] == NSOnState);
+    [[NSUserDefaults standardUserDefaults] setBool:includeTitle
+                                            forKey:@"ScreenshotIncludeWindowTitle"];
+}
+
+- (IBAction)toggleIncludeShadow:(id)sender {
+    includeShadow = ([shadowCheckButton state] == NSOnState);
+    [[NSUserDefaults standardUserDefaults] setBool:includeShadow
+                                            forKey:@"ScreenshotIncludeWindowShadow"];
+}
+
+#pragma mark - Preferences Window
+
+// The two options only affect Window captures; they live here so the main
+// window stays minimal.
+- (void)createPreferencesUI {
+    CGFloat width = 320.0;
+    // Top margin 15 + hint label 16 + 8 gap + two checkbox rows
+    // (20px line spacing each) + bottom margin 20
+    CGFloat height = METRICS_CONTENT_TOP_MARGIN + 16.0 + METRICS_SPACE_8
+                   + 2 * METRICS_RADIO_BUTTON_LINE_SPACING
+                   + METRICS_CONTENT_BOTTOM_MARGIN;
+
+    NSRect frame = NSMakeRect(0, 0, width, height);
+    prefsWindow = [[NSWindow alloc] initWithContentRect:frame
+                                              styleMask:NSTitledWindowMask | NSClosableWindowMask
+                                                backing:NSBackingStoreBuffered
+                                                  defer:NO];
+    [prefsWindow setTitle:@"Screenshot Preferences"];
+    [prefsWindow setHidesOnDeactivate:NO];
+
+    NSView *contentView = [prefsWindow contentView];
+    CGFloat contentWidth = width - 2 * METRICS_CONTENT_SIDE_MARGIN;
+    CGFloat y = height - METRICS_CONTENT_TOP_MARGIN - 16.0;
+
+    NSTextField *hint = [[NSTextField alloc] initWithFrame:
+        NSMakeRect(METRICS_CONTENT_SIDE_MARGIN, y, contentWidth, 16)];
+    [hint setStringValue:@"These options apply to Window screenshots."];
+    [hint setEditable:NO];
+    [hint setSelectable:NO];
+    [hint setBezeled:NO];
+    [hint setDrawsBackground:NO];
+    [hint setFont:METRICS_FONT_SYSTEM_REGULAR_11];
+    [contentView addSubview:hint];
+    [hint release];
+
+    y -= METRICS_SPACE_8 + METRICS_RADIO_BUTTON_LINE_SPACING;
+
+    titleCheckButton = [[NSButton alloc] initWithFrame:
+        NSMakeRect(METRICS_CONTENT_SIDE_MARGIN, y, contentWidth, METRICS_RADIO_BUTTON_SIZE)];
+    [titleCheckButton setTitle:@"Include window title"];
+    [titleCheckButton setButtonType:NSSwitchButton];
+    [titleCheckButton setFont:METRICS_FONT_SYSTEM_REGULAR_13];
+    [titleCheckButton setTarget:self];
+    [titleCheckButton setAction:@selector(toggleIncludeTitle:)];
+    [titleCheckButton setState:includeTitle ? NSOnState : NSOffState];
+    [contentView addSubview:titleCheckButton];
+
+    y -= METRICS_RADIO_BUTTON_LINE_SPACING;
+
+    shadowCheckButton = [[NSButton alloc] initWithFrame:
+        NSMakeRect(METRICS_CONTENT_SIDE_MARGIN, y, contentWidth, METRICS_RADIO_BUTTON_SIZE)];
+    [shadowCheckButton setTitle:@"Include shadow"];
+    [shadowCheckButton setButtonType:NSSwitchButton];
+    [shadowCheckButton setFont:METRICS_FONT_SYSTEM_REGULAR_13];
+    [shadowCheckButton setTarget:self];
+    [shadowCheckButton setAction:@selector(toggleIncludeShadow:)];
+    [shadowCheckButton setState:includeShadow ? NSOnState : NSOffState];
+    [contentView addSubview:shadowCheckButton];
+}
+
+- (void)showPreferences:(id)sender {
+    if (!prefsWindow)
+        [self createPreferencesUI];
+    [prefsWindow makeKeyAndOrderFront:self];
+}
+
 - (void)performScreenshotWithMode:(ScreenshotMode)mode {
     int delay = [delayField intValue];
     
@@ -390,7 +499,7 @@
             usleep(250000); // 250ms - needed for X11 pointer grab to succeed
         }
 
-        rect = [ScreenshotCapture selectWindow];
+        rect = [ScreenshotCapture selectWindowWithTitle:includeTitle];
 
         [self showProgressIndicator:NO];
         if (rect.width == 0 || rect.height == 0) {
@@ -454,7 +563,11 @@
     
     // Capture the image
     NSDebugLLog(@"gwcomp", @"Calling captureImageWithMode");
-    NSImage *image = [ScreenshotCapture captureImageWithMode:captureMode delay:delay rect:rect];
+    BOOL shadowApplies = (captureMode == CaptureWindow) && includeShadow;
+    NSImage *image = [ScreenshotCapture captureImageWithMode:captureMode
+                                                       delay:delay
+                                                        rect:rect
+                                               includeShadow:shadowApplies];
     NSDebugLLog(@"gwcomp", @"captureImageWithMode returned: image=%@", image);
     
     // Flash the screen after capture for visual feedback
@@ -502,6 +615,7 @@
     [alert setInformativeText:@"What would you like to do with the screenshot?"];
     [alert addButtonWithTitle:@"Save to File"];
     [alert addButtonWithTitle:@"Copy to Clipboard"];
+    [alert addButtonWithTitle:@"Copy text (OCR)"];
     [alert addButtonWithTitle:@"Cancel"];
     [alert setAlertStyle:NSInformationalAlertStyle];
     
@@ -515,10 +629,7 @@
         // Copy to clipboard - show window and stay open
         if ([self copyImageToClipboardAndReturnSuccess]) {
             [self updateStatus:@"Screenshot copied to clipboard"];
-            // Make sure main window is visible
-            if (mainWindow) {
-                [mainWindow makeKeyAndOrderFront:self];
-            }
+            if (mainWindow) [mainWindow makeKeyAndOrderFront:self];
         } else {
             NSAlert *errorAlert = [[NSAlert alloc] init];
             [errorAlert setMessageText:@"Copy Failed"];
@@ -526,11 +637,12 @@
             [errorAlert setAlertStyle:NSWarningAlertStyle];
             [errorAlert runModal];
             [errorAlert release];
-            // Stay open after copy failure
-            if (mainWindow) {
-                [mainWindow makeKeyAndOrderFront:self];
-            }
+            if (mainWindow) [mainWindow makeKeyAndOrderFront:self];
         }
+    } else if (response == NSAlertThirdButtonReturn) {
+        // OCR
+        [self performOCRAndCopyToClipboard];
+        if (mainWindow) [mainWindow makeKeyAndOrderFront:self];
     } else {
         // Cancel - stay open for next capture
         [self updateStatus:@"Ready to take screenshot"];
@@ -597,6 +709,81 @@
     } @catch (NSException *exception) {
         NSDebugLLog(@"gwcomp", @"EXCEPTION in setData: %@", exception);
         return NO;
+    }
+}
+
+- (void)performOCRAndCopyToClipboard {
+    if (!capturedImagePNG) {
+        [self updateStatus:@"No screenshot data for OCR"];
+        return;
+    }
+    NSString *tesseract = [self findTool:@"tesseract"];
+    if (!tesseract) {
+        NSAlert *a = [[NSAlert alloc] init];
+        [a setMessageText:@"Tesseract not found"];
+        [a setInformativeText:@"Install tesseract with your package manager:\n\n"
+            @"  Debian/Ubuntu:  sudo apt install tesseract-ocr\n"
+            @"  Arch:           sudo pacman -S tesseract\n"
+            @"  FreeBSD:        sudo pkg install tesseract\n"
+            @"  OpenBSD:        doas pkg_add tesseract"];
+        [a addButtonWithTitle:@"OK"];
+        [a runModal];
+        [a release];
+        [self updateStatus:@"OCR failed — tesseract not installed"];
+        return;
+    }
+
+    // Write PNG to a temp file
+    NSString *tmp = NSTemporaryDirectory();
+    NSString *tmpPath = [tmp stringByAppendingPathComponent:@"screenshot_ocr.png"];
+    if (![capturedImagePNG writeToFile:tmpPath atomically:NO]) {
+        [self updateStatus:@"OCR failed — could not write temp file"];
+        return;
+    }
+
+    // Run: tesseract <input> stdout 2>/dev/null
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:tesseract];
+    [task setArguments:@[tmpPath, @"stdout"]];
+
+    NSPipe *outPipe = [NSPipe pipe];
+    [task setStandardOutput:outPipe];
+    [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+
+    @try {
+        [task launch];
+        [task waitUntilExit];
+    } @catch (NSException *e) {
+        [[NSFileManager defaultManager] removeItemAtPath:tmpPath error:NULL];
+        [task release];
+        [self updateStatus:@"OCR failed"];
+        return;
+    }
+
+    // Read OCR output
+    NSData *outData = [[outPipe fileHandleForReading] readDataToEndOfFile];
+    NSString *text = [[[NSString alloc] initWithData:outData
+                                            encoding:NSUTF8StringEncoding] autorelease];
+    [[NSFileManager defaultManager] removeItemAtPath:tmpPath error:NULL];
+    [task release];
+
+    if (!text || [text length] == 0) {
+        [self updateStatus:@"OCR returned no text"];
+        return;
+    }
+
+    // Trim trailing newline
+    if ([text hasSuffix:@"\n"])
+        text = [text substringToIndex:[text length] - 1];
+
+    // Copy text to clipboard
+    NSPasteboard *pb = [NSPasteboard generalPasteboard];
+    [pb declareTypes:[NSArray arrayWithObject:NSStringPboardType] owner:nil];
+    if ([pb setString:text forType:NSStringPboardType]) {
+        [self updateStatus:[NSString stringWithFormat:@"OCR: %lu chars copied",
+                            (unsigned long)[text length]]];
+    } else {
+        [self updateStatus:@"OCR failed — clipboard error"];
     }
 }
 

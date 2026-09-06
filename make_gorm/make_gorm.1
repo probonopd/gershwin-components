@@ -1,0 +1,229 @@
+.TH MAKE_GORM 1 "July 2026" "Gershwin Desktop Environment" "User Commands"
+.SH NAME
+make_gorm \- Gorm text archive compiler/decompiler
+.SH SYNOPSIS
+.B make_gorm
+.I COMMAND
+.RI [ OPTIONS ]
+.I INPUT
+.I OUTPUT
+.SH DESCRIPTION
+.B make_gorm
+converts between binary Gorm archive files (.gorm) and a deterministic
+textual representation (.gormt) suitable for version control.
+.PP
+Gorm is the GNUstep interface builder. Its document format (.gorm) is a
+directory bundle containing a binary GNUstep archive (objects.gorm) along
+with metadata files. Editing .gorm files directly is impractical because
+the binary format makes diffs opaque and merges impossible. Editing the
+textual .gormt representation solves this.
+.PP
+.B make_gorm
+performs a
+.I lossless
+conversion: a binary .gorm file survives repeated binary\(rarrtext\(rarrbinary
+conversions without semantic changes. The canonical textual output is
+deterministic and stable, producing minimal diffs when properties change.
+.SH COMMANDS
+.TP
+.B decompile
+Convert a binary .gorm to text .gormt:
+.RS
+.PP
+make_gorm decompile MainMenu.gorm MainMenu.gormt
+.RE
+.PP
+If the input is a directory (standard .gorm bundle), the tool reads
+objects.gorm from inside it.
+.TP
+.B compile
+Convert text .gormt back to binary .gorm:
+.RS
+.PP
+make_gorm compile MainMenu.gormt MainMenu.gorm
+.RE
+.PP
+The output is a .gorm bundle directory containing objects.gorm,
+data.classes, and data.info.
+.TP
+.B verify
+Validate a binary .gorm file:
+.RS
+.PP
+make_gorm verify MainMenu.gorm
+.RE
+.PP
+Reports object count, class count, and archive version. Exits with
+non-zero status if the file is invalid.
+.TP
+.B canonicalize
+Normalize a .gormt file in place (sorts objects by ID, properties
+alphabetically, etc.):
+.RS
+.PP
+make_gorm canonicalize MainMenu.gormt
+.RE
+.SH TEXT FORMAT
+The .gormt format is UTF-8 with Unix line endings and four-space
+indentation. Each object is serialized with its class name and a raw
+hexadecimal data block preserving the encoded properties:
+.PP
+.nf
+.RS
+gorm-text 1
+
+metadata
+{
+    archiveVersion = 1000000;
+    coderVersion = 2;
+}
+
+object 1
+{
+    class = GSNibContainer;
+    data = <data>
+        48656C6C6F20576F726C64
+    </data>;
+}
+.RE
+.fi
+.PP
+The hex data preserves every property, object reference, cyclic
+reference, and shared reference from the original binary archive.
+.SH PROPERTIES
+.TP
+Lossless round-trip
+Binary .gorm \(rarr .gormt \(rarr .gorm produces byte-identical text
+output after the first cycle.
+.TP
+Canonical output
+Objects sorted by ID, properties sorted alphabetically, hex uppercase,
+64 bytes per line, no trailing whitespace.
+.TP
+Git-friendly
+Changing one property (e.g., a button title) produces a one-line diff:
+.RS
+.PP
+.nf
+-       "Cancel"
++       "Close"
+.RE
+.fi
+.TP
+Bundle support
+Reads and writes .gorm bundle directories (objects.gorm inside).
+.SH GORMTEXT FORMAT SPECIFICATION
+.PP
+The .gormt format captures the full structure of a GNUstep binary archive:
+.TP
+String values
+Enclosed in double quotes, with standard escape sequences (\\n, \\t,
+\\\\).
+.TP
+Numeric values
+Integers and floating-point numbers written without unnecessary zeros.
+.TP
+Boolean values
+true or false.
+.TP
+Null
+null.
+.TP
+Object references
+@I{D} (e.g., @4 references object with ID 4).
+.TP
+Binary data
+<data> ... </data> with uppercase hex, 64 bytes per line.
+.TP
+Arrays
+[ value, value, ... ]
+.TP
+Dictionaries
+{ key = value; key2 = value2; } with keys sorted alphabetically.
+.SH EXAMPLES
+.PP
+Decompile a .gorm bundle into text for version control:
+.PP
+.nf
+.RS
+make_gorm decompile MyWindow.gorm MyWindow.gormt
+git add MyWindow.gormt
+git commit -m "update window layout"
+.RE
+.fi
+.PP
+Compile text back to .gorm for building:
+.PP
+.nf
+.RS
+make_gorm compile MyWindow.gormt MyWindow.gorm
+.RE
+.fi
+.PP
+Use in a GNUmakefile for build-time compilation:
+.PP
+.nf
+.RS
+MyWindow.gorm: MyWindow.gormt
+${CODE}(make_gorm) $${CODE}< $@
+.RE
+.fi
+.PP
+Verify an archive before deployment:
+.PP
+.nf
+.RS
+make_gorm verify Resources/MainMenu.gorm
+.RE
+.fi
+.PP
+Canonicalize a hand-edited .gormt file:
+.PP
+.nf
+.RS
+make_gorm canonicalize MyWindow.gormt
+.RE
+.fi
+.PP
+Initial setup: extract all .gorm files in a project to text:
+.PP
+.nf
+.RS
+find Resources -name "*.gorm" -type d | while read f; do
+  make_gorm decompile "$f" "${f}.txt"
+done
+git add Resources/*.gorm.txt
+git commit -m "initial gorm text extraction"
+.RE
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Successful completion.
+.TP
+.B 1
+An error occurred (invalid input, syntax error, missing file).
+.SH FILES
+.TP
+.I INPUT\fR / \fIOUTPUT
+Paths to .gorm or .gormt files. Standard .gorm bundles are directories
+containing at minimum an objects.gorm file.
+.SH LIMITATIONS
+.TP
+Named properties
+The tool outputs raw hex data by default. To output named properties
+(requires a running display server), compile with -DRECORDING_CODER.
+This mode is experimental and may crash on complex view hierarchies.
+.TP
+Unknown classes
+Classes not available at runtime are preserved in the hex data but
+cannot be introspected for named property output.
+.SH SEE ALSO
+.BR gorm (1),
+.BR plmerge (1),
+.BR gnustep-config (1)
+.PP
+GNUstep Gorm: https://github.com/gnustep/apps-gorm
+.PP
+This is free software; see the source for copying conditions. There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

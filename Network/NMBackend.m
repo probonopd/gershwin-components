@@ -371,6 +371,24 @@ enum {
 {
     NSTask *task = [[NSTask alloc] init];
     if (sudoPath) {
+        // Ensure SSH_ASKPASS is set for sudo -A
+        NSString *askpass = [[[NSProcessInfo processInfo] environment] objectForKey:@"SSH_ASKPASS"];
+        if (!askpass || [askpass length] == 0) {
+            NSFileManager *fm = [NSFileManager defaultManager];
+            NSArray *paths = @[@"/System/Library/Tools/SudoAskPass",
+                               @"/Library/Tools/SudoAskPass",
+                               @"/Local/Library/Tools/SudoAskPass",
+                               @"/usr/bin/SudoAskPass",
+                               @"/usr/local/bin/SudoAskPass"];
+            for (NSString *p in paths) {
+                if ([fm isExecutableFileAtPath:p]) {
+                    setenv("SSH_ASKPASS", [p UTF8String], 1);
+                    NSLog(@"NMBackend: set SSH_ASKPASS=%s", getenv("SSH_ASKPASS"));
+                    break;
+                }
+            }
+        }
+        NSLog(@"NMBackend: running sudo -A -E %@ %@", path, args);
         [task setLaunchPath:sudoPath];
         NSMutableArray *sudoArgs = [NSMutableArray arrayWithObjects:@"-A", @"-E", path, nil];
         if (args) {
@@ -402,8 +420,9 @@ enum {
             *error = data ? [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease] : nil;
         }
     } @catch (NSException *e) {
-        NSDebugLLog(@"gwcomp", @"[Network] Exception running privileged command %@: %@", path, e);
+        NSLog(@"NMBackend: Exception running privileged command %@ %@: %@", path, args, e);
     }
+    NSLog(@"NMBackend: command exit status=%d", status);
     [task release];
     return status;
 }
@@ -636,7 +655,7 @@ enum {
         for (NSString *line in lines) {
             if ([line length] == 0) continue;
             
-            NSArray *fields = [line componentsSeparatedByString:@":"];
+            NSArray *fields = [self parseTerseLine:line];
             if ([fields count] < 3) continue;
             
             NSString *deviceName = [fields objectAtIndex:0];
@@ -653,6 +672,7 @@ enum {
             if ([deviceName hasPrefix:@"docker"]) continue;
             if ([deviceName hasPrefix:@"virbr"]) continue;
             if ([deviceType isEqualToString:@"wifi-p2p"]) continue;
+            if ([deviceType isEqualToString:@"bt"]) continue;
             
             NetworkInterface *iface = [[NetworkInterface alloc] init];
             [iface setIdentifier:deviceName];
@@ -855,19 +875,23 @@ enum {
 - (BOOL)disableInterface:(NetworkInterface *)interface
 {
     if (!nmAvailable || !interface) {
+        NSLog(@"NMBackend: disableInterface — backend unavailable or nil interface");
         [self reportErrorWithMessage:@"Cannot disable interface: backend unavailable or no interface specified"];
         return NO;
     }
     
     NSString *ifaceName = [interface name];
     if (!ifaceName) {
+        NSLog(@"NMBackend: disableInterface — interface name is nil");
         [self reportErrorWithMessage:@"Cannot disable interface: interface name is nil"];
         return NO;
     }
     
+    NSLog(@"NMBackend: disableInterface — running nmcli device disconnect %@", ifaceName);
     NSString *errStr = nil;
     int exitStatus = [self runPrivilegedCommand:nmcliPath arguments:@[@"device", @"disconnect", ifaceName] output:NULL error:&errStr];
     BOOL success = (exitStatus == 0);
+    NSLog(@"NMBackend: disableInterface — exitStatus=%d success=%d errStr=%@", exitStatus, success, errStr);
     
     if (!success) {
         NSDebugLLog(@"gwcomp", @"[Network] disableInterface: nmcli failed with: %@", errStr);
@@ -928,7 +952,7 @@ enum {
         for (NSString *line in lines) {
             if ([line length] == 0) continue;
             
-            NSArray *fields = [line componentsSeparatedByString:@":"];
+            NSArray *fields = [self parseTerseLine:line];
             if ([fields count] < 3) continue;
             
             NSString *name = [fields objectAtIndex:0];
@@ -1047,8 +1071,53 @@ enum {
 
 - (BOOL)saveConnection:(NetworkConnection *)connection
 {
-    // For now, modifications are done via specific nmcli commands
-    // This would need to be expanded for full connection editing
+    return YES;
+}
+
+- (NSString *)clonedMacAddressForSSID:(NSString *)ssid
+{
+    if (!ssid) return nil;
+    NSLog(@"[NMBackend] Running: %@ -t connection show %@", nmcliPath, ssid);
+    NSString *output = nil;
+    int status = [self runPrivilegedCommand:nmcliPath
+                                  arguments:@[@"-t", @"connection", @"show", ssid]
+                                     output:&output error:NULL];
+    if (status != 0 || !output) {
+        NSLog(@"[NMBackend] nmcli connection show failed (status=%d), defaulting to permanent", status);
+        return @"permanent";
+    }
+
+    NSString *prefix = @"802-11-wireless.cloned-mac-address:";
+    for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
+        if ([line hasPrefix:prefix]) {
+            NSString *val = [[line substringFromIndex:[prefix length]]
+                               stringByTrimmingCharactersInSet:
+                               [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if ([val length] > 0) {
+                NSLog(@"[NMBackend] Found cloned-mac-address = '%@' for SSID '%@'", val, ssid);
+                return val;
+            }
+        }
+    }
+    NSLog(@"[NMBackend] No cloned-mac-address setting for '%@', defaulting to permanent", ssid);
+    return @"permanent";
+}
+
+- (BOOL)setClonedMacAddress:(NSString *)value forSSID:(NSString *)ssid
+{
+    if (!ssid || !value) return NO;
+    NSLog(@"[NMBackend] Running: %@ connection modify %@ wifi.cloned-mac-address %@",
+          nmcliPath, ssid, value);
+    NSString *errStr = nil;
+    int status = [self runPrivilegedCommand:nmcliPath
+                                  arguments:@[@"connection", @"modify", ssid,
+                                               @"wifi.cloned-mac-address", value]
+                                     output:NULL error:&errStr];
+    if (status != 0) {
+        NSLog(@"[NMBackend] Failed to set cloned MAC for %@: %@", ssid, errStr);
+        return NO;
+    }
+    NSLog(@"[NMBackend] Successfully set cloned MAC for '%@' to '%@'", ssid, value);
     return YES;
 }
 
@@ -1069,7 +1138,9 @@ enum {
     if (!nmAvailable) return NO;
     
     NSString *output = nil;
-    [self runPrivilegedCommand:nmcliPath arguments:@[@"radio", @"wifi"] output:&output error:NULL];
+    NSString *errStr = nil;
+    int status = [self runCommand:nmcliPath arguments:@[@"radio", @"wifi"] output:&output error:&errStr];
+    NSLog(@"NMBackend: isWLANEnabled — status=%d output=%@ err=%@", status, output, errStr);
     
     if (output) {
         output = [output stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -1083,13 +1154,16 @@ enum {
 - (BOOL)setWLANEnabled:(BOOL)enabled
 {
     if (!nmAvailable) {
+        NSLog(@"NMBackend: setWLANEnabled:%d — backend unavailable", enabled);
         [self reportErrorWithMessage:@"Cannot change WLAN state: backend unavailable"];
         return NO;
     }
     
+    NSLog(@"NMBackend: setWLANEnabled:%d — running nmcli radio wifi %@", enabled, enabled ? @"on" : @"off");
     NSString *errStr = nil;
     int status = [self runPrivilegedCommand:nmcliPath arguments:@[@"radio", @"wifi", enabled ? @"on" : @"off"] output:NULL error:&errStr];
     BOOL success = (status == 0);
+    NSLog(@"NMBackend: setWLANEnabled:%d — status=%d success=%d errStr=%@", enabled, status, success, errStr);
     
     if (!success) {
         errStr = [errStr stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -1125,8 +1199,10 @@ enum {
 }
 - (NSArray *)scanForWLANs
 {
+    NSLog(@"NMBackend: scanForWLANs called");
     // Build networks list into a local array, then update cache safely
     NSMutableArray *networks = [self buildWLANsList];
+    NSLog(@"NMBackend: scanForWLANs — got %lu networks", (unsigned long)[networks count]);
     
     // Update cache on main thread
     if ([NSThread isMainThread]) {
@@ -1152,6 +1228,69 @@ enum {
     // This avoids duplicate calls to wifiScanCompleted
 }
 
+- (int)runCommand:(NSString *)path arguments:(NSArray *)args output:(NSString **)output error:(NSString **)error
+{
+    NSTask *task = [[NSTask alloc] init];
+    [task setLaunchPath:path];
+    if (args) [task setArguments:args];
+    NSPipe *outPipe = [NSPipe pipe];
+    NSPipe *errPipe = [NSPipe pipe];
+    [task setStandardOutput:outPipe];
+    [task setStandardError:errPipe];
+
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
+    int status = -1;
+    @try {
+        [task launch];
+        [task waitUntilExit];
+        status = [task terminationStatus];
+        if (output) {
+            NSData *data = [[outPipe fileHandleForReading] readDataToEndOfFile];
+            *output = data ? [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease] : nil;
+        }
+        if (error) {
+            NSData *data = [[errPipe fileHandleForReading] readDataToEndOfFile];
+            *error = data ? [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease] : nil;
+        }
+    } @catch (NSException *e) {
+        NSDebugLLog(@"gwcomp", @"[Network] Exception running command %@: %@", path, e);
+    }
+    [task release];
+    return status;
+}
+
+/* Parse a line of nmcli terse (-t) output.  Fields are separated by ':' and
+   a literal ':' inside a value is escaped as '\:'.  Returns the unescaped
+   fields, so SSIDs and BSSIDs come out clean (no NUL/garbage bytes). */
+- (NSArray *)parseTerseLine:(NSString *)line
+{
+    NSMutableArray *fields = [NSMutableArray array];
+    NSMutableString *current = [NSMutableString string];
+    NSUInteger len = [line length];
+    NSUInteger i;
+
+    for (i = 0; i < len; i++) {
+        unichar c = [line characterAtIndex: i];
+        if (c == '\\' && i + 1 < len && [line characterAtIndex: i + 1] == ':') {
+            [current appendString: @":"];
+            i++;
+        } else if (c == ':') {
+            /* Copy: the array must not share the mutable buffer we clear next */
+            [fields addObject: [NSString stringWithString: current]];
+            [current setString: @""];
+        } else {
+            [current appendFormat: @"%C", c];
+        }
+    }
+    [fields addObject: [NSString stringWithString: current]];
+    return fields;
+}
+
 - (NSMutableArray *)buildWLANsList
 {
     NSMutableArray *networks = [NSMutableArray array];
@@ -1160,15 +1299,9 @@ enum {
         return networks;
     }
     
-    // Trigger a rescan first
-    [self runPrivilegedCommand:nmcliPath arguments:@[@"device", @"wifi", @"rescan"] output:NULL error:NULL];
-    
-    // Small delay to allow scan to complete
-    [NSThread sleepForTimeInterval:0.5];
-    
-    // Get WiFi list
+    // Get WiFi list (non-privileged)
     NSString *output = nil;
-    [self runPrivilegedCommand:nmcliPath arguments:@[@"-t", @"-f", @"SSID,BSSID,SIGNAL,SECURITY,IN-USE,FREQ,CHAN", @"device", @"wifi", @"list"] output:&output error:NULL];
+    [self runCommand:nmcliPath arguments:@[@"-t", @"-f", @"SSID,BSSID,SIGNAL,SECURITY,IN-USE,FREQ,CHAN", @"device", @"wifi", @"list"] output:&output error:NULL];
     
     if (output) {
         NSArray *lines = [output componentsSeparatedByString:@"\n"];
@@ -1177,12 +1310,15 @@ enum {
         for (NSString *line in lines) {
             if ([line length] == 0) continue;
             
-            // Handle escaped colons in SSID (nmcli uses \: for colons in SSIDs)
-            NSString *processedLine = [line stringByReplacingOccurrencesOfString:@"\\:" withString:@"\x00"];
-            NSArray *fields = [processedLine componentsSeparatedByString:@":"];
+            // nmcli terse output separates fields with ':' and escapes a
+            // literal ':' inside a value as '\:'.  Split on unescaped
+            // colons only, so an SSID that is (or contains) a MAC address
+            // like "D4:24:DD:06:06:79" is kept intact instead of being
+            // mangled by NUL-byte placeholders.
+            NSArray *fields = [self parseTerseLine:line];
             if ([fields count] < 5) continue;
             
-            NSString *ssid = [[fields objectAtIndex:0] stringByReplacingOccurrencesOfString:@"\x00" withString:@":"];
+            NSString *ssid = [fields objectAtIndex:0];
             NSString *bssid = [fields objectAtIndex:1];
             int signal = [[fields objectAtIndex:2] intValue];
             NSString *securityStr = [fields objectAtIndex:3];
@@ -1196,6 +1332,11 @@ enum {
             // Check if we've already seen this network (keep the one with better signal)
             WLAN *existing = [seenNetworks objectForKey:ssid];
             if (existing && [existing signalStrength] >= signal) {
+                // Preserve connected status when the existing entry is the connected one
+                if ([existing isConnected] && !inUse) {
+                    [existing setFrequency:freq];
+                    [existing setChannel:chan];
+                }
                 continue;
             }
             
@@ -1236,6 +1377,10 @@ enum {
             
             if (existing) {
                 [networks removeObject:existing];
+            }
+            // Carry over connected status when a non-connected entry wins by signal
+            if (existing && [existing isConnected] && !inUse) {
+                [network setIsConnected:YES];
             }
             [seenNetworks setObject:network forKey:ssid];
             [networks addObject:network];
@@ -1466,22 +1611,27 @@ enum {
 
 - (BOOL)disconnectFromWLAN
 {
-    NSDebugLLog(@"gwcomp", @"[Network] disconnectFromWLAN: called");
+    NSLog(@"NMBackend: disconnectFromWLAN called, nmAvailable=%d cachedInterfaces=%lu", nmAvailable, (unsigned long)[cachedInterfaces count]);
     
     if (!nmAvailable) {
-        NSDebugLLog(@"gwcomp", @"[Network] disconnectFromWLAN: backend not available");
+        NSLog(@"NMBackend: disconnectFromWLAN — backend not available");
         return NO;
     }
     
+    // Refresh interface list
+    [self getInterfacesViaNmcli];
+    NSLog(@"NMBackend: disconnectFromWLAN — after refresh, %lu interfaces", (unsigned long)[cachedInterfaces count]);
+    
     // Find WiFi device and disconnect it
     for (NetworkInterface *iface in cachedInterfaces) {
+        NSLog(@"NMBackend: disconnectFromWLAN — checking iface %@ type=%ld active=%d", [iface name], (long)[iface type], [iface isActive]);
         if ([iface type] == NetworkInterfaceTypeWLAN && [iface isActive]) {
-            NSDebugLLog(@"gwcomp", @"[Network] disconnectFromWLAN: disconnecting interface '%@'", [iface name]);
+            NSLog(@"NMBackend: disconnectFromWLAN — disconnecting '%@'", [iface name]);
             return [self disableInterface:iface];
         }
     }
     
-    NSDebugLLog(@"gwcomp", @"[Network] disconnectFromWLAN: no active WiFi interface found");
+    NSLog(@"NMBackend: disconnectFromWLAN — no active WiFi interface found");
     return NO;
 }
 
@@ -1489,9 +1639,42 @@ enum {
 {
     for (WLAN *network in cachedWLANs) {
         if ([network isConnected]) {
+            NSLog(@"NMBackend: connectedWLAN = %@ (signal=%d)", [network ssid], [network signalStrength]);
             return network;
         }
     }
+    return nil;
+}
+
+- (NSString *)connectedWLANSSID
+{
+    // First try the scan cache
+    WLAN *wlan = [self connectedWLAN];
+    if (wlan && [wlan ssid]) {
+        NSLog(@"[NMBackend] connectedWLANSSID: from scan cache = '%@'", [wlan ssid]);
+        return [wlan ssid];
+    }
+
+    // Fallback: query nmcli directly for the active WLAN connection name (SSID)
+    NSLog(@"[NMBackend] Running: %@ -t -f NAME,TYPE,DEVICE connection show --active", nmcliPath);
+    NSString *output = nil;
+    [self runPrivilegedCommand:nmcliPath
+                    arguments:@[@"-t", @"-f", @"NAME,TYPE,DEVICE", @"connection", @"show", @"--active"]
+                       output:&output error:NULL];
+    if (output) {
+        for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
+            if ([line length] == 0) continue;
+            NSArray *fields = [self parseTerseLine:line];
+            if ([fields count] >= 2 && [[fields objectAtIndex:1] isEqualToString:@"802-11-wireless"]) {
+                NSString *name = [fields objectAtIndex:0];
+                if ([name length] > 0) {
+                    NSLog(@"[NMBackend] connectedWLANSSID: from nmcli = '%@'", name);
+                    return name;
+                }
+            }
+        }
+    }
+    NSLog(@"[NMBackend] connectedWLANSSID: no active WLAN connection found");
     return nil;
 }
 

@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 APP_NAME = Phone
 
@@ -47,3 +48,4 @@ copy-tones:
 	@if ls /usr/local/share/baresip/*.wav >/dev/null 2>&1; then \
 		cp /usr/local/share/baresip/*.wav Phone.app/Resources/; \
 	fi
+

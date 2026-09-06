@@ -12,13 +12,15 @@
 - (void)updateTotalBytes:(int64_t)total;
 @end
 
-// Write callback: curl calls this with incoming data
+// Write callback: curl calls this with incoming data. The buffer is only
+// valid during this callback, and we feed it to the extractor asynchronously,
+// so it must be copied rather than wrapped with dataWithBytesNoCopy.
 static size_t
 write_cb(char *ptr, size_t size, size_t nmemb, void *userdata)
 {
     CLMStreamDownloader *downloader = (__bridge CLMStreamDownloader *)userdata;
     size_t total = size * nmemb;
-    NSData *chunk = [NSData dataWithBytesNoCopy:ptr length:total freeWhenDone:NO];
+    NSData *chunk = [NSData dataWithBytes:ptr length:total];
 
     [downloader handleDataChunk:chunk];
     return total;

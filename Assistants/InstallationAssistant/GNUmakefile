@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 GNUSTEP_SYSTEM_APPS := $(GNUSTEP_SYSTEM_APPS)/Utilities
 GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
@@ -6,7 +7,6 @@ GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
 # Application configuration
 APP_NAME = InstallationAssistant
 InstallationAssistant_APPLICATION_ICON = InstallationAssistant.png
-InstallationAssistant_INFOPLIST_FILE = InstallationAssistantInfo.plist
 
 # Source files
 InstallationAssistant_OBJC_FILES = InstallationAssistant.m InstallationSteps.m
@@ -53,4 +53,5 @@ after-all::
 	@chmod +x $(APP_NAME).app/Resources/installer-FreeBSD.sh 2>/dev/null || true
 	@chmod +x $(APP_NAME).app/Resources/installer-Linux.sh 2>/dev/null || true
 	@echo "Installer scripts ready"
+
 

@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 # Compiler flags for production builds
 # Note: -Wno-deprecated-declarations suppresses warning for cupsGetDevices which is
@@ -7,7 +8,7 @@ Printers_OBJCFLAGS += -Wall -Wextra -O2 -Wno-deprecated-declarations
 
 BUNDLE_NAME = Printers
 Printers_OBJC_FILES = PrintersPane.m PrintersController.m
-Printers_RESOURCE_FILES = Printers.png PrintersInfo.plist
+Printers_RESOURCE_FILES = Printers.png
 Printers_BUNDLE_LIBS = -lPreferencePanes -lcups
 Printers_PRINCIPAL_CLASS = PrintersPane
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles
@@ -58,3 +59,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

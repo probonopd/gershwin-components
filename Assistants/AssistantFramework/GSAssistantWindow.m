@@ -109,6 +109,69 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
 
 @implementation GSAssistantWindow
 
+#pragma mark - Shared main menu
+
++ (void)setupMainMenu
+{
+  /* Assistant apps are single-window wizards that otherwise run without a
+   * menu bar, which leaves no way to quit with the standard Cmd+Q (the
+   * DriveUI test harness quits apps with `press "Cmd+Q"`).  Install a shared
+   * minimal menu (About, Quit, Edit) only when the app does not already have
+   * one, so an assistant that builds its own menu keeps it.  Auto-validation
+   * is disabled so the items are never greyed out. */
+  if ([NSApp mainMenu] != nil)
+    return;
+
+  NSString *appName = [[NSProcessInfo processInfo] processName];
+  NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@""];
+  [mainMenu setAutoenablesItems:NO];
+
+  /* Application menu: About only.  Quit belongs in the File menu (Gershwin
+   * convention for the assistants), so the app menu is just About. */
+  NSMenuItem *appItem = [[NSMenuItem alloc] initWithTitle: appName
+                                                   action: nil
+                                            keyEquivalent: @""];
+  NSMenu *appMenu = [[NSMenu alloc] initWithTitle: appName];
+  [appMenu addItemWithTitle: NSLocalizedString(@"About", @"About menu item")
+                     action: @selector(orderFrontStandardAboutPanel:)
+              keyEquivalent: @""];
+  [appItem setSubmenu: appMenu];
+  [mainMenu addItem: appItem];
+
+  /* File menu: Quit (Cmd+Q). */
+  NSMenuItem *fileItem = [[NSMenuItem alloc] initWithTitle:
+    NSLocalizedString(@"File", @"File menu title") action: nil keyEquivalent: @""];
+  NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:
+    NSLocalizedString(@"File", @"File menu title")];
+  [fileMenu addItemWithTitle: NSLocalizedString(@"Quit", @"Quit menu item")
+                      action: @selector(terminate:)
+               keyEquivalent: @"q"];
+  [fileItem setSubmenu: fileMenu];
+  [mainMenu addItem: fileItem];
+
+  NSMenuItem *editItem = [[NSMenuItem alloc] initWithTitle:
+    NSLocalizedString(@"Edit", @"Edit menu title") action: nil keyEquivalent: @""];
+  NSMenu *editMenu = [[NSMenu alloc] initWithTitle:
+    NSLocalizedString(@"Edit", @"Edit menu title")];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Undo", @"Undo menu item")
+                      action: @selector(undo:) keyEquivalent: @"z"];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Redo", @"Redo menu item")
+                      action: @selector(redo:) keyEquivalent: @"Z"];
+  [editMenu addItem: [NSMenuItem separatorItem]];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Cut", @"Cut menu item")
+                      action: @selector(cut:) keyEquivalent: @"x"];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Copy", @"Copy menu item")
+                      action: @selector(copy:) keyEquivalent: @"c"];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Paste", @"Paste menu item")
+                      action: @selector(paste:) keyEquivalent: @"v"];
+  [editMenu addItemWithTitle: NSLocalizedString(@"Select All", @"Select All menu item")
+                      action: @selector(selectAll:) keyEquivalent: @"a"];
+  [editItem setSubmenu: editMenu];
+  [mainMenu addItem: editItem];
+
+  [NSApp setMainMenu: mainMenu];
+}
+
 #pragma mark - Properties
 
 - (NSMutableArray<id<GSAssistantStepProtocol>> *)steps {
@@ -146,7 +209,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     
     NSDebugLLog(@"gwcomp", @"[GSAssistantWindow] Initializing with layout style %ld, title: '%@', steps count: %lu", 
           (long)layoutStyle, title, (unsigned long)steps.count);
-    
+
     // Determine window dimensions based on layout style
     CGFloat windowWidth, windowHeight;
     NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable;
@@ -172,13 +235,18 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
                                                      backing:NSBackingStoreBuffered
                                                        defer:YES];
     
-    self = [super initWithWindow:window];
+        self = [super initWithWindow:window];
     if (self) {
         _layoutStyle = layoutStyle;
         _windowWidth = windowWidth;
         _windowHeight = windowHeight;
         _assistantTitle = [title copy];
         _assistantIcon = icon;
+
+        /* Assistant apps have no menu bar; install the shared minimal menu
+         * (About, Quit, Edit) so Cmd+Q works. */
+        [GSAssistantWindow setupMainMenu];
+
         _stepsArray = [[NSMutableArray alloc] initWithArray:steps];
         _currentIndex = 0;
         _showsProgressBar = (layoutStyle == GSAssistantLayoutStyleDefault);
@@ -186,7 +254,11 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         _showsSidebar = (layoutStyle == GSAssistantLayoutStyleInstaller);
         _showsStepIndicators = (layoutStyle == GSAssistantLayoutStyleInstaller);
         _stepIndicatorViews = [[NSMutableArray alloc] init];
-        
+
+        if (icon) {
+            [window setMiniwindowImage:icon];
+        }
+
         // Set assistant window reference for all steps that support it
         for (id<GSAssistantStepProtocol> step in _stepsArray) {
             if ([step isKindOfClass:[GSAssistantStep class]]) {
@@ -194,14 +266,14 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
                 assistantStep.assistantWindow = self;
             }
         }
-        
+
         [self setupWindow];
         [self setupViews];
         if (_stepsArray.count > 0) {
             [self showCurrentStep];
         }
     }
-    
+
     return self;
 }
 
@@ -228,7 +300,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     // Opaque window background so semi-transparent card views blend against it, not the desktop
     [window setBackgroundColor:[NSColor windowBackgroundColor]];
     
-    _contentView = [[NSView alloc] init];
+    _contentView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, _windowWidth, _windowHeight)];
     window.contentView = _contentView;
     
     NSDebugLLog(@"gwcomp", @"[GSAssistantWindow] Window setup complete with layout style %ld, size: %.0fx%.0f", 
@@ -374,7 +446,6 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _cancelButton = [[NSButton alloc] initWithFrame:NSMakeRect(24, 20, 85, 24)];
     _cancelButton.title = NSLocalizedString(@"Cancel", @"Cancel button title");
     _cancelButton.bezelStyle = NSRoundedBezelStyle;
-    _cancelButton.font = [NSFont systemFontOfSize:13.0];
     _cancelButton.target = self;
     _cancelButton.action = @selector(cancelButtonClicked:);
     [_navigationView addSubview:_cancelButton];
@@ -383,7 +454,6 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _backButton = [[NSButton alloc] initWithFrame:NSMakeRect(494, 20, 85, 24)];
     _backButton.title = NSLocalizedString(@"Go Back", @"Go back button title");
     _backButton.bezelStyle = NSRoundedBezelStyle;
-    _backButton.font = [NSFont systemFontOfSize:13.0];
     _backButton.target = self;
     _backButton.action = @selector(backButtonClicked:);
     [_navigationView addSubview:_backButton];
@@ -392,9 +462,8 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     _continueButton = [[NSButton alloc] initWithFrame:NSMakeRect(591, 20, 85, 24)];
     _continueButton.title = NSLocalizedString(@"Continue", @"Continue button title");
     _continueButton.bezelStyle = NSRoundedBezelStyle;
-    _continueButton.font = [NSFont systemFontOfSize:13.0];
-    _continueButton.keyEquivalent = @"\r";
     _continueButton.target = self;
+    _continueButton.keyEquivalent = @"\r";
     _continueButton.action = @selector(continueButtonClicked:);
     _continueButton.enabled = NO; // Disabled by default until step allows it
     [_navigationView addSubview:_continueButton];
@@ -949,9 +1018,9 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
     if (_currentIndex < (NSInteger)_stepsArray.count) {
         id<GSAssistantStepProtocol> currentStep = _stepsArray[_currentIndex];
 
-        CGFloat contentWidth = [_mainContentView frame].size.width;   // full content width
+        CGFloat contentWidth = [_mainContentView frame].size.width;
 
-        // Title above the card - position to match the standard top margin
+        // Title above the card
         NSRect titleFrame = NSMakeRect(24, 336, contentWidth - 48, 26);
         _installerStepTitleField = [[NSTextField alloc] initWithFrame:titleFrame];
         [_installerStepTitleField setStringValue:[currentStep stepTitle] ?: @""];
@@ -964,7 +1033,7 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
         [_installerStepTitleField setTextColor:[NSColor blackColor]];
         [_mainContentView addSubview:_installerStepTitleField];
 
-        // Optional description INSIDE the card, top with padding
+        // Optional description inside the card
         NSString *desc = nil;
         if ([currentStep respondsToSelector:@selector(stepDescription)]) {
             desc = [currentStep stepDescription];
@@ -989,15 +1058,15 @@ static const CGFloat GSAssistantWindowMinHeight = 450.0;
             if ([[_installerStepDescriptionField cell] respondsToSelector:@selector(setScrollable:)]) {
                 [[_installerStepDescriptionField cell] setScrollable:NO];
             }
-            
+
             // Compute expected height using the cell's measurement
             CGFloat baseHeight = 18.0;
-            CGFloat padding = 16.0; // extra padding inside card
-            CGFloat available = inner.size.height - 20.0; // maximum available for description
+            CGFloat padding = 16.0;
+            CGFloat available = inner.size.height - 20.0;
             CGFloat computedHeight = 48.0;
             CGFloat maxWidth = inner.size.width;
             if ([[_installerStepDescriptionField cell] respondsToSelector:@selector(cellSizeForBounds:)]) {
-                NSRect measureBounds = NSMakeRect(0, 0, maxWidth, CGFLOAT_MAX);
+                NSRect measureBounds = NSMakeRect(0, 0, maxWidth, 2000);
                 NSSize expected = [[_installerStepDescriptionField cell] cellSizeForBounds:measureBounds];
                 computedHeight = MAX(expected.height + 6.0, baseHeight);
             }

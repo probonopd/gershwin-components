@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+	<key>CFBundleName</key>
+	<string>NetworkBrowser</string>
+	<key>CFBundleDisplayName</key>
+	<string>NetworkBrowser</string>
+	<key>ApplicationName</key>
+	<string>NetworkBrowser</string>
+	<key>ApplicationDescription</key>
+	<string>Browse network services shared on the local network</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.NetworkBrowser</string>
+	<key>CFBundleExecutable</key>
+	<string>NetworkBrowser</string>
+	<key>CFBundleVersion</key>
+	<string>0.1</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSTypes</key>
+	<array>
+		<dict>
+			<key>NSHumanReadableName</key>
+			<string>Network Service</string>
+			<key>NSRole</key>
+			<string>Viewer</string>
+		</dict>
+	</array>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
+</dict>
+</plist>

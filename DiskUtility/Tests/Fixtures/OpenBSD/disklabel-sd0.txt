@@ -1,0 +1,23 @@
+# /dev/rsd0c:
+type: SCSI
+disk: SD40G
+label: gershwin-root
+duid: 17f0a3b400000001
+flags:
+bytes/sector: 512
+sectors/track: 63
+tracks/cylinder: 255
+sectors/cylinder: 16065
+cylinders: 4865
+total sectors: 78165360
+boundstart: 64
+boundend: 78140159
+drivedata: 0
+
+16 partitions:
+#                size           offset  fstype [fsize bsize   cpg]
+  a:          2104515             64  4.2BSD     2048 16384    1 # /
+  b:           838656          2104579    swap
+  c:         78165360                0    unused
+  d:          4194304          2943235  4.2BSD     2048 16384    1 # /usr
+  i:         70960320          7137539   NTFS

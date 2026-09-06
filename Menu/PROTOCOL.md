@@ -486,6 +486,63 @@ NSApplication's sendAction:to:from: implementation:
    [proxy setProtocolForProxy:@protocol(GSGNUstepMenuClient)];
    ```
 
+## Application-Level Menus (Windowless Apps)
+
+A GNUstep application with no windows (e.g. a menu-only app) can still show its
+main menu in Menu.app.  The menu is keyed by the application rather than by a
+window, using the client name (`org.gnustep.Gershwin.MenuClient.<pid>`).
+
+### Server protocol additions
+
+```objectivec
+- (oneway void)updateMenuForApplication:(NSDictionary *)menuData
+                             clientName:(NSString *)clientName;
+- (oneway void)unregisterApplication:(NSString *)clientName;
+- (oneway void)updateApplicationMenuEnabledStates:(NSDictionary *)menuData
+                                        clientName:(NSString *)clientName;
+```
+
+- `updateMenuForApplication:clientName:` - serialize and push `[NSApp mainMenu]`
+  exactly like the window path (`windowId` 0 on every item).  Menu.app stores it
+  keyed by client name and routes clicks back through the same clientName path.
+- `unregisterApplication:clientName:` - sent on `NSApplicationWillTerminate`.
+- `updateApplicationMenuEnabledStates:clientName:` - enabled/checkmark push,
+  same shape as the window-level state push.
+
+### Client protocol additions
+
+```objectivec
+- (oneway void)requestApplicationMenuUpdate;
+```
+
+Menu.app calls this (on cached connections only, never blocking on name lookup)
+when it started after the windowless app, so the app re-pushes its menu.
+
+### Root-window coordination with the window manager
+
+Two Gershwin root properties connect Menu.app and the WM:
+
+- `_GERSHWIN_ACTIVE_APP` (Cardinal, PID; **WM-owned**).  The WM writes the PID
+  of the frontmost application on every focus change, including when the
+  frontmost app has no window.  Desktop windows are skipped on purpose: when
+  the WM falls back to focusing the desktop after the frontmost app's last
+  window closed, this property still names the windowless app.  An explicit
+  desktop click writes the desktop app's own PID so a deliberate click always
+  wins over the fallback.
+- `_GERSHWIN_MENU_APPS` (Cardinal array of PIDs; **Menu.app-owned**).  Menu.app
+  republishes this whenever an app menu is stored or removed.  The WM's Alt-Tab
+  switcher reads it to add windowless apps as switch targets (skipping PIDs
+  already represented by a window), and selecting such an app clears
+  `_NET_ACTIVE_WINDOW` and sets `_GERSHWIN_ACTIVE_APP`.
+
+Menu.app display rule for the menu bar:
+
+1. The active window with a registered window menu wins.
+2. Otherwise, show the application-level menu of `_GERSHWIN_ACTIVE_APP` when
+   the active window is 0, or when the active window is the desktop and its PID
+   differs from the active app (windowless fallback).
+3. Otherwise keep the current menu if one is shown, else the system-only menu.
+
 ## Common Issues and Solutions
 
 ### Issue: "Broken pipe" errors in logs

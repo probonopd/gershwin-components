@@ -1,16 +1,15 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = Network
 
 Network_OBJC_FILES = \
 	NetworkPane.m \
-	NetworkController.m \
-	NetworkModels.m \
-	NMBackend.m \
-	BSDBackend.m
+	NetworkController.m
 
-Network_RESOURCE_FILES = Network.png NetworkInfo.plist
-Network_BUNDLE_LIBS = -lPreferencePanes
+Network_RESOURCE_FILES = Network.png
+Network_BUNDLE_LIBS = -lPreferencePanes -lNetworkBackend -lcurl
+ADDITIONAL_OBJCFLAGS += -I/System/Library/Headers/NetworkBackend -I../Libraries/NetworkBackend
 Network_PRINCIPAL_CLASS = NetworkPane
 
 # For dlopen() used to load NetworkManager library. dlopen/dlsym are in libc on
@@ -86,3 +85,4 @@ $(BUNDLE_NAME).install.bundle.variables::
 
 shared-instance-bundle-install::
 	@true
+

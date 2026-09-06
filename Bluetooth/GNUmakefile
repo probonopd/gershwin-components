@@ -1,10 +1,11 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 Bluetooth_OBJCFLAGS += -Wall -Wextra -Werror -O2
 
 BUNDLE_NAME = Bluetooth
 Bluetooth_OBJC_FILES = BluetoothPane.m BluetoothController.m
-Bluetooth_RESOURCE_FILES = Bluetooth.png BluetoothInfo.plist
+Bluetooth_RESOURCE_FILES = Bluetooth.png
 Bluetooth_BUNDLE_LIBS = -lPreferencePanes
 Bluetooth_PRINCIPAL_CLASS = BluetoothPane
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles
@@ -48,3 +49,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

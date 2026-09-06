@@ -25,6 +25,7 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import "LoginWindow.h"
+#import "KeyboardManager.h"
 #include <X11/Xlib.h>
 #include <X11/Xauth.h>
 #include <signal.h>
@@ -33,6 +34,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <dirent.h>
@@ -498,10 +500,53 @@ BOOL startXorgLikeShellScript(void)
             close(logfd);
         }
         
-        // Execute Xorg
-        execl("/usr/local/bin/Xorg", "Xorg", ":0", "-auth", "/var/run/xauth", (char *)NULL);
-        // If exec fails, try alternative path
-        execl("/usr/bin/Xorg", "Xorg", ":0", "-auth", "/var/run/xauth", (char *)NULL);
+        // Determine the Xorg VT argument.  When a plymouth boot splash is in
+        // use (kernel command line contains "splash"), X must start on the
+        // same VT as the splash (the kernel console, console=ttyN) so the
+        // splash can hand off to the login window on the same terminal.
+        // Without plymouth, pass no VT and let Xorg pick its own, exactly as
+        // the original shell-script logic did.
+        const char *vtArg = NULL;
+        {
+            FILE *cml = fopen("/proc/cmdline", "r");
+            if (cml) {
+                char cmlbuf[4096];
+                size_t cmln = fread(cmlbuf, 1, sizeof(cmlbuf) - 1, cml);
+                fclose(cml);
+                cmlbuf[cmln] = '\0';
+
+                if (strstr(cmlbuf, "nosplash") == NULL &&
+                    strstr(cmlbuf, "plymouth.enable=0") == NULL &&
+                    (strstr(cmlbuf, "splash") != NULL ||
+                     strstr(cmlbuf, "plymouth.enable=1") != NULL)) {
+                    char *con = strstr(cmlbuf, "console=tty");
+                    if (con) {
+                        static char vts[8] = "vt0";
+                        int i = 0;
+                        con += strlen("console=tty");
+                        while (con[i] >= '0' && con[i] <= '9' && i < 6) {
+                            vts[2 + i] = con[i];
+                            i++;
+                        }
+                        vts[2 + i] = '\0';
+                        if (i > 0) {
+                            vtArg = vts;
+                        }
+                    }
+                    if (vtArg == NULL) {
+                        vtArg = "vt1";
+                    }
+                }
+            }
+        }
+
+        if (vtArg) {
+            execl("/usr/local/bin/Xorg", "Xorg", ":0", "-auth", "/var/run/xauth", vtArg, (char *)NULL);
+            execl("/usr/bin/Xorg", "Xorg", ":0", "-auth", "/var/run/xauth", vtArg, (char *)NULL);
+        } else {
+            execl("/usr/local/bin/Xorg", "Xorg", ":0", "-auth", "/var/run/xauth", (char *)NULL);
+            execl("/usr/bin/Xorg", "Xorg", ":0", "-auth", "/var/run/xauth", (char *)NULL);
+        }
         
         // If we get here, exec failed
         NSDebugLLog(@"gwcomp", @"[ERROR] Failed to exec Xorg");
@@ -596,6 +641,72 @@ int main(int argc, const char *argv[])
     NSDebugLLog(@"gwcomp", @"[DEBUG] Starting LoginWindow GUI application");
     
     [NSApplication sharedApplication];
+
+    // Detect keyboard layout and set the UI language BEFORE the first
+    // NSLocalizedString call (which happens when the delegate runs).
+    // NSUserDefaults is fully initialized by now.
+    {
+        KeyboardManager *km = [[KeyboardManager alloc] init];
+        [km detectKeyboardWithPasswd:NULL];
+
+        static const char *langMap[][2] = {
+            {"de","German"},{"fr","French"},{"es","Spanish"},
+            {"it","Italian"},{"pt","Portuguese"},{"ru","Russian"},
+            {"nl","Dutch"},{"tr","Turkish"},{"il","Hebrew"},
+            {"dk","Danish"},{"se","Swedish"},{"no","Norwegian"},
+            {"fi","Finnish"},{"jp","Japanese"},{"kr","Korean"},
+            {"cn","Chinese"},{"cz","Czech"},{"hu","Hungarian"},
+            {"pl","Polish"},{"sk","Slovak"},{"bg","Bulgarian"},
+            {"ua","Ukrainian"},{"hr","Croatian"},{"ro","Romanian"},
+            {"si","Slovenian"},{"ee","Estonian"},{"lv","Latvian"},
+            {"lt","Lithuanian"},{"is","Icelandic"},{"gr","Greek"},
+            {"vn","Vietnamese"},{"th","Thai"},{"by","Belarusian"},
+            {"mk","Macedonian"},{"mt","Maltese"},{"ca","French"},
+            {"gb","English"},{"us","English"},{"br","Portuguese"},
+            {NULL,NULL}
+        };
+        NSString *localeStr = km.language;
+        if (localeStr) {
+            NSString *langCode = nil;
+            NSRange underscore = [localeStr rangeOfString:@"_"];
+            if (underscore.location != NSNotFound)
+                langCode = [localeStr substringToIndex:underscore.location];
+            else {
+                NSRange dot = [localeStr rangeOfString:@"."];
+                if (dot.location != NSNotFound)
+                    langCode = [localeStr substringToIndex:dot.location];
+                else
+                    langCode = localeStr;
+            }
+            if (langCode && [langCode length] >= 2) {
+                NSString *gsLanguage = nil;
+                for (int i = 0; langMap[i][0]; i++) {
+                    if ([[NSString stringWithUTF8String:langMap[i][0]]
+                            isEqualToString:langCode]) {
+                        gsLanguage = [NSString stringWithUTF8String:
+                            langMap[i][1]];
+                        break;
+                    }
+                }
+                if (gsLanguage) {
+                    [[NSUserDefaults standardUserDefaults] setObject:
+                        @[gsLanguage, @"English"] forKey:@"Languages"];
+                    [[NSUserDefaults standardUserDefaults] synchronize];
+                }
+                setenv("LANG", [localeStr UTF8String], 1);
+                setenv("LANGUAGE",
+                    [[[localeStr componentsSeparatedByString:@"."]
+                        firstObject] UTF8String], 1);
+                setenv("LC_ALL", [localeStr UTF8String], 1);
+            }
+        }
+        [km release];
+    }
+
+    NSDebugLLog(@"gwcomp", @"[DEBUG] Language setup: LANG=%s, Languages=%@",
+          getenv("LANG") ?: "(unset)",
+          [[NSUserDefaults standardUserDefaults] arrayForKey:@"Languages"]);
+
     [NSApp setDelegate: [[LoginWindow alloc] init]];
     [NSApp run];
     

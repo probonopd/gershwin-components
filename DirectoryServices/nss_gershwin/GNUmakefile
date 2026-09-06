@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 # NSS module naming conventions:
 # - FreeBSD: nss_<name>.so.1
@@ -35,3 +36,4 @@ ifeq ($(findstring freebsd,$(GNUSTEP_HOST_OS)),freebsd)
 	@echo "$(INSTALL_DIR)" > /usr/local/libdata/ldconfig/gershwin
 	ldconfig
 endif
+

@@ -9,6 +9,9 @@
 @interface MouseController : NSObject
 {
     NSView *mainView;
+    NSBox *mouseBox;
+    NSBox *trackpadBox;
+    NSBox *trackpointBox;
 
     NSSlider *mouseSpeedSlider;
     NSTextField *mouseSpeedLabel;
@@ -37,6 +40,7 @@
 }
 
 - (NSView *)createMainView;
+- (void)relayoutWithWidth:(CGFloat)width;
 - (void)refreshFromSystem;
 - (IBAction)settingChanged:(id)sender;
 

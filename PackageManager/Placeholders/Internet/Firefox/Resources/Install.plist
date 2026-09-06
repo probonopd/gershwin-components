@@ -22,7 +22,7 @@
     <key>freebsd</key>
     <dict>
       <key>postinstall_command</key>
-      <string>/usr/bin/firefox</string>
+      <string>/usr/local/bin/firefox</string>
     </dict>
     <key>openbsd</key>
     <dict>

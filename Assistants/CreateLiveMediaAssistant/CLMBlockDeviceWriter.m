@@ -1,20 +1,14 @@
-/*
- * Copyright (c) 2026 Simon Peter
- *
- * SPDX-License-Identifier: BSD-2-Clause
- */
-
 #import "CLMBlockDeviceWriter.h"
-#include <fcntl.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
+#import <errno.h>
+#import <string.h>
 
 @implementation CLMBlockDeviceWriter
 {
-    int _fd;
+    NSTask *_task;
+    NSFileHandle *_writeHandle;
     int64_t _bytesWritten;
     NSString *_devicePath;
+    NSString *_helperPath;
 }
 
 @synthesize devicePath = _devicePath;
@@ -25,41 +19,67 @@
     self = [super init];
     if (self) {
         _devicePath = [devicePath copy];
-        _fd = -1;
         _bytesWritten = 0;
+        _helperPath = nil;
     }
     return self;
 }
 
 - (void)dealloc
 {
-    if (_fd >= 0) {
-        close(_fd);
+    if (_task) {
+        [_task terminate];
+        _task = nil;
     }
 }
 
 - (BOOL)isOpen
 {
-    return _fd >= 0;
+    return _task != nil && _writeHandle != nil;
 }
 
 - (BOOL)openWithError:(NSError **)error
 {
-    if (_fd >= 0) {
-        return YES;
-    }
+    if (_task) return YES;
 
-    _fd = open([_devicePath UTF8String], O_WRONLY | O_SYNC);
-    if (_fd < 0) {
+    if (!_helperPath) {
+        _helperPath = [[NSBundle mainBundle] pathForResource:@"clm-helper" ofType:nil];
+    }
+    if (!_helperPath) {
         if (error) {
-            *error = [NSError errorWithDomain:NSPOSIXErrorDomain
-                                        code:errno
+            *error = [NSError errorWithDomain:@"CLMBlockDeviceWriter"
+                                        code:-1
                                     userInfo:@{
-                NSLocalizedDescriptionKey: [NSString stringWithFormat:
-                    NSLocalizedString(@"Failed to open device %@: %s", @""),
-                    _devicePath, strerror(errno)]
+                NSLocalizedDescriptionKey: NSLocalizedString(@"Could not find clm-helper tool", @"")
             }];
         }
+        return NO;
+    }
+
+    _task = [[NSTask alloc] init];
+    [_task setLaunchPath:@"/usr/bin/sudo"];
+    [_task setArguments:@[@"-A", @"-E", _helperPath, @"write", _devicePath]];
+
+    NSPipe *inPipe = [NSPipe pipe];
+    [_task setStandardInput:inPipe];
+    _writeHandle = [inPipe fileHandleForWriting];
+
+    NSDebugLLog(@"gwcomp", @"CLMBlockDeviceWriter: launching sudo clm-helper write %@", _devicePath);
+
+    @try {
+        [_task launch];
+    } @catch (NSException *exception) {
+        if (error) {
+            *error = [NSError errorWithDomain:@"CLMBlockDeviceWriter"
+                                        code:-1
+                                    userInfo:@{
+                NSLocalizedDescriptionKey: [NSString stringWithFormat:
+                    NSLocalizedString(@"Failed to launch clm-helper: %@", @""),
+                    [exception reason]]
+            }];
+        }
+        _task = nil;
+        _writeHandle = nil;
         return NO;
     }
 
@@ -73,7 +93,7 @@
 
 - (BOOL)writeBytes:(const void *)bytes length:(size_t)length error:(NSError **)error
 {
-    if (_fd < 0) {
+    if (!_writeHandle) {
         if (error) {
             *error = [NSError errorWithDomain:NSPOSIXErrorDomain
                                         code:EBADF
@@ -84,29 +104,21 @@
         return NO;
     }
 
-    const char *ptr = (const char *)bytes;
-    size_t remaining = length;
-
-    while (remaining > 0) {
-        ssize_t written = write(_fd, ptr, remaining);
-        if (written < 0) {
-            if (errno == EINTR || errno == EAGAIN) {
-                continue;
-            }
-            if (error) {
-                *error = [NSError errorWithDomain:NSPOSIXErrorDomain
-                                            code:errno
-                                        userInfo:@{
-                    NSLocalizedDescriptionKey: [NSString stringWithFormat:
-                        NSLocalizedString(@"Write error on %@: %s", @""),
-                        _devicePath, strerror(errno)]
-                }];
-            }
-            return NO;
+    NSData *data = [NSData dataWithBytesNoCopy:(void *)bytes length:length freeWhenDone:NO];
+    @try {
+        [_writeHandle writeData:data];
+        _bytesWritten += length;
+    } @catch (NSException *exception) {
+        if (error) {
+            *error = [NSError errorWithDomain:@"CLMBlockDeviceWriter"
+                                        code:-1
+                                    userInfo:@{
+                NSLocalizedDescriptionKey: [NSString stringWithFormat:
+                    NSLocalizedString(@"Write error on %@: %@", @""),
+                    _devicePath, [exception reason]]
+            }];
         }
-        ptr += written;
-        remaining -= written;
-        _bytesWritten += written;
+        return NO;
     }
 
     return YES;
@@ -114,45 +126,44 @@
 
 - (BOOL)synchronizeWithError:(NSError **)error
 {
-    if (_fd < 0) return YES;
-
-    if (fsync(_fd) < 0) {
-        if (error) {
-            *error = [NSError errorWithDomain:NSPOSIXErrorDomain
-                                        code:errno
-                                    userInfo:@{
-                NSLocalizedDescriptionKey: [NSString stringWithFormat:
-                    NSLocalizedString(@"fsync failed on %@: %s", @""),
-                    _devicePath, strerror(errno)]
-            }];
-        }
-        return NO;
-    }
-
+    (void)error;
     return YES;
 }
 
 - (BOOL)closeWithError:(NSError **)error
 {
-    if (_fd < 0) return YES;
+    if (!_task) return YES;
 
-    [self synchronizeWithError:NULL];
-
-    if (close(_fd) < 0) {
+    @try {
+        [_writeHandle closeFile];
+        _writeHandle = nil;
+        [_task waitUntilExit];
+        int status = [_task terminationStatus];
+        if (status != 0) {
+            if (error) {
+                *error = [NSError errorWithDomain:@"CLMBlockDeviceWriter"
+                                            code:status
+                                        userInfo:@{
+                    NSLocalizedDescriptionKey: [NSString stringWithFormat:
+                        NSLocalizedString(@"clm-helper exited with status %d", @""), status]
+                }];
+            }
+            _task = nil;
+            return NO;
+        }
+    } @catch (NSException *exception) {
         if (error) {
-            *error = [NSError errorWithDomain:NSPOSIXErrorDomain
-                                        code:errno
+            *error = [NSError errorWithDomain:@"CLMBlockDeviceWriter"
+                                        code:-1
                                     userInfo:@{
-                NSLocalizedDescriptionKey: [NSString stringWithFormat:
-                    NSLocalizedString(@"Close failed on %@: %s", @""),
-                    _devicePath, strerror(errno)]
+                NSLocalizedDescriptionKey: [exception reason]
             }];
         }
-        _fd = -1;
+        _task = nil;
         return NO;
     }
 
-    _fd = -1;
+    _task = nil;
     return YES;
 }
 

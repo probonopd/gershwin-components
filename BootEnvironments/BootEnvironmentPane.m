@@ -6,8 +6,64 @@
 
 #import "BootEnvironmentPane.h"
 #import "BootConfigController.h"
+#include <stdlib.h>
 
 @implementation BootEnvironmentPane
+
++ (BOOL)rootIsZFS {
+  NSString *mounts = [NSString stringWithContentsOfFile:@"/proc/mounts"
+                                               encoding:NSUTF8StringEncoding
+                                                  error:nil];
+  if (mounts) {
+    for (NSString *line in [mounts componentsSeparatedByString:@"\n"]) {
+      NSArray *fields = [line componentsSeparatedByString:@" "];
+      if ([fields count] >= 3 &&
+          [[fields objectAtIndex:1] isEqualToString:@"/"] &&
+          [[fields objectAtIndex:2] isEqualToString:@"zfs"])
+        return YES;
+    }
+    return NO;
+  }
+  NSTask *task = [[NSTask alloc] init];
+  [task setLaunchPath:@"/sbin/mount"];
+  [task setArguments:@[@"-p"]];
+  NSPipe *pipe = [NSPipe pipe];
+  [task setStandardOutput:pipe];
+  @try {
+    [task launch];
+    [task waitUntilExit];
+  } @catch (NSException *e) {
+    [task release];
+    return NO;
+  }
+  NSString *output = [[[NSString alloc] initWithData:[[pipe fileHandleForReading] readDataToEndOfFile]
+                                            encoding:NSUTF8StringEncoding] autorelease];
+  [task release];
+  for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
+    NSArray *fields = [line componentsSeparatedByString:@"\t"];
+    if ([fields count] >= 3 &&
+        [[fields objectAtIndex:1] isEqualToString:@"/"] &&
+        [[fields objectAtIndex:2] isEqualToString:@"zfs"])
+      return YES;
+  }
+  return NO;
+}
+
++ (BOOL)isCompatible {
+  if (![self rootIsZFS]) return NO;
+  NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
+  NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
+  for (NSString *dir in paths) {
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
+          [dir stringByAppendingPathComponent: @"bectl"]])
+      return YES;
+  }
+  return NO;
+}
+
++ (NSString *)compatibilityReason {
+  return @"Root filesystem is not ZFS or bectl not found — boot environment management requires both";
+}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {

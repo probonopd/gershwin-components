@@ -21,11 +21,10 @@ static const float METRICS_CONTENT_TOP_MARGIN = 15.0;
 static const float METRICS_CONTENT_BOTTOM_MARGIN = 20.0;
 static const float METRICS_TEXT_INPUT_FIELD_HEIGHT = 22.0;
 static const float METRICS_BUTTON_HEIGHT = 20.0;
-static const float METRICS_BUTTON_MIN_WIDTH = 69.0;
+static const float METRICS_BUTTON_MIN_WIDTH = 100.0;
 static const float METRICS_RADIO_BUTTON_SIZE = 18.0;
 static const float METRICS_SPACE_8 = 8.0;  // Between control and its label
 static const float METRICS_SPACE_12 = 12.0;  // Between buttons
-static const float METRICS_SPACE_16 = 16.0;  // Between controls in a group
 static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox baseline-to-baseline
 
 
@@ -400,6 +399,40 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
         return [trimmed isEqualToString:@"installed"];
     }
     return YES;
+}
+
+- (BOOL)getCloudStatus
+{
+    // Check if rclone RC daemon is running by connecting to the port
+    NSURL *testUrl = [NSURL URLWithString: @"http://localhost:5572/config/providers"];
+    if (testUrl == nil) {
+        return NO;
+    }
+
+    NSMutableURLRequest *testRequest = [NSMutableURLRequest requestWithURL: testUrl];
+    [testRequest setHTTPMethod: @"POST"];
+    [testRequest setTimeoutInterval: 0.5];
+    NSURLResponse *resp = nil;
+    NSError *connectErr = nil;
+    [NSURLConnection sendSynchronousRequest: testRequest returningResponse: &resp error: &connectErr];
+    return (connectErr == nil);
+}
+
+- (BOOL)getCloudInstalled
+{
+    // Check if rclone is installed by looking for it in PATH
+    NSDictionary *env = [[NSProcessInfo processInfo] environment];
+    NSString *pathsStr = [env objectForKey: @"PATH"];
+    NSArray *pathDirs = [pathsStr componentsSeparatedByString: @":"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    for (NSString *dir in pathDirs) {
+        NSString *fullPath = [dir stringByAppendingPathComponent: @"rclone"];
+        if ([fm isExecutableFileAtPath: fullPath]) {
+            return YES;
+        }
+    }
+    return NO;
 }
 
 - (NSString *)getLocalIPAddress
@@ -804,8 +837,109 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
                        @"• Fedora/RHEL: sudo dnf install xrdp\n"
                        @"• FreeBSD: sudo pkg install xrdp\n"
                        @"• Arch: sudo pacman -S xrdp",
-                       @"OK", nil, nil);
+                        @"OK", nil, nil);
     }
+}
+
+- (void)toggleCloud:(id)sender
+{
+    BOOL shouldEnable = [cloudCheckbox state] == NSOnState;
+
+    NSDebugLog(@"SharingController: %@ Cloud Sync", shouldEnable ? @"Starting" : @"Stopping");
+
+    if (shouldEnable) {
+        [self startRcloneDaemon];
+    } else {
+        [self stopRcloneDaemon];
+    }
+
+    [self refreshStatus:nil];
+    NSDebugLog(@"SharingController: Cloud Sync %@", shouldEnable ? @"started" : @"stopped");
+}
+
+- (void)startRcloneDaemon
+{
+    if (![self getCloudInstalled]) {
+        NSRunAlertPanel(@"rclone not found",
+                       @"rclone is not installed. Please install rclone to use Cloud Sync.",
+                       @"OK", nil, nil);
+        [cloudCheckbox setState:NSOffState];
+        return;
+    }
+
+    if ([self getCloudStatus]) {
+        NSDebugLog(@"SharingController: rclone RC daemon already running");
+        return;
+    }
+
+    NSString *rclone = nil;
+    NSDictionary *env = [[NSProcessInfo processInfo] environment];
+    NSString *pathsStr = [env objectForKey: @"PATH"];
+    NSArray *pathDirs = [pathsStr componentsSeparatedByString: @":"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    for (NSString *dir in pathDirs) {
+        NSString *fullPath = [dir stringByAppendingPathComponent: @"rclone"];
+        if ([fm isExecutableFileAtPath: fullPath]) {
+            rclone = fullPath;
+            break;
+        }
+    }
+
+    if (rclone == nil) {
+        NSRunAlertPanel(@"rclone not found",
+                       @"rclone is not in PATH.",
+                       @"OK", nil, nil);
+        [cloudCheckbox setState:NSOffState];
+        return;
+    }
+
+    // Redirect output to log file for debugging
+    NSString *logPath = @"/tmp/rclone-daemon.log";
+    NSString *errPath = @"/tmp/rclone-daemon.err";
+
+    FILE *out = fopen([logPath UTF8String], "a");
+    FILE *err = fopen([errPath UTF8String], "a");
+    if (out) fprintf(out, "Starting rclone daemon...\n");
+    if (err) fprintf(err, "Starting rclone daemon...\n");
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child process - become session leader and redirect output
+        if (setsid() == -1) {
+            if (err) fprintf(err, "setsid failed: %d\n", errno);
+        }
+        if (out) freopen([logPath UTF8String], "a", stdout);
+        if (err) freopen([errPath UTF8String], "a", stderr);
+
+        execl([rclone UTF8String], [rclone UTF8String], "rcd", "--rc-no-auth", "--rc-addr", "localhost:5572", (char *)NULL);
+
+        if (err) fprintf(err, "execl failed: %d\n", errno);
+        _exit(1);
+    }
+
+    // Parent
+    if (out) fclose(out);
+    if (err) fclose(err);
+
+    if (pid > 0) {
+        [NSThread sleepForTimeInterval: 1.0];
+        NSDebugLog(@"SharingController: Started rclone RC daemon with pid %d", pid);
+    } else {
+        NSDebugLog(@"SharingController: fork failed");
+    }
+}
+
+- (void)stopRcloneDaemon
+{
+    NSTask *pkill = [[NSTask alloc] init];
+    [pkill setLaunchPath: @"/bin/pkill"];
+    [pkill setArguments: [NSArray arrayWithObjects: @"-f", @"rclone rcd", nil]];
+    [pkill launch];
+    [pkill waitUntilExit];
+    [pkill release];
+
+    NSDebugLog(@"SharingController: Stopped rclone RC daemon");
 }
 
 - (void)toggleMedia:(id)sender
@@ -938,6 +1072,7 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
         BOOL web  = [self getWebStatus];
         BOOL media  = [self getMediaStatus];
         BOOL rdp  = [self getRDPStatus];
+        BOOL cloud = [self getCloudStatus];
         // Also query installation state for each service
         BOOL isSshInstalled  = [self getSSHInstalled];
         BOOL isVncInstalled  = [self getVNCInstalled];
@@ -947,24 +1082,25 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
         BOOL isWebInstalled  = [self getWebInstalled];
         BOOL isMediaInstalled  = [self getMediaInstalled];
         BOOL isRdpInstalled  = [self getRDPInstalled];
+        BOOL isCloudInstalled = [self getCloudInstalled];
 
         dispatch_async(dispatch_get_main_queue(), ^{
             isRefreshingStatus = NO;
             [self updateUIWithHostname:hostname
-                                   ssh:ssh vnc:vnc sftp:sftp afp:afp smb:smb web:web media:media rdp:rdp
+                                   ssh:ssh vnc:vnc sftp:sftp afp:afp smb:smb web:web media:media rdp:rdp cloud:cloud
                           sshInstalled:isSshInstalled vncInstalled:isVncInstalled
                          sftpInstalled:isSftpInstalled afpInstalled:isAfpInstalled
-                          smbInstalled:isSmbInstalled webInstalled:isWebInstalled mediaInstalled:isMediaInstalled rdpInstalled:isRdpInstalled];
+                          smbInstalled:isSmbInstalled webInstalled:isWebInstalled mediaInstalled:isMediaInstalled rdpInstalled:isRdpInstalled cloudInstalled:isCloudInstalled];
         });
     });
 }
 
 - (void)updateUIWithHostname:(NSString *)hostname
                           ssh:(BOOL)ssh vnc:(BOOL)vnc sftp:(BOOL)sftp
-                          afp:(BOOL)afp smb:(BOOL)smb web:(BOOL)web media:(BOOL)media rdp:(BOOL)rdp
+                          afp:(BOOL)afp smb:(BOOL)smb web:(BOOL)web media:(BOOL)media rdp:(BOOL)rdp cloud:(BOOL)cloud
                  sshInstalled:(BOOL)isSshInstalled vncInstalled:(BOOL)isVncInstalled
                 sftpInstalled:(BOOL)isSftpInstalled afpInstalled:(BOOL)isAfpInstalled
-                 smbInstalled:(BOOL)isSmbInstalled webInstalled:(BOOL)isWebInstalled mediaInstalled:(BOOL)isMediaInstalled rdpInstalled:(BOOL)isRdpInstalled
+                 smbInstalled:(BOOL)isSmbInstalled webInstalled:(BOOL)isWebInstalled mediaInstalled:(BOOL)isMediaInstalled rdpInstalled:(BOOL)isRdpInstalled cloudInstalled:(BOOL)isCloudInstalled
 {
     // Safety check in case the pane was unselected while we were querying
     if (!hostnameField || !sshCheckbox) {
@@ -1355,6 +1491,33 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
             }
         }
     }
+
+    // --- Cloud Sync ---
+    if (!isCloudInstalled) {
+        [cloudCheckbox setEnabled:NO];
+        [cloudCheckbox setState:NSOffState];
+        [cloudStatusLabel setStringValue:@"N/A"];
+        [cloudStatusLabel setTextColor:naColor];
+        [cloudInfoLabel setStringValue:@"Install rclone to enable Cloud Sync."];
+        [cloudInfoLabel setHidden:NO];
+    } else {
+        [cloudCheckbox setEnabled:YES];
+        cloudEnabled = cloud;
+        [cloudCheckbox setState:cloudEnabled ? NSOnState : NSOffState];
+
+        if (cloudEnabled) {
+            [cloudStatusLabel setStringValue:@"On"];
+            [cloudStatusLabel setTextColor:[NSColor colorWithCalibratedRed:0.0 green:0.6 blue:0.0 alpha:1.0]];
+
+            NSString *info = [NSString stringWithFormat:@"Cloud Sync running at http://localhost:5572"];
+            [cloudInfoLabel setStringValue:info];
+            [cloudInfoLabel setHidden:NO];
+        } else {
+            [cloudStatusLabel setStringValue:@"Off"];
+            [cloudStatusLabel setTextColor:[NSColor grayColor]];
+            [cloudInfoLabel setHidden:YES];
+        }
+    }
 }
 
 #pragma mark - UI Creation
@@ -1369,357 +1532,74 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
     // - 8px between control and its label
     // - 20px between control groups
     
-    CGFloat viewHeight = 519;
+    CGFloat viewHeight = 446;
     NSView *mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 595, viewHeight)];
-    [mainView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    [mainView setAutoresizingMask:NSViewWidthSizable];
 
-    CGFloat yPos = viewHeight - METRICS_CONTENT_TOP_MARGIN;  // Start from top with proper margin
+    CGFloat yPos = viewHeight - METRICS_CONTENT_TOP_MARGIN - 36;  // Start from top with proper margin
     CGFloat leftMargin = METRICS_CONTENT_SIDE_MARGIN;  // 24px from window edge
     CGFloat width = 595 - (METRICS_CONTENT_SIDE_MARGIN * 2);  // 24px margins on both sides
     
-    // Computer Name Section
-    // Use emphasized bold font for section grouping (per metrics)
-    NSTextField *computerNameTitle = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin, yPos, width, 17)];
-    [computerNameTitle setStringValue:@"Computer Name"];
-    [computerNameTitle setBezeled:NO];
-    [computerNameTitle setDrawsBackground:NO];
-    [computerNameTitle setEditable:NO];
-    [computerNameTitle setSelectable:NO];
-    [computerNameTitle setFont:[NSFont boldSystemFontOfSize:13]];  // METRICS_FONT_SYSTEM_BOLD_13
-    [mainView addSubview:computerNameTitle];
-    [computerNameTitle release];
-    
-    yPos -= METRICS_SPACE_16;  // 16px between title and first control
-    
-    // Hostname label and field
-    NSTextField *hostnameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin, yPos - METRICS_TEXT_INPUT_FIELD_HEIGHT, 60, 17)];
+    // Hostname section
+    NSTextField *hostnameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin, yPos - METRICS_TEXT_INPUT_FIELD_HEIGHT, 60, METRICS_TEXT_INPUT_FIELD_HEIGHT)];
     [hostnameLabel setStringValue:@"Name:"];
     [hostnameLabel setBezeled:NO];
     [hostnameLabel setDrawsBackground:NO];
     [hostnameLabel setEditable:NO];
     [hostnameLabel setSelectable:NO];
-    [hostnameLabel setFont:[NSFont systemFontOfSize:13]];  // METRICS_FONT_SYSTEM_REGULAR_13
+    [hostnameLabel setFont:[NSFont systemFontOfSize:13]];
     [mainView addSubview:hostnameLabel];
     [hostnameLabel release];
     
-    CGFloat fieldLeft = leftMargin + 60 + METRICS_SPACE_8;  // Label + 8px gap
-    CGFloat buttonWidth = MAX(METRICS_BUTTON_MIN_WIDTH, 75.0);  // Ensure minimum width
-    CGFloat fieldWidth = width - 60 - METRICS_SPACE_8 - buttonWidth - METRICS_SPACE_12;  // Space for button + 12px gap
+    CGFloat fieldLeft = leftMargin + 60 + METRICS_SPACE_8;
+    CGFloat buttonWidth = METRICS_BUTTON_MIN_WIDTH;
+    CGFloat fieldWidth = width - 60 - METRICS_SPACE_8 - buttonWidth - METRICS_SPACE_12;
     
     hostnameField = [[NSTextField alloc] initWithFrame:NSMakeRect(fieldLeft, yPos - METRICS_TEXT_INPUT_FIELD_HEIGHT, fieldWidth, METRICS_TEXT_INPUT_FIELD_HEIGHT)];
     [hostnameField setStringValue:@""];
-    [hostnameField setFont:[NSFont systemFontOfSize:13]];  // METRICS_FONT_SYSTEM_REGULAR_13
+    [hostnameField setFont:[NSFont systemFontOfSize:13]];
     [hostnameField setTarget:self];
     [hostnameField setAction:@selector(applyHostname:)];
     [mainView addSubview:hostnameField];
     
-    applyHostnameButton = [[NSButton alloc] initWithFrame:NSMakeRect(fieldLeft + fieldWidth + METRICS_SPACE_12, yPos - METRICS_BUTTON_HEIGHT - 1, buttonWidth, METRICS_BUTTON_HEIGHT)];
+    applyHostnameButton = [[NSButton alloc] initWithFrame:NSMakeRect(fieldLeft + fieldWidth + METRICS_SPACE_12, yPos - METRICS_BUTTON_HEIGHT, buttonWidth, METRICS_BUTTON_HEIGHT)];
     [applyHostnameButton setTitle:@"Apply"];
     [applyHostnameButton setTarget:self];
     [applyHostnameButton setAction:@selector(applyHostname:)];
     [applyHostnameButton setBezelStyle:NSRoundedBezelStyle];
-    [applyHostnameButton setFont:[NSFont systemFontOfSize:13]];  // METRICS_FONT_SYSTEM_REGULAR_13
     [applyHostnameButton setEnabled:NO];
     [mainView addSubview:applyHostnameButton];
-
+    
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(hostnameDidChange:)
                                                  name:NSControlTextDidChangeNotification
                                                object:hostnameField];
-
-    yPos -= METRICS_TEXT_INPUT_FIELD_HEIGHT + METRICS_SPACE_8;  // Move below field + 8px gap
     
-    hostnameStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(fieldLeft, yPos, fieldWidth, 17)];
+    yPos -= METRICS_TEXT_INPUT_FIELD_HEIGHT + METRICS_SPACE_8;
+    
+    hostnameStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(fieldLeft, yPos, fieldWidth, 20)];
     [hostnameStatusLabel setStringValue:@""];
     [hostnameStatusLabel setBezeled:NO];
     [hostnameStatusLabel setDrawsBackground:NO];
     [hostnameStatusLabel setEditable:NO];
     [hostnameStatusLabel setSelectable:NO];
-    [hostnameStatusLabel setFont:[NSFont systemFontOfSize:11]];  // METRICS_FONT_SYSTEM_REGULAR_11
+    [hostnameStatusLabel setFont:[NSFont systemFontOfSize:11]];
     [mainView addSubview:hostnameStatusLabel];
     
-    yPos -= 17 + METRICS_SPACE_20;  // 20px gap between control groups
+    yPos -= 20 + METRICS_SPACE_20;
     
-    // Services Section - using spacing-based grouping, no box
-    NSTextField *servicesTitle = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin, yPos, width, 17)];
-    [servicesTitle setStringValue:@"Services"];
-    [servicesTitle setBezeled:NO];
-    [servicesTitle setDrawsBackground:NO];
-    [servicesTitle setEditable:NO];
-    [servicesTitle setSelectable:NO];
-    [servicesTitle setFont:[NSFont boldSystemFontOfSize:13]];  // METRICS_FONT_SYSTEM_BOLD_13
-    [mainView addSubview:servicesTitle];
-    [servicesTitle release];
-    
-    yPos -= METRICS_SPACE_16;  // 16px between title and first control
-    
-    // Each service row: checkbox + info label + spacing to next row
-    CGFloat serviceRowHeight = METRICS_RADIO_BUTTON_SIZE + 17 + METRICS_SPACE_8;  // 43px per row
-    
-    // SSH Service
-    sshCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(leftMargin, yPos - METRICS_RADIO_BUTTON_SIZE, 200, METRICS_RADIO_BUTTON_SIZE)];
-    [sshCheckbox setTitle:@"Remote Login (SSH)"];
-    [sshCheckbox setButtonType:NSSwitchButton];
-    [sshCheckbox setTarget:self];
-    [sshCheckbox setAction:@selector(toggleSSH:)];
-    [sshCheckbox setFont:[NSFont systemFontOfSize:13]];  // METRICS_FONT_SYSTEM_REGULAR_13
-    [mainView addSubview:sshCheckbox];
-    
-    sshStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + 200 + METRICS_SPACE_8, yPos - 17, 60, 17)];
-    [sshStatusLabel setStringValue:@"Off"];
-    [sshStatusLabel setBezeled:NO];
-    [sshStatusLabel setDrawsBackground:NO];
-    [sshStatusLabel setEditable:NO];
-    [sshStatusLabel setSelectable:NO];
-    [sshStatusLabel setFont:[NSFont boldSystemFontOfSize:13]];  // METRICS_FONT_SYSTEM_BOLD_13
-    [sshStatusLabel setTextColor:[NSColor grayColor]];
-    [mainView addSubview:sshStatusLabel];
-    
-    sshInfoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + METRICS_SPACE_16, yPos - METRICS_RADIO_BUTTON_SIZE - 17, width - METRICS_SPACE_16, 17)];
-    [sshInfoLabel setStringValue:@""];
-    [sshInfoLabel setBezeled:NO];
-    [sshInfoLabel setDrawsBackground:NO];
-    [sshInfoLabel setEditable:NO];
-    [sshInfoLabel setSelectable:YES];
-    [sshInfoLabel setFont:[NSFont systemFontOfSize:11]];  // METRICS_FONT_SYSTEM_REGULAR_11 for info text
-    [sshInfoLabel setTextColor:[NSColor darkGrayColor]];
-    [sshInfoLabel setHidden:YES];
-    [mainView addSubview:sshInfoLabel];
-    
-    yPos -= serviceRowHeight;  // Move to next service row
-    
-    // SFTP Service
-    sftpCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(leftMargin, yPos - METRICS_RADIO_BUTTON_SIZE, 200, METRICS_RADIO_BUTTON_SIZE)];
-    [sftpCheckbox setTitle:@"File Transfer (SFTP)"];
-    [sftpCheckbox setButtonType:NSSwitchButton];
-    [sftpCheckbox setTarget:self];
-    [sftpCheckbox setAction:@selector(toggleSFTP:)];
-    [sftpCheckbox setFont:[NSFont systemFontOfSize:13]];
-    [mainView addSubview:sftpCheckbox];
-    
-    sftpStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + 200 + METRICS_SPACE_8, yPos - 17, 60, 17)];
-    [sftpStatusLabel setStringValue:@"Off"];
-    [sftpStatusLabel setBezeled:NO];
-    [sftpStatusLabel setDrawsBackground:NO];
-    [sftpStatusLabel setEditable:NO];
-    [sftpStatusLabel setSelectable:NO];
-    [sftpStatusLabel setFont:[NSFont boldSystemFontOfSize:13]];
-    [sftpStatusLabel setTextColor:[NSColor grayColor]];
-    [mainView addSubview:sftpStatusLabel];
-    
-    sftpInfoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + METRICS_SPACE_16, yPos - METRICS_RADIO_BUTTON_SIZE - 17, width - METRICS_SPACE_16, 17)];
-    [sftpInfoLabel setStringValue:@""];
-    [sftpInfoLabel setBezeled:NO];
-    [sftpInfoLabel setDrawsBackground:NO];
-    [sftpInfoLabel setEditable:NO];
-    [sftpInfoLabel setSelectable:YES];
-    [sftpInfoLabel setFont:[NSFont systemFontOfSize:11]];
-    [sftpInfoLabel setTextColor:[NSColor darkGrayColor]];
-    [sftpInfoLabel setHidden:YES];
-    [mainView addSubview:sftpInfoLabel];
-    
-    yPos -= serviceRowHeight;  // Move to next service row
-    
-    // AFP Service
-    afpCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(leftMargin, yPos - METRICS_RADIO_BUTTON_SIZE, 230, METRICS_RADIO_BUTTON_SIZE)];
-    [afpCheckbox setTitle:@"Apple File Sharing (AFP)"];
-    [afpCheckbox setButtonType:NSSwitchButton];
-    [afpCheckbox setTarget:self];
-    [afpCheckbox setAction:@selector(toggleAFP:)];
-    [afpCheckbox setFont:[NSFont systemFontOfSize:13]];
-    [mainView addSubview:afpCheckbox];
-    
-    afpStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + 230 + METRICS_SPACE_8, yPos - 17, 60, 17)];
-    [afpStatusLabel setStringValue:@"Off"];
-    [afpStatusLabel setBezeled:NO];
-    [afpStatusLabel setDrawsBackground:NO];
-    [afpStatusLabel setEditable:NO];
-    [afpStatusLabel setSelectable:NO];
-    [afpStatusLabel setFont:[NSFont boldSystemFontOfSize:13]];
-    [afpStatusLabel setTextColor:[NSColor grayColor]];
-    [mainView addSubview:afpStatusLabel];
-    
-    afpInfoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + METRICS_SPACE_16, yPos - METRICS_RADIO_BUTTON_SIZE - 17, width - METRICS_SPACE_16, 17)];
-    [afpInfoLabel setStringValue:@""];
-    [afpInfoLabel setBezeled:NO];
-    [afpInfoLabel setDrawsBackground:NO];
-    [afpInfoLabel setEditable:NO];
-    [afpInfoLabel setSelectable:YES];
-    [afpInfoLabel setFont:[NSFont systemFontOfSize:11]];
-    [afpInfoLabel setTextColor:[NSColor darkGrayColor]];
-    [afpInfoLabel setHidden:YES];
-    [mainView addSubview:afpInfoLabel];
-    
-    yPos -= serviceRowHeight;  // Move to next service row
-    
-    // SMB/Samba Service
-    smbCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(leftMargin, yPos - METRICS_RADIO_BUTTON_SIZE, 250, METRICS_RADIO_BUTTON_SIZE)];
-    [smbCheckbox setTitle:@"Windows File Sharing (SMB)"];
-    [smbCheckbox setButtonType:NSSwitchButton];
-    [smbCheckbox setTarget:self];
-    [smbCheckbox setAction:@selector(toggleSMB:)];
-    [smbCheckbox setFont:[NSFont systemFontOfSize:13]];
-    [mainView addSubview:smbCheckbox];
-    
-    smbStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + 250 + METRICS_SPACE_8, yPos - 17, 60, 17)];
-    [smbStatusLabel setStringValue:@"Off"];
-    [smbStatusLabel setBezeled:NO];
-    [smbStatusLabel setDrawsBackground:NO];
-    [smbStatusLabel setEditable:NO];
-    [smbStatusLabel setSelectable:NO];
-    [smbStatusLabel setFont:[NSFont boldSystemFontOfSize:13]];
-    [smbStatusLabel setTextColor:[NSColor grayColor]];
-    [mainView addSubview:smbStatusLabel];
-    
-    smbInfoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + METRICS_SPACE_16, yPos - METRICS_RADIO_BUTTON_SIZE - 17, width - METRICS_SPACE_16, 17)];
-    [smbInfoLabel setStringValue:@""];
-    [smbInfoLabel setBezeled:NO];
-    [smbInfoLabel setDrawsBackground:NO];
-    [smbInfoLabel setEditable:NO];
-    [smbInfoLabel setSelectable:YES];
-    [smbInfoLabel setFont:[NSFont systemFontOfSize:11]];
-    [smbInfoLabel setTextColor:[NSColor darkGrayColor]];
-    [smbInfoLabel setHidden:YES];
-    [mainView addSubview:smbInfoLabel];
-    
-    yPos -= serviceRowHeight;  // Move to next service row
-    
-    // VNC Service
-    vncCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(leftMargin, yPos - METRICS_RADIO_BUTTON_SIZE, 200, METRICS_RADIO_BUTTON_SIZE)];
-    [vncCheckbox setTitle:@"Screen Sharing (VNC)"];
-    [vncCheckbox setButtonType:NSSwitchButton];
-    [vncCheckbox setTarget:self];
-    [vncCheckbox setAction:@selector(toggleVNC:)];
-    [vncCheckbox setFont:[NSFont systemFontOfSize:13]];
-    [mainView addSubview:vncCheckbox];
-    
-    vncStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + 200 + METRICS_SPACE_8, yPos - 17, 60, 17)];
-    [vncStatusLabel setStringValue:@"Off"];
-    [vncStatusLabel setBezeled:NO];
-    [vncStatusLabel setDrawsBackground:NO];
-    [vncStatusLabel setEditable:NO];
-    [vncStatusLabel setSelectable:NO];
-    [vncStatusLabel setFont:[NSFont boldSystemFontOfSize:13]];
-    [vncStatusLabel setTextColor:[NSColor grayColor]];
-    [mainView addSubview:vncStatusLabel];
-    
-    vncInfoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + METRICS_SPACE_16, yPos - METRICS_RADIO_BUTTON_SIZE - 17, width - METRICS_SPACE_16, 17)];
-    [vncInfoLabel setStringValue:@""];
-    [vncInfoLabel setBezeled:NO];
-    [vncInfoLabel setDrawsBackground:NO];
-    [vncInfoLabel setEditable:NO];
-    [vncInfoLabel setSelectable:YES];
-    [vncInfoLabel setFont:[NSFont systemFontOfSize:11]];
-    [vncInfoLabel setTextColor:[NSColor darkGrayColor]];
-    [vncInfoLabel setHidden:YES];
-    [mainView addSubview:vncInfoLabel];
-    
-    yPos -= serviceRowHeight;  // Move to next service row
-
-    // Web Server (nginx) Service
-    webCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(leftMargin, yPos - METRICS_RADIO_BUTTON_SIZE, 200, METRICS_RADIO_BUTTON_SIZE)];
-    [webCheckbox setTitle:@"Web Server (nginx)"];
-    [webCheckbox setButtonType:NSSwitchButton];
-    [webCheckbox setTarget:self];
-    [webCheckbox setAction:@selector(toggleWeb:)];
-    [webCheckbox setFont:[NSFont systemFontOfSize:13]];
-    [mainView addSubview:webCheckbox];
-
-    webStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + 200 + METRICS_SPACE_8, yPos - 17, 60, 17)];
-    [webStatusLabel setStringValue:@"Off"];
-    [webStatusLabel setBezeled:NO];
-    [webStatusLabel setDrawsBackground:NO];
-    [webStatusLabel setEditable:NO];
-    [webStatusLabel setSelectable:NO];
-    [webStatusLabel setFont:[NSFont boldSystemFontOfSize:13]];
-    [webStatusLabel setTextColor:[NSColor grayColor]];
-    [mainView addSubview:webStatusLabel];
-
-    webInfoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + METRICS_SPACE_16, yPos - METRICS_RADIO_BUTTON_SIZE - 17, width - METRICS_SPACE_16, 17)];
-    [webInfoLabel setStringValue:@""];
-    [webInfoLabel setBezeled:NO];
-    [webInfoLabel setDrawsBackground:NO];
-    [webInfoLabel setEditable:NO];
-    [webInfoLabel setSelectable:YES];
-    [webInfoLabel setFont:[NSFont systemFontOfSize:11]];
-    [webInfoLabel setTextColor:[NSColor darkGrayColor]];
-    [webInfoLabel setHidden:YES];
-    [mainView addSubview:webInfoLabel];
-
-    yPos -= serviceRowHeight;  // Move to next service row
-
-    // Media Sharing (MiniDLNA) Service
-    mediaCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(leftMargin, yPos - METRICS_RADIO_BUTTON_SIZE, 230, METRICS_RADIO_BUTTON_SIZE)];
-    [mediaCheckbox setTitle:@"Media Sharing (MiniDLNA)"];
-    [mediaCheckbox setButtonType:NSSwitchButton];
-    [mediaCheckbox setTarget:self];
-    [mediaCheckbox setAction:@selector(toggleMedia:)];
-    [mediaCheckbox setFont:[NSFont systemFontOfSize:13]];
-    [mainView addSubview:mediaCheckbox];
-
-    mediaStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + 230 + METRICS_SPACE_8, yPos - 17, 60, 17)];
-    [mediaStatusLabel setStringValue:@"Off"];
-    [mediaStatusLabel setBezeled:NO];
-    [mediaStatusLabel setDrawsBackground:NO];
-    [mediaStatusLabel setEditable:NO];
-    [mediaStatusLabel setSelectable:NO];
-    [mediaStatusLabel setFont:[NSFont boldSystemFontOfSize:13]];
-    [mediaStatusLabel setTextColor:[NSColor grayColor]];
-    [mainView addSubview:mediaStatusLabel];
-
-    mediaInfoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + METRICS_SPACE_16, yPos - METRICS_RADIO_BUTTON_SIZE - 17, width - METRICS_SPACE_16, 17)];
-    [mediaInfoLabel setStringValue:@""];
-    [mediaInfoLabel setBezeled:NO];
-    [mediaInfoLabel setDrawsBackground:NO];
-    [mediaInfoLabel setEditable:NO];
-    [mediaInfoLabel setSelectable:YES];
-    [mediaInfoLabel setFont:[NSFont systemFontOfSize:11]];
-    [mediaInfoLabel setTextColor:[NSColor darkGrayColor]];
-    [mediaInfoLabel setHidden:YES];
-    [mainView addSubview:mediaInfoLabel];
-
-    yPos -= serviceRowHeight;  // Move to next service row
-
-    // Remote Desktop (xrdp) Service
-    rdpCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(leftMargin, yPos - METRICS_RADIO_BUTTON_SIZE, 230, METRICS_RADIO_BUTTON_SIZE)];
-    [rdpCheckbox setTitle:@"Remote Desktop (xrdp)"];
-    [rdpCheckbox setButtonType:NSSwitchButton];
-    [rdpCheckbox setTarget:self];
-    [rdpCheckbox setAction:@selector(toggleRDP:)];
-    [rdpCheckbox setFont:[NSFont systemFontOfSize:13]];
-    [mainView addSubview:rdpCheckbox];
-
-    rdpStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + 230 + METRICS_SPACE_8, yPos - 17, 60, 17)];
-    [rdpStatusLabel setStringValue:@"Off"];
-    [rdpStatusLabel setBezeled:NO];
-    [rdpStatusLabel setDrawsBackground:NO];
-    [rdpStatusLabel setEditable:NO];
-    [rdpStatusLabel setSelectable:NO];
-    [rdpStatusLabel setFont:[NSFont boldSystemFontOfSize:13]];
-    [rdpStatusLabel setTextColor:[NSColor grayColor]];
-    [mainView addSubview:rdpStatusLabel];
-
-    rdpInfoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin + METRICS_SPACE_16, yPos - METRICS_RADIO_BUTTON_SIZE - 17, width - METRICS_SPACE_16, 17)];
-    [rdpInfoLabel setStringValue:@""];
-    [rdpInfoLabel setBezeled:NO];
-    [rdpInfoLabel setDrawsBackground:NO];
-    [rdpInfoLabel setEditable:NO];
-    [rdpInfoLabel setSelectable:YES];
-    [rdpInfoLabel setFont:[NSFont systemFontOfSize:11]];
-    [rdpInfoLabel setTextColor:[NSColor darkGrayColor]];
-    [rdpInfoLabel setHidden:YES];
-    [mainView addSubview:rdpInfoLabel];
-
-    yPos -= 17 + METRICS_SPACE_20;  // 20px gap between control groups
-    
-    // mDNS Status Section
-    mdnsStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin, METRICS_CONTENT_BOTTOM_MARGIN, width, 40)];
+    // mDNS status at bottom (fixed position)
+    const CGFloat mDNSHeight = 40;
+    const CGFloat mDNSBottom = METRICS_CONTENT_BOTTOM_MARGIN;
+    mdnsStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin, mDNSBottom, width, mDNSHeight)];
     [mdnsStatusLabel setBezeled:NO];
     [mdnsStatusLabel setDrawsBackground:NO];
     [mdnsStatusLabel setEditable:NO];
     [mdnsStatusLabel setSelectable:NO];
-    [mdnsStatusLabel setFont:[NSFont systemFontOfSize:11]];  // METRICS_FONT_SYSTEM_REGULAR_11
+    [mdnsStatusLabel setFont:[NSFont systemFontOfSize:11]];
     [mdnsStatusLabel setTextColor:[NSColor darkGrayColor]];
+    [mainView addSubview:mdnsStatusLabel];
+    [mdnsStatusLabel release];
     
     GSServiceDiscoveryManager *mgr = [self ensureServiceDiscoveryManager];
     if (mgr && [mgr isAvailable]) {
@@ -1729,11 +1609,139 @@ static const float METRICS_SPACE_20 = 20.0;  // Between control groups, checkbox
     } else {
         [mdnsStatusLabel setStringValue:@"Service Discovery: Not available\nInstall avahi-daemon or mDNSResponder for automatic network service announcement."];
     }
-    [mainView addSubview:mdnsStatusLabel];
     
+    // Tab view fills all space between hostname section and mDNS section
+    CGFloat mDNSTop = mDNSBottom + mDNSHeight;
+    CGFloat gapAboveMDNS = METRICS_SPACE_20;
+    CGFloat tabViewY = mDNSTop + gapAboveMDNS;
+    CGFloat tabViewHeight = yPos - tabViewY;
+    NSTabView *serviceTabView = [[NSTabView alloc] initWithFrame:NSMakeRect(leftMargin, tabViewY, width, tabViewHeight)];
+    [serviceTabView setTabViewType:NSTopTabsBezelBorder];
+    [serviceTabView setFont:[NSFont systemFontOfSize:11]];
+    [serviceTabView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    [mainView addSubview:serviceTabView];
+    [serviceTabView release];
+    
+    // Each service row: 18px checkbox, 20px info label below with 8px gap, 12px spacing to next row
+    const CGFloat kRowH = METRICS_RADIO_BUTTON_SIZE + METRICS_SPACE_8 + 20 + METRICS_SPACE_12;
+    const CGFloat kTabContentTop = 0;
+    const CGFloat kTabContentLeft = METRICS_SPACE_12;
+    
+    CGFloat (^addService)(NSView *, CGFloat, NSButton **, NSTextField **, NSTextField **, NSString *, NSString *, SEL, BOOL) =
+    ^(NSView *container, CGFloat y, NSButton **checkbox, NSTextField **status, NSTextField **info,
+      NSString *title, NSString *statusText, SEL action, BOOL enabled) {
+        // Checkbox: 18px tall, bottom at y
+        *checkbox = [[NSButton alloc] initWithFrame:NSMakeRect(kTabContentLeft, y - METRICS_RADIO_BUTTON_SIZE, 200, METRICS_RADIO_BUTTON_SIZE)];
+        [*checkbox setTitle:title];
+        [*checkbox setButtonType:NSSwitchButton];
+        [*checkbox setTarget:self];
+        [*checkbox setAction:action];
+        [*checkbox setFont:[NSFont systemFontOfSize:13]];
+        [*checkbox setEnabled:enabled];
+        [container addSubview:*checkbox];
+        [*checkbox release];
+        
+        // Status label: 20px tall, top aligned with checkbox top
+        CGFloat statusY = y - METRICS_RADIO_BUTTON_SIZE + (METRICS_RADIO_BUTTON_SIZE - 20) / 2;
+        *status = [[NSTextField alloc] initWithFrame:NSMakeRect(kTabContentLeft + 210, statusY, 60, 20)];
+        [*status setStringValue:statusText];
+        [*status setBezeled:NO];
+        [*status setDrawsBackground:NO];
+        [*status setEditable:NO];
+        [*status setSelectable:NO];
+        [*status setFont:[NSFont boldSystemFontOfSize:13]];
+        [*status setTextColor:[NSColor grayColor]];
+        [container addSubview:*status];
+        [*status release];
+        
+        // Info label: below checkbox with 8px gap
+        *info = [[NSTextField alloc] initWithFrame:NSMakeRect(kTabContentLeft, y - METRICS_RADIO_BUTTON_SIZE - METRICS_SPACE_8 - 20, width - kTabContentLeft * 2, 20)];
+        [*info setStringValue:@""];
+        [*info setBezeled:NO];
+        [*info setDrawsBackground:NO];
+        [*info setEditable:NO];
+        [*info setSelectable:YES];
+        [*info setFont:[NSFont systemFontOfSize:11]];
+        [*info setTextColor:[NSColor darkGrayColor]];
+        [*info setHidden:YES];
+        [container addSubview:*info];
+        [*info release];
+        
+        return y - kRowH;
+    };
+    
+    // Build each tab: content height = tabViewHeight - tab bar (~30px)
+    CGFloat tabContentH = tabViewHeight - 30;
+    
+    // Tab 1: File Sharing (SFTP, AFP, SMB)
+    NSTabViewItem *fileTab = [[NSTabViewItem alloc] initWithIdentifier:@"file"];
+    [fileTab setLabel:@"File Sharing"];
+    {
+        NSView *tv = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, tabContentH)];
+        CGFloat ty = tabContentH - kTabContentTop;
+        ty = addService(tv, ty, &sftpCheckbox, &sftpStatusLabel, &sftpInfoLabel,
+                        @"File Transfer (SFTP)", @"Off", @selector(toggleSFTP:), YES);
+        ty = addService(tv, ty, &afpCheckbox, &afpStatusLabel, &afpInfoLabel,
+                        @"Apple File Sharing (AFP)", @"Off", @selector(toggleAFP:), YES);
+        addService(tv, ty, &smbCheckbox, &smbStatusLabel, &smbInfoLabel,
+                   @"Windows File Sharing (SMB)", @"Off", @selector(toggleSMB:), YES);
+        [fileTab setView:tv];
+        [tv release];
+    }
+    [serviceTabView addTabViewItem:fileTab];
+    [fileTab release];
+    
+    // Tab 2: Remote Access (SSH, VNC, RDP)
+    NSTabViewItem *remoteTab = [[NSTabViewItem alloc] initWithIdentifier:@"remote"];
+    [remoteTab setLabel:@"Remote Access"];
+    {
+        NSView *tv = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, tabContentH)];
+        CGFloat ty = tabContentH - kTabContentTop;
+        ty = addService(tv, ty, &sshCheckbox, &sshStatusLabel, &sshInfoLabel,
+                        @"Remote Login (SSH)", @"Off", @selector(toggleSSH:), YES);
+        ty = addService(tv, ty, &vncCheckbox, &vncStatusLabel, &vncInfoLabel,
+                        @"Screen Sharing (VNC)", @"Off", @selector(toggleVNC:), YES);
+        addService(tv, ty, &rdpCheckbox, &rdpStatusLabel, &rdpInfoLabel,
+                   @"Remote Desktop (RDP)", @"Off", @selector(toggleRDP:), YES);
+        [remoteTab setView:tv];
+        [tv release];
+    }
+    [serviceTabView addTabViewItem:remoteTab];
+    [remoteTab release];
+    
+    // Tab 3: Servers (Web, Media)
+    NSTabViewItem *webTab = [[NSTabViewItem alloc] initWithIdentifier:@"web"];
+    [webTab setLabel:@"Servers"];
+    {
+        NSView *tv = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, tabContentH)];
+        CGFloat ty = tabContentH - kTabContentTop;
+        ty = addService(tv, ty, &webCheckbox, &webStatusLabel, &webInfoLabel,
+                        @"Web Server (nginx)", @"Off", @selector(toggleWeb:), YES);
+        addService(tv, ty, &mediaCheckbox, &mediaStatusLabel, &mediaInfoLabel,
+                   @"Media Sharing (MiniDLNA)", @"Off", @selector(toggleMedia:), YES);
+        [webTab setView:tv];
+        [tv release];
+    }
+    [serviceTabView addTabViewItem:webTab];
+    [webTab release];
+
+    // Tab 4: Cloud (Cloud Sync via rclone)
+    NSTabViewItem *cloudTab = [[NSTabViewItem alloc] initWithIdentifier:@"cloud"];
+    [cloudTab setLabel:@"Cloud"];
+    {
+        NSView *tv = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, tabContentH)];
+        CGFloat ty = tabContentH - kTabContentTop;
+        addService(tv, ty, &cloudCheckbox, &cloudStatusLabel, &cloudInfoLabel,
+                   @"Cloud Sync (rclone)", @"Off", @selector(toggleCloud:), YES);
+        [cloudTab setView:tv];
+        [tv release];
+    }
+    [serviceTabView addTabViewItem:cloudTab];
+    [cloudTab release];
+
     // Don't call refreshStatus here - it will be called in mainViewDidLoad
     // when the pane is actually displayed
-    
+
     return [mainView autorelease];
 }
 

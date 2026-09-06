@@ -1,0 +1,278 @@
+/* Title of the build log window and menu item */
+"Build Log" = "Build Log";
+
+/* Status: building a named app or dependency */
+"Building %@\u2026" = "Building %@\u2026";
+
+/* Status: building (no name) */
+"Building\u2026" = "Building\u2026";
+
+/* Window title while building */
+"Building %@" = "Building %@";
+
+/* Window title and build button */
+"Build" = "Build";
+
+/* Status: running autoreconf */
+"Running autoreconf\u2026" = "Running autoreconf\u2026";
+
+/* Status: autoreconf failed */
+"autoreconf failed" = "autoreconf failed";
+
+/* Status: running configure */
+"Running configure\u2026" = "Running configure\u2026";
+
+/* Status: running configure via sh */
+"Running configure (sh)\u2026" = "Running configure (sh)\u2026";
+
+/* Status: no makefile given */
+"Error: No GNUmakefile specified" = "Error: No GNUmakefile specified";
+
+/* Status: makefile not found at path */
+"Error: GNUmakefile not found: %@" = "Error: GNUmakefile not found: %@";
+
+/* Status: copying source files */
+"Copying source to temp directory\u2026" = "Copying source to temp directory\u2026";
+
+/* Status: make tool not found */
+"Error: neither gmake nor make found in PATH" = "Error: neither gmake nor make found in PATH";
+
+/* Status: build failed to start */
+"Error: Failed to start build: %@" = "Error: Failed to start build: %@";
+
+/* Status: build succeeded for app */
+"%@ built successfully" = "%@ built successfully";
+
+/* Status: build succeeded (no name) */
+"Build completed successfully" = "Build completed successfully";
+
+/* Status: build failed for app */
+"Failed to build %@" = "Failed to build %@";
+
+/* Status: build failed (no name) */
+"Build failed" = "Build failed";
+
+/* Window title and status during install */
+"Installing\u2026" = "Installing\u2026";
+
+/* Status: gmake not found */
+"Error: gmake not found in PATH" = "Error: gmake not found in PATH";
+
+/* Status: install failed with reason */
+"Install failed: %@" = "Install failed: %@";
+
+/* Status: install failed */
+"Install failed" = "Install failed";
+
+/* Status: install finished */
+"Install completed" = "Install completed";
+
+/* Status: downloading dependency */
+"Downloading %@\u2026" = "Downloading %@\u2026";
+
+/* Status: hint to force quit */
+"Press Close again to force quit." = "Press Close again to force quit.";
+
+/* Cancel button */
+"Cancel" = "Cancel";
+
+/* About menu item */
+"About" = "About";
+
+/* Quit menu item */
+"Quit" = "Quit";
+
+/* Edit menu title */
+"Edit" = "Edit";
+
+/* Undo menu item */
+"Undo" = "Undo";
+
+/* Redo menu item */
+"Redo" = "Redo";
+
+/* Cut menu item */
+"Cut" = "Cut";
+
+/* Copy menu item */
+"Copy" = "Copy";
+
+/* Paste menu item */
+"Paste" = "Paste";
+
+/* Select All menu item */
+"Select All" = "Select All";
+
+/* Window menu title */
+"Window" = "Window";
+
+/* Minimize menu item */
+"Minimize" = "Minimize";
+
+/* Zoom menu item */
+"Zoom" = "Zoom";
+
+/* Bring All to Front menu item */
+"Bring All to Front" = "Bring All to Front";
+
+/* Close menu item */
+"Close" = "Close";
+
+/* Alert title: build succeeded */
+"Build Succeeded" = "Build Succeeded";
+
+/* Button: install and launch app */
+"Install and Launch" = "Install and Launch";
+
+/* Button: install app */
+"Install" = "Install";
+
+/* OK button */
+"OK" = "OK";
+
+/* Button: show build log */
+"Show Build Log" = "Show Build Log";
+
+/* Alert title: install failed */
+"Install Failed" = "Install Failed";
+
+/* Alert title: launch failed */
+"Launch Failed" = "Launch Failed";
+
+/* Alert: installed but failed to launch */
+"The application was installed, but could not be launched." = "The application was installed, but could not be launched.";
+
+/* Alert title: force quit? */
+"Force Quit?" = "Force Quit?";
+
+/* Alert: confirm force quit */
+"Build is still in progress. Force quit?" = "Build is still in progress. Force quit?";
+
+/* Button: force quit */
+"Force Quit" = "Force Quit";
+
+/* Button: wait */
+"Wait" = "Wait";
+
+/* Open panel title */
+"Select GNUmakefile" = "Select GNUmakefile";
+
+/* Dialog: build succeeded for app */
+"%@ built successfully." = "%@ built successfully.";
+
+/* Dialog: build succeeded (no name) */
+"The build completed successfully." = "The build completed successfully.";
+
+/* Dialog title: build failed (no name) */
+"Build Failed" = "Build Failed";
+
+/* Error: no build output */
+"No output captured" = "No output captured";
+
+/* Error: unsupported technology */
+"The build failed because it requires an unsupported technology:\n\n" = "The build failed because it requires an unsupported technology:\n\n";
+
+/* Error: also missing package */
+"\nAdditionally, a required package is missing:\n\n" = "\nAdditionally, a required package is missing:\n\n";
+
+/* Error: missing item of kind */
+"The build failed because a required %@ is missing:\n\n" = "The build failed because a required %@ is missing:\n\n";
+
+/* Hint: install dev package */
+"\nAfter installing the corresponding development package, try building again." = "\nAfter installing the corresponding development package, try building again.";
+
+/* Alert title: install missing packages and rebuild */
+"Install missing packages and rebuild?" = "Install missing packages and rebuild?";
+
+/* Alert message: install packages to fix build */
+"The build needs headers from these packages:\n\n%@\n\nInstall them now and try building again?" = "The build needs headers from these packages:\n\n%@\n\nInstall them now and try building again?";
+
+/* Button: install packages and rebuild */
+"Install and Rebuild" = "Install and Rebuild";
+
+/* Hint: use alternative */
+"\nPlease consider an alternative, as this technology is not planned to be supported on this system." = "\nPlease consider an alternative, as this technology is not planned to be supported on this system.";
+
+/* Log: build started */
+"=== Build started in %@ ===\n" = "=== Build started in %@ ===\n";
+
+/* Log: install started */
+"\n=== Install started ===\n" = "\n=== Install started ===\n";
+
+/* Log: downloading */
+"=== Downloading %@ from %@ ===\n" = "=== Downloading %@ from %@ ===\n";
+
+/* Log: building dep */
+"=== Building %@ ===\n" = "=== Building %@ ===\n";
+
+/* Log: running configure in dep */
+"=== Running configure in %@ ===\n" = "=== Running configure in %@ ===\n";
+
+/* Log: resolving transitive dep */
+"=== Resolving transitive dependency %@ ===\n" = "=== Resolving transitive dependency %@ ===\n";
+
+/* Log: dep built at path */
+"=== %@ built in %@ ===\n" = "=== %@ built in %@ ===\n";
+
+/* Log: git clone failed */
+"git clone failed\n" = "git clone failed\n";
+
+/* Log: build failed */
+"build failed\n" = "build failed\n";
+
+/* Log: configure failed */
+"configure failed: %@\n" = "configure failed: %@\n";
+
+/* Log: build failed with reason */
+"build failed: %@\n" = "build failed: %@\n";
+
+/* Log: git clone failed with reason */
+"git clone failed: %@\n" = "git clone failed: %@\n";
+
+/* Log: build result */
+"\n=== Build %@ (exit %d) ===\n\n" = "\n=== Build %@ (exit %d) ===\n\n";
+
+/* Log: install result */
+"\n=== Install %@ (exit %d) ===\n" = "\n=== Install %@ (exit %d) ===\n";
+
+/* Build status: succeeded */
+"succeeded" = "succeeded";
+
+/* Build status: failed */
+"failed" = "failed";
+
+/* Alert title: catalog entry missing */
+"Catalog Entry Not Found" = "Catalog Entry Not Found";
+
+/* Alert: no entry with name */
+"No catalog entry named '%@'." = "No catalog entry named '%@'.";
+
+/* Alert title: clone failed */
+"Clone Failed" = "Clone Failed";
+
+/* Alert: temp dir error */
+"Could not create temporary directory." = "Could not create temporary directory.";
+
+/* Alert: git clone error with reason */
+"git clone failed: %@" = "git clone failed: %@";
+
+/* Alert: git clone error */
+"git clone returned an error." = "git clone returned an error.";
+
+/* Alert title: no makefile */
+"No Makefile Found" = "No Makefile Found";
+
+/* Alert: no makefile in clone */
+"The cloned repository does not contain a GNUmakefile or Makefile." = "The cloned repository does not contain a GNUmakefile or Makefile.";
+
+/* Log: cloning repo */
+"=== Cloning %@ ===\n" = "=== Cloning %@ ===\n";
+
+/* Open button */
+"Open\u2026" = "Open\u2026";
+
+/* Search placeholder */
+"Filter\u2026" = "Filter\u2026";
+
+/* Table column header: app name */
+"App" = "App";

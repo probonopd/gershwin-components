@@ -29,9 +29,23 @@
 - (void)setAppMenuWidget:(AppMenuWidget *)widget;
 - (void)cleanup;
 - (void)processDBusMessages;
+- (NSUInteger)pendingMessageCount;
+// Re-register the global (X11-grabbed) shortcuts for a window's menu after
+// they have been cleared (e.g. on an app switch).  Implemented by the DBus
+// and GTK importers.
+- (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId;
 // Synchronously refresh menu item enabled/state from the client just before
 // a submenu is displayed.  Implemented only by GNUStepMenuImporter.
 - (BOOL)refreshMenuStateForWindow:(unsigned long)windowId;
+// Returns YES when the window's enabled/checkmark states are known to be
+// current (pulled or pushed within the TTL).  Implemented only by
+// GNUStepMenuImporter; the click path uses it to skip the synchronous pull.
+- (BOOL)menuStatesAreFreshForWindow:(unsigned long)windowId withinTTL:(NSTimeInterval)ttl;
+// Application-level (windowless-app) menus.  Implemented only by
+// GNUStepMenuImporter; the other importers return NO/nil.
+- (BOOL)hasApplicationMenuForPID:(pid_t)pid;
+- (NSMenu *)getApplicationMenuForPID:(pid_t)pid;
+- (BOOL)refreshApplicationMenuStateForPID:(pid_t)pid;
 
 @end
 
@@ -79,6 +93,7 @@ typedef NS_ENUM(NSInteger, MenuProtocolType) {
 // DBus integration
 - (int)getDBusFileDescriptor;
 - (void)processDBusMessages;
+- (NSUInteger)pendingMessageCount;
 
 // AppMenuWidget management
 - (void)updateAllHandlersWithAppMenuWidget:(AppMenuWidget *)appMenuWidget;
@@ -89,5 +104,19 @@ typedef NS_ENUM(NSInteger, MenuProtocolType) {
 // Synchronously refresh item enabled/state for windowId from the owning client.
 // Forwards to the protocol handler that manages the given window.
 - (BOOL)refreshMenuStateForWindow:(unsigned long)windowId;
+
+// Returns YES when the window's enabled/checkmark states are known to be
+// current within the TTL, so callers can skip the synchronous pull.
+- (BOOL)menuStatesAreFreshForWindow:(unsigned long)windowId withinTTL:(NSTimeInterval)ttl;
+
+// Re-register the global shortcuts for the given window's menu by delegating
+// to the protocol handler that manages the window.
+- (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId;
+
+// Application-level (windowless-app) menu access.  Forwarded to the GNUstep
+// importer; the other protocol handlers do not implement app-level menus.
+- (BOOL)hasApplicationMenuForPID:(pid_t)pid;
+- (NSMenu *)getApplicationMenuForPID:(pid_t)pid;
+- (BOOL)refreshApplicationMenuStateForPID:(pid_t)pid;
 
 @end

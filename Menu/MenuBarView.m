@@ -6,7 +6,9 @@
 
 
 #import "MenuBarView.h"
+#import "CustomMenuPanel.h"
 #import "MenuProfiler.h"
+#import <GNUstepGUI/GSTheme.h>
 
 @implementation MenuBarView
 
@@ -14,9 +16,6 @@
 {
     self = [super initWithFrame:frameRect];
     if (self) {
-        // Use the theme's menubar background color instead of hardcoded values
-        self.backgroundColor = [[GSTheme theme] menuItemBackgroundColor];
-        _cachedBackgroundColor = self.backgroundColor;
         _needsRedraw = YES;
     }
     return self;
@@ -31,32 +30,29 @@
 - (void)drawRect:(NSRect)dirtyRect
 {
     MENU_PROFILE_BEGIN(MenuBarViewDraw);
-    
-    // Skip drawing if color hasn't changed and we don't need redraw
-    if (!_needsRedraw && _cachedBackgroundColor == self.backgroundColor) {
-        MENU_PROFILE_END(MenuBarViewDraw);
-        return;
-    }
-    
-    _needsRedraw = NO;
-    _cachedBackgroundColor = self.backgroundColor;
-    
-    // Fill with theme background color - this provides the base for the entire menu bar
-    if (self.backgroundColor) {
-        [self.backgroundColor set];
+
+    // The window hook wraps the main menu window's content view with a
+    // MenuGradientView that draws the theme's menu bar gradient.  When that is
+    // in place, this view only acts as a transparent container.  As a fallback
+    // (e.g. before the hook has run), draw the same gradient here so the bar is
+    // never blank.
+    NSWindow *window = [self window];
+    if (window && [[window contentView] isKindOfClass:[MenuGradientView class]]) {
+        [[NSColor clearColor] set];
         NSRectFill([self bounds]);
     } else {
-        // Fallback to light gray if theme color is unavailable
-        [[NSColor colorWithCalibratedWhite:0.95 alpha:1.0] set];
-        NSRectFill([self bounds]);
+        [[GSTheme theme] drawMenuRect:[self bounds]
+                               inView:self
+                         isHorizontal:YES
+                            itemCells:@[]];
     }
-    
+
     MENU_PROFILE_END(MenuBarViewDraw);
 }
 
 - (BOOL)isOpaque
 {
-    return YES;
+    return NO;
 }
 
 @end

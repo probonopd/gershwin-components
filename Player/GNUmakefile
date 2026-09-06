@@ -21,18 +21,13 @@ Player_APPLICATION_ICON = Player.png
 # Resource files
 #
 Player_RESOURCE_FILES = \
-	Resources/Player.png \
-	Resources/Info.plist \
-	Resources/Info-gnustep.plist
+	Resources/Player.png
 
 Player_LOCALIZED_RESOURCE_FILES = \
 	Localizable.strings
 
 Player_LANGUAGES = English
 
-# Build-time generation of Info files
-Resources/Info.plist: Info.plist | Resources
-	$(ECHO_NOTHING)if [ -n "$(INSTALL_FILE)" ]; then $(INSTALL_FILE) $< $@; else cp $< $@; fi$(END_ECHO)
 
 #
 # Source files
@@ -94,11 +89,5 @@ $(APP_DIR)/Resources/$(GNUSTEP_INSTANCE).desktop:
 	$(ECHO_NOTHING)echo "Desktop file generation disabled" > /dev/null$(END_ECHO)
 	$(ECHO_NOTHING)touch $(APP_DIR)/Resources/$(GNUSTEP_INSTANCE).desktop; chmod a+x $(APP_DIR)/Resources/$(GNUSTEP_INSTANCE).desktop$(END_ECHO)
 
-# Ensure Info.plist and Info-gnustep.plist are copied into the built app
-all:: copy-info
-
-copy-info: $(APP_NAME).app
-	$(ECHO_NOTHING)if [ -n "$(INSTALL_FILE)" ]; then $(INSTALL_FILE) Info.plist $(APP_NAME).app/Resources/Info.plist; else cp Info.plist $(APP_NAME).app/Resources/Info.plist; fi$(END_ECHO)
-	$(ECHO_NOTHING)if [ -n "$(INSTALL_FILE)" ]; then $(INSTALL_FILE) Resources/Info-gnustep.plist $(APP_NAME).app/Resources/Info-gnustep.plist; else cp Resources/Info-gnustep.plist $(APP_NAME).app/Resources/Info-gnustep.plist; fi$(END_ECHO)
 
 -include GNUmakefile.postamble

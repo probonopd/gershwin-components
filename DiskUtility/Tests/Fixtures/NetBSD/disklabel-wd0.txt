@@ -1,0 +1,27 @@
+# /dev/rwd0:
+type: ESDI
+disk: wd0
+label: GERSHWIN
+flags:
+bytes/sector: 512
+sectors/track: 63
+tracks/cylinder: 16
+sectors/cylinder: 1008
+cylinders: 155061
+total sectors: 156301488
+rpm: 7200
+interleave: 1
+trackskew: 0
+cylinderskew: 0
+headswitch: 0		# microseconds
+track-to-track seek: 0	# microseconds
+drivedata: 0
+
+8 partitions:
+#        size    offset     fstype [fsize bsize cpg/sgs]
+  a:   2048000       63     4.2BSD   1024 8192     0  # /
+  b:   1048576  2048063       swap
+  c:  77918272       63     unused      0     0
+  d: 156301488        0     unused      0     0
+  e:  15319040  3096639     4.2BSD   8192 16384    87 # /usr
+  g:  37748736 18415679      MSDOS

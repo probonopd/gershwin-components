@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 # This is a simple project that just installs files from the files/ directory
 # No compilation needed, just file installation
@@ -7,7 +8,8 @@ PROJECT_NAME = initgfx
 
 # Define all the files that need to be installed with their destination paths
 INSTALL_FILES = \
-	files/usr/local/etc/fonts/conf.d/99-block-surrogate-fonts.conf
+	files/usr/local/etc/fonts/conf.d/99-block-surrogate-fonts.conf \
+	files/System/Library/Preferences/fonts.conf
 
 # This project doesn't build anything, so we override the default targets
 all::
@@ -97,3 +99,4 @@ install.local.shared.resources::
 	@true
 
 include $(GNUSTEP_MAKEFILES)/rules.make
+

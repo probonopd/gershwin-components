@@ -24,6 +24,7 @@ static NSSet *compressedExtensions;
     float _progress;
     int64_t _bytesProcessed;
     int64_t _totalBytes;
+    int64_t _preScannedOutputSize;
     CLMStreamContentType _contentType;
 }
 
@@ -41,6 +42,7 @@ static NSSet *compressedExtensions;
             @".lz", @".lzma",
             @".zst", @".zstd",
             @".Z",
+            @".zip",
             nil];
     }
 }
@@ -76,17 +78,24 @@ static NSSet *compressedExtensions;
 + (BOOL)isImageAssetName:(NSString *)name
 {
     if (!name) return NO;
+    NSString *lower = [name lowercaseString];
     // Strip known compression extensions to check for .iso or .img base
-    NSString *stripped = name;
+    NSString *stripped = lower;
     NSArray *compExts = @[@".gz", @".gzip", @".xz", @".bz2", @".bzip2",
-                          @".zst", @".zstd", @".lz", @".lzma", @".Z"];
+                          @".zst", @".zstd", @".lz", @".lzma", @".Z",
+                          @".zip"];
     for (NSString *ext in compExts) {
         if ([stripped hasSuffix:ext]) {
             stripped = [stripped substringToIndex:[stripped length] - [ext length]];
             break;
         }
     }
-    return [stripped hasSuffix:@".iso"] || [stripped hasSuffix:@".img"];
+    if ([stripped hasSuffix:@".iso"] || [stripped hasSuffix:@".img"]) {
+        return YES;
+    }
+    // A .zip is a supported container; the extractor streams the image out,
+    // so a zip whose name has no .iso/.img base still counts as an image.
+    return [lower hasSuffix:@".zip"];
 }
 
 - (BOOL)isConcurrent
@@ -176,6 +185,19 @@ static NSSet *compressedExtensions;
 {
     [self _reportStatus:NSLocalizedString(@"Downloading, decompressing and writing image...", @"")];
 
+    // For local zips the real uncompressed size lives only in the central
+    // directory (data descriptors), which a streaming read cannot see. Pre-scan
+    // the file so progress can be based on bytes actually written.
+    _preScannedOutputSize = 0;
+    if ([[_url scheme] isEqualToString:@"file"]) {
+        NSString *localPath = [_url path];
+        _preScannedOutputSize = [CLMArchiveExtractor scanImageSizeInArchiveFile:localPath];
+        if (_preScannedOutputSize > 0) {
+            NSLog(@"CLMStreamOperation: pre-scanned local archive output size = %lld",
+                  (long long)_preScannedOutputSize);
+        }
+    }
+
     __weak typeof(self) weakSelf = self;
 
     _extractor = [[CLMArchiveExtractor alloc] init];
@@ -188,6 +210,29 @@ static NSSet *compressedExtensions;
             [strongSelf->_extractor cancel];
             [strongSelf->_downloader cancel];
             [strongSelf _finishWithError:writeErr];
+            return;
+        }
+
+        // When the decompressed size is known (zip), base progress on the
+        // bytes actually written to the device, not on download progress,
+        // which finishes early for local files.
+        int64_t outSize = strongSelf->_preScannedOutputSize;
+        if (outSize <= 0) {
+            outSize = strongSelf->_extractor.expectedOutputSize;
+        }
+        if (outSize > 0) {
+            strongSelf->_bytesProcessed = strongSelf->_writer.bytesWritten;
+            strongSelf->_totalBytes = outSize;
+            strongSelf->_progress = (float)strongSelf->_bytesProcessed / (float)outSize;
+            static int64_t lastLoggedPct = -1;
+            int64_t pct = (int64_t)(strongSelf->_progress * 100.0);
+            if (pct >= lastLoggedPct + 10) {
+                lastLoggedPct = (pct / 10) * 10;
+                NSLog(@"CLMStreamOperation: write progress %lld/%lld (%lld%%)",
+                      (long long)strongSelf->_bytesProcessed,
+                      (long long)outSize, (long long)pct);
+            }
+            [strongSelf _reportProgress];
         }
     };
     _extractor.completionHandler = ^(NSError *error) {
@@ -199,6 +244,9 @@ static NSSet *compressedExtensions;
             return;
         }
 
+        // Extraction is done; stop the downloader early so trailing entries
+        // in a zip (checksums, README) are not fetched.
+        [strongSelf->_downloader cancel];
         [strongSelf _finalizeDevice];
     };
 
@@ -212,11 +260,14 @@ static NSSet *compressedExtensions;
         if (total > 0) {
             strongSelf->_totalBytes = total;
         }
-        // For compressed streams, report download progress as overall progress
-        // (the decompressed size is unknown until complete)
-        strongSelf->_bytesProcessed = received;
-        strongSelf->_progress = (total > 0) ? (float)received / (float)total : 0.0f;
-        [strongSelf _reportProgress];
+        // For compressed streams with a known decompressed size (zip), the
+        // outputHandler reports progress based on bytes written. Fall back to
+        // download progress only when the output size is unknown (gz/xz).
+        if (strongSelf->_extractor.expectedOutputSize <= 0) {
+            strongSelf->_bytesProcessed = received;
+            strongSelf->_progress = (total > 0) ? (float)received / (float)total : 0.0f;
+            [strongSelf _reportProgress];
+        }
 
         [strongSelf->_extractor feedCompressedData:data];
     } completionCallback:^(NSError *error) {

@@ -1,0 +1,25 @@
+# NetBSD dmesg(8) attach lines - input for DUNetBSDDeviceDiscovery
+# diskDescriptionsFromDmesg. First attach line per unit wins; the "<...>"
+# span becomes the display description.
+NetBSD 10.1 (GENERIC) #0: Mon Dec 16 13:08:11 UTC 2024
+    root@justin.thundercycles.net:/usr/src/sys/arch/amd64/compile/obj/GENERIC
+cpu0 at mainbus0 apid 0: Intel(R) Core(TM) i5-4300U CPU @ 1.90GHz, id 0x40651
+pci0 at mainbus0 bus 0
+wd0 at atabus0 drive 0: <WDC WD800JB-00JJC1>
+wd0: <WDC WD800JB-00JJC1> device supports ATA/ATAPI
+wd0: 76319 MB, 155061 cyl, 16 head, 63 sec, 512 bytes/sect x 156301488 sectors
+wd0: 32-bit data port
+atapibus0 at umass0: 2 targets
+cd0 at atapibus0 drive 0: <HL-DT-ST, DVDRAM GH24NSC0, LG00> removable
+cd0: 32-bit data port
+sd0 at scsibus0 targ 1 lun 0: <Kingston, DataTraveler 3.0, PMAP> removable serial.09517b6d0d1a
+sd0: fabricating a geometry
+sd0: 59008 MB, 7783 cyl, 255 head, 63 sec, 512 bytes/sect x 120840192 sectors
+sd0: GPT GUID: 4b2f4a1e-9c33-44a2-b7d5-e01f88aa1234
+sd1 at scsibus1 targ 0 lun 0: <ATA, Samsung SSD 850, EMT02B6Q> disk fixed
+sd1: fabricating a geometry
+sd1: 232891 MB, 121601 cyl, 64 head, 32 sec, 512 bytes/sect x 476937521 sectors
+re-plug without new info; the first line above must keep winning:
+sd1 at scsibus1 targ 0 lun 0: <OTHER VENDOR NAME THAT MUST BE IGNORED> disk fixed
+boot line that mentions a disk name but is not an attach line:
+wd0: no such file or directory loading /netbsd

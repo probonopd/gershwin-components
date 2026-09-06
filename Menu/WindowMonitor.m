@@ -19,11 +19,11 @@
     Display *_display;
     Window _rootWindow;
     Atom _netActiveWindowAtom;
+    Atom _gershwinActiveAppAtom;
     Atom _gstepAppAtom;
-    dispatch_source_t _x11EventSource;
-    dispatch_queue_t _x11Queue;
     unsigned long _currentActiveWindow;
     BOOL _monitoring;
+    BOOL _stopMonitoring;
 }
 - (void)_postWindowNotification:(NSDictionary *)userInfo;
 @end
@@ -31,7 +31,7 @@
 @implementation WindowMonitor
 
 NSString * const WindowMonitorActiveWindowChangedNotification = @"WindowMonitorActiveWindowChangedNotification";
-static const void *kWindowMonitorQueueKey = &kWindowMonitorQueueKey;
+
 
 - (void)_postWindowNotification:(NSDictionary *)userInfo
 {
@@ -58,14 +58,11 @@ static const void *kWindowMonitorQueueKey = &kWindowMonitorQueueKey;
         _display = NULL;
         _rootWindow = 0;
         _netActiveWindowAtom = 0;
+        _gershwinActiveAppAtom = 0;
         _gstepAppAtom = 0;
-        _x11EventSource = NULL;
         _currentActiveWindow = 0;
         _monitoring = NO;
-        
-        // Create serial queue for X11 operations
-        _x11Queue = dispatch_queue_create("org.gnustep.menu.windowmonitor", DISPATCH_QUEUE_SERIAL);
-        dispatch_queue_set_specific(_x11Queue, kWindowMonitorQueueKey, (void *)kWindowMonitorQueueKey, NULL);
+        _stopMonitoring = NO;
         
         NSDebugLLog(@"gwcomp", @"WindowMonitor: Initialized");
     }
@@ -87,119 +84,70 @@ static const void *kWindowMonitorQueueKey = &kWindowMonitorQueueKey;
         return YES;
     }
 
-    NSDebugLLog(@"gwcomp", @"WindowMonitor: Starting event-driven monitoring using GCD");
-
-    // Initialize all X11 operations on the dedicated serial queue to ensure
-    // the Display is only used from one thread (avoids Xlib thread-safety issues)
-    __block BOOL initSuccess = NO;
-    dispatch_sync(_x11Queue, ^{
-        // Open X11 display on the X11 queue thread
-        _display = XOpenDisplay(NULL);
-        if (!_display) {
-            NSDebugLLog(@"gwcomp", @"WindowMonitor: ERROR - Cannot open X11 display");
-            initSuccess = NO;
-            return;
-        }
-
-        _rootWindow = DefaultRootWindow(_display);
-
-        // Intern required atoms
-        _netActiveWindowAtom = XInternAtom(_display, "_NET_ACTIVE_WINDOW", False);
-        _gstepAppAtom = XInternAtom(_display, "_GNUSTEP_WM_ATTR", False);
-
-        // Select PropertyChange and Substructure (DestroyNotify) events on root window
-        XSelectInput(_display, _rootWindow, PropertyChangeMask | SubstructureNotifyMask);
-
-        int x11Fd = ConnectionNumber(_display);
-        NSDebugLLog(@"gwcomp", @"WindowMonitor: X11 file descriptor: %d", x11Fd);
-
-        // Create GCD dispatch source for X11 file descriptor on the same queue
-        _x11EventSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, x11Fd, 0, _x11Queue);
-        if (!_x11EventSource) {
-            NSDebugLLog(@"gwcomp", @"WindowMonitor: ERROR - Failed to create dispatch source");
-            XCloseDisplay(_display);
-            _display = NULL;
-            initSuccess = NO;
-            return;
-        }
-
-        // Set event handler
-        __weak typeof(self) weakSelf = self;
-        dispatch_source_set_event_handler(_x11EventSource, ^{
-            typeof(self) strongSelf = weakSelf;
-            if (!strongSelf) return;
-            [strongSelf processX11Events];
-        });
-
-        // Set cancel handler
-        dispatch_source_set_cancel_handler(_x11EventSource, ^{
-            NSDebugLLog(@"gwcomp", @"WindowMonitor: Dispatch source cancelled");
-        });
-
-        // Start monitoring
-        dispatch_resume(_x11EventSource);
-
-        initSuccess = YES;
-    });
-
-    if (!initSuccess) {
-        MENU_PROFILE_END(startMonitoring);
-        return NO;
-    }
-
+    /* Plain event-loop thread on its OWN X connection.  No GCD: a dispatch
+     * read-source on an Xlib fd has been observed to stop firing after a
+     * while, leaving the menu stuck on the previously active app. */
     _monitoring = YES;
-    NSDebugLLog(@"gwcomp", @"WindowMonitor: Monitoring started - event-driven, zero-polling");
-
-    // Get initial active window (runs on the X11 queue)
-    dispatch_async(_x11Queue, ^{
-        [self checkInitialActiveWindow];
-    });
+    _stopMonitoring = NO;
+    [NSThread detachNewThreadSelector: @selector(x11EventLoop:)
+                            toTarget: self
+                          withObject: nil];
 
     MENU_PROFILE_END(startMonitoring);
     return YES;
 }
 
-- (void)processX11Events
+- (void)x11EventLoop:(id)unused
 {
-    MENU_PROFILE_BEGIN(processX11Events);
+    @autoreleasepool {
+        _display = XOpenDisplay(NULL);
+        if (!_display) {
+            NSLog(@"WindowMonitor: Cannot open X display for event loop");
+            _monitoring = NO;
+            return;
+        }
+        _rootWindow = DefaultRootWindow(_display);
+        _netActiveWindowAtom = XInternAtom(_display, "_NET_ACTIVE_WINDOW", False);
+        _gershwinActiveAppAtom = XInternAtom(_display, "_GERSHWIN_ACTIVE_APP", False);
+        _gstepAppAtom = XInternAtom(_display, "_GNUSTEP_WM_ATTR", False);
+        XSelectInput(_display, _rootWindow, PropertyChangeMask | SubstructureNotifyMask);
+        XSync(_display, False);
 
-    if (!_display) {
-        MENU_PROFILE_END(processX11Events);
-        return;
-    }
-    
-    // TIGHT-LOOP GUARD: Cap the number of events processed per invocation
-    // to prevent unbounded spinning when events arrive faster than processing
-    static const int MAX_EVENTS_PER_BATCH = 50;
-    int eventsProcessed = 0;
-    
-    // Process pending X11 events (up to MAX_EVENTS_PER_BATCH)
-    while (XPending(_display) > 0 && eventsProcessed < MAX_EVENTS_PER_BATCH) {
-        XEvent event;
-        XNextEvent(_display, &event);
-        eventsProcessed++;
-        
-        if (event.type == PropertyNotify && 
-            event.xproperty.window == _rootWindow &&
-            event.xproperty.atom == _netActiveWindowAtom) {
-            
-            [self checkActiveWindow];
-        } else if (event.type == DestroyNotify || event.type == UnmapNotify) {
-            Window affected = (event.type == DestroyNotify) ? event.xdestroywindow.window : event.xunmap.window;
-            if (affected != 0 && affected == _currentActiveWindow) {
-                // Window that was active is now gone - check what the new active window is
-                NSDebugLLog(@"gwcomp", @"WindowMonitor: Active window %lu destroyed/unmapped - checking for new active window", affected);
+        NSLog(@"WindowMonitor: Event loop started on own connection");
+        [self checkInitialActiveWindow];
+
+        while (!_stopMonitoring) {
+            XEvent event;
+            XNextEvent(_display, &event);
+            if (event.type == PropertyNotify
+                && event.xproperty.window == _rootWindow
+                && event.xproperty.atom == _netActiveWindowAtom) {
                 [self checkActiveWindow];
+            } else if (event.type == PropertyNotify
+                && event.xproperty.window == _rootWindow
+                && event.xproperty.atom == _gershwinActiveAppAtom) {
+                /* The frontmost application changed without a window change
+                   (e.g. Alt-Tab between two windowless apps).  Re-post the
+                   current active window (0 when windowless) so the widget
+                   re-evaluates its application-level menu. */
+                NSDictionary *userInfo = @{@"windowId": @(_currentActiveWindow)};
+                [self performSelectorOnMainThread:@selector(_postWindowNotification:)
+                                       withObject:userInfo
+                                    waitUntilDone:NO];
+            } else if (event.type == DestroyNotify || event.type == UnmapNotify) {
+                Window affected = (event.type == DestroyNotify)
+                    ? event.xdestroywindow.window : event.xunmap.window;
+                if (affected != 0 && affected == _currentActiveWindow) {
+                    [self checkActiveWindow];
+                }
             }
         }
-    }
-    
-    if (eventsProcessed >= MAX_EVENTS_PER_BATCH && XPending(_display) > 0) {
-        NSDebugLLog(@"gwcomp", @"WindowMonitor: Hit event batch limit (%d), %d events still pending - will process on next fd-ready",
-              MAX_EVENTS_PER_BATCH, XPending(_display));
-    }
 
-    MENU_PROFILE_END(processX11Events);
+        XCloseDisplay(_display);
+        _display = NULL;
+        _monitoring = NO;
+        NSLog(@"WindowMonitor: Event loop stopped");
+    }
 }
 
 - (void)checkInitialActiveWindow
@@ -243,6 +191,14 @@ static const void *kWindowMonitorQueueKey = &kWindowMonitorQueueKey;
         }
     }
     
+    // Same ICCCM/EWMH filter as checkActiveWindow - ignore internal windows.
+    if (newActiveWindow != 0
+        && ![MenuUtils isDesktopWindow:newActiveWindow]
+        && ![MenuUtils isRealApplicationWindow:newActiveWindow]) {
+        NSDebugLLog(@"gwcomp", @"WindowMonitor: Initial active window %lu is not a real app window - ignoring", newActiveWindow);
+        newActiveWindow = 0;
+    }
+    
     if (newActiveWindow != _currentActiveWindow) {
         _currentActiveWindow = newActiveWindow;
         
@@ -257,6 +213,7 @@ static const void *kWindowMonitorQueueKey = &kWindowMonitorQueueKey;
 
 - (void)checkActiveWindow
 {
+
     MENU_PROFILE_BEGIN(checkActiveWindow);
 
     if (!_display) {
@@ -305,8 +262,22 @@ static const void *kWindowMonitorQueueKey = &kWindowMonitorQueueKey;
         }
     }
     
+    // ICCCM/EWMH filter: window-manager-internal windows (tooltips, menus,
+    // popups, docks) and Chromium's internal helper windows must not be
+    // treated as the active app window.  When one of them grabs the focus,
+    // keep showing the previous app's menu (and its shortcuts) instead of
+    // clearing to system-only.  The desktop is still reported as-is so the
+    // menu can go to its system-only state.
+    if (newActiveWindow != 0
+        && ![MenuUtils isDesktopWindow:newActiveWindow]
+        && ![MenuUtils isRealApplicationWindow:newActiveWindow]) {
+        NSDebugLLog(@"gwcomp", @"WindowMonitor: Active window %lu is not a real app window - keeping current %lu", newActiveWindow, _currentActiveWindow);
+        newActiveWindow = _currentActiveWindow;
+    }
+    
     if (newActiveWindow != _currentActiveWindow) {
         NSDebugLLog(@"gwcomp", @"WindowMonitor: Active window changed from %lu to %lu", _currentActiveWindow, newActiveWindow);
+
         _currentActiveWindow = newActiveWindow;
         
         NSDictionary *userInfo = @{@"windowId": @(newActiveWindow)};
@@ -325,27 +296,22 @@ static const void *kWindowMonitorQueueKey = &kWindowMonitorQueueKey;
 {
     if (!_monitoring) return;
 
-    void (^cleanupBlock)(void) = ^{
-        if (_x11EventSource) {
-            dispatch_source_cancel(_x11EventSource);
-            _x11EventSource = NULL;
-        }
-
-        if (_display) {
-            XCloseDisplay(_display);
-            _display = NULL;
-        }
-    };
-
-    if (dispatch_get_specific(kWindowMonitorQueueKey) != NULL) {
-        cleanupBlock();
-    } else if (_x11Queue) {
-        dispatch_sync(_x11Queue, cleanupBlock);
-    } else {
-        cleanupBlock();
+    /* Signal the event-loop thread to exit; it owns _display and closes it. */
+    _stopMonitoring = YES;
+    if (_display) {
+        /* Wake the thread out of XNextEvent with a client message. */
+        XEvent e;
+        memset(&e, 0, sizeof(e));
+        e.type = ClientMessage;
+        e.xclient.window = _rootWindow;
+        e.xclient.message_type = _netActiveWindowAtom;
+        XSendEvent(_display, _rootWindow, False,
+                   SubstructureRedirectMask | SubstructureNotifyMask, &e);
+        XSync(_display, False);
     }
-    
-    _monitoring = NO;
+    for (int i = 0; i < 100 && _monitoring; i++) {
+        [NSThread sleepForTimeInterval:0.02];
+    }
     NSDebugLLog(@"gwcomp", @"WindowMonitor: Stopped monitoring");
 }
 

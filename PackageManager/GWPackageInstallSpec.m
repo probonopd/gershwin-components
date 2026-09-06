@@ -24,6 +24,9 @@ NSString *const GWPackageManagerErrorDomain = @"GWPackageManagerErrorDomain";
 @property (readwrite, copy) NSString *postCommand;
 @property (readwrite, copy) NSArray<NSString *> *postCommandArguments;
 @property (readwrite) GWPackageInstallSpecType specType;
+@property (readwrite) BOOL isAppImage;
+@property (readwrite, copy) NSString *appImageDirectURL;
+@property (readwrite, copy) NSString *appImageGitHubRepo;
 @end
 
 @implementation GWPackageInstallSpec
@@ -65,6 +68,10 @@ NSString *const GWPackageManagerErrorDomain = @"GWPackageManagerErrorDomain";
     ? @"postinstall_arguments" : @"postuninstall_arguments";
   NSArray *topPostArgs = plist[postArgsKey];
 
+  // AppImage sources (resolved for the current architecture).
+  NSDictionary *topAppImage = plist[@"AppImage"];
+  id topAppImageGitHub = plist[@"AppImage_github"];
+
   NSLog(@"GWPackageInstallSpec -> top-level packages: %@, local: %@, post: %@, args: %@",
         topPackages, topLocalFiles, topPostCommand, topPostArgs);
 
@@ -97,6 +104,12 @@ NSString *const GWPackageManagerErrorDomain = @"GWPackageManagerErrorDomain";
               if (override[postArgsKey])
                 topPostArgs = override[postArgsKey];
 
+              // Override AppImage sources if specified
+              if (override[@"AppImage"])
+                topAppImage = override[@"AppImage"];
+              if (override[@"AppImage_github"])
+                topAppImageGitHub = override[@"AppImage_github"];
+
               break; // First matching OS wins
             }
           else
@@ -115,23 +128,43 @@ NSString *const GWPackageManagerErrorDomain = @"GWPackageManagerErrorDomain";
   _postCommand = [topPostCommand copy];
   _postCommandArguments = [topPostArgs copy] ?: @[];
 
-  NSLog(@"GWPackageInstallSpec <- resolved: packages=%@, local=%@, post=%@ args=%@",
-        _packages, _localFilePaths, _postCommand, _postCommandArguments);
+  // Resolve the AppImage source for the current architecture.  A spec is an
+  // AppImage install if either a direct per-arch URL map or a GitHub repo is
+  // supplied.  AppImages only make sense on Linux, but we parse regardless and
+  // let the installer fail later with a clear message on other platforms.
+  NSString *arch = [GWOSDetector currentArchitecture];
+  NSString *appImageDirectURL = nil;
+  if ([topAppImage isKindOfClass:[NSDictionary class]] && topAppImage[arch])
+    appImageDirectURL = topAppImage[arch];
+
+  NSString *appImageGitHubRepo = nil;
+  if ([topAppImageGitHub isKindOfClass:[NSDictionary class]])
+    appImageGitHubRepo = topAppImageGitHub[@"repo"];
+  else if ([topAppImageGitHub isKindOfClass:[NSString class]])
+    appImageGitHubRepo = topAppImageGitHub;
+
+  _appImageDirectURL = [appImageDirectURL copy];
+  _appImageGitHubRepo = [appImageGitHubRepo copy];
+  _isAppImage = (_appImageDirectURL != nil || _appImageGitHubRepo != nil);
+
+  NSLog(@"GWPackageInstallSpec <- resolved: packages=%@, local=%@, post=%@ args=%@, AppImage=%@ github=%@",
+        _packages, _localFilePaths, _postCommand, _postCommandArguments,
+        _appImageDirectURL, _appImageGitHubRepo);
 
   return self;
 }
 
 - (BOOL)isValid:(NSError **)error
 {
-  if ([_packages count] == 0 && [_localFilePaths count] == 0)
+  if ([_packages count] == 0 && [_localFilePaths count] == 0 && !_isAppImage)
     {
-      NSLog(@"GWPackageInstallSpec [FAIL] isValid: NO — no packages or local files specified");
+      NSLog(@"GWPackageInstallSpec [FAIL] isValid: NO — no packages, local files, or AppImage specified");
       if (error)
         *error = [NSError errorWithDomain:GWPackageManagerErrorDomain
                                     code:GWPackageManagerErrorPlistInvalid
                                 userInfo:@{
                                   NSLocalizedDescriptionKey:
-                                    @"Plist must specify at least one package or local file path",
+                                    @"Plist must specify at least one package, local file path, or AppImage",
                                 }];
       return NO;
     }

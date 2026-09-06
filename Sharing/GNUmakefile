@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = Sharing
 
@@ -7,7 +8,7 @@ Sharing_OBJC_FILES = \
 	SharingController.m \
 	GSServiceDiscoveryManager.m
 
-Sharing_RESOURCE_FILES = Sharing.png SharingInfo.plist
+Sharing_RESOURCE_FILES = Sharing.png
 Sharing_BUNDLE_LIBS = -lPreferencePanes
 Sharing_PRINCIPAL_CLASS = SharingPane
 
@@ -114,3 +115,4 @@ custom-uninstall:
 	fi
 
 uninstall:: custom-uninstall
+

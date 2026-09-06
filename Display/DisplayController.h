@@ -39,17 +39,23 @@
     NSMutableArray *displays;
     DisplayView *displayView;
     NSView *mainView;
+    NSBox *settingsBox;
     NSPopUpButton *resolutionPopup;
+    NSSlider *scaleSlider;
+    NSTextField *scaleValueLabel;
+    NSTextField *scaleFactorHintLabel;
     NSButton *mirrorDisplaysCheckbox;
     X11DisplayManager *x11;
     DisplayInfo *selectedDisplay; // Currently selected display for resolution changes
     BOOL isRefreshing; // Guards against concurrent refreshDisplays: calls
     NSButton *saveButton;
     NSString *savedStateSnapshot; // Snapshot of display state at last save/load
+    NSString *lastDisplaySnapshot; // Snapshot from last view rebuild
     NSUInteger previousDisplayCount; // Track display count to detect hot-plug
 }
 
 - (NSView *)createMainView;
+- (void)relayoutWithWidth:(CGFloat)width;
 - (void)refreshDisplays:(NSTimer *)timer;
 - (void)applyDisplayConfiguration;
 - (void)setPrimaryDisplay:(DisplayInfo *)display;
@@ -64,6 +70,7 @@
 - (void)resolutionKeepClicked:(id)sender;
 - (void)selectDisplay:(DisplayInfo *)display;
 - (DisplayInfo *)selectedDisplay;
+- (void)scaleFactorChanged:(id)sender;
 - (void)autoConfigureDisplays;
 - (void)saveSettings:(id)sender;
 - (void)updateSaveButtonState;

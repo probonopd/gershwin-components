@@ -7,8 +7,24 @@
 
 #import "KeyboardPane.h"
 #import "KeyboardController.h"
+#include <stdlib.h>
 
 @implementation KeyboardPane
+
++ (BOOL)isCompatible {
+  NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
+  NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
+  for (NSString *dir in paths) {
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
+          [dir stringByAppendingPathComponent: @"setxkbmap"]])
+      return YES;
+  }
+  return NO;
+}
+
++ (NSString *)compatibilityReason {
+  return @"setxkbmap not found — keyboard configuration requires X11";
+}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {

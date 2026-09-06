@@ -16,7 +16,7 @@
 @class MenuProtocolManager;
 @class RoundedCornersView;
 @class ActionSearchMenuView;
-@class StatusItemManager;
+@class MenuExtraManager;
 @class WindowMonitor;
 
 @interface MenuController : NSObject <NSApplicationDelegate>
@@ -29,7 +29,7 @@
 @property (nonatomic, strong) MenuProtocolManager *protocolManager;
 @property (nonatomic, strong) RoundedCornersView *roundedCornersView;
 @property (nonatomic, strong) ActionSearchMenuView *actionSearchView;
-@property (nonatomic, strong) StatusItemManager *statusItemManager;
+@property (nonatomic, strong) MenuExtraManager *menuExtraManager;
 @property (nonatomic, strong) NSMenuView *timeMenuView;
 @property (nonatomic, strong) NSMenu *timeMenu;
 @property (nonatomic, strong) NSMenuItem *timeMenuItem;
@@ -48,6 +48,7 @@
 @property (nonatomic, assign) CGFloat slideInStartY;
 @property (nonatomic, assign) NSTimeInterval lastActiveWindowScanTime;
 @property (nonatomic, strong) NSTimer *windowValidationTimer; // Watchdog timer to hide stale menus
+@property (nonatomic, strong) NSTimer *activeWindowPollTimer;        // Fallback active-window poll
 #if MENU_PROFILING
 @property (nonatomic, strong) NSTimer *cpuUsageLogTimer;
 @property (nonatomic, assign) NSTimeInterval lastCpuUsageSampleWallTime;
@@ -65,10 +66,19 @@
 // Track if the last window state was zero (used to detect modal dialog recovery)
 @property (nonatomic, assign) BOOL lastWindowStateWasZero;
 
+// Power key (XF86PowerOff) short/long-press detection
+@property (nonatomic, strong) NSTimer *powerKeyTimer;
+@property (nonatomic, assign) BOOL powerKeyTriggered;
+
+// Throttle for DBus fd - backs off when fd fires but no messages arrive
+@property (nonatomic, assign) NSUInteger dbusEmptyProcessingCount;
+@property (nonatomic, assign) NSTimeInterval dbusThrottleUntil;
+
 - (id)init;
 - (NSColor *)backgroundColor;
 - (NSColor *)transparentColor;
 - (void)applyMenuBarDockAndStrutProperties;
+- (void)removeMenuBarStruts;
 - (void)createMenuBar;
 - (void)applicationDidFinishLaunching:(NSNotification *)notification;
 - (void)applicationWillTerminate:(NSNotification *)notification;
@@ -84,6 +94,10 @@
 - (void)screenParametersChanged:(NSNotification *)notification;
 - (void)createTimeMenu;
 - (void)updateTimeMenu;
+- (void)_xf86PowerKeyPressed;
+- (void)_xf86PowerKeyReleased;
+- (void)powerKeyLongPressTimerFired:(NSTimer *)timer;
+- (void)showPowerActionConfirmation:(NSDictionary *)info;
 #if MENU_PROFILING
 - (void)startCPUUsageLogging;
 - (void)stopCPUUsageLogging;

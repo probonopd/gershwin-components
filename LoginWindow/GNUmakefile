@@ -1,6 +1,7 @@
 # GNUmakefile for LoginWindow GNUstep Application
 
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 GNUSTEP_APPS = $(GNUSTEP_SYSTEM_SERVICES)
 
 APP_NAME = LoginWindow
@@ -13,7 +14,10 @@ LoginWindow_OBJC_FILES = \
     KeyboardManager.m
 
 LoginWindow_RESOURCE_FILES = \
-    Info.plist
+    Resources/English.lproj \
+    Resources/German.lproj \
+    Resources/French.lproj \
+    Resources/Spanish.lproj
 
 LoginWindow_PRINCIPAL_CLASS = LoginWindow
 
@@ -75,3 +79,4 @@ internal-application-install::
 	@true
 
 .PHONY: install uninstall
+

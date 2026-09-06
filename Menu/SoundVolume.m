@@ -35,14 +35,24 @@ static BOOL _detectALSA(void)
     NSPipe *pipe = [NSPipe pipe];
     [task setStandardOutput:pipe];
     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     @try {
         [task launch];
-        [task waitUntilExit];
     } @catch (NSException *e) {
         return NO;
     }
-    if ([task terminationStatus] != 0) return NO;
+    /* Drain the pipe BEFORE waiting for exit: a child that fills the OS pipe
+     * buffer blocks in write() and never exits, so waitUntilExit-first would
+     * deadlock.  readDataToEndOfFile returns at EOF (child exit). */
     NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    [task waitUntilExit];
+    if ([task terminationStatus] != 0) return NO;
     NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (!output) return NO;
 
@@ -67,13 +77,21 @@ static BOOL _detectALSA(void)
     pipe = [NSPipe pipe];
     [task setStandardOutput:pipe];
     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+
+    // Force C locale for consistent tool output
+    env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     @try {
         [task launch];
-        [task waitUntilExit];
     } @catch (NSException *e) {
         return NO;
     }
+    /* Read before wait - see _detectALSA for the pipe deadlock rationale. */
     data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    [task waitUntilExit];
     output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (!output) return NO;
 
@@ -132,13 +150,21 @@ static NSString *_runAmixer(NSArray *args)
     NSPipe *pipe = [NSPipe pipe];
     [task setStandardOutput:pipe];
     [task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     @try {
         [task launch];
-        [task waitUntilExit];
     } @catch (NSException *e) {
         return nil;
     }
+    /* Read before wait - see _detectALSA for the pipe deadlock rationale. */
     NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+    [task waitUntilExit];
     return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 }
 
@@ -214,6 +240,7 @@ static float _parseAmixerVolume(NSString *output) { return 0.0f; }
     vol += 0.05f;
     if (vol > 1.0f) vol = 1.0f;
     [self setOutputVolume:vol];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SoundVolumeChanged" object:nil];
 }
 
 + (void)decreaseVolume
@@ -222,6 +249,7 @@ static float _parseAmixerVolume(NSString *output) { return 0.0f; }
     vol -= 0.05f;
     if (vol < 0.0f) vol = 0.0f;
     [self setOutputVolume:vol];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SoundVolumeChanged" object:nil];
 }
 
 + (void)toggleMute
@@ -248,6 +276,26 @@ static float _parseAmixerVolume(NSString *output) { return 0.0f; }
         }
 #endif
     }
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SoundVolumeChanged" object:nil];
+}
+
++ (BOOL)isMuted
+{
+    _ensureBackend();
+    if (_backend == VolumeBackendALSA) {
+        NSString *output = _runAmixer(@[@"-c", [NSString stringWithFormat:@"%d", _alsaCard],
+                                         @"sget", _alsaControl]);
+        return (output && [output rangeOfString:@"[off]"].location != NSNotFound);
+#ifndef __OpenBSD__
+    } else if (_backend == VolumeBackendOSS) {
+        int vol = -1;
+        if (ioctl(_ossMixerFd, MIXER_READ(SOUND_MIXER_PCM), &vol) < 0) {
+            ioctl(_ossMixerFd, MIXER_READ(SOUND_MIXER_VOLUME), &vol);
+        }
+        return ((vol & 0xFF) == 0);
+#endif
+    }
+    return NO;
 }
 
 + (void)toggleMicMute

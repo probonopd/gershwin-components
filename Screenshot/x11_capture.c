@@ -11,16 +11,34 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <time.h>
+#include <math.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
 #include <X11/cursorfont.h>
+#include <X11/extensions/shape.h>
+
+#include "shadow_mask.h"
 
 // Global variables
 static Display *disp = NULL;
 static Window root;
 static Screen *scr = NULL;
 static int x11_error_occurred = 0;
+
+// Window picked during the last interactive selection, used by the capture
+// stage to query the WM's bounding shape (rounded corners).
+static Window last_shape_window = None;
+
+// Theme corner radii; the ObjC layer fills these from GSTheme so we match
+// exactly what the window manager rounds.
+static float s_top_corner_radius = 0.0f;
+static float s_bottom_corner_radius = 0.0f;
+
+void x11_set_corner_radii(float top, float bottom) {
+    s_top_corner_radius = top;
+    s_bottom_corner_radius = bottom;
+}
 
 // X11 Error Handler
 static int x11_error_handler(Display *display, XErrorEvent *error) {
@@ -41,6 +59,8 @@ typedef enum {
 typedef struct {
     int x, y, width, height;
 } CaptureRect;
+
+static int get_window_rect(Display *display, Window window, CaptureRect *rect);
 
 int x11_init(void) {
     disp = XOpenDisplay(NULL);
@@ -63,6 +83,73 @@ void x11_cleanup(void) {
         XCloseDisplay(disp);
         disp = NULL;
     }
+}
+
+// Read the EWMH _NET_FRAME_EXTENTS property (decoration sizes around the
+// client window).  Published by every EWMH-compliant window manager, so this
+// works regardless of which WM is running.
+static int get_frame_extents(Display *display, Window window,
+                             int *left, int *right, int *top, int *bottom) {
+    if (!display || !window) return 0;
+
+    Atom atom = XInternAtom(display, "_NET_FRAME_EXTENTS", True);
+    if (atom == None) return 0;
+
+    Atom actual_type;
+    int actual_format;
+    unsigned long nitems, bytes_after;
+    unsigned char *prop = NULL;
+
+    if (XGetWindowProperty(display, window, atom, 0, 4, False, XA_CARDINAL,
+                           &actual_type, &actual_format, &nitems,
+                           &bytes_after, &prop) != Success)
+        return 0;
+
+    int ok = 0;
+    // Format 32 properties are returned as array of long, not int32
+    if (prop && nitems == 4 && actual_format == 32) {
+        long *v = (long *)prop;
+        *left = (int)v[0];
+        *right = (int)v[1];
+        *top = (int)v[2];
+        *bottom = (int)v[3];
+        ok = 1;
+    }
+    if (prop) XFree(prop);
+    return ok;
+}
+
+// Fallback for WMs without _NET_FRAME_EXTENTS: use the geometry of the
+// reparenting frame window (the client's immediate parent), which spans the
+// decorations.
+static int get_parent_frame_rect(Display *display, Window window, CaptureRect *rect) {
+    Window root_return, parent_return, *children = NULL;
+    unsigned int nchildren;
+    if (!XQueryTree(display, window, &root_return, &parent_return,
+                    &children, &nchildren))
+        return 0;
+    if (children) XFree(children);
+    if (parent_return == None || parent_return == root_return)
+        return 0;
+    return get_window_rect(display, parent_return, rect);
+}
+
+// Expand a client-area rect to include the WM decorations (title bar etc.)
+static void expand_rect_to_frame(Display *display, Window window, CaptureRect *rect) {
+    CaptureRect frame;
+    int left, right, top, bottom;
+
+    if (get_parent_frame_rect(display, window, &frame)) {
+        *rect = frame;
+        return;
+    }
+    if (get_frame_extents(display, window, &left, &right, &top, &bottom)) {
+        rect->x -= left;
+        rect->y -= top;
+        rect->width += left + right;
+        rect->height += top + bottom;
+    }
+    // Neither available: keep the client rect (undecorated or non-EWMH WM)
 }
 
 // Get window at pointer position
@@ -492,8 +579,158 @@ int select_area_interactive(Display *display, Window root_window, CaptureRect *r
     return 1;
 }
 
+// Synthesize the final RGBA image locally:
+//  - pixels covered by the actual window shape (body minus rounded/shaped
+//    corners) are copied opaque from the screen grab,
+//  - everything else is either transparent or, when include_shadow is set,
+//    a pure black shadow whose alpha is the Gaussian mask (same parameters
+//    as the WM compositor).  Rounded-off corner pixels therefore show the
+//    shadow fading over a transparent background, never black squares.
+static void compose_output(unsigned char *data, int width, int height,
+                           CaptureRect body, CaptureRect captured,
+                           int include_shadow) {
+    unsigned char *cov = calloc(width * height, 1);
+    if (!cov)
+        return;
+
+    // Body rectangle starts fully covered
+    int bx0 = body.x - captured.x;
+    int by0 = body.y - captured.y;
+    for (int y = by0; y < by0 + body.height; y++) {
+        if (y < 0 || y >= height) continue;
+        int x0 = bx0 < 0 ? 0 : bx0;
+        int x1 = bx0 + body.width > width ? width : bx0 + body.width;
+        memset(cov + y * width + x0, 1, x1 - x0);
+    }
+
+    // Round the top/bottom corners per the theme radii (matches the way the
+    // WM rounds its frames), marking outside pixels uncovered.
+    if (s_top_corner_radius > 0) {
+        int cr = (int)ceilf(s_top_corner_radius);
+        for (int y = by0; y < by0 + cr && y < height; y++) {
+            if (y < 0) continue;
+            for (int x = bx0; x < bx0 + cr && x < width; x++) {
+                if (x < 0) continue;
+                int dx = x - (bx0 + cr - 1), dy = y - (by0 + cr);
+                if (dx * dx + dy * dy > cr * cr)
+                    cov[y * width + x] = 0;
+            }
+            for (int x = bx0 + body.width - cr; x < bx0 + body.width && x < width; x++) {
+                int dx = x - (bx0 + body.width - cr), dy = y - (by0 + cr);
+                if (dx * dx + dy * dy > cr * cr)
+                    cov[y * width + x] = 0;
+            }
+        }
+    }
+    if (s_bottom_corner_radius > 0) {
+        int cr = (int)ceilf(s_bottom_corner_radius);
+        for (int y = by0 + body.height - cr; y < by0 + body.height && y < height; y++) {
+            if (y < 0) continue;
+            for (int x = bx0; x < bx0 + cr && x < width; x++) {
+                if (x < 0) continue;
+                int dx = x - (bx0 + cr - 1), dy = y - (by0 + body.height - 1 - cr);
+                if (dx * dx + dy * dy > cr * cr)
+                    cov[y * width + x] = 0;
+            }
+            for (int x = bx0 + body.width - cr; x < bx0 + body.width && x < width; x++) {
+                int dx = x - (bx0 + body.width - cr), dy = y - (by0 + body.height - 1 - cr);
+                if (dx * dx + dy * dy > cr * cr)
+                    cov[y * width + x] = 0;
+            }
+        }
+    }
+
+    // Respect an X11 bounding shape if the WM gave the window one
+    if (last_shape_window != None) {
+        Bool es;
+        int rx, ry;
+        unsigned int rw2, rh2;
+        int bshaped = 0;
+        if (XShapeQueryExtents(disp, last_shape_window, &bshaped,
+                               &rx, &ry, &rw2, &rh2,
+                               &es, &rx, &ry, &rw2, &rh2) && bshaped) {
+            int count, order;
+            XRectangle *rects = XShapeGetRectangles(disp, last_shape_window,
+                                                    ShapeBounding,
+                                                    &count, &order);
+            if (rects && count > 0) {
+                for (int y = 0; y < height; y++)
+                    for (int x = 0; x < width; x++) {
+                        int inside = 0;
+                        for (int i = 0; i < count; i++) {
+                            // Shape rects are relative to the shape window
+                            // origin, which is the body origin on the root
+                            if (x - bx0 >= rects[i].x &&
+                                x - bx0 < rects[i].x + rects[i].width &&
+                                y - by0 >= rects[i].y &&
+                                y - by0 < rects[i].y + rects[i].height) {
+                                inside = 1;
+                                break;
+                            }
+                        }
+                        if (!inside)
+                            cov[y * width + x] = 0;
+                    }
+            }
+            if (rects) XFree(rects);
+        }
+    }
+
+    // Shadow mask (may be NULL when shadows are off)
+    int mask_w = 0, mask_h = 0;
+    uint8_t *mask = NULL;
+    int mx0 = 0, my0 = 0;
+    if (include_shadow) {
+        mask = shadow_make_mask(body.width, body.height, &mask_w, &mask_h);
+        // Mask origin: body rect expanded by the same padding that
+        // shadow_padding() reports (shadow picture plus fade-out band).
+        int pl, pt, pr, pb;
+        shadow_padding(&pl, &pt, &pr, &pb);
+        mx0 = body.x - pl;
+        my0 = body.y - pt;
+    }
+
+    unsigned char *out = malloc(width * height * 4);
+    if (!out) {
+        free(mask);
+        free(cov);
+        return;
+    }
+
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int idx = (y * width + x) * 4;
+            if (cov[y * width + x]) {
+                // Window content: opaque, straight from the screen grab
+                out[idx + 0] = data[idx + 0];
+                out[idx + 1] = data[idx + 1];
+                out[idx + 2] = data[idx + 2];
+                out[idx + 3] = 0xFF;
+            } else {
+                uint8_t alpha = 0;
+                if (mask) {
+                    int rel_x = x + captured.x - mx0;
+                    int rel_y = y + captured.y - my0;
+                    if (rel_x >= 0 && rel_x < mask_w && rel_y >= 0 && rel_y < mask_h)
+                        alpha = mask[rel_y * mask_w + rel_x];
+                }
+                // Pure black with Gaussian alpha over full transparency
+                out[idx + 0] = 0;
+                out[idx + 1] = 0;
+                out[idx + 2] = 0;
+                out[idx + 3] = alpha;
+            }
+        }
+    }
+    memcpy(data, out, width * height * 4);
+    free(out);
+    free(mask);
+    free(cov);
+}
+
 // Capture screenshot data using X11
-unsigned char* x11_capture_data(CaptureMode mode, int delay, CaptureRect* rect, 
+unsigned char* x11_capture_data(CaptureMode mode, int delay, CaptureRect* rect,
+                                  int include_shadow,
                                   int* width, int* height, int* bytes_per_pixel) {
     if (!disp) {
         if (!x11_init()) {
@@ -507,6 +744,8 @@ unsigned char* x11_capture_data(CaptureMode mode, int delay, CaptureRect* rect,
     }
     
     CaptureRect capture_rect;
+    CaptureRect body_rect = {0, 0, 0, 0};
+    int use_shadow_mask = 0;
     
     switch (mode) {
         case CaptureFullScreen:
@@ -524,6 +763,35 @@ unsigned char* x11_capture_data(CaptureMode mode, int delay, CaptureRect* rect,
                 Window window = select_window_interactive(disp, root);
                 if (!window || !get_window_rect(disp, window, &capture_rect)) {
                     return NULL;
+                }
+            }
+            body_rect = capture_rect;
+
+            // Pad the capture rect by the compositor shadow margins so the
+            // drop shadow is part of the grabbed pixels.  (No compositor
+            // detection: gershwin-windowmanager never owns _NET_WM_CM_S0,
+            // and with other WMs the padding is still applied - the alpha
+            // mask simply follows our own Gaussian parameters.)
+            if (include_shadow) {
+                int pl, pt, pr, pb;
+                shadow_padding(&pl, &pt, &pr, &pb);
+                int nx = capture_rect.x - pl;
+                int ny = capture_rect.y - pt;
+                int nw = capture_rect.width + pl + pr;
+                int nh = capture_rect.height + pt + pb;
+
+                // Keep the padded rect on screen
+                if (nx < 0) { nw += nx; nx = 0; }
+                if (ny < 0) { nh += ny; ny = 0; }
+                if (nx + nw > scr->width) nw = scr->width - nx;
+                if (ny + nh > scr->height) nh = scr->height - ny;
+
+                if (nw > 0 && nh > 0) {
+                    capture_rect.x = nx;
+                    capture_rect.y = ny;
+                    capture_rect.width = nw;
+                    capture_rect.height = nh;
+                    use_shadow_mask = 1;
                 }
             }
             break;
@@ -637,6 +905,10 @@ unsigned char* x11_capture_data(CaptureMode mode, int delay, CaptureRect* rect,
         }
     }
     
+    if (mode == CaptureWindow)
+        compose_output(data, w, h, body_rect, capture_rect,
+                       use_shadow_mask ? 1 : 0);
+
     *width = w;
     *height = h;
     *bytes_per_pixel = bpp;
@@ -651,31 +923,56 @@ void x11_free_data(unsigned char* data) {
     }
 }
 
+CaptureRect x11_select_window_title(int include_title);
+
 CaptureRect x11_select_window(void) {
+    return x11_select_window_title(0);
+}
+
+// Interactive window selection; optionally expand to the WM frame so the
+// title bar and decorations are part of the capture rect.
+CaptureRect x11_select_window_title(int include_title) {
     CaptureRect rect = {0, 0, 0, 0};
-    
+
     if (!disp) {
         if (!x11_init()) {
             fprintf(stderr, "Failed to initialize X11\n");
             return rect;
         }
     }
-    
+
     x11_error_occurred = 0;
-    
+
     Window window = select_window_interactive(disp, root);
-    
+
     // Check for errors or cancellation
     if (x11_error_occurred || window == 0) {
         fprintf(stderr, "Window selection failed or cancelled\n");
         return rect;  // Return zero rect
     }
-    
+
     if (!get_window_rect(disp, window, &rect)) {
         fprintf(stderr, "Failed to get window geometry\n");
         rect.x = rect.y = rect.width = rect.height = 0;
+        return rect;
     }
-    
+
+    // Remember the window whose bounding shape matches the capture body:
+    // the WM frame when we include decorations, else the client itself.
+    Window frame = None;
+    Window root_return, parent_return, *children = NULL;
+    unsigned int nchildren;
+    if (XQueryTree(disp, window, &root_return, &parent_return,
+                   &children, &nchildren)) {
+        if (children) XFree(children);
+        if (parent_return != None && parent_return != root_return)
+            frame = parent_return;
+    }
+    last_shape_window = (include_title && frame != None) ? frame : window;
+
+    if (include_title)
+        expand_rect_to_frame(disp, window, &rect);
+
     return rect;
 }
 

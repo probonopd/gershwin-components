@@ -16,9 +16,7 @@
 #import "X11ShortcutManager.h"
 #import "ActionSearch.h"
 #import "MenuUtils.h"
-#import "StatusItemManager.h"
-#import "StatusItemsView.h"
-#import "StatusItemView.h"
+#import "MenuExtraManager.h"
 #import "WindowMonitor.h"
 #import "AppMenuImporter.h"
 #import "MenuProfiler.h"
@@ -26,8 +24,69 @@
 #import "BrightnessKeySource.h"
 #import "SysfsBacklightBackend.h"
 #import "EvdevBrightnessKeySource.h"
-#import "SoundVolume.h"
+#import "ALSABackend.h"
+#import "SystemActions.h"
+
+@interface GSVolumeControl : NSObject
++ (void)increaseVolume;
++ (void)decreaseVolume;
++ (void)toggleMute;
++ (void)toggleMicMute;
+@end
+
+@implementation GSVolumeControl
+
+/* Serial queue for volume/mixer work.  The ALSA path shells out to amixer
+ * (an NSTask with waitUntilExit); running that on the main thread froze the
+ * whole menu bar for the duration of every volume-key press. */
++ (dispatch_queue_t)volumeQueue
+{
+    static dispatch_queue_t q = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        q = dispatch_queue_create("io.github.gershwin-desktop.Menu.volume", DISPATCH_QUEUE_SERIAL);
+    });
+    return q;
+}
+
++ (ALSABackend *)sharedBackend
+{
+    static ALSABackend *b = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        b = [[ALSABackend alloc] init];
+    });
+    return b;
+}
++ (void)increaseVolume
+{
+    ALSABackend *b = [self sharedBackend];
+    float vol = [b outputVolume];
+    vol += 0.05f;
+    if (vol > 1.0f) vol = 1.0f;
+    [b setOutputVolume:vol];
+}
++ (void)decreaseVolume
+{
+    ALSABackend *b = [self sharedBackend];
+    float vol = [b outputVolume];
+    vol -= 0.05f;
+    if (vol < 0.0f) vol = 0.0f;
+    [b setOutputVolume:vol];
+}
++ (void)toggleMute
+{
+    ALSABackend *b = [self sharedBackend];
+    [b setOutputMuted:![b isOutputMuted]];
+}
++ (void)toggleMicMute
+{
+    ALSABackend *b = [self sharedBackend];
+    [b setInputMuted:![b isInputMuted]];
+}
+@end
 #import "GNUstepGUI/GSTheme.h"
+#include <GNUstepGUI/GSDisplayServer.h>
 #import <X11/Xlib.h>
 #import <X11/XF86keysym.h>
 #import <X11/Xatom.h>
@@ -80,10 +139,44 @@ static NSTimeInterval _lastBrightnessAdjust = 0;
     volatile BOOL _micMuteMonitorRunning;
     int _micMuteFDs[16];
     int _micMuteFDCount;
+    NSThread *_powerKeyThread;
+    volatile BOOL _powerKeyMonitorRunning;
+    int _powerKeyFDs[16];
+    int _powerKeyFDCount;
 }
 @end
 
 @implementation MenuController
+
+static CGFloat MenuControllerLastScaleFactor = 1.0;
+
+/* Current GSScaleFactor (1.0 when unset or non-positive). */
+static CGFloat MenuControllerScaleFactor(void)
+{
+  CGFloat factor = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
+  return (factor > 0.0) ? factor : 1.0;
+}
+
+/* True physical screen width queried directly from X11 - GSScaleFactor is
+ * never applied to it, unlike the screen size GNUstep may report. */
+static CGFloat MenuControllerScreenWidth(void)
+{
+  Display *display = XOpenDisplay(NULL);
+  if (display == NULL)
+    {
+      return [[[NSScreen screens] objectAtIndex:0] frame].size.width;
+    }
+  int width = DisplayWidth(display, DefaultScreen(display));
+  XCloseDisplay(display);
+  return (CGFloat)width;
+}
+
+/* Menu bar height scaled by GSScaleFactor: the bar keeps its full screen
+ * width but its height grows/shrinks with the scale factor. */
+static CGFloat MenuControllerMenuBarHeight(void)
+{
+  return [[GSTheme theme] menuBarHeight] * MenuControllerScaleFactor();
+}
 
 #if MENU_PROFILING
 static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
@@ -98,6 +191,9 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 // (libdbus internal buffering keeps select() returning "ready").
 #define DBUS_REARM_DELAY 0.1
 
+// Maximum throttle delay (seconds) when DBus fd fires but no messages arrive
+#define DBUS_MAX_THROTTLE_DELAY 2.0
+
 - (void)dbusFileDescriptorReady:(NSNotification *)notification {
     MENU_PROFILE_BEGIN(dbusFileDescriptorReady);
 
@@ -110,21 +206,65 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         return;
     }
 
+    // Throttle if DBus fd keeps firing with no messages
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (now < self.dbusThrottleUntil) {
+        // Skip processing but still schedule re-arm after throttle delay
+        [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                                 selector:@selector(rearmDBusSource)
+                                                   object:nil];
+        [self performSelector:@selector(rearmDBusSource)
+                   withObject:nil
+                   afterDelay:(self.dbusThrottleUntil - now)];
+        MENU_PROFILE_END(dbusFileDescriptorReady);
+        return;
+    }
+
     NSDebugLog(@"MenuController: DBus file descriptor reported data available");
 
     // Lock the menu window from redrawing during DBus processing to prevent flashing
     [self.menuBar disableFlushWindow];
 
+    NSUInteger messageCountBefore = [[MenuProtocolManager sharedManager] pendingMessageCount];
     @try {
         [[MenuProtocolManager sharedManager] processDBusMessages];
     }
     @catch (NSException *exception) {
         NSDebugLLog(@"gwcomp", @"MenuController: Exception processing DBus messages: %@", exception);
     }
-    @finally {
-        // Re-enable window drawing and flush all pending updates at once
-        [self.menuBar enableFlushWindow];
-        [self.menuBar flushWindow];
+
+    // Re-enable window drawing and flush all pending updates at once
+    [self.menuBar enableFlushWindow];
+    [self.menuBar flushWindow];
+
+    NSUInteger messageCountAfter = [[MenuProtocolManager sharedManager] pendingMessageCount];
+    BOOL gotMessages = (messageCountAfter > messageCountBefore);
+
+    // If fd fired but we got no messages, implement exponential backoff
+    if (!gotMessages) {
+        self.dbusEmptyProcessingCount++;
+        if (self.dbusEmptyProcessingCount > 3) {
+            /* Cap the shift: dbusEmptyProcessingCount grows without bound while
+             * the fd stays hot-with-no-data, and (1 << 63+) on an NSUInteger
+             * is undefined and would wrap the delay to garbage, defeating the
+             * throttle entirely.  1<<8 * 0.1s = 25.6s, already far above the
+             * DBUS_MAX_THROTTLE_DELAY cap. */
+            NSUInteger shift = self.dbusEmptyProcessingCount - 3;
+            if (shift > 8) shift = 8;
+            // Exponential backoff: 0.1 -> 0.2 -> 0.4 -> 0.8 -> 1.6 -> 2.0 (capped)
+            NSTimeInterval backoffDelay = MIN(DBUS_REARM_DELAY * (double)(1UL << shift), DBUS_MAX_THROTTLE_DELAY);
+            self.dbusThrottleUntil = now + backoffDelay;
+            NSDebugLLog(@"gwcomp", @"MenuController: DBus throttle backing off to %.1fs (empty count=%lu)",
+                        backoffDelay, (unsigned long)self.dbusEmptyProcessingCount);
+        }
+    } else {
+        // Got messages - reset throttle state
+        if (self.dbusEmptyProcessingCount > 0) {
+            NSDebugLLog(@"gwcomp", @"MenuController: DBus throttle reset (was %lu empty cycles)",
+                        (unsigned long)self.dbusEmptyProcessingCount);
+        }
+        self.dbusEmptyProcessingCount = 0;
+        self.dbusThrottleUntil = 0;
     }
 
     // Delay re-arm to prevent CPU tight-loop.  The DBus fd is almost always
@@ -135,9 +275,10 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     [NSObject cancelPreviousPerformRequestsWithTarget:self
                                              selector:@selector(rearmDBusSource)
                                                object:nil];
+    NSTimeInterval rearmDelay = gotMessages ? DBUS_REARM_DELAY : MAX(DBUS_REARM_DELAY, self.dbusThrottleUntil - now);
     [self performSelector:@selector(rearmDBusSource)
                withObject:nil
-               afterDelay:DBUS_REARM_DELAY];
+               afterDelay:rearmDelay];
 
     MENU_PROFILE_END(dbusFileDescriptorReady);
 }
@@ -218,7 +359,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     NSString *menuBarTitle = [self.menuBar title];
     NSArray *windows = [MenuUtils getAllWindows];
     NSMutableArray *candidates = [NSMutableArray array];
-    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
 
     // Discover directly from root children first. This catches windows even when
     // they are temporarily absent from _NET_CLIENT_LIST.
@@ -235,6 +376,11 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             if (XGetWindowAttributes(display, w, &attrs) == 0 || attrs.map_state == IsUnmapped) {
                 continue;
             }
+            /* Transient override-redirect windows (dropdown menus, popups,
+               tooltips) are never the menu bar; skip before querying them. */
+            if (attrs.override_redirect) {
+                continue;
+            }
 
             NSString *name = [MenuUtils getWindowProperty:(unsigned long)w atomName:@"_NET_WM_NAME"];
             if (!name || [name length] == 0) {
@@ -245,8 +391,11 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             }
 
             // Prefer top-strip windows with bar-like geometry.
-            if ((CGFloat)attrs.height > (menuBarHeight * 2.0) || attrs.width < 100) {
-                continue;
+            // menuBarHeight already accounts for GSScaleFactor.
+            {
+                if ((CGFloat)attrs.height > (menuBarHeight * 2.0) || attrs.width < 100) {
+                    continue;
+                }
             }
 
             NSNumber *candidate = [NSNumber numberWithUnsignedLong:(unsigned long)w];
@@ -331,84 +480,176 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     return candidates;
 }
 
+/* Resolve the menu bar's X11 window ID directly from the GNUstep display
+   server.  This is far more reliable than searching root children by
+   title/geometry, which can fail when GSScaleFactor causes the X11 window
+   height to exceed heuristic filters.  Returns 0 when the bar does not exist
+   or is not yet mapped. */
+- (Window)menuBarX11Window
+{
+    if (!self.menuBar) {
+        NSDebugLLog(@"gwcomp", @"MenuController: No menuBar window to resolve X11 window for");
+        return (Window)0;
+    }
+
+    GSDisplayServer *srv = GSServerForWindow(self.menuBar);
+    if (!srv)
+        srv = GSCurrentServer();
+    if (!srv) {
+        NSDebugLLog(@"gwcomp", @"MenuController: No GSDisplayServer available for strut setup");
+        return (Window)0;
+    }
+
+    int winNum = [self.menuBar windowNumber];
+    if (winNum <= 0) {
+        NSDebugLLog(@"gwcomp", @"MenuController: menuBar windowNumber is %d, not mapped yet", winNum);
+        return (Window)0;
+    }
+
+    Window menuBarWindow = (Window)(uintptr_t)[srv windowDevice: winNum];
+    if (menuBarWindow == (Window)0) {
+        NSDebugLLog(@"gwcomp", @"MenuController: Could not resolve X11 window from windowNumber %d", winNum);
+        return (Window)0;
+    }
+    return menuBarWindow;
+}
+
+/* Clear the EWMH strut properties so the window manager releases the screen
+   area the menu bar reserved.  This must be done BEFORE the bar is moved or
+   resized on a screen geometry or scale-factor change; the struts are only
+   re-applied (applyMenuBarDockAndStrutProperties) once the bar has been
+   repositioned and resized, so the WM never keeps stale reserved space. */
+- (void)removeMenuBarStruts
+{
+    Display *display = [MenuUtils sharedDisplay];
+    if (!display) {
+        NSDebugLLog(@"gwcomp", @"MenuController: Cannot open X11 display to clear menu bar struts");
+        return;
+    }
+
+    Window menuBarWindow = [self menuBarX11Window];
+    if (menuBarWindow == (Window)0) {
+        NSDebugLLog(@"gwcomp", @"MenuController: No menu bar X11 window to clear struts");
+        return;
+    }
+
+    unsigned long zero[4] = {0, 0, 0, 0};
+    unsigned long zeroPartial[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    XChangeProperty(display, menuBarWindow,
+                    XInternAtom(display, "_NET_WM_STRUT", False),
+                    XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)zero, 4);
+    XChangeProperty(display, menuBarWindow,
+                    XInternAtom(display, "_NET_WM_STRUT_PARTIAL", False),
+                    XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)zeroPartial, 12);
+    XSync(display, False);
+
+    NSDebugLLog(@"gwcomp", @"MenuController: Cleared menu bar struts on XID 0x%lx",
+                (unsigned long)menuBarWindow);
+}
+
 - (void)applyMenuBarDockAndStrutProperties
 {
-    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
     Display *display = [MenuUtils sharedDisplay];
     if (!display) {
         NSDebugLLog(@"gwcomp", @"MenuController: Cannot open X11 display to apply menu bar struts");
         return;
     }
 
-    if (!self.menuBar) {
-        NSDebugLLog(@"gwcomp", @"MenuController: No menuBar window to apply X11 struts");
+    Window menuBarWindow = [self menuBarX11Window];
+    if (menuBarWindow == (Window)0) {
+        NSDebugLLog(@"gwcomp", @"MenuController: No menu bar X11 window for strut setup");
         return;
     }
 
-    NSArray *menuBarWindows = [self menuBarX11Windows];
-    if ([menuBarWindows count] == 0) {
-        NSDebugLLog(@"gwcomp", @"MenuController: Could not resolve menu bar X11 window id yet");
+    XWindowAttributes attrs;
+    if (XGetWindowAttributes(display, menuBarWindow, &attrs) == 0 || attrs.map_state == IsUnmapped) {
+        NSDebugLLog(@"gwcomp", @"MenuController: Menu bar X11 window 0x%lx not yet mapped",
+                    (unsigned long)menuBarWindow);
         return;
     }
+
+    /* The strut must reserve the strip where the bar is SUPPOSED to be - the
+     * top of the primary screen - not where the window currently happens to
+     * be.  Right after a resolution change the GNUstep backend can still
+     * convert coordinates using the previous screen height, briefly placing
+     * the bar at a wrong Y; deriving the strut from that transient position
+     * (as XTranslateCoordinates would) leaves a stale, oversized strut. */
+    unsigned int width = (unsigned int)MAX((CGFloat)1.0, (CGFloat)attrs.width);
+    unsigned int height = (unsigned int)MAX((CGFloat)1.0, (CGFloat)attrs.height);
+    unsigned long startX = (self.screenFrame.origin.x < 0)
+        ? 0 : (unsigned long)self.screenFrame.origin.x;
+    unsigned long endX = startX + (unsigned long)width - 1;
+    unsigned long topStrut = (self.screenFrame.origin.y < 0)
+        ? (unsigned long)height
+        : (unsigned long)(self.screenFrame.origin.y + (int)height);
+    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
+    unsigned int fallbackHeight = (unsigned int)MAX((CGFloat)1.0, menuBarHeight);
+    if (topStrut == 0) {
+        topStrut = fallbackHeight;
+    }
+
+    unsigned long strut[4] = {0, 0, topStrut, 0};
+    unsigned long strutPartial[12] = {0, 0, topStrut, 0,
+                                      0, 0, 0, 0,
+                                      startX, endX, 0, 0};
 
     Atom strutAtom = XInternAtom(display, "_NET_WM_STRUT", False);
     Atom strutPartialAtom = XInternAtom(display, "_NET_WM_STRUT_PARTIAL", False);
+    XChangeProperty(display, menuBarWindow, strutAtom, XA_CARDINAL, 32,
+                    PropModeReplace, (unsigned char *)strut, 4);
+    XChangeProperty(display, menuBarWindow, strutPartialAtom, XA_CARDINAL, 32,
+                    PropModeReplace, (unsigned char *)strutPartial, 12);
+
     Atom stateAtom = XInternAtom(display, "_NET_WM_STATE", False);
     Atom stickyAtom = XInternAtom(display, "_NET_WM_STATE_STICKY", False);
     Atom skipTaskbarAtom = XInternAtom(display, "_NET_WM_STATE_SKIP_TASKBAR", False);
     Atom skipPagerAtom = XInternAtom(display, "_NET_WM_STATE_SKIP_PAGER", False);
     Atom stateAtoms[3] = {stickyAtom, skipTaskbarAtom, skipPagerAtom};
+    XChangeProperty(display, menuBarWindow, stateAtom, XA_ATOM, 32,
+                    PropModeReplace, (unsigned char *)stateAtoms, 3);
+
+    // Explicitly set _NET_WM_WINDOW_TYPE_DOCK so the WM treats this
+    // window as a panel/dock (reserves space, keeps above, etc.).
     Atom wmTypeAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE", False);
-
-    Window root = DefaultRootWindow(display);
-    for (NSNumber *candidate in menuBarWindows) {
-        Window menuBarWindow = (Window)[candidate unsignedLongValue];
-        XWindowAttributes attrs;
-        if (XGetWindowAttributes(display, menuBarWindow, &attrs) == 0 || attrs.map_state == IsUnmapped) {
-            continue;
-        }
-
-        Window child = None;
-        int rootX = 0;
-        int rootY = 0;
-        if (XTranslateCoordinates(display, menuBarWindow, root, 0, 0, &rootX, &rootY, &child) == False) {
-            rootX = attrs.x;
-            rootY = attrs.y;
-        }
-
-        unsigned int width = (unsigned int)MAX((CGFloat)1.0, (CGFloat)attrs.width);
-        unsigned int height = (unsigned int)MAX((CGFloat)1.0, (CGFloat)attrs.height);
-        unsigned long startX = (rootX < 0) ? 0 : (unsigned long)rootX;
-        unsigned long endX = startX + (unsigned long)width - 1;
-        unsigned long topStrut = (rootY < 0) ? (unsigned long)height : (unsigned long)(rootY + (int)height);
-        unsigned int fallbackHeight = (unsigned int)MAX((CGFloat)1.0, menuBarHeight);
-        if (topStrut == 0) {
-            topStrut = fallbackHeight;
-        }
-
-        unsigned long strut[4] = {0, 0, topStrut, 0};
-        unsigned long strutPartial[12] = {0, 0, topStrut, 0,
-                                          0, 0, 0, 0,
-                                          startX, endX, 0, 0};
-        XChangeProperty(display, menuBarWindow, strutAtom, XA_CARDINAL, 32,
-                        PropModeReplace, (unsigned char *)strut, 4);
-        XChangeProperty(display, menuBarWindow, strutPartialAtom, XA_CARDINAL, 32,
-                        PropModeReplace, (unsigned char *)strutPartial, 12);
-
-        XChangeProperty(display, menuBarWindow, stateAtom, XA_ATOM, 32,
-                        PropModeReplace, (unsigned char *)stateAtoms, 3);
-
-        // Explicitly set _NET_WM_WINDOW_TYPE_DOCK so the WM treats this
-        // window as a panel/dock (reserves space, keeps above, etc.).
-        Atom dockAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DOCK", False);
-        XChangeProperty(display, menuBarWindow, wmTypeAtom, XA_ATOM, 32,
-                        PropModeReplace, (unsigned char *)&dockAtom, 1);
-
-        NSDebugLLog(@"gwcomp", @"MenuController: Applied dock/strut properties to XID 0x%lx (root=(%d,%d) size=%ux%u top=%lu x-range=%lu..%lu)",
-              (unsigned long)menuBarWindow, rootX, rootY, width, height, topStrut, startX, endX);
-    }
+    Atom dockAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DOCK", False);
+    XChangeProperty(display, menuBarWindow, wmTypeAtom, XA_ATOM, 32,
+                    PropModeReplace, (unsigned char *)&dockAtom, 1);
 
     XSync(display, False);
+
+    NSLog(@"MenuController: Applied strut properties to XID 0x%lx "
+          @"(size=%ux%u top=%lu x-range=%lu..%lu)",
+          (unsigned long)menuBarWindow, width, height,
+          topStrut, startX, endX);
+}
+
+- (void)extrasEnabledSetDidChange:(NSNotification *)notification
+{
+    CGFloat extrasWidth = [self.menuExtraManager extrasMenuWidth];
+    CGFloat menuBarW = NSWidth([self.menuBarView bounds]);
+    CGFloat widgetWidth = menuBarW - extrasWidth - 8;
+    [self.appMenuWidget setFrameSize:NSMakeSize(widgetWidth, NSHeight([self.appMenuWidget frame]))];
+    [self.menuBarView setNeedsDisplay:YES];
+}
+
+- (void)checkScaleFactor:(NSTimer *)timer
+{
+    // GNUstep caches defaults per-process; synchronize re-reads the store so
+    // external writes (defaults tool, Display prefPane) become visible.
+    [[NSUserDefaults standardUserDefaults] synchronize];
+
+    CGFloat factor = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
+    if (factor == 0.0)
+        factor = 1.0;
+
+    if (factor == MenuControllerLastScaleFactor)
+        return;
+
+    NSDebugLLog(@"gwcomp", @"MenuController: GSScaleFactor changed from %.3f to %.3f", MenuControllerLastScaleFactor, factor);
+    MenuControllerLastScaleFactor = factor;
+    [self screenParametersChanged: nil];
 }
 
 - (void)screenParametersChanged:(NSNotification *)notification
@@ -420,56 +661,68 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         return;
     }
 
-    // Re-read the primary screen geometry (screens[0] is the xrandr primary;
-    // mainScreen may return the menu's own window screen which is circular)
-    self.screenFrame = [[[NSScreen screens] objectAtIndex:0] frame];
-    self.screenSize = self.screenFrame.size;
-    NSDebugLLog(@"gwcomp", @"MenuController: New screen frame: %.0f,%.0f %.0fx%.0f",
-          self.screenFrame.origin.x, self.screenFrame.origin.y,
-          self.screenSize.width, self.screenSize.height);
+    /* First release the screen area the old struts reserved, so the window
+     * manager does not keep stale space while we move and resize the bar
+     * below.  The struts are re-applied at the end once the bar is in place. */
+    [self removeMenuBarStruts];
 
-    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    // Re-read the primary screen geometry (screens[0] is the xrandr primary;
+    // mainScreen may return the menu's own window screen which is circular).
+    // Use the true X11 width so GSScaleFactor cannot change the bar's width.
+    NSRect sf = [[[NSScreen screens] objectAtIndex:0] frame];
+    sf.size.width = MenuControllerScreenWidth();
+    self.screenFrame = sf;
+    self.screenSize = sf.size;
+    NSDebugLLog(@"gwcomp", @"MenuController: New screen frame: %.0f,%.0f %.0fx%.0f (scale=%.1f)",
+          sf.origin.x, sf.origin.y,
+          sf.size.width, sf.size.height, MenuControllerScaleFactor());
+
+    /* Content views live in the window's user coordinate space, which GNUstep
+     * scales by GSScaleFactor when rendering (device = user * sf).  Size them
+     * in that space so they render to the device window size; the window frame
+     * itself is set to the device size below. */
+    CGFloat scale = MenuControllerScaleFactor();
+    CGFloat contentW = MenuControllerScreenWidth() / scale;
+    CGFloat contentH = [[GSTheme theme] menuBarHeight];
 
     // Reposition and resize the menu bar window using the screen frame origin
     // (the origin may be non-zero if the virtual desktop geometry changed)
-    CGFloat originX = self.screenFrame.origin.x;
-    CGFloat originY = self.screenFrame.origin.y;
-    NSRect menuRect = NSMakeRect(originX,
-                                 originY + self.screenSize.height - menuBarHeight,
-                                 self.screenSize.width, menuBarHeight);
-    [self.menuBar setFrame:menuRect display:NO];
-    [self.menuBar setFrameTopLeftPoint:NSMakePoint(originX, originY + self.screenSize.height)];
+    [self positionMenuBarWindow];
 
     // Resize the background view
-    [self.menuBarView setFrame:NSMakeRect(0, 0, self.screenSize.width, menuBarHeight)];
+    [self.menuBarView setFrame:NSMakeRect(0, 0, contentW, contentH)];
 
-    // Reposition status items at the right edge
-    StatusItemsView *statusItemsView = nil;
+    // Reposition menu extras at the right edge
+    NSView *extrasMenuView = nil;
     for (NSView *subview in [self.menuBarView subviews]) {
-        if ([subview isKindOfClass:NSClassFromString(@"StatusItemsView")]) {
-            statusItemsView = (StatusItemsView *)subview;
+        if ([subview isKindOfClass:[NSMenuView class]]) {
+            extrasMenuView = subview;
             break;
         }
     }
 
-    CGFloat statusItemsWidth = 0;
-    if (statusItemsView) {
-        statusItemsWidth = [statusItemsView totalRequiredWidth];
-        [statusItemsView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth, 0,
-                                              statusItemsWidth, menuBarHeight)];
+    CGFloat extrasMenuWidth = [self.menuExtraManager extrasMenuWidth];
+    if (extrasMenuView) {
+        [extrasMenuView setFrame:NSMakeRect(contentW - extrasMenuWidth - 8, 0,
+                                            extrasMenuWidth, contentH)];
     }
 
     // Resize app menu widget to fill remaining space
-    CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth;
-    [self.appMenuWidget setFrame:NSMakeRect(0, 0, menuWidgetWidth, menuBarHeight)];
+    CGFloat menuWidgetWidth = contentW - extrasMenuWidth - 8;
+    [self.appMenuWidget setFrame:NSMakeRect(0, 0, menuWidgetWidth, contentH)];
+
+    // Re-layout the menu items so they reflow to the new bar width/height
+    // (fonts/images scale with GSScaleFactor, changing item widths).
+    [self.appMenuWidget.menuView sizeToFit];
+    [self.appMenuWidget setNeedsDisplay:YES];
 
     // Resize rounded corners view
     CGFloat cornerHeight = 10.0;
-    [self.roundedCornersView setFrame:NSMakeRect(0, menuBarHeight - cornerHeight,
-                                                  self.screenSize.width, cornerHeight)];
+    [self.roundedCornersView setFrame:NSMakeRect(0, contentH - cornerHeight,
+                                                  contentW, cornerHeight)];
 
-    // Update the StatusItemManager's cached screen width
-    [self.statusItemManager setScreenWidth:self.screenSize.width];
+    // Update the MenuExtraManager's cached screen width
+    [self.menuExtraManager setScreenWidth:self.screenSize.width];
 
     // Keep EWMH dock/strut properties synchronized with current geometry.
     [self applyMenuBarDockAndStrutProperties];
@@ -477,6 +730,37 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     // Redraw
     [self.menuBar display];
     NSDebugLLog(@"gwcomp", @"MenuController: Menu bar repositioned successfully");
+
+    /* The GNUstep backend may still convert GNUstep -> X11 coordinates with
+     * the previous screen height right after a resolution change, misplacing
+     * the bar.  Re-apply the position once the backend has settled. */
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                             selector:@selector(repositionMenuBarAfterScreenChange)
+                                               object:nil];
+    [self performSelector:@selector(repositionMenuBarAfterScreenChange)
+               withObject:nil
+               afterDelay:0.5];
+}
+
+- (void)positionMenuBarWindow
+{
+    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
+    CGFloat originX = self.screenFrame.origin.x;
+    CGFloat originY = self.screenFrame.origin.y;
+    NSRect menuRect = NSMakeRect(originX,
+                                 originY + self.screenSize.height - menuBarHeight,
+                                 self.screenSize.width, menuBarHeight);
+    [self.menuBar setFrame:menuRect display:NO];
+    [self.menuBar setFrameTopLeftPoint:NSMakePoint(originX, originY + self.screenSize.height)];
+}
+
+- (void)repositionMenuBarAfterScreenChange
+{
+    /* Same ordering as in screenParametersChanged:: clear the struts first,
+       reposition, then re-apply them. */
+    [self removeMenuBarStruts];
+    [self positionMenuBarWindow];
+    [self applyMenuBarDockAndStrutProperties];
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
@@ -554,22 +838,29 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         double cpuPercent = (cpuDelta / wallDelta) * 100.0;
         unsigned long activeWindowId = [[WindowMonitor sharedMonitor] getActiveWindow];
         unsigned long shownWindowId = self.appMenuWidget ? self.appMenuWidget.currentWindowId : 0UL;
+        /* Track how many GNUstep windows have cached menus: this must stay
+           bounded.  Growth across a long session indicates windows closing
+           without unregistering (crash/no DO unregister); the importer's
+           reconcileMenusWithLiveWindows: sweep purges those. */
+        NSUInteger cachedMenuCount = [GNUStepMenuImporter cachedMenuCount];
         if (wallDelta > 1.5) {
-            NSLog(@"[CPU] delayed sample last %.2fs total=%.2f%% user=%.2fms sys=%.2fms active=0x%lx shown=0x%lx",
+            NSLog(@"[CPU] delayed sample last %.2fs total=%.2f%% user=%.2fms sys=%.2fms active=0x%lx shown=0x%lx menus=%lu",
                   wallDelta,
                   cpuPercent,
                   userDelta * 1000.0,
                   systemDelta * 1000.0,
                   activeWindowId,
-                  shownWindowId);
+                  shownWindowId,
+                  (unsigned long)cachedMenuCount);
         } else {
-            NSLog(@"[CPU] last %.2fs total=%.2f%% user=%.2fms sys=%.2fms active=0x%lx shown=0x%lx",
+            NSLog(@"[CPU] last %.2fs total=%.2f%% user=%.2fms sys=%.2fms active=0x%lx shown=0x%lx menus=%lu",
                   wallDelta,
                   cpuPercent,
                   userDelta * 1000.0,
                   systemDelta * 1000.0,
                   activeWindowId,
-                  shownWindowId);
+                  shownWindowId,
+                  (unsigned long)cachedMenuCount);
         }
     }
 
@@ -656,47 +947,133 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         if (next > max) next = max;
 
         [backend set:next];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"BrightnessChanged" object:nil];
     }];
 
-    // Also register XF86 brightness keys so volume-like XF86 handling works.
+    // Also register XF86 brightness keys — forwarded via notification to BrightnessExtra.
     X11ShortcutManager *mgr = [X11ShortcutManager sharedManager];
     if (mgr) {
-        [mgr registerXF86Key:XF86XK_MonBrightnessUp target:self action:@selector(_brightnessUp)];
-        [mgr registerXF86Key:XF86XK_MonBrightnessDown target:self action:@selector(_brightnessDown)];
+        [mgr registerXF86Key:XF86XK_MonBrightnessUp target:self action:@selector(_xf86BrightnessUp)];
+        [mgr registerXF86Key:XF86XK_MonBrightnessDown target:self action:@selector(_xf86BrightnessDown)];
     }
 
     NSDebugLLog(@"gwcomp", @"MenuController: Backlight control started (max=%d, step=%d)",
           maxBrightness, step);
 }
 
-- (void)_brightnessUp
+#pragma mark - XF86 multimedia key forwarding
+
+- (void)_xf86VolumeUp
 {
-    [self _adjustBrightnessBy:1];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraVolumeUp" object:nil];
 }
 
-- (void)_brightnessDown
+- (void)_xf86VolumeDown
 {
-    [self _adjustBrightnessBy:-1];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraVolumeDown" object:nil];
 }
 
-- (void)_adjustBrightnessBy:(int)delta
+- (void)_xf86Mute
 {
-    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-    if (now - _lastBrightnessAdjust < 0.2) return;
-    _lastBrightnessAdjust = now;
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraMute" object:nil];
+}
 
-    id<BacklightBackend> backend = _backlightBackend;
-    if (!backend) return;
+- (void)_xf86BrightnessUp
+{
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraBrightnessUp" object:nil];
+}
 
-    int cur = [backend current];
-    int max = [backend maximum];
-    int step = max / 20;
-    int next = cur + delta * step;
+- (void)_xf86BrightnessDown
+{
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GSMenuExtraBrightnessDown" object:nil];
+}
 
-    if (next < 0) next = 0;
-    if (next > max) next = max;
+#pragma mark - Power key (short/long press)
 
-    [backend set:next];
+/* Long-press threshold for the hardware power key. */
+#define POWER_KEY_LONG_PRESS 5.0
+
+/* Power key pressed: start a long-press timer.  If the key is released
+ * before the timer fires it is a short press (shutdown confirmation); if
+ * the timer fires the user held the key (immediate shutdown). */
+- (void)_xf86PowerKeyPressed
+{
+    if (self.powerKeyTimer) {
+        [self.powerKeyTimer invalidate];
+    }
+    self.powerKeyTriggered = NO;
+    self.powerKeyTimer = [NSTimer scheduledTimerWithTimeInterval:POWER_KEY_LONG_PRESS
+                                                          target:self
+                                                        selector:@selector(powerKeyLongPressTimerFired:)
+                                                        userInfo:nil
+                                                         repeats:NO];
+    NSDebugLLog(@"gwcomp", @"MenuController: Power key pressed, started long-press timer (%.1fs)", POWER_KEY_LONG_PRESS);
+}
+
+/* Power key released: if the long-press timer is still active it was a
+ * short press - show the shutdown confirmation.  If the long press already
+ * triggered, just reset the state. */
+- (void)_xf86PowerKeyReleased
+{
+    if (self.powerKeyTimer) {
+        [self.powerKeyTimer invalidate];
+        self.powerKeyTimer = nil;
+        self.powerKeyTriggered = NO;
+        [self showShutdownConfirmation];
+    } else if (self.powerKeyTriggered) {
+        self.powerKeyTriggered = NO;
+    }
+}
+
+/* Long press: shut down immediately without asking. */
+- (void)powerKeyLongPressTimerFired:(NSTimer *)timer
+{
+    self.powerKeyTimer = nil;
+    self.powerKeyTriggered = YES;
+    NSDebugLLog(@"gwcomp", @"MenuController: Power key long-press detected: shutting down");
+    [SystemActions executeShutdown];
+}
+
+/* Confirms the shutdown with the same dialog the menu uses, then shuts
+ * down. */
+- (void)showShutdownConfirmation
+{
+    NSString *title = NSLocalizedString(@"Shut Down", nil);
+    NSString *message = NSLocalizedString(@"Are you sure you want to quit\nall applications and shut down now?", nil);
+    NSDebugLLog(@"gwcomp", @"MenuController: Power key short press - showing shutdown confirmation");
+
+    /* Defer so the modal appears after any menu closes, mirroring the
+     * menu path. */
+    NSDictionary *info = @{
+        @"title": title,
+        @"message": message,
+        @"action": @"shutdown"
+    };
+    [self performSelector:@selector(showPowerActionConfirmation:)
+               withObject:info
+               afterDelay:0.15];
+}
+
+/* Shows the confirmation dialog for a power action and executes it on
+ * confirmation (shared with the power key path). */
+- (void)showPowerActionConfirmation:(NSDictionary *)info
+{
+    NSString *title = [info objectForKey:@"title"];
+    NSString *message = [info objectForKey:@"message"];
+    NSString *actionType = [info objectForKey:@"action"];
+
+    if (NSRunAlertPanel(title, message, title, NSLocalizedString(@"Cancel", nil), nil)) {
+        NSDebugLLog(@"gwcomp", @"MenuController: User confirmed %@", actionType);
+        if ([actionType isEqualToString:@"shutdown"]) {
+            [SystemActions executeShutdown];
+        } else if ([actionType isEqualToString:@"restart"]) {
+            [SystemActions executeRestart];
+        } else {
+            [SystemActions executeLogout];
+        }
+    } else {
+        NSDebugLLog(@"gwcomp", @"MenuController: User cancelled %@", actionType);
+    }
 }
 
 #pragma mark - Mic mute (evdev, to preserve hardware LED)
@@ -742,7 +1119,12 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             // Found a device with mic mute key
             char path[64];
             snprintf(path, sizeof(path), "/dev/input/event%d", eventNum);
-            int fd = open(path, O_RDONLY);
+            /* O_NONBLOCK: the drain loop below must return EAGAIN when the
+             * event queue is empty instead of blocking in read() forever -
+             * a blocking fd keeps the thread stuck in read() so the 1s poll
+             * timeout and the _micMuteMonitorRunning flag never get a chance
+             * to run, and the thread + fd leak after stop. */
+            int fd = open(path, O_RDONLY | O_NONBLOCK);
             if (fd >= 0) {
                 _micMuteFDs[_micMuteFDCount++] = fd;
             }
@@ -778,6 +1160,13 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             nfds++;
         }
 
+        /* If no devices are available, exit immediately - poll() with nfds=0
+         * returns 0 immediately, spinning the loop forever at 100% CPU. */
+        if (nfds == 0) {
+            NSDebugLLog(@"gwcomp", @"MenuController: No mic-mute evdev devices - not starting monitor");
+            return;
+        }
+
         while (_micMuteMonitorRunning) {
             int ret = poll(fds, nfds, 1000);
             if (ret < 0) {
@@ -786,17 +1175,40 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             }
             if (ret == 0) continue;
 
+            BOOL anyValidFD = NO;
             for (int i = 0; i < nfds; i++) {
+                if (fds[i].fd < 0) continue;
+                anyValidFD = YES;
+                /* A deleted/replaced input device leaves its fd permanently
+                 * readable with POLLHUP/POLLERR, so poll() returns immediately
+                 * and the loop busy-spins at 100% CPU.  Close the dead fd and
+                 * stop polling the slot (poll() ignores entries with fd < 0). */
+                if (fds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+                    close(fds[i].fd);
+                    _micMuteFDs[i] = -1;
+                    fds[i].fd = -1;
+                    continue;
+                }
                 if (fds[i].revents & POLLIN) {
                     struct input_event ev;
+                    /* fd is O_NONBLOCK: drain until EAGAIN.  Never spin on
+                     * error - a non-EAGAIN failure just ends the drain and
+                     * the next poll() iteration reports HUP/ERR. */
                     while (read(fds[i].fd, &ev, sizeof(ev)) == sizeof(ev)) {
                         if (ev.type == EV_KEY && ev.code == KEY_MICMUTE && ev.value == 1) {
-                            dispatch_async(dispatch_get_main_queue(), ^{
-                                [SoundVolume toggleMicMute];
+                            dispatch_async([GSVolumeControl volumeQueue], ^{
+                                [GSVolumeControl toggleMicMute];
                             });
                         }
                     }
                 }
+            }
+            /* All monitored fds are dead (POLLHUP/POLLERR closed them all).
+             * Calling poll() with all -1 fds returns 0 immediately, spinning
+             * the CPU at 100%.  Detect this and exit the thread cleanly. */
+            if (!anyValidFD) {
+                NSDebugLLog(@"gwcomp", @"MenuController: All mic-mute evdev fds dead - stopping monitor");
+                break;
             }
         }
 
@@ -817,6 +1229,182 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     _micMuteThread = nil;
 }
 
+#pragma mark - Power key (evdev)
+
+/* The X server does not reliably deliver the physical power button to the
+ * root window grab (the keycode/keysym mapping differs per input device), so
+ * read KEY_POWER directly from the kernel input devices instead.  This is the
+ * same approach used for the mic-mute LED key. */
+- (void)startPowerKeyMonitor
+{
+#ifdef __linux__
+    _powerKeyFDCount = 0;
+    memset(_powerKeyFDs, -1, sizeof(_powerKeyFDs));
+
+    // Scan /proc/bus/input/devices for devices that report KEY_POWER (116)
+    FILE *fp = fopen("/proc/bus/input/devices", "r");
+    if (!fp) return;
+    char line[512];
+    BOOL hasPower = NO;
+    int eventNum = -1;
+    while (fgets(line, sizeof(line), fp)) {
+        if (strncmp(line, "N: Name=", 8) == 0) {
+            hasPower = NO;
+            eventNum = -1;
+        } else if (strncmp(line, "B: KEY=", 7) == 0) {
+            // Check for KEY_POWER (116) in the key bitmap
+            unsigned long bits[8] = {0};
+            char *p = line + 7;
+            for (int i = 0; i < 8 && *p; i++) {
+                bits[i] = strtoul(p, &p, 16);
+            }
+            unsigned long word = bits[116 / (sizeof(long) * 8)];
+            unsigned long bit = 1UL << (116 % (sizeof(long) * 8));
+            if (word & bit) {
+                hasPower = YES;
+            }
+        } else if (strncmp(line, "H: Handlers=", 12) == 0) {
+            char *h = line + 12;
+            char *tok = strtok(h, " \t\n");
+            while (tok) {
+                if (strncmp(tok, "event", 5) == 0) {
+                    eventNum = atoi(tok + 5);
+                }
+                tok = strtok(NULL, " \t\n");
+            }
+        } else if (line[0] == '\n' && hasPower && eventNum >= 0) {
+            // Found a device with the power key
+            char path[64];
+            snprintf(path, sizeof(path), "/dev/input/event%d", eventNum);
+            /* O_NONBLOCK: see the mic-mute monitor for why the drain loop
+             * must never block in read(). */
+            int fd = open(path, O_RDONLY | O_NONBLOCK);
+            if (fd >= 0) {
+                _powerKeyFDs[_powerKeyFDCount++] = fd;
+            }
+            hasPower = NO;
+            eventNum = -1;
+            if (_powerKeyFDCount >= 16) break;
+        }
+    }
+    fclose(fp);
+
+    if (_powerKeyFDCount == 0) return;
+
+    _powerKeyMonitorRunning = YES;
+    _powerKeyThread = [[NSThread alloc] initWithTarget:self
+                                              selector:@selector(_powerKeyMonitorThread)
+                                                object:nil];
+    [_powerKeyThread start];
+#else
+    NSDebugLLog(@"gwcomp", @"MenuController: Power key evdev monitor not available on this platform");
+#endif
+}
+
+- (void)_powerKeyMonitorThread
+{
+#ifdef __linux__
+    @autoreleasepool {
+        struct pollfd fds[16];
+        int nfds = 0;
+        for (int i = 0; i < _powerKeyFDCount; i++) {
+            fds[nfds].fd = _powerKeyFDs[i];
+            fds[nfds].events = POLLIN;
+            fds[nfds].revents = 0;
+            nfds++;
+        }
+
+        /* If no devices are available, exit immediately - poll() with nfds=0
+         * returns 0 immediately, spinning the loop forever at 100% CPU. */
+        if (nfds == 0) {
+            NSDebugLLog(@"gwcomp", @"MenuController: No power-key evdev devices - not starting monitor");
+            return;
+        }
+
+        while (_powerKeyMonitorRunning) {
+            int ret = poll(fds, nfds, 1000);
+            if (ret < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            if (ret == 0) continue;
+
+            BOOL anyValidFD = NO;
+            for (int i = 0; i < nfds; i++) {
+                if (fds[i].fd < 0) continue;
+                anyValidFD = YES;
+                /* A deleted/replaced input device leaves its fd permanently
+                 * readable with POLLHUP/POLLERR, so poll() returns immediately
+                 * and the loop busy-spins at 100% CPU.  Drain any pending
+                 * events first (a power-key RELEASE may still be queued - if
+                 * it is lost while the long-press timer runs, the timer fires
+                 * and shuts the machine down without asking), then close the
+                 * dead fd and stop polling the slot (poll() ignores entries
+                 * with fd < 0). */
+                if (fds[i].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+                    if (fds[i].revents & POLLIN) {
+                        struct input_event ev;
+                        while (read(fds[i].fd, &ev, sizeof(ev)) == sizeof(ev)) {
+                            if (ev.type == EV_KEY && ev.code == KEY_POWER) {
+                                if (ev.value == 1) {
+                                    dispatch_async(dispatch_get_main_queue(), ^{
+                                        [self _xf86PowerKeyPressed];
+                                    });
+                                } else if (ev.value == 0) {
+                                    dispatch_async(dispatch_get_main_queue(), ^{
+                                        [self _xf86PowerKeyReleased];
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    close(fds[i].fd);
+                    _powerKeyFDs[i] = -1;
+                    fds[i].fd = -1;
+                    continue;
+                }
+                if (fds[i].revents & POLLIN) {
+                    struct input_event ev;
+                    /* fd is O_NONBLOCK: drain until EAGAIN (see mic-mute). */
+                    while (read(fds[i].fd, &ev, sizeof(ev)) == sizeof(ev)) {
+                        if (ev.type == EV_KEY && ev.code == KEY_POWER && ev.value == 1) {
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                [self _xf86PowerKeyPressed];
+                            });
+                        } else if (ev.type == EV_KEY && ev.code == KEY_POWER && ev.value == 0) {
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                [self _xf86PowerKeyReleased];
+                            });
+                        }
+                    }
+                }
+            }
+            /* All monitored fds are dead (POLLHUP/POLLERR closed them all).
+             * Calling poll() with all -1 fds returns 0 immediately, spinning
+             * the CPU at 100%.  Detect this and exit the thread cleanly. */
+            if (!anyValidFD) {
+                NSDebugLLog(@"gwcomp", @"MenuController: All power-key evdev fds dead - stopping monitor");
+                break;
+            }
+        }
+
+        // Cleanup FDs
+        for (int i = 0; i < _powerKeyFDCount; i++) {
+            if (_powerKeyFDs[i] >= 0) {
+                close(_powerKeyFDs[i]);
+                _powerKeyFDs[i] = -1;
+            }
+        }
+    }
+#endif
+}
+
+- (void)_stopPowerKeyMonitor
+{
+    _powerKeyMonitorRunning = NO;
+    _powerKeyThread = nil;
+}
+
 - (void)applicationWillTerminate:(NSNotification *)notification
 {
     NSDebugLLog(@"gwcomp", @"MenuController: Application will terminate");
@@ -824,11 +1412,11 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     [self stopCPUUsageLogging];
 #endif
     
-    // Unload status items first
-    if (self.statusItemManager) {
-        NSDebugLLog(@"gwcomp", @"MenuController: Unloading status items...");
-        [self.statusItemManager unloadAllStatusItems];
-        self.statusItemManager = nil;
+    // Unload menu extras first
+    if (self.menuExtraManager) {
+        NSDebugLLog(@"gwcomp", @"MenuController: Unloading menu extras...");
+        [self.menuExtraManager unloadAllMenuExtras];
+        self.menuExtraManager = nil;
     }
     
     // Stop backlight control
@@ -841,6 +1429,9 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
     // Stop mic mute evdev monitor
     [self _stopMicMuteMonitor];
+
+    // Stop the power key evdev monitor
+    [self _stopPowerKeyMonitor];
 
     // Clean up global shortcuts
     NSDebugLLog(@"gwcomp", @"MenuController: Cleaning up global shortcuts...");
@@ -863,6 +1454,8 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 - (void)createMenuBar
 {
     NSDebugLLog(@"gwcomp", @"MenuController: ===== CREATING MENU BAR =====");
+    /* Raw theme height: GNUstep multiplies the window frame by the scale
+     * factor at creation, so the resulting device height is 22 * sf. */
     const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
     NSDebugLLog(@"gwcomp", @"MenuController: Menu bar height: %.0f", menuBarHeight);
     
@@ -874,11 +1467,12 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     attributes = [NSMutableDictionary new];
     [attributes setObject:menuFont forKey:NSFontAttributeName];
     
-    self.screenFrame = [[[NSScreen screens] objectAtIndex:0] frame];
-    self.screenSize = self.screenFrame.size;
-    NSDebugLLog(@"gwcomp", @"MenuController: Screen frame: %.0f,%.0f %.0fx%.0f",
-          self.screenFrame.origin.x, self.screenFrame.origin.y, self.screenSize.width, self.screenSize.height);
-    
+    NSRect sf = [[[NSScreen screens] objectAtIndex:0] frame];
+    sf.size.width = MenuControllerScreenWidth();
+    sf.size.width /= MenuControllerScaleFactor();
+    self.screenFrame = sf;
+    self.screenSize = sf.size;
+
     color = [self backgroundColor];
     NSDebugLLog(@"gwcomp", @"MenuController: Background color: %@", color);
         
@@ -898,7 +1492,8 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     NSDebugLLog(@"gwcomp", @"MenuController: Created NSWindow: %@", self.menuBar);
     
     [self.menuBar setTitle:@"Menu"];
-    [self.menuBar setBackgroundColor:color];
+    [self.menuBar setBackgroundColor:[NSColor clearColor]];
+    [self.menuBar setOpaque:NO];
     [self.menuBar setAlphaValue:1.0];
     [self.menuBar setLevel:NSMainMenuWindowLevel + 1]; // Higher than main menu, but not floating
     [self.menuBar setCanHide:NO];
@@ -920,26 +1515,32 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     self.menuBarView = [[MenuBarView alloc] initWithFrame:NSMakeRect(0, 0, self.screenSize.width, menuBarHeight)];
     NSDebugLLog(@"gwcomp", @"MenuController: Created MenuBarView: %@", self.menuBarView);
     
-    // Create app menu widget for displaying menus - leave space for status items on right
-    // Status item width is computed dynamically from loaded providers below.
-    // First, create and load the StatusItemManager to know the total width.
-    NSDebugLLog(@"gwcomp", @"MenuController: Creating StatusItemManager");
-    self.statusItemManager = [[StatusItemManager alloc] initWithScreenWidth:self.screenSize.width
+    // Create app menu widget for displaying menus - leave space for menu extras on right
+    // Menu extra width is computed dynamically from loaded bundles below.
+    // First, create and load the MenuExtraManager to know the total width.
+    NSDebugLLog(@"gwcomp", @"MenuController: Creating MenuExtraManager");
+    self.menuExtraManager = [[MenuExtraManager alloc] initWithScreenWidth:self.screenSize.width
                                                              menuBarHeight:menuBarHeight];
-    [self.statusItemManager loadStatusItems];
-    NSDebugLLog(@"gwcomp", @"MenuController: StatusItemManager items loaded");
+    [self.menuExtraManager loadMenuExtras];
+    NSDebugLLog(@"gwcomp", @"MenuController: MenuExtraManager items loaded");
 
-    // Create the status items view (fixed-width cells, laid out right-to-left)
-    StatusItemsView *statusItemsView = [self.statusItemManager createStatusItemsView];
-    CGFloat statusItemsWidth = [statusItemsView totalRequiredWidth];
-    NSDebugLLog(@"gwcomp", @"MenuController: StatusItemsView total width: %.0f", statusItemsWidth);
+    // Create the extras menu view (horizontal NSMenuView)
+    NSView *extrasMenuView = [self.menuExtraManager createExtrasMenuView];
+    CGFloat extrasMenuWidth = [self.menuExtraManager extrasMenuWidth];
+    NSDebugLLog(@"gwcomp", @"MenuController: Extras menu view width: %.0f", extrasMenuWidth);
 
-    // Position status items at the right edge of the menu bar
-    [statusItemsView setFrame:NSMakeRect(self.screenSize.width - statusItemsWidth, 0,
-                                          statusItemsWidth, menuBarHeight)];
+    // Position extras 8px from the right edge of the menu bar
+    [extrasMenuView setFrame:NSMakeRect(self.screenSize.width - extrasMenuWidth - 8, 0,
+                                        extrasMenuWidth, menuBarHeight)];
+
+    // Observe extras layout changes so we can resize AppMenuWidget
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(extrasEnabledSetDidChange:)
+                                                 name:@"GSMenuExtraEnabledSetDidChange"
+                                               object:self.menuExtraManager];
 
     // Give the app menu widget the remaining space
-    CGFloat menuWidgetWidth = self.screenSize.width - statusItemsWidth;
+    CGFloat menuWidgetWidth = self.screenSize.width - extrasMenuWidth - 8;
     self.appMenuWidget = [[AppMenuWidget alloc] initWithFrame:NSMakeRect(0, 0, menuWidgetWidth, menuBarHeight)];
     NSDebugLLog(@"gwcomp", @"MenuController: AppMenuWidget created successfully");
     
@@ -972,13 +1573,13 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
     // Add MenuBarView as the background (spans full width)
     [[self.menuBar contentView] addSubview:self.menuBarView];
     
-    // Add AppMenuWidget and StatusItemsView as children of MenuBarView (on top of the background)
+    // Add AppMenuWidget and extras menu view as children of MenuBarView (on top of the background)
     [self.menuBarView addSubview:self.appMenuWidget];
     
-    // Add the status items view and start update timers
-    [self.menuBarView addSubview:statusItemsView];
-    [self.statusItemManager startUpdateTimers];
-    NSDebugLLog(@"gwcomp", @"MenuController: Added StatusItemsView as child of MenuBarView");
+    // Add the extras menu view and start update timers
+    [self.menuBarView addSubview:extrasMenuView];
+    [self.menuExtraManager startUpdateTimers];
+    NSDebugLLog(@"gwcomp", @"MenuController: Added extras menu view as child of MenuBarView");
     
     // Finally add rounded corners on top of everything
     [[self.menuBar contentView] addSubview:self.roundedCornersView];
@@ -1012,6 +1613,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         } else {
             NSDebugLLog(@"gwcomp", @"MenuController: Failed to register Cmd-Space as global shortcut");
             // Notify user with alert so failure is visible
+            NSLog(@"NSAlert: Cannot register global shortcut");
             NSAlert *alert = [[NSAlert alloc] init];
             [alert setMessageText:NSLocalizedString(@"Cannot register global shortcut", @"Alert title for shortcut failure")];
             [alert setInformativeText:NSLocalizedString(@"Menu.app failed to register the Cmd-Space global shortcut. Please check for conflicts or permissions.", @"Alert text for shortcut failure")];
@@ -1028,14 +1630,32 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         }
     }
 
-    // Register XF86Audio volume keys for hardware volume control.
+    // Register XF86Audio volume keys — forwarded via notification to SoundExtra.
     X11ShortcutManager *volMgr = [X11ShortcutManager sharedManager];
     if (volMgr) {
-        [volMgr registerXF86Key:XF86XK_AudioRaiseVolume target:[SoundVolume class] action:@selector(increaseVolume)];
-        [volMgr registerXF86Key:XF86XK_AudioLowerVolume target:[SoundVolume class] action:@selector(decreaseVolume)];
-        [volMgr registerXF86Key:XF86XK_AudioMute target:[SoundVolume class] action:@selector(toggleMute)];
-        NSDebugLLog(@"gwcomp", @"MenuController: Registered XF86Audio volume keys");
+        [volMgr registerXF86Key:XF86XK_AudioRaiseVolume target:self action:@selector(_xf86VolumeUp)];
+        [volMgr registerXF86Key:XF86XK_AudioLowerVolume target:self action:@selector(_xf86VolumeDown)];
+        [volMgr registerXF86Key:XF86XK_AudioMute target:self action:@selector(_xf86Mute)];
+        NSDebugLLog(@"gwcomp", @"MenuController: Registered XF86Audio volume keys via notifications");
     }
+
+    // Register the hardware power key (XF86PowerOff).  A short press shows the
+    // shutdown confirmation; a long press (> POWER_KEY_LONG_PRESS) shuts down
+    // immediately.  This used to live in the Workspace.
+    X11ShortcutManager *pwrMgr = [X11ShortcutManager sharedManager];
+    if (pwrMgr) {
+        [pwrMgr registerXF86Key:XF86XK_PowerOff
+                         target:self
+                         action:@selector(_xf86PowerKeyPressed)
+                  releaseTarget:self
+                  releaseAction:@selector(_xf86PowerKeyReleased)];
+        NSDebugLLog(@"gwcomp", @"MenuController: Registered power key (XF86PowerOff)");
+    }
+
+    // The physical power button is not reliably delivered to the X11 grab on
+    // every machine, so also monitor it directly via evdev (KEY_POWER).  The
+    // X11 registration above stays as a secondary path.
+    [self startPowerKeyMonitor];
 
     // Mic mute uses evdev (not XGrabKey) so the system mic-mute LED still works.
     [self startMicMuteMonitor];
@@ -1056,10 +1676,28 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
                                              selector:@selector(screenParametersChanged:)
                                                  name:NSApplicationDidChangeScreenParametersNotification
                                                object:nil];
+
+    // React live to GSScaleFactor changes.  GNUstep only posts
+    // NSUserDefaultsDidChangeNotification for changes made in this process,
+    // so instead poll: synchronize re-reads external writes, then diff
+    // against the last seen value so unrelated changes are ignored.
+    [NSTimer scheduledTimerWithTimeInterval:1.0
+                                     target:self
+                                   selector:@selector(checkScaleFactor:)
+                                   userInfo:nil
+                                    repeats:YES];
 }
 
 - (void)setupMenuBar
 {
+    /* GNUstep loads the defaults lazily; synchronize up front so the first
+     * GSScaleFactor read (used when creating the menu bar below) sees the
+     * externally-written value instead of a stale one. */
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    MenuControllerLastScaleFactor = [[NSUserDefaults standardUserDefaults] floatForKey:@"GSScaleFactor"];
+    if (MenuControllerLastScaleFactor == 0.0)
+        MenuControllerLastScaleFactor = 1.0;
+
     NSDebugLLog(@"gwcomp", @"MenuController: Setting up menu bar using createMenuBar method");
     [self createMenuBar];
     NSDebugLLog(@"gwcomp", @"MenuController: Menu bar setup complete at %.0f,%.0f %.0fx%.0f", self.screenFrame.origin.x, self.screenFrame.origin.y, self.screenSize.width, [[GSTheme theme] menuBarHeight]);
@@ -1201,8 +1839,46 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
                                                                 selector:@selector(windowValidationTick:)
                                                                 userInfo:nil
                                                                  repeats:YES];
+
+    // Fallback poll for the active window.  The WindowMonitor is event-driven
+    // via a dispatch source on its own X connection; that source has been
+    // observed to stop firing after a while (GCD read-source on an Xlib fd),
+    // which leaves the menu stuck on the previously active app.  Polling every
+    // 100ms on a fresh connection keeps the menu tracking responsive (the menu
+    // must follow an app switch within ~100ms).
+    self.activeWindowPollTimer = [NSTimer scheduledTimerWithTimeInterval:0.1
+                                                                  target:self
+                                                                selector:@selector(activeWindowPollTick:)
+                                                                userInfo:nil
+                                                                 repeats:YES];
     
     NSDebugLLog(@"gwcomp", @"MenuController: Window monitoring setup complete");
+}
+
+- (void)activeWindowPollTick:(NSTimer *)timer
+{
+    @try {
+        /* Read the active window live via MenuUtils' shared X connection.
+           Do NOT use the WindowMonitor's cached value: its event loop is
+           known to stall (see the monitor setup comment), so the cache goes
+           stale and Menu would miss or lag active-app switches.  Do NOT open
+           a fresh X connection per tick either - that churns ~36000 connects
+           per hour and accumulated CPU on long-running sessions.  The shared
+           persistent connection gives a fresh read with no per-tick cost. */
+        unsigned long activeWindow = [MenuUtils getActiveWindow];
+
+        if (activeWindow == 0 || activeWindow == self.lastProcessedWindowId) {
+            return;
+        }
+        if (self.appMenuWidget) {
+            [self.appMenuWidget updateForActiveWindowId:activeWindow];
+        }
+        self.lastProcessedWindowId = activeWindow;
+        self.lastProcessedTime = [[NSDate date] timeIntervalSince1970];
+    }
+    @catch (NSException *ex) {
+        NSDebugLLog(@"gwcomp", @"MenuController: Exception in activeWindowPollTick: %@", ex);
+    }
 }
 
 - (void)activeWindowChangedNotification:(NSNotification *)notification
@@ -1232,10 +1908,27 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         return;
     }
 
-    /* Ignore focus on Menu.app itself. */
-    if (windowId != 0 && [NSApp windowWithWindowNumber:windowId] != nil) {
-        MENU_PROFILE_END(activeWindowChangedNotification);
-        return;
+    /* Ignore focus on Menu.app itself — but still forward to AppMenuWidget to
+       cancel any stale coalesce timer left by a transient windowId==0 event.
+       The widget's handleFocusChange: will return early via isSelfWindow.
+
+       Also match windows by PID to catch NSMenuWindow popups created by our
+       own process that [NSApp windowWithWindowNumber:] does not track. */
+    if (windowId != 0) {
+        BOOL isSelfWindow = ([NSApp windowWithWindowNumber:windowId] != nil);
+        if (!isSelfWindow) {
+            isSelfWindow = ((pid_t)[MenuUtils getWindowPID:windowId]
+                            == [[NSProcessInfo processInfo] processIdentifier]);
+        }
+        if (isSelfWindow) {
+            if (self.appMenuWidget) {
+                [self.appMenuWidget updateForActiveWindowId:windowId];
+            }
+            self.lastProcessedWindowId = windowId;
+            self.lastProcessedTime = [[NSDate date] timeIntervalSince1970];
+            MENU_PROFILE_END(activeWindowChangedNotification);
+            return;
+        }
     }
 
     self.lastProcessedWindowId = windowId;
@@ -1285,6 +1978,17 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
         // CRITICAL FIX: Only validate the shown window if it's still the active window
         // If we've switched to a different window, don't clear the menu for the OLD window
+        if (activeWindow == 0) {
+            // No active window reported.  The WM is transiently reporting 0
+            // (e.g. Chromium recycling its window IDs), so the shown window
+            // may be stale even though the app is still frontmost.  Clearing
+            // here made every app's menu vanish a few seconds after it loaded
+            // - and unregistered its shortcuts.  Keep the menu until we know
+            // what is actually active.
+            NSDebugLLog(@"gwcomp", @"MenuController: No active window - keeping current menu");
+            MENU_PROFILE_END(windowValidationTick);
+            return;
+        }
         if (activeWindow != 0 && shownWindow != activeWindow) {
             // We've switched to a different window - the shown window ID is stale
             // Don't validate it, let the normal window change handling take care of it
@@ -1307,6 +2011,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         // 2. Active window is 0 (no window focused)
         if (![MenuUtils isWindowValid:shownWindow] || ![MenuUtils isWindowMapped:shownWindow]) {
             NSDebugLog(@"MenuController: Watchdog detected invalid/closed window 0x%lx - clearing menu", shownWindow);
+            NSDebugLog(@"MenuController: Watchdog detected invalid/closed window 0x%lx - clearing menu", shownWindow);
             [self.appMenuWidget clearMenuAndHideView];
             self.lastClearedWindowId = shownWindow;
             self.lastClearedTime = now;
@@ -1315,16 +2020,12 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
             return;
         }
 
-        // If the system reports no active window, but we have a menu for one, hide it
-        if (activeWindow == 0 && shownWindow != 0) {
-            NSDebugLLog(@"gwcomp", @"MenuController: Active window is 0 but menu shown for 0x%lx - clearing menu", shownWindow);
-            [self.appMenuWidget clearMenuAndHideView];
-            self.lastClearedWindowId = shownWindow;
-            self.lastClearedTime = now;
-            self.lastClearSuppressUntil = 0;
-            MENU_PROFILE_END(windowValidationTick);
-            return;
-        }
+        // NOTE: no longer clear when the WM reports no active window while a
+        // menu is shown.  _NET_ACTIVE_WINDOW is transiently 0 whenever the
+        // focused app juggles internal/helper windows (e.g. Chromium), so this
+        // cleared every app's menu - and unregistered its shortcuts - a few
+        // seconds after it loaded.  The shown window is still valid and mapped
+        // (checked above), so the menu must stay until a real focus change.
     }
     @catch (NSException *ex) {
         NSDebugLLog(@"gwcomp", @"MenuController: Exception in windowValidationTick: %@", ex);
@@ -1365,11 +2066,8 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         NSDebugLLog(@"gwcomp", @"MenuController: Set _NET_SUPPORTING_WM property");
     }
     
-    // Set _NET_SUPPORTED property to list supported features
-    Atom netSupportedAtom = XInternAtom(display, "_NET_SUPPORTED", False);
-    Atom atomAtom = XInternAtom(display, "ATOM", False);
-    
-    // List of atoms we support for global menu functionality
+    // Advertise our global-menu atoms by merging them into the WM-owned
+    // _NET_SUPPORTED property, never replacing it.
     Atom supportedAtoms[] = {
         XInternAtom(display, "_NET_WM_WINDOW_TYPE", False),
         XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", False),
@@ -1381,15 +2079,15 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
         XInternAtom(display, "_GTK_WINDOW_OBJECT_PATH", False),
         XInternAtom(display, "_GTK_APP_MENU_OBJECT_PATH", False)
     };
+    [MenuUtils mergeNetSupportedAtoms:supportedAtoms
+                                count:sizeof(supportedAtoms) / sizeof(Atom)
+                                onRoot:root
+                              display:display];
     
-    XChangeProperty(display, root, netSupportedAtom, atomAtom, 32,
-                   PropModeReplace, (unsigned char*)supportedAtoms, 
-                   sizeof(supportedAtoms) / sizeof(Atom));
-    
-    NSDebugLLog(@"gwcomp", @"MenuController: Set _NET_SUPPORTED property with %lu atoms", 
-          sizeof(supportedAtoms) / sizeof(Atom));
+    NSDebugLLog(@"gwcomp", @"MenuController: Merged global menu atoms into _NET_SUPPORTED");
     
     // Set Unity-specific properties that Chrome looks for
+    Atom atomAtom = XInternAtom(display, "ATOM", False);
     Atom unityGlobalMenuAtom = XInternAtom(display, "_UNITY_SUPPORTED", False);
     XChangeProperty(display, root, unityGlobalMenuAtom, atomAtom, 32,
                    PropModeReplace, (unsigned char*)supportedAtoms, 1);
@@ -1509,7 +2207,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
 - (void)animateMenuSlideIn
 {
-    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
     
     // Start animation timer for smooth slide-in from above
     self.slideInStartTime = [NSDate timeIntervalSinceReferenceDate];
@@ -1526,7 +2224,7 @@ static NSTimeInterval MenuControllerTimevalToSeconds(struct timeval value)
 
 - (void)updateSlideInAnimation
 {
-    const CGFloat menuBarHeight = [[GSTheme theme] menuBarHeight];
+    const CGFloat menuBarHeight = MenuControllerMenuBarHeight();
     NSTimeInterval elapsed = [NSDate timeIntervalSinceReferenceDate] - self.slideInStartTime;
     NSTimeInterval duration = 0.3;
     

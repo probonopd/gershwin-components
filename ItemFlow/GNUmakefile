@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 FRAMEWORK_NAME = ItemFlow
 VERSION = 1.0.0
@@ -12,3 +13,4 @@ ADDITIONAL_OBJCFLAGS += -fobjc-arc -fobjc-arc-exceptions
 ADDITIONAL_LDFLAGS += -lGL -lGLU
 
 include $(GNUSTEP_MAKEFILES)/framework.make
+

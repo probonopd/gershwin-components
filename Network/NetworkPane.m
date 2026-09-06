@@ -8,8 +8,29 @@
 
 #import "NetworkPane.h"
 #import "NetworkController.h"
+#include <stdlib.h>
 
 @implementation NetworkPane
+
++ (BOOL)isCompatible {
+  NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
+  NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
+  for (NSString *dir in paths) {
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
+          [dir stringByAppendingPathComponent: @"nmcli"]])
+      return YES;
+  }
+  for (NSString *dir in paths) {
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
+          [dir stringByAppendingPathComponent: @"ifconfig"]])
+      return YES;
+  }
+  return NO;
+}
+
++ (NSString *)compatibilityReason {
+  return @"Neither nmcli nor ifconfig found on PATH — Network configuration requires one of these";
+}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {

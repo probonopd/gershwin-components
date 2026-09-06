@@ -5,15 +5,24 @@
  *
  * OnDemand — Placeholder on-demand installer application.
  *
- * Reads its embedded Install.plist, checks if the target command
- * exists, installs packages if needed, then launches the command.
+ * Normal mode: reads its embedded Install.plist, checks if the target
+ * command exists, installs packages if needed, then launches the command.
+ *
+ * Direct install mode: when invoked with a package file path as argument
+ * (e.g., "OnDemand /path/to/file.deb"), detects the format and installs
+ * the package via the system package manager.
+ *
+ * Dependency mode: when invoked with a .plist path as argument
+ * (e.g., "OnDemand /path/to/Dependencies.plist"), installs the packages
+ * listed in that plist (no postinstall_command is expected; it just
+ * installs the packages and exits).  Used by OnDemand.bundle.
  */
 
 #import <AppKit/NSApplication.h>
 #import <Foundation/NSAutoreleasePool.h>
 #import "OnDemandController.h"
 
-// Keep controller alive for the run loop (NSApplication does not retain its delegate)
+// Keep controller alive for the run loop
 static OnDemandController *gController = nil;
 
 int main(int argc, const char *argv[])
@@ -21,6 +30,50 @@ int main(int argc, const char *argv[])
   [NSApplication sharedApplication];
   gController = [[OnDemandController alloc] init];
   [[NSApplication sharedApplication] setDelegate:gController];
+
+  /* Dependency mode: a .plist path was passed as argument.
+     The bundle invokes OnDemand with the Dependencies.plist of the
+     launching app.  Install the packages listed and exit — do NOT
+     try to launch a postinstall_command (there is none). */
+  if (argc > 1)
+    {
+      NSString *lastArg = [NSString stringWithUTF8String:argv[argc - 1]];
+      if ([lastArg hasSuffix:@".plist"])
+        {
+          NSLog(@"OnDemand -> main: dependency mode for %@", lastArg);
+          if (![gController setupFromCustomPlistPath:lastArg])
+            {
+              NSLog(@"OnDemand [FAIL] main: failed to read plist %@", lastArg);
+              return 1;
+            }
+          [[NSApplication sharedApplication] run];
+          return 0;
+        }
+    }
+
+  /* Direct install mode: file path provided (non-plist).
+     Workspace launches apps with "-GSFilePath <path>", so skip that flag. */
+  if (argc > 1)
+    {
+      int idx = 1;
+      NSString *flag = [NSString stringWithUTF8String:argv[1]];
+      if ([flag isEqualToString:@"-GSFilePath"])
+        idx = 2;
+      if (idx < argc)
+        {
+          NSString *path = [NSString stringWithUTF8String:argv[idx]];
+          NSLog(@"OnDemand -> main: direct install mode for %@", path);
+          if (![gController setupFromFile:path])
+            {
+              NSLog(@"OnDemand [FAIL] main: failed to handle %@", path);
+              [gController showError:[NSString stringWithFormat:
+                @"Could not install %@.\n\nThe format may not be supported or the file may be corrupt.",
+                [path lastPathComponent]]];
+            }
+          [[NSApplication sharedApplication] run];
+          return 0;
+        }
+    }
 
   if (![gController setupFromPlist])
     {
@@ -32,8 +85,8 @@ int main(int argc, const char *argv[])
   if ([gController commandIsAvailable])
     {
       NSLog(@"OnDemand -> main: command already installed, launching silently");
-      [gController launchAndExit]; // never returns (calls exit() internally)
-      return 1; // only reached if launchAndExit somehow returns
+      [gController launchAndExit]; // never returns
+      return 1;
     }
 
   // Otherwise start run loop; window will be shown in applicationDidFinishLaunching:

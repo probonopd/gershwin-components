@@ -1,36 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
+<plist version="0.9">
 <dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>English</string>
+	<key>CFBundleName</key>
+	<string>Bhyve Assistant</string>
+	<key>CFBundleDisplayName</key>
+	<string>Bhyve Assistant</string>
+	<key>ApplicationName</key>
+	<string>Bhyve Assistant</string>
+	<key>ApplicationDescription</key>
+	<string>Create and manage bhyve virtual machines step by step</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.BhyveAssistant</string>
 	<key>CFBundleExecutable</key>
 	<string>BhyveAssistant</string>
-	<key>CFBundleGetInfoString</key>
-	<string>Bhyve Virtual Machine Assistant 1.0</string>
-	<key>CFBundleIconFile</key>
-	<string>Bhyve_VM.png</string>
-	<key>CFBundleIdentifier</key>
-	<string>org.gershwin.BhyveAssistant</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>BhyveAssistant</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
-	<key>CFBundleSignature</key>
-	<string>BHYV</string>
 	<key>CFBundleVersion</key>
 	<string>1.0</string>
-	<key>NSMainNibFile</key>
-	<string></string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>Bhyve_VM.png</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.utilities</string>
-	<key>LSRequiresNativeExecution</key>
-	<true/>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
 </dict>
 </plist>

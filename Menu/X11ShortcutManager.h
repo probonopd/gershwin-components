@@ -120,6 +120,16 @@
 - (BOOL)isShortcutAlreadyTaken:(KeyCode)keycode modifier:(unsigned int)x11_modifier;
 
 /**
+ * Check whether a (keycode, modifier) pair is the reserved Alt+Space (Action
+ * Search) global shortcut that Menu.app keeps for itself.  App menus must not
+ * be able to claim it, and it always dispatches the Action Search toggle.
+ * @param keycode The keycode of the shortcut
+ * @param x11_modifier The modifier keys (Mod1Mask = Alt)
+ * @return YES if this is the reserved Alt+Space
+ */
+- (BOOL)isReservedActionSearchShortcut:(KeyCode)keycode modifier:(unsigned int)x11_modifier;
+
+/**
  * Register a special XF86 key (volume, brightness, etc.) without modifier.
  * The key is grabbed with AnyModifier; lock masks are filtered at dispatch.
  * @param keysym The X11 keysym (e.g. XF86XK_AudioRaiseVolume)
@@ -128,5 +138,23 @@
  * @return YES on success
  */
 - (BOOL)registerXF86Key:(KeySym)keysym target:(id)target action:(SEL)action;
+
+/**
+ * Register a special XF86 key with separate press and release handlers.
+ * Used for keys that need press/release tracking (e.g. the power key, where
+ * a short press and a long press perform different actions).  The key is
+ * grabbed the same way as registerXF86Key:target:action:.
+ * @param keysym The X11 keysym (e.g. XF86XK_PowerOff)
+ * @param target The target for the press action
+ * @param action The selector called on press
+ * @param releaseTarget The target for the release action
+ * @param releaseAction The selector called on release
+ * @return YES on success
+ */
+- (BOOL)registerXF86Key:(KeySym)keysym
+                 target:(id)target
+                 action:(SEL)action
+          releaseTarget:(id)releaseTarget
+          releaseAction:(SEL)releaseAction;
 
 @end

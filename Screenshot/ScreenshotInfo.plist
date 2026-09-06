@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>English</string>
+    <key>CFBundleExecutable</key>
+    <string>Screenshot</string>
+    <key>CFBundleIconFile</key>
+    <string>Screenshot.png</string>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.gershwin-desktop.Screenshot</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Screenshot</string>
+    <key>CFBundleDisplayName</key>
+    <string>Screenshot</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2026 Simon Peter</string>
+    <key>NSMainNibFile</key>
+    <string></string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>ApplicationDescription</key>
+    <string>Screenshot application for capturing windows, areas, or full screen</string>
+    <key>ApplicationName</key>
+    <string>Screenshot</string>
+    <key>ApplicationRelease</key>
+    <string>1.0</string>
+    <key>Authors</key>
+    <array>
+        <string>Simon Peter</string>
+    </array>
+    <key>Copyright</key>
+    <string>Copyright (c) 2026 Simon Peter</string>
+    <key>FullVersionID</key>
+    <string>1.0</string>
+    <key>CopyrightDescription</key>
+    <string>Released under the BSD 2-Clause License</string>
+    <key>URL</key>
+    <string>https://github.com/gershwin-desktop/gershwin-components</string>
+</dict>
+</plist>

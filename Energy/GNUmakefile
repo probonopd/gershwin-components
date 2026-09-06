@@ -1,10 +1,11 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 Energy_OBJCFLAGS += -Wall -Wextra -Werror -O2
 
 BUNDLE_NAME = Energy
 Energy_OBJC_FILES = EnergyPane.m EnergyController.m
-Energy_RESOURCE_FILES = Energy.png EnergyInfo.plist
+Energy_RESOURCE_FILES = Energy.png
 Energy_BUNDLE_LIBS = -lPreferencePanes
 Energy_PRINCIPAL_CLASS = EnergyPane
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles
@@ -48,3 +49,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

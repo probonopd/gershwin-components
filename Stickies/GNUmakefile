@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 GNUSTEP_SYSTEM_APPS := $(GNUSTEP_SYSTEM_APPS)/Utilities
 GNUSTEP_LOCAL_APPS := $(GNUSTEP_LOCAL_APPS)/Utilities
@@ -25,7 +26,7 @@ Stickies_HEADER_FILES = \
 	StickyNoteColors.h
 
 Stickies_RESOURCE_FILES = \
-	Info.plist
+	Stickies.png
 
 ADDITIONAL_GUI_LIBS += -ldispatch
 

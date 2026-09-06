@@ -9,6 +9,8 @@
 
 @implementation DisplayPane
 
++ (BOOL)isCompatible { return YES; }
+
 - (id)initWithBundle:(NSBundle *)bundle
 {
     self = [super initWithBundle:bundle];
@@ -28,7 +30,7 @@
 - (void)startRefreshTimer
 {
     if (!refreshTimer) {
-        refreshTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 
+        refreshTimer = [NSTimer scheduledTimerWithTimeInterval:10.0 
                                                         target:displayController 
                                                       selector:@selector(refreshDisplays:) 
                                                       userInfo:nil 

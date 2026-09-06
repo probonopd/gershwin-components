@@ -20,6 +20,24 @@
 // e.g. @[@"debian", @"ubuntu"] for Ubuntu when ID=ubuntu ID_LIKE=debian
 + (NSArray<NSString *> *)osSearchOrder;
 
+// Returns the package-manager family of the current OS:
+//   "debian" (debian/ubuntu/devuan/kali/linuxmint/raspbian/pop/elementary/zorin)
+//   "arch"   (arch/manjaro/endeavouros/arcolinux)
+//   "freebsd"(freebsd/ghostbsd/dragonfly)
+//   "openbsd"
+//   nil      for anything else
+// Used both by the backend factory and by the header database to map the
+// current OS onto a repository distro.  Returns nil instead of a guess when
+// the OS is unknown, so callers can decide to do nothing rather than install
+// a wrong package.
++ (nullable NSString *)packageManagerFamily;
+
+// Returns the machine architecture normalized to an AppImage target tuple:
+//   "x86_64"  (uname -m x86_64 / amd64)
+//   "aarch64" (uname -m aarch64 / arm64)
+//   or the raw uname -m string if neither matches.
++ (NSString *)currentArchitecture;
+
 // Testing support: override the path used for os-release detection
 // Pass nil to reset to default (/etc/os-release)
 + (void)setOSReleasePathOverride:(nullable NSString *)path;

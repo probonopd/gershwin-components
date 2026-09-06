@@ -72,6 +72,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)withProgressBar:(BOOL)showProgress;
 - (instancetype)allowingCancel:(BOOL)allowCancel;
 - (instancetype)withAutoLocalizedContent:(BOOL)includeLocalizedContent;
+- (instancetype)withDelegate:(id<GSAssistantWindowDelegate>)delegate;
 
 - (instancetype)addIntroductionWithMessage:(NSString *)message features:(nullable NSArray<NSString *> *)features;
 - (instancetype)addStep:(id<GSAssistantStepProtocol>)step;

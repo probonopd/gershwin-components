@@ -24,6 +24,7 @@ typedef NS_ENUM(NSInteger, GWPackageManagerError) {
     GWPackageManagerErrorBackendUnavailable,
     GWPackageManagerErrorCommandFailed,
     GWPackageManagerErrorPlistInvalid,
+    GWPackageManagerErrorDatabaseUnavailable,
 };
 
 #pragma mark - Progress Handler Protocol
@@ -79,6 +80,18 @@ typedef NS_ENUM(NSInteger, GWPackageManagerError) {
 - (instancetype)initWithBackend:(id<GWPackageManagerBackend>)backend;
 
 @property (readonly, strong) id<GWPackageManagerBackend> backend;
+
+// --- AppImage download (Linux only) ---
+// Downloads an AppImage into ~/Library/Applications.  No package
+// manager or root privileges are involved; the app lands under the user's home.
+- (BOOL)downloadAppImageFromURL:(NSString *)url
+                         appName:(NSString *)appName
+                        progress:(nullable id<GWInstallProgressHandler>)progress
+                           error:(NSError **)error;
+- (BOOL)downloadAppImageFromGitHubRepo:(NSString *)repo
+                                appName:(NSString *)appName
+                               progress:(nullable id<GWInstallProgressHandler>)progress
+                                  error:(NSError **)error;
 
 /// Full stderr output from the most recent backend command, suitable for
 /// display in a "Details" disclosure area.  Valid after install/uninstall

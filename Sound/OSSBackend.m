@@ -14,6 +14,7 @@
  */
 
 #import "OSSBackend.h"
+#import "WavScale.h"
 #import <AppKit/AppKit.h>
 #import <dispatch/dispatch.h>
 #import <sys/ioctl.h>
@@ -1290,6 +1291,11 @@
         for (NSString *file in files) {
             NSString *ext = [[file pathExtension] lowercaseString];
             if ([extensions containsObject:ext]) {
+                // "Glass" is reserved for progress bars reaching 100% and must
+                // never be selectable as an alert sound
+                if ([[file stringByDeletingPathExtension]
+                        isEqualToString:@"Glass"]) continue;
+
                 AlertSound *sound = [[AlertSound alloc] init];
                 sound.name = [file stringByDeletingPathExtension];
                 sound.displayName = sound.name;
@@ -1380,29 +1386,26 @@
     // Determine which unit to use
     int unit = alertDevice ? alertDevice.cardIndex : defaultUnit;
 
-    // --- Apply alert volume by temporarily scaling the output mixer ---
-    float savedVolume = -1.0;
+    // --- Scale the sound file itself so only the alert plays quieter ---
+    NSString *playPath = sound.path;
+    NSString *tempPath = nil;
     if (cachedAlertVolume < 0.99) {
-        int current = [self getMixerChannelForUnit:unit channel:SOUND_MIXER_PCM];
-        if (current < 0) {
-            current = [self getMixerChannelForUnit:unit channel:SOUND_MIXER_VOLUME];
-        }
-        if (current > 0) {
-            savedVolume = current / 100.0;
-            int targetPercent = (int)(savedVolume * 100.0 * cachedAlertVolume);
-            if (targetPercent < 1) targetPercent = 1;
-
-            [self setMixerChannelForUnit:unit channel:SOUND_MIXER_PCM value:targetPercent];
+        NSData *wav = [NSData dataWithContentsOfFile:sound.path];
+        NSData *quiet = wav ? SoundScaleWavData(wav, cachedAlertVolume) : nil;
+        if (quiet) {
+            tempPath = [NSTemporaryDirectory()
+                        stringByAppendingPathComponent:
+                        [NSString stringWithFormat:@"gs-alert-%d.wav", getpid()]];
+            if ([quiet writeToFile:tempPath atomically:YES]) {
+                playPath = tempPath;
+            }
         }
     }
 
-    BOOL success = [self playSoundFile:sound.path onUnit:unit];
+    BOOL success = [self playSoundFile:playPath onUnit:unit];
 
-    // --- Restore original volume ---
-    if (savedVolume > 0) {
-        int restorePercent = (int)(savedVolume * 100.0);
-        if (restorePercent > 100) restorePercent = 100;
-        [self setMixerChannelForUnit:unit channel:SOUND_MIXER_PCM value:restorePercent];
+    if (tempPath) {
+        [[NSFileManager defaultManager] removeItemAtPath:tempPath error:NULL];
     }
 
     return success;
@@ -1568,6 +1571,12 @@
     [task setArguments:args];
     [task setStandardOutput:pipe];
     [task setStandardError:[NSPipe pipe]];
+
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
 
     @try {
         [task launch];

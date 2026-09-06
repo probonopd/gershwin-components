@@ -28,7 +28,6 @@ NetworkBrowser_OBJC_FILES = \
 	ServiceDetailsView.m
 
 NetworkBrowser_RESOURCE_FILES = \
-	Info.plist \
 	NetworkBrowser.desktop
 
 NetworkBrowser_LOCALIZED_RESOURCE_FILES =

@@ -1,0 +1,48 @@
+#!/usr/bin/env run_uitest
+# The global menu bar must always show the menu of the FRONTMOST app, and must
+# switch within ~100ms of an app change. The desktop (a Workspace window, no
+# viewer open) shows the Workspace menu; Processes shows the Processes menu.
+#
+# Setup: only Menu.app and the Workspace should be running; Processes is
+# launched here through the Workspace's Run dialog and quit again at the end
+# (the test cleans up after itself; the harness does not).
+#
+# Run with: run_uitest Menu/Tests/menu_follows_app.uitest
+activate application "Workspace"
+
+# Launch Processes through the Run dialog. The Run dialog cannot resolve
+# "Processes" by bare name, so use the full bundle path; the window is still
+# found by its "Processes" title below.
+run "/System/Applications/Utilities/Processes.app"
+wait until xwindow "Processes" timeout 120s
+
+# Wait for the menu bar to actually switch to Processes before activating the
+# Desktop window again.  The rapid Workspace -> Processes -> Workspace focus
+# sequence can race Menu.app's focus coalescing (a 30ms deferred update), and
+# the second switch is then silently dropped.  Serializing each transition
+# makes the test verify what it promises: the menu bar follows the frontmost
+# app, not merely that an activation was requested.
+wait until menu bar "Processes" timeout 20s
+
+# Desktop (Workspace window) - shows the Workspace menu.
+activate xwindow "Desktop"
+wait until menu bar "Workspace" timeout 20s
+
+# Processes - shows the Processes menu.
+activate xwindow "Processes"
+wait until menu bar "Processes" timeout 20s
+
+# Back to a Workspace window - the Workspace menu again.
+activate xwindow "Desktop"
+wait until menu bar "Workspace" timeout 20s
+
+# Leave the computer as it was found: quit the launched app and make sure it
+# has really quit. Alt+Q is resolved in-process against the frontmost app, so
+# retarget Processes first.
+activate application "Processes"
+wait until menu bar "Processes" timeout 10s
+press "Alt+Q"
+wait until not exists window "Processes" timeout 5s
+assert not exists application "Processes"
+
+log "global menu follows the frontmost app"

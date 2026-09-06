@@ -9,6 +9,21 @@
 #import "BuildApplication.h"
 #import "BuildController.h"
 #import "CatalogEntry.h"
+#import "GWBuildPreflight.h"
+
+static NSString *toolPath(NSString *name)
+{
+    NSString *p = [NSTask launchPathForTool:name];
+    if (p) return p;
+    NSArray *dirs = @[@"/usr/local/bin", @"/usr/local/sbin",
+                       @"/usr/bin", @"/bin", @"/usr/sbin", @"/sbin"];
+    for (NSString *dir in dirs) {
+        p = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:p])
+            return p;
+    }
+    return nil;
+}
 
 int main(int argc, const char *argv[])
 {
@@ -68,6 +83,7 @@ int main(int argc, const char *argv[])
 
         if (!hasDisplay) {
             // Console mode, run build directly without GUI
+            NSString *catalogCloneDir = nil;
             if (catalogBuildName) {
                 // Catalog build mode: find entry, clone, and build
                 NSArray *entries = [CatalogEntry loadCatalog];
@@ -97,10 +113,11 @@ int main(int argc, const char *argv[])
                 }
                 NSString *cloneDir = [[NSString stringWithUTF8String:tmpPath] stringByStandardizingPath];
                 free(tmpPath);
+                catalogCloneDir = cloneDir;
 
                 fprintf(stderr, "Cloning %s...\n", [entry.gitURL UTF8String]);
                 NSTask *gitTask = [[NSTask alloc] init];
-                [gitTask setLaunchPath:@"/usr/bin/git"];
+                [gitTask setLaunchPath:toolPath(@"git")];
                 [gitTask setArguments:@[@"clone", @"--depth=1", entry.gitURL, cloneDir]];
                 [gitTask setStandardOutput:[NSFileHandle fileHandleWithNullDevice]];
                 [gitTask setStandardError:[NSFileHandle fileHandleWithNullDevice]];
@@ -117,11 +134,19 @@ int main(int argc, const char *argv[])
                 }
 
                 NSFileManager *fm = [NSFileManager defaultManager];
-                for (NSString *name in @[@"GNUmakefile", @"GNUmakefile.in", @"Makefile"]) {
-                    NSString *mf = [cloneDir stringByAppendingPathComponent:name];
+                if (entry.makefilePath) {
+                    NSString *mf = [cloneDir stringByAppendingPathComponent:entry.makefilePath];
                     if ([fm fileExistsAtPath:mf]) {
                         makefilePath = mf;
-                        break;
+                    }
+                }
+                if (!makefilePath) {
+                    for (NSString *name in @[@"GNUmakefile", @"GNUmakefile.in", @"Makefile"]) {
+                        NSString *mf = [cloneDir stringByAppendingPathComponent:name];
+                        if ([fm fileExistsAtPath:mf]) {
+                            makefilePath = mf;
+                            break;
+                        }
                     }
                 }
                 if (!makefilePath) {
@@ -136,8 +161,8 @@ int main(int argc, const char *argv[])
             if (makefilePath) {
                 NSString *dir = [makefilePath stringByDeletingLastPathComponent];
                 if ([dir length] == 0) dir = @".";
-                NSString *makePath = [NSTask launchPathForTool: @"gmake"];
-                if (!makePath) makePath = [NSTask launchPathForTool: @"make"];
+                NSString *makePath = toolPath(@"gmake");
+                if (!makePath) makePath = toolPath(@"make");
 
                 // Run pre-build steps (autoreconf, configure)
                 NSFileManager *fm = [NSFileManager defaultManager];
@@ -158,7 +183,7 @@ int main(int argc, const char *argv[])
                             needsAutoreconf = YES;
                     }
                     if (needsAutoreconf) {
-                        NSString *ar = [NSTask launchPathForTool: @"autoreconf"];
+                        NSString *ar = toolPath(@"autoreconf");
                         if (ar) {
                             fprintf(stderr, "Running autoreconf -i in %s\n", [dir UTF8String]);
                             system([[NSString stringWithFormat: @"cd '%@' && autoreconf -i 2>&1", dir] UTF8String]);
@@ -189,6 +214,40 @@ int main(int argc, const char *argv[])
                 if (!makePath) {
                     fprintf(stderr, "Error: neither gmake nor make found in PATH\n");
                     exit(1);
+                }
+
+                // Package preflight: scan sources for missing system headers
+                // and install the providing packages (with a y/N prompt).
+                {
+                    NSString *scanRoot = (catalogCloneDir != nil) ? catalogCloneDir : dir;
+                    GWBuildPreflight *preflight = [[GWBuildPreflight alloc]
+                        initWithSourceRoot:scanRoot makefilePath:makefilePath];
+                    [preflight setConsoleMode:YES];
+                    NSString *blacklistPath = [[NSBundle mainBundle] pathForResource:@"Blacklist" ofType:@"plist"];
+                    NSArray *blacklist = blacklistPath ? [NSArray arrayWithContentsOfFile:blacklistPath] : @[];
+                    [preflight setBlacklist:blacklist];
+                    NSError *preflightError = nil;
+                    GWPreflightDecision decision = [preflight runWithProgress:nil
+                                                                      output:^(NSString *line) {
+                        fprintf(stderr, "%s\n", [line UTF8String]);
+                    } error:&preflightError];
+                    if (decision == GWPreflightDecisionAbort) {
+                        fprintf(stderr, "Preflight aborted: %s\n",
+                                [([preflightError localizedDescription] ?: @"cancelled by user") UTF8String]);
+                        exit(1);
+                    }
+                    // If packages were installed, re-run configure: the run
+                    // above happened before the packages were present and may
+                    // have missed headers / tools they now provide.
+                    if ([preflight installedPackages] && [fm fileExistsAtPath: configure]) {
+                        fprintf(stderr, "Re-running configure after package installation in %s\n",
+                                [dir UTF8String]);
+                        if ([fm isExecutableFileAtPath: configure]) {
+                            system([[NSString stringWithFormat: @"cd '%@' && ./configure 2>&1", dir] UTF8String]);
+                        } else {
+                            system([[NSString stringWithFormat: @"cd '%@' && sh configure 2>&1", dir] UTF8String]);
+                        }
+                    }
                 }
 
                 NSTask *task = [[NSTask alloc] init];

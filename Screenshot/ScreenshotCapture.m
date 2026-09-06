@@ -7,6 +7,14 @@
 
 #import "ScreenshotCapture.h"
 #import <AppKit/NSBitmapImageRep.h>
+#import <GNUstepGUI/GSTheme.h>
+
+// Optional theme methods (implemented by some themes, e.g. Eau); queried
+// with respondsToSelector: like the window manager does.
+@interface NSObject (ScreenshotThemeCornerRadii)
+- (CGFloat)titlebarCornerRadius;
+- (CGFloat)windowBottomCornerRadius;
+@end
 #import <AppKit/NSImage.h>
 #import <Foundation/NSPathUtilities.h>
 #import <Foundation/NSDate.h>
@@ -15,12 +23,14 @@
 // Import the C interface
 extern int x11_init(void);
 extern void x11_cleanup(void);
-extern unsigned char* x11_capture_data(CaptureMode mode, int delay, CaptureRect* rect, 
+extern unsigned char* x11_capture_data(CaptureMode mode, int delay, CaptureRect* rect,
+                                         int include_shadow,
                                          int* width, int* height, int* bytes_per_pixel);
 extern void x11_free_data(unsigned char* data);
-extern CaptureRect x11_select_window(void);
+extern CaptureRect x11_select_window_title(int include_title);
 extern CaptureRect x11_select_area(void);
 extern CaptureRect x11_get_active_window(void);
+extern void x11_set_corner_radii(float top, float bottom);
 
 @implementation ScreenshotCapture
 
@@ -36,8 +46,18 @@ extern CaptureRect x11_get_active_window(void);
                                filename:(NSString *)filename 
                                   delay:(int)delay 
                                    rect:(CaptureRect)rect {
+    return [self captureScreenshotWithMode:mode filename:filename delay:delay
+                                      rect:rect includeShadow:NO];
+}
+
++ (NSString *)captureScreenshotWithMode:(CaptureMode)mode
+                               filename:(NSString *)filename
+                                  delay:(int)delay
+                                   rect:(CaptureRect)rect
+                          includeShadow:(BOOL)includeShadow {
     // Capture image first
-    NSImage *image = [self captureImageWithMode:mode delay:delay rect:rect];
+    NSImage *image = [self captureImageWithMode:mode delay:delay rect:rect
+                                  includeShadow:includeShadow];
     if (!image) {
         return nil;
     }
@@ -82,10 +102,27 @@ extern CaptureRect x11_get_active_window(void);
 + (NSImage *)captureImageWithMode:(CaptureMode)mode 
                             delay:(int)delay 
                              rect:(CaptureRect)rect {
+    return [self captureImageWithMode:mode delay:delay rect:rect includeShadow:NO];
+}
+
++ (NSImage *)captureImageWithMode:(CaptureMode)mode
+                            delay:(int)delay
+                             rect:(CaptureRect)rect
+                    includeShadow:(BOOL)includeShadow {
     CaptureRect* c_rect = (rect.width > 0 && rect.height > 0) ? &rect : NULL;
     int width, height, bytes_per_pixel;
-    
-    unsigned char* data = x11_capture_data((int)mode, delay, c_rect, 
+
+    // Match the WM's rounded corners: radii come from the current theme
+    id theme = [GSTheme theme];
+    float topR = 0.0f, bottomR = 0.0f;
+    if ([theme respondsToSelector:@selector(titlebarCornerRadius)])
+        topR = [theme titlebarCornerRadius];
+    if ([theme respondsToSelector:@selector(windowBottomCornerRadius)])
+        bottomR = [theme windowBottomCornerRadius];
+    x11_set_corner_radii(topR, bottomR);
+
+    unsigned char* data = x11_capture_data((int)mode, delay, c_rect,
+                                           includeShadow ? 1 : 0,
                                            &width, &height, &bytes_per_pixel);
     if (!data) {
         return nil;
@@ -136,7 +173,11 @@ extern CaptureRect x11_get_active_window(void);
 }
 
 + (CaptureRect)selectWindow {
-    return x11_select_window();
+    return [self selectWindowWithTitle:NO];
+}
+
++ (CaptureRect)selectWindowWithTitle:(BOOL)includeTitle {
+    return x11_select_window_title(includeTitle ? 1 : 0);
 }
 
 + (CaptureRect)selectArea {

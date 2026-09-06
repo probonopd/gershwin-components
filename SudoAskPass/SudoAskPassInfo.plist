@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+	<key>CFBundleName</key>
+	<string>SudoAskPass</string>
+	<key>CFBundleDisplayName</key>
+	<string>SudoAskPass</string>
+	<key>ApplicationName</key>
+	<string>SudoAskPass</string>
+	<key>ApplicationDescription</key>
+	<string>Password prompt helper for sudo and privilege escalation</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.SudoAskPass</string>
+	<key>CFBundleExecutable</key>
+	<string>SudoAskPass</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
+</dict>
+</plist>

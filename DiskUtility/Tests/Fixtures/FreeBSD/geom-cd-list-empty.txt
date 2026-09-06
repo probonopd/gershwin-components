@@ -1,0 +1,10 @@
+Geom name: cd0
+Providers:
+1. Name: cd0
+   Mediasize: 0 (0B)
+   Sectorsize: 2048
+   Stripesize: 0
+   Stripeoffset: 0
+   Mode: r0w0e0
+   ident: HL-DT-ST_BDDVDRW_UH12NS40
+   rotationrate: 0

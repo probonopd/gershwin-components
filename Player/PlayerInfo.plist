@@ -1,0 +1,567 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>English</string>
+
+    <key>CFBundleExecutable</key>
+    <string>Player</string>
+
+    <key>CFBundleIconFile</key>
+    <string>Player</string>
+
+    <key>CFBundleIdentifier</key>
+    <string>io.github.gershwin-desktop.Player</string>
+
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+
+    <key>CFBundleName</key>
+    <string>Player</string>
+    <key>CFBundleDisplayName</key>
+    <string>Player</string>
+
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+
+    <key>CFBundleVersion</key>
+    <string>1</string>
+
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2026 Simon Peter</string>
+
+    <key>NSMainNibFile</key>
+    <string></string>
+
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+
+    <!-- GNUstep About panel keys -->
+
+    <key>ApplicationName</key>
+    <string>Player</string>
+
+    <key>ApplicationDescription</key>
+    <string>Audio and video media player for Gershwin</string>
+
+    <key>ApplicationIcon</key>
+    <string>Player</string>
+
+    <key>ApplicationRelease</key>
+    <string>r0.1</string>
+
+    <key>ApplicationVersion</key>
+    <string>v0.1</string>
+
+    <key>FullVersionID</key>
+    <string>1.0.0</string>
+
+    <key>NSAppVersion</key>
+    <string>1.0</string>
+
+    <key>NSBuildVersion</key>
+    <string>1</string>
+
+    <key>Authors</key>
+    <array>
+        <string>Simon Peter</string>
+    </array>
+
+    <key>Copyright</key>
+    <string>Copyright © 2026 Simon Peter</string>
+
+    <key>CopyrightDescription</key>
+    <string>Released under the BSD 2-Clause License</string>
+    <key>URL</key>
+    <string>https://github.com/gershwin-desktop/gershwin-components</string>
+
+    <key>NSDocumentTypes</key>
+    <array>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>MP3 Audio</string>
+            <key>NSHumanReadableName</key>
+            <string>MP3 Audio</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>audio/mpeg</string>
+                <string>audio/mp3</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>mp3</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>WAV Audio</string>
+            <key>NSHumanReadableName</key>
+            <string>WAV Audio</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>audio/wav</string>
+                <string>audio/x-wav</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>wav</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>AIFF Audio</string>
+            <key>NSHumanReadableName</key>
+            <string>AIFF Audio</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>audio/aiff</string>
+                <string>audio/x-aiff</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>aiff</string>
+                <string>aif</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>M4A Audio</string>
+            <key>NSHumanReadableName</key>
+            <string>M4A Audio</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>audio/mp4</string>
+                <string>audio/x-m4a</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>m4a</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>FLAC Audio</string>
+            <key>NSHumanReadableName</key>
+            <string>FLAC Audio</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>audio/flac</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>flac</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>OGG Audio</string>
+            <key>NSHumanReadableName</key>
+            <string>OGG Audio</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>audio/ogg</string>
+                <string>application/ogg</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>ogg</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>WMA Audio</string>
+            <key>NSHumanReadableName</key>
+            <string>WMA Audio</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>audio/x-ms-wma</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>wma</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>MP4 Video</string>
+            <key>NSHumanReadableName</key>
+            <string>MP4 Video</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>video/mp4</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>mp4</string>
+                <string>m4v</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>QuickTime Movie</string>
+            <key>NSHumanReadableName</key>
+            <string>QuickTime Movie</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>video/quicktime</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>mov</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>AVI Video</string>
+            <key>NSHumanReadableName</key>
+            <string>AVI Video</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>video/x-msvideo</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>avi</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>Matroska Video</string>
+            <key>NSHumanReadableName</key>
+            <string>Matroska Video</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>video/x-matroska</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>mkv</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>WebM Video</string>
+            <key>NSHumanReadableName</key>
+            <string>WebM Video</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>video/webm</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>webm</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>Flash Video</string>
+            <key>NSHumanReadableName</key>
+            <string>Flash Video</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>video/x-flv</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>flv</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSDocumentTypeName</key>
+            <string>WMV Video</string>
+            <key>NSHumanReadableName</key>
+            <string>WMV Video</string>
+            <key>NSHandlerRank</key>
+            <string>Default</string>
+            <key>NSRoleMask</key>
+            <string>Viewer</string>
+            <key>NSTypeMIMETypes</key>
+            <array>
+                <string>video/x-ms-wmv</string>
+            </array>
+            <key>NSTypeExtensions</key>
+            <array>
+                <string>wmv</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- GNUstep type registration (file type associations) -->
+
+    <key>NSTypes</key>
+    <array>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>MPEG Audio</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>mp3</string>
+                <string>mp2</string>
+                <string>mpga</string>
+                <string>mpega</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>audio/mpeg</string>
+                <string>audio/x-mpeg</string>
+                <string>audio/mpeg3</string>
+                <string>audio/x-mpeg3</string>
+                <string>audio/mp3</string>
+                <string>audio/x-mp3</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>WAV Audio</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>wav</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>audio/wav</string>
+                <string>audio/x-wav</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>AIFF Audio</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>aiff</string>
+                <string>aif</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>audio/aiff</string>
+                <string>audio/x-aiff</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>AAC Audio</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>m4a</string>
+                <string>m4b</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>audio/mp4</string>
+                <string>audio/x-m4a</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>FLAC Audio</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>flac</string>
+                <string>fla</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>audio/flac</string>
+                <string>audio/x-flac</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>Ogg Audio</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>ogg</string>
+                <string>oga</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>audio/ogg</string>
+                <string>application/ogg</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>Windows Media Audio</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>wma</string>
+                <string>asf</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>audio/x-ms-wma</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>MPEG-4 Video</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>mp4</string>
+                <string>m4v</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>video/mp4</string>
+                <string>video/x-m4v</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>QuickTime Movie</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>mov</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>video/quicktime</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>AVI Video</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>avi</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>video/x-msvideo</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>Matroska Video</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>mkv</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>video/x-matroska</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>WebM Video</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>webm</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>video/webm</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>Flash Video</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>flv</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>video/x-flv</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+        <dict>
+            <key>NSHumanReadableName</key>
+            <string>Windows Media Video</string>
+            <key>NSUnixExtensions</key>
+            <array>
+                <string>wmv</string>
+            </array>
+            <key>NSMIMETypes</key>
+            <array>
+                <string>video/x-ms-wmv</string>
+            </array>
+            <key>NSRole</key>
+            <string>Viewer</string>
+        </dict>
+    </array>
+</dict>
+</plist>

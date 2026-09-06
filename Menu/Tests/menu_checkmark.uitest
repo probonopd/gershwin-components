@@ -1,0 +1,14 @@
+#!/usr/bin/env run_uitest
+# Checkmark (state) assertions on a menu item that carries one.
+#
+# Run with: run_uitest Menu/Tests/menu_checkmark.uitest
+activate application "Workspace"
+
+assert menu item "View/Show Sidebar" checked
+assert menu item "View/Show Sidebar" not disabled
+
+if menu item "View/Show Sidebar" checked
+  log "sidebar menu item is checked"
+end
+
+log "menu checkmark assertions pass"

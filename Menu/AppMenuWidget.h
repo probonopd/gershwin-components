@@ -29,10 +29,28 @@
 /* The system submenu (contains Search, System Preferences, and dynamic application list) */
 @property (nonatomic, strong) NSMenu *systemMenu;
 
+/* The reusable system ⌘ submenu.  Built once and cached across every menu-bar
+   rebuild: recreating it per switch made each switch tear down the same ~40-menu
+   tree, a multi-second 100%-CPU dealloc cascade. */
+@property (nonatomic, strong) NSMenu *cachedSystemMenu;
+
+/* The System Preferences submenu inside the Command menu.  It holds one item
+   per installed prefPane, populated by populatePrefPanesSubmenu (eagerly, so
+   GNUstep auto-enabling does not grey out the parent item). */
+@property (nonatomic, strong) NSMenu *systemPrefsSubmenu;
+@property (nonatomic, assign) BOOL systemPrefsSubmenuPopulated;
+
 /* Cached tree of .app bundles for the system submenu (rebuilt at most every 30s) */
 @property (nonatomic, strong) NSDictionary *cachedAppBundleTree;
 @property (nonatomic, assign) NSTimeInterval cachedAppBundleTreeTime;
 @property (nonatomic, assign) BOOL systemMenuPopulatedFromCache;
+
+/* Persistent Applications submenu NSMenu.  Built once from the app bundle tree
+   and reused across every bar rebuild / focus switch, so switching windows or
+   re-opening the ⌘ menu never discards and re-allocates the whole app list
+   (which used to cascade through NSMenu/NSMenuItem dealloc and re-stat every
+   .app bundle for its icon).  Only rebuilt when the underlying tree changes. */
+@property (nonatomic, strong) NSMenu *cachedAppsSubmenu;
 @property (nonatomic, assign) NSTimeInterval lastSystemMenuUpdateTime;
 
 /* Coalescing timer for window focus changes */
@@ -60,6 +78,7 @@
 - (void)displayMenuForWindow:(unsigned long)windowId;
 - (void)setupMenuViewWithMenu:(NSMenu *)menu;
 - (void)loadMenu:(NSMenu *)menu forWindow:(unsigned long)windowId;
+- (void)loadApplicationMenu:(NSMenu *)menu forPID:(pid_t)pid;
 - (void)checkAndDisplayMenuForNewlyRegisteredWindow:(unsigned long)windowId;
 - (BOOL)isPlaceholderMenu:(NSMenu *)menu;
 - (void)closeActiveWindow:(NSMenuItem *)sender;
@@ -68,6 +87,30 @@
 /* System submenu actions */
 - (void)openSystemPreferences:(NSMenuItem *)sender;
 - (void)openApplicationBundle:(NSMenuItem *)sender;
+- (void)openPrefPane:(NSMenuItem *)sender;
+
+/* Populate the System Preferences submenu with one item per installed
+   prefPane (lazy: called when the submenu is about to open). */
+- (void)populatePrefPanesSubmenu;
+
+/* Build a launcher menu item that also carries a submenu: clicking the item
+   performs `action` (targeted at self), and the arrow/hover opens `submenu`
+   (may be nil).  `representedObject` is stored for the action.  Shared by the
+   Applications folder items and the System Preferences item. */
+- (NSMenuItem *)addLauncherItemWithTitle:(NSString *)title
+                                  action:(SEL)action
+                       representedObject:(id)object
+                                 submenu:(NSMenu *)submenu
+                                  toMenu:(NSMenu *)menu;
+
+/* Make sure the dynamic Applications submenu (app launchers) is populated so
+   it can be searched and displayed even before the Command menu is opened. */
+- (void)ensureSystemMenuPopulated;
+
+/* Power actions (shut down / restart / log out) in the Command menu */
+- (void)restart:(NSMenuItem *)sender;
+- (void)shutDown:(NSMenuItem *)sender;
+- (void)logOut:(NSMenuItem *)sender;
 - (void)openFolderInWorkspace:(NSMenuItem *)sender;
 
 /* Debug */

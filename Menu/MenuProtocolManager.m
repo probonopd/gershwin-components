@@ -175,6 +175,7 @@
 
     /* Build a merged menu: stub items first, then DBus items */
     NSMenu *merged = [[NSMenu alloc] initWithTitle:[dbusMenu title]];
+    [merged setAutoenablesItems:NO];
 
     for (NSInteger i = 0; i < [stubMenu numberOfItems]; i++)
         [merged addItem:[[stubMenu itemAtIndex:i] copy]];
@@ -190,9 +191,7 @@
     MENU_PROFILE_BEGIN(protocolManagerGetMenuForWindow);
     @try {
         NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
-        NSNumber *protocolTypeNum = [self.windowToProtocolMap objectForKey:windowKey];
-
-        if (protocolTypeNum) {
+        NSNumber *protocolTypeNum = [self.windowToProtocolMap objectForKey:windowKey];        if (protocolTypeNum) {
             // We know which protocol handles this window
             MenuProtocolType protocolType = [protocolTypeNum integerValue];
             id<MenuProtocolHandler> handler = [self handlerForType:protocolType];
@@ -263,6 +262,29 @@
     }
 }
 
+- (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId
+{
+    if (!menu) return;
+    NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
+    NSNumber *protocolTypeNum = [self.windowToProtocolMap objectForKey:windowKey];
+    id<MenuProtocolHandler> handler = nil;
+    if (protocolTypeNum) {
+        handler = [self handlerForType:[protocolTypeNum integerValue]];
+    } else {
+        /* No cached protocol mapping yet (e.g. the menu came from a retry path);
+         * find a handler that can provide a menu for this window. */
+        for (id h in self.protocolHandlers) {
+            if (![h isKindOfClass:[NSNull class]] && [h getMenuForWindow:windowId]) {
+                handler = h;
+                break;
+            }
+        }
+    }
+    if (handler && [handler respondsToSelector:@selector(reregisterShortcutsForMenu:windowId:)]) {
+        [handler reregisterShortcutsForMenu:menu windowId:windowId];
+    }
+}
+
 - (void)activateMenuItem:(NSMenuItem *)menuItem forWindow:(unsigned long)windowId
 {
     NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
@@ -278,6 +300,38 @@
     }
     
     NSDebugLLog(@"gwcomp", @"MenuProtocolManager: No protocol handler found for window %lu menu activation", windowId);
+}
+
+#pragma mark - Application-level menus
+
+- (BOOL)hasApplicationMenuForPID:(pid_t)pid
+{
+    if (pid <= 0) return NO;
+    id<MenuProtocolHandler> handler = [self handlerForType:MenuProtocolTypeGNUstep];
+    if (handler && [handler respondsToSelector:@selector(hasApplicationMenuForPID:)]) {
+        return [handler hasApplicationMenuForPID:pid];
+    }
+    return NO;
+}
+
+- (NSMenu *)getApplicationMenuForPID:(pid_t)pid
+{
+    if (pid <= 0) return nil;
+    id<MenuProtocolHandler> handler = [self handlerForType:MenuProtocolTypeGNUstep];
+    if (handler && [handler respondsToSelector:@selector(getApplicationMenuForPID:)]) {
+        return [handler getApplicationMenuForPID:pid];
+    }
+    return nil;
+}
+
+- (BOOL)refreshApplicationMenuStateForPID:(pid_t)pid
+{
+    if (pid <= 0) return NO;
+    id<MenuProtocolHandler> handler = [self handlerForType:MenuProtocolTypeGNUstep];
+    if (handler && [handler respondsToSelector:@selector(refreshApplicationMenuStateForPID:)]) {
+        return [handler refreshApplicationMenuStateForPID:pid];
+    }
+    return NO;
 }
 
 - (void)scanForExistingMenuServices
@@ -474,6 +528,16 @@
     }
 }
 
+- (NSUInteger)pendingMessageCount
+{
+    // Return count of pending messages from the canonical handler
+    id<MenuProtocolHandler> canonicalHandler = [self handlerForType:MenuProtocolTypeCanonical];
+    if (canonicalHandler && [canonicalHandler respondsToSelector:@selector(pendingMessageCount)]) {
+        return [canonicalHandler pendingMessageCount];
+    }
+    return 0;
+}
+
 - (BOOL)refreshMenuStateForWindow:(unsigned long)windowId
 {
     // Find the handler responsible for this window.
@@ -501,6 +565,34 @@
         return [handler refreshMenuStateForWindow:windowId];
     }
     return NO;
+}
+
+- (BOOL)menuStatesAreFreshForWindow:(unsigned long)windowId
+                          withinTTL:(NSTimeInterval)ttl
+{
+    NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
+    NSNumber *protocolTypeNum = [self.windowToProtocolMap objectForKey:windowKey];
+    id<MenuProtocolHandler> handler = nil;
+
+    if (protocolTypeNum) {
+        handler = [self handlerForType:(MenuProtocolType)[protocolTypeNum integerValue]];
+    }
+
+    if (!handler) {
+        for (id h in self.protocolHandlers) {
+            if (![h isKindOfClass:[NSNull class]] &&
+                [h respondsToSelector:@selector(hasMenuForWindow:)] &&
+                [h hasMenuForWindow:windowId]) {
+                handler = h;
+                break;
+            }
+        }
+    }
+
+    if (handler && [handler respondsToSelector:@selector(menuStatesAreFreshForWindow:withinTTL:)]) {
+        return [handler menuStatesAreFreshForWindow:windowId withinTTL:ttl];
+    }
+    return YES;
 }
 
 #pragma mark - Cleanup

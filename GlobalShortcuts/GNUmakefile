@@ -1,11 +1,12 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 # Compiler flags for production builds
 GlobalShortcuts_OBJCFLAGS += -Wall -Wextra -Werror -O2
 
 BUNDLE_NAME = GlobalShortcuts
 GlobalShortcuts_OBJC_FILES = GlobalShortcutsPane.m GlobalShortcutsController.m
-GlobalShortcuts_RESOURCE_FILES = GlobalShortcuts.png GlobalShortcutsInfo.plist
+GlobalShortcuts_RESOURCE_FILES = GlobalShortcuts.png
 GlobalShortcuts_BUNDLE_LIBS = -lPreferencePanes
 GlobalShortcuts_PRINCIPAL_CLASS = GlobalShortcutsPane
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles
@@ -55,3 +56,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

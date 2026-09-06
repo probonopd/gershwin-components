@@ -1,0 +1,26 @@
+#!/usr/bin/env run_uitest
+# HEAVY: skipped unless UI_TEST_LEVEL=full.  The app's NSNetServiceBrowser
+# crashes at startup when no avahi-daemon is running (the headless CI
+# sandboxes), taking the whole desktop test session down.  The harness skips
+# everything under a "heavy" directory by default; run the suite with
+# UI_TEST_LEVEL=full to exercise it (with avahi-daemon running).
+#
+# NetworkBrowser: the network/neighborhood browser must start, show its
+# window and its main menu, then quit with the standard Cmd+Q shortcut.
+#
+# Leaves the computer as it was found: the app is quit at the end.
+#
+# Run with: run_uitest NetworkBrowser/Tests/network_browser.uitest
+launch application "NetworkBrowser"
+wait until window "Network Browser" timeout 15s
+assert window "Network Browser"
+assert menu item "NetworkBrowser/About Network Browser" exists
+assert menu item "NetworkBrowser/Quit Network Browser" exists
+assert menu item "NetworkBrowser/Quit Network Browser" shortcut "Cmd+Q"
+assert menu item "File/Open" exists
+activate application "NetworkBrowser"
+wait until menu bar "NetworkBrowser" timeout 10s
+press "Alt+Q"
+wait until not exists window "Network Browser" timeout 5s
+assert not exists application "NetworkBrowser"
+log "NetworkBrowser starts, shows its menu and quits"

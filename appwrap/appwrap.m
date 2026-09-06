@@ -335,6 +335,16 @@ int main(int argc, char *argv[])
 
   [creator release];
 
+  if (success)
+    {
+      NSTask *ms = [[NSTask alloc] init];
+      [ms setLaunchPath:@"/usr/bin/env"];
+      [ms setArguments:@[@"make_services"]];
+      [ms launch];
+      [ms waitUntilExit];
+      [ms release];
+    }
+
   [pool release];
   exit(success ? EXIT_SUCCESS : EXIT_FAILURE);
 }

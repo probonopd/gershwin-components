@@ -27,7 +27,8 @@
     NSButton *webCheckbox;
     NSButton *mediaCheckbox;
     NSButton *rdpCheckbox;
-    
+    NSButton *cloudCheckbox;
+
     // Status labels
     NSTextField *sshStatusLabel;
     NSTextField *vncStatusLabel;
@@ -37,7 +38,8 @@
     NSTextField *webStatusLabel;
     NSTextField *mediaStatusLabel;
     NSTextField *rdpStatusLabel;
-    
+    NSTextField *cloudStatusLabel;
+
     // Information displays
     NSTextField *sshInfoLabel;
     NSTextField *vncInfoLabel;
@@ -47,6 +49,7 @@
     NSTextField *webInfoLabel;
     NSTextField *mediaInfoLabel;
     NSTextField *rdpInfoLabel;
+    NSTextField *cloudInfoLabel;
     
     // mDNS status label
     NSTextField *mdnsStatusLabel;
@@ -60,6 +63,7 @@
     BOOL webEnabled;
     BOOL mediaEnabled;
     BOOL rdpEnabled;
+    BOOL cloudEnabled;
 
     // Installation state
     BOOL sshInstalled;
@@ -70,6 +74,7 @@
     BOOL webInstalled;
     BOOL mediaInstalled;
     BOOL rdpInstalled;
+    BOOL cloudInstalled;
 
     NSString *currentHostname;
     
@@ -94,6 +99,7 @@
 - (void)toggleWeb:(id)sender;
 - (void)toggleMedia:(id)sender;
 - (void)toggleRDP:(id)sender;
+- (void)toggleCloud:(id)sender;
 - (void)hostnameDidChange:(NSNotification *)notification;
 
 @end

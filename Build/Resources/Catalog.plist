@@ -8,7 +8,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/erincodepirate/gs_analog_clock</string>
 		<key>Description</key>
-		<string>Analog clock app for GNUstep</string>
+		<string>Analog desktop clock showing the current time</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -16,7 +16,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/neoncortex/Brutus</string>
 		<key>Description</key>
-		<string>A brutish text editor for GNUstep</string>
+		<string>Edit text in a plain, no-frills editor</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -32,7 +32,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/AlessandroSangiuliano/Calendar</string>
 		<key>Description</key>
-		<string>Calendar app for GNUstep</string>
+		<string>Manage your schedule and events with a month and day view</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -40,7 +40,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gsimageapps/Camera</string>
 		<key>Description</key>
-		<string>Camera app for GNUstep</string>
+		<string>Capture photos and video from a connected camera</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -48,7 +48,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/eukara/CellConnect.app</string>
 		<key>Description</key>
-		<string>Frontend for KDE Connect on GNUstep</string>
+		<string>Frontend for KDE Connect - share files, notifications, and your clipboard with a phone</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -56,7 +56,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/Clock</string>
 		<key>Description</key>
-		<string>A simple analog clock</string>
+		<string>Show the time on a simple analog clock</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -64,7 +64,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/erincodepirate/gs_clock</string>
 		<key>Description</key>
-		<string>Clock app for GNUstep</string>
+		<string>Show the time on a simple analog desktop clock</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -72,7 +72,15 @@
 		<key>GitURL</key>
 		<string>https://github.com/gnustep/apps-easydiff</string>
 		<key>Description</key>
-		<string>Diff/merge tool for GNUstep</string>
+		<string>Diff and merge text files side by side</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>FontBook</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-fontbook</string>
+		<key>Description</key>
+		<string>Browse and manage the fonts installed on your system</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -88,7 +96,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/Gem</string>
 		<key>Description</key>
-		<string>A simple text editor for GNUstep</string>
+		<string>Edit text in a simple plain text editor</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -96,7 +104,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/routoure/GGTD</string>
 		<key>Description</key>
-		<string>GTD task manager for GNUstep</string>
+		<string>Getting-things-done task manager for organizing your to-dos</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -104,7 +112,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gomoku/Gomoku.app-GNUstep</string>
 		<key>Description</key>
-		<string>Extended TicTacToe game for GNUstep</string>
+		<string>Extended tic-tac-toe board game</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -112,7 +120,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/onflapp/gs-mail</string>
 		<key>Description</key>
-		<string>Mail app for GNUstep</string>
+		<string>Email client for sending and receiving mail</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -120,7 +128,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/MediaPlayer</string>
 		<key>Description</key>
-		<string>A simple GNUstep mpv front end</string>
+		<string>Play media through a simple front end for the mpv player</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -128,7 +136,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/alexmyczko/ModPlugPlay.app</string>
 		<key>Description</key>
-		<string>libmodplug/libopenmpt player for GNUstep</string>
+		<string>Player for tracker modules using libmodplug/libopenmpt</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -136,7 +144,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/eukara/MPlayer.app</string>
 		<key>Description</key>
-		<string>MPlayer front-end for GNUstep</string>
+		<string>Front end for the MPlayer media player</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -144,7 +152,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/Notepad</string>
 		<key>Description</key>
-		<string>Notepad app using GNUstep</string>
+		<string>Jot quick notes in a simple notepad</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -152,7 +160,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/thomasfuhringer/notepad.app</string>
 		<key>Description</key>
-		<string>Notepad with tabs for GNUstep</string>
+		<string>Tabbed notepad for keeping several notes at once</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -160,7 +168,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/hsnamr/SmallNote</string>
 		<key>Description</key>
-		<string>A note-taking app for GNUstep</string>
+		<string>Jot down notes in a small note-taking app</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -168,7 +176,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/alexmyczko/StepBill.app</string>
 		<key>Description</key>
-		<string>Port of MacBill/xbill to GNUstep</string>
+		<string>Stop Bill from taking over your computers in this port of the classic xbill game</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -176,7 +184,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/richRemer/Sudedito</string>
 		<key>Description</key>
-		<string>Editor for sudoers files on GNUstep</string>
+		<string>Editor for system sudoers files</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -184,7 +192,15 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/SurfBoard</string>
 		<key>Description</key>
-		<string>A desktop imageboard browser</string>
+		<string>Browse imageboards from the desktop</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>SimpleAgenda</string>
+		<key>GitURL</key>
+		<string>https://github.com/poroussel/simpleagenda</string>
+		<key>Description</key>
+		<string>Easy-to-use agenda and calendar</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -192,7 +208,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/probonopd/SystemEmulator</string>
 		<key>Description</key>
-		<string>A GNUstep desktop frontend for QEMU</string>
+		<string>Run virtual machines through a desktop frontend for the QEMU emulator</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -200,7 +216,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/Terminal</string>
 		<key>Description</key>
-		<string>A terminal app for GNUstep</string>
+		<string>Run command-line tools and shells in a window</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -208,7 +224,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/onflapp/gs-terminal</string>
 		<key>Description</key>
-		<string>Terminal app for GNUstep Desktop</string>
+		<string>Run command-line tools and shells in a window</string>
 		<key>MakefilePath</key>
 		<string>Terminal/GNUmakefile</string>
 	</dict>
@@ -218,7 +234,25 @@
 		<key>GitURL</key>
 		<string>https://github.com/onflapp/gs-textedit</string>
 		<key>Description</key>
-		<string>Text editor for GNUstep</string>
+		<string>Editor for plain and rich text documents</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>The Unarchiver</string>
+		<key>GitURL</key>
+		<string>https://github.com/probonopd/theunarchiver-gnustep</string>
+		<key>Description</key>
+		<string>Archive extractor for 7-Zip, RAR, StuffIt, tar, zip, and more</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>TheLounge</string>
+		<key>GitURL</key>
+		<string>https://github.com/probonopd/TheLounge</string>
+		<key>Description</key>
+		<string>Native desktop client for The Lounge IRC bouncer - no embedded browser</string>
+		<key>MakefilePath</key>
+		<string>TLNative/GNUmakefile</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -226,7 +260,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/gnustep/apps-thematic</string>
 		<key>Description</key>
-		<string>Create image-only themes for GNUstep</string>
+		<string>Create image-only desktop themes</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -242,7 +276,55 @@
 		<key>GitURL</key>
 		<string>https://github.com/gnustep/apps-topbar</string>
 		<key>Description</key>
-		<string>A persistent bar at the top of the screen</string>
+		<string>Keep a persistent bar pinned at the top of the screen</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Dock</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-dock</string>
+		<key>Description</key>
+		<string>Launch and organize applications from a desktop dock</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>LDAP Web Explorer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-gsldapwebexplorer</string>
+		<key>Description</key>
+		<string>Browse and search LDAP directory servers through a web LDAP explorer</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>GWorkspace</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-gworkspace</string>
+		<key>Description</key>
+		<string>Manage files and the desktop with a file manager, icons, and services</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>NFSManager</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-nfsmanager</string>
+		<key>Description</key>
+		<string>Manage NFS network file shares and mounts</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>SystemPreferences</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-systempreferences</string>
+		<key>Description</key>
+		<string>Adjust system and appearance settings through a preferences application</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>VideoPlayer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-videoplayer</string>
+		<key>Description</key>
+		<string>Play video files in a multimedia player</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -250,7 +332,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/alexmyczko/VolumeControl.app</string>
 		<key>Description</key>
-		<string>Volume control app for GNUstep</string>
+		<string>Control the system output volume</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -258,7 +340,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/anthonyc-r/Weather</string>
 		<key>Description</key>
-		<string>Weather app</string>
+		<string>Check current conditions and forecasts</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -266,7 +348,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/paulodelgado/Weather.app</string>
 		<key>Description</key>
-		<string>GNUStep Weather app</string>
+		<string>Shows weather forecasts and current conditions</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -274,7 +356,7 @@
 		<key>GitURL</key>
 		<string>https://github.com/onflapp/gs-webbrowser</string>
 		<key>Description</key>
-		<string>Web browser for GNUstep Desktop</string>
+		<string>Web browser for surfing the internet</string>
 	</dict>
 	<dict>
 		<key>Name</key>
@@ -282,7 +364,485 @@
 		<key>GitURL</key>
 		<string>https://github.com/mrtonik/Clock</string>
 		<key>Description</key>
-		<string>World clock, alarms, stopwatch, and timer</string>
+		<string>Track time across cities, with alarms, a stopwatch, and a timer</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Gorm</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-gorm</string>
+		<key>Description</key>
+		<string>Interface Builder - design user interfaces visually, wire outlets and actions, and create .gorm archives</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>ProjectCenter</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/apps-projectcenter</string>
+		<key>Description</key>
+		<string>Integrated development environment - manage code, build apps and frameworks, integrated with Gorm</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Grr</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Extendable RSS news reader</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Grr/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>AClock</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Analog desktop clock</string>
+		<key>MakefilePath</key>
+		<string>user-apps/AClock/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Cynthiune</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Music player for MP3, Ogg, FLAC, mod, and WMA</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Cynthiune/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>FTP</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Client for transferring files over FTP</string>
+		<key>MakefilePath</key>
+		<string>user-apps/FTP/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>FlexiSheet</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Spreadsheet application for tables and calculations</string>
+		<key>MakefilePath</key>
+		<string>user-apps/FlexiSheet/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>GSPdf</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>PDF and PostScript document viewer</string>
+		<key>MakefilePath</key>
+		<string>user-apps/GSPdf/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Games (user)</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Play a collection of small games</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Games/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Graphos</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Vector drawing and illustration app</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Graphos/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>InnerSpace</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Desktop background and screensaver system</string>
+		<key>MakefilePath</key>
+		<string>user-apps/InnerSpace/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Jishyo</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Japanese-English dictionary</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Jishyo/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>LaternaMagica</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Image viewer and slideshow</string>
+		<key>MakefilePath</key>
+		<string>user-apps/LaternaMagica/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MPDCon</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Client for the Music Player Daemon (MPD)</string>
+		<key>MakefilePath</key>
+		<string>user-apps/MPDCon/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>PPC</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Presentation app for building slideshows</string>
+		<key>MakefilePath</key>
+		<string>user-apps/PPC/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>PictureFrame</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Digital picture frame slideshow</string>
+		<key>MakefilePath</key>
+		<string>user-apps/PictureFrame/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>RemoteDesk</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Remote desktop and VNC client</string>
+		<key>MakefilePath</key>
+		<string>user-apps/RemoteDesk/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Stepulator</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Calculator for everyday math</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Stepulator/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>TalkSoup</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>IRC chat client</string>
+		<key>MakefilePath</key>
+		<string>user-apps/TalkSoup/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Vespucci</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Web browser</string>
+		<key>MakefilePath</key>
+		<string>user-apps/Vespucci/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Addresses</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Address and contacts manager</string>
+		<key>MakefilePath</key>
+		<string>system-apps/Addresses/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>AudioMixer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Audio mixer control app</string>
+		<key>MakefilePath</key>
+		<string>system-apps/AudioMixer/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>HelpViewer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Help and documentation viewer</string>
+		<key>MakefilePath</key>
+		<string>system-apps/HelpViewer/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Installer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Package installer for installing software</string>
+		<key>MakefilePath</key>
+		<string>system-apps/Installer/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>NFSConfig</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Tool for configuring NFS file sharing</string>
+		<key>MakefilePath</key>
+		<string>system-apps/NFSConfig/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>StepSync</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>File synchronization tool</string>
+		<key>MakefilePath</key>
+		<string>system-apps/StepSync/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Terminal (gap)</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Run command-line tools and shells in a window</string>
+		<key>MakefilePath</key>
+		<string>system-apps/Terminal/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Zipper</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Archive manager for creating and extracting archives</string>
+		<key>MakefilePath</key>
+		<string>system-apps/Zipper/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>batmon</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Battery monitor for laptops</string>
+		<key>MakefilePath</key>
+		<string>system-apps/batmon/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>loginpanel</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Login panel for signing in to the desktop</string>
+		<key>MakefilePath</key>
+		<string>system-apps/loginpanel/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Games (ported)</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Ported classic games</string>
+		<key>MakefilePath</key>
+		<string>ported-apps/Games/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Util</string>
+		<key>GitURL</key>
+		<string>https://github.com/gnustep/gap</string>
+		<key>Description</key>
+		<string>Ported utility applications</string>
+		<key>MakefilePath</key>
+		<string>ported-apps/Util/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MidiTalk</string>
+		<key>GitURL</key>
+		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
+		<key>Description</key>
+		<string>Scriptable MIDI/audio app using StepTalk and McLaren Synth Kit</string>
+		<key>MakefilePath</key>
+		<string>Applications/MidiTalk/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Synth80</string>
+		<key>GitURL</key>
+		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
+		<key>Description</key>
+		<string>Two-oscillator and sampling synth with patch save/restore</string>
+		<key>MakefilePath</key>
+		<string>Applications/Synth80/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MidiMon</string>
+		<key>GitURL</key>
+		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
+		<key>Description</key>
+		<string>Monitor MIDI system events</string>
+		<key>MakefilePath</key>
+		<string>Applications/MidiMon/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MskFilterDemo</string>
+		<key>GitURL</key>
+		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
+		<key>Description</key>
+		<string>Filter demonstration with real-time slider control</string>
+		<key>MakefilePath</key>
+		<string>Applications/Demos/MskFilterDemo/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MskOrganDemo</string>
+		<key>GitURL</key>
+		<string>https://github.com/mclarenlabs/libs-mclaren-alpha</string>
+		<key>Description</key>
+		<string>Drawbar organ with reverb and filter</string>
+		<key>MakefilePath</key>
+		<string>Applications/Demos/MskOrganDemo/GNUmakefile</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>DroidTransfer</string>
+		<key>GitURL</key>
+		<string>https://github.com/probonopd/DroidTransfer</string>
+		<key>Description</key>
+		<string>Transfer files between an Android device and the desktop</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>DingusPPC</string>
+		<key>GitURL</key>
+		<string>https://github.com/probonopd/DingusPPC.app</string>
+		<key>Description</key>
+		<string>PowerPC emulator for running classic PowerPC-era operating systems and applications</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>GSChess</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/apps-gschess</string>
+		<key>Description</key>
+		<string>Play chess against a built-in alpha-beta AI, with a legal-move engine, move history, board flipping, and undo</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>ScoreMaker</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/apps-scoremaker</string>
+		<key>Description</key>
+		<string>Write, edit, and publish musical scores: import MIDI and MusicXML, edit MusicKit notation, play back, and export PDF or MusicXML</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Breakout</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Breakout</string>
+		<key>Description</key>
+		<string>The classic brick-breaking arcade game, reborn as a desktop app</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Billiards</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Billiards</string>
+		<key>Description</key>
+		<string>Play pool with smooth, animated ball physics</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>MacBasic</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/MacBasic</string>
+		<key>Description</key>
+		<string>Write and run BASIC programs with block statements, functions, and a drawing window</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>NX Void</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/NX_Void</string>
+		<key>Description</key>
+		<string>Play the classic NX_Void arcade game</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Mandelbrot</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Mandelbrot</string>
+		<key>Description</key>
+		<string>Explore the Mandelbrot set by zooming into an interactive fractal</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Dictionary</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Dictionary</string>
+		<key>Description</key>
+		<string>Look up words in a classic-style dictionary browser that shows Wikipedia illustrations</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>StepDown</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/stepdown</string>
+		<key>Description</key>
+		<string>Edit Markdown in a lightweight editor</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>ST TOS</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/ST_TOS</string>
+		<key>Description</key>
+		<string>Pilot a vector-graphics homage to Star Trek: Strategic Operations Simulator, with runtime-generated sound</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>ScorePlayer</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/ScorePlayer</string>
+		<key>Description</key>
+		<string>Turn a small text score format into a Standard MIDI file and play it on the host system</string>
+	</dict>
+	<dict>
+		<key>Name</key>
+		<string>Molecule</string>
+		<key>GitURL</key>
+		<string>https://github.com/gcasa/Molecule</string>
+		<key>Description</key>
+		<string>View molecules as ball-and-stick models with rotation, zoom, atom labels, and automatic animation</string>
 	</dict>
 </array>
 </plist>

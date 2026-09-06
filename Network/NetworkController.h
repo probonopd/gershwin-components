@@ -22,14 +22,15 @@
     NSView *mainView;
     
     // Service list (left side)
+    NSBox *serviceBox;
     NSScrollView *serviceScrollView;
     NSTableView *serviceTable;
     NSButton *enableButton;
     NSButton *disableButton;
     NSMenu *serviceContextMenu;
-    NSPopUpButton *locationPopup;
     
     // Detail view (right side)  
+    NSBox *detailBox;
     NSView *detailView;
     NSTabView *detailTabView;
     
@@ -48,7 +49,6 @@
     NSTextField *ipv6AddressField;
     NSTextField *dnsServersField;
     NSTextField *searchDomainsField;
-    NSButton *applyButton;
     NSButton *dhcpLeaseButton;
     
     // WiFi tab
@@ -61,7 +61,8 @@
     NSProgressIndicator *scanProgress;
     NSButton *refreshButton;
     NSPopUpButton *preferredNetworksPopup;
-    NSButton *askToJoinCheckbox;
+    NSPopUpButton *clonedMacPopup;
+    NSTextField *clonedMacLabel;
     
     // Advanced sheet
     NSPanel *advancedPanel;
@@ -93,17 +94,20 @@
     // Refresh timer
     NSTimer *refreshTimer;
     BOOL isEditing;
+    
+    // Captive portal detection
+    NSString *previousWLANSSID;
 }
 
 // View creation
 - (NSView *)createMainView;
+- (void)relayoutWithWidth:(CGFloat)width;
 - (void)createServiceListViewWithFrame:(NSRect)frame;
 - (void)createDetailViewWithFrame:(NSRect)frame;
 - (void)createStatusAreaWithFrame:(NSRect)frame;
 - (void)createTCPIPViewForTab:(NSTabViewItem *)tab;
 - (void)createDNSViewForTab:(NSTabViewItem *)tab;
 - (void)createWLANViewForTab:(NSTabViewItem *)tab;
-- (void)createBottomButtons;
 - (void)createPasswordPanel;
 - (void)createJoinNetworkPanel;
 - (void)createAdvancedPanel;
@@ -124,10 +128,7 @@
 // Actions
 - (IBAction)enableInterface:(id)sender;
 - (IBAction)disableInterface:(id)sender;
-- (IBAction)locationChanged:(id)sender;
 - (IBAction)configureIPv4Changed:(id)sender;
-- (IBAction)applyChanges:(id)sender;
-- (IBAction)revertChanges:(id)sender;
 - (IBAction)renewDHCPLease:(id)sender;
 - (void)doEnableInterfaceAfterDelay:(NSTimer *)timer;
 
@@ -164,5 +165,8 @@
 - (void)showErrorAlert:(NSString *)message informativeText:(NSString *)info;
 - (void)showWarningAlert:(NSString *)message informativeText:(NSString *)info;
 - (BOOL)validateSelectedInterface;
+
+// Captive portal detection
+- (void)captivePortalDetected:(NSString *)redirectURL;
 
 @end

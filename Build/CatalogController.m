@@ -8,6 +8,45 @@
 #import "CatalogEntry.h"
 #import "BuildController.h"
 
+/* A field editor for the search field that intercepts Up/Down. Instead of
+   moving the text cursor (a single-line field has none to move), it ends
+   editing and jumps focus into the results list, so arrow keys let the user
+   leave the search box and navigate the catalog. */
+@interface CatalogFieldEditor : NSTextView
+{
+    id _catalogTarget;
+}
+- (void)setCatalogTarget:(id)target;
+@end
+
+@implementation CatalogFieldEditor
+- (void)setCatalogTarget:(id)target { _catalogTarget = target; }
+- (void)moveUp:(id)sender
+{
+    if (_catalogTarget && [_catalogTarget respondsToSelector:@selector(exitSearchFieldIntoResultsWithDelta:)])
+        [_catalogTarget exitSearchFieldIntoResultsWithDelta:-1];
+}
+- (void)moveDown:(id)sender
+{
+    if (_catalogTarget && [_catalogTarget respondsToSelector:@selector(exitSearchFieldIntoResultsWithDelta:)])
+        [_catalogTarget exitSearchFieldIntoResultsWithDelta:+1];
+}
+@end
+
+static NSString *toolPath(NSString *name)
+{
+    NSString *p = [NSTask launchPathForTool:name];
+    if (p) return p;
+    NSArray *dirs = @[@"/usr/local/bin", @"/usr/local/sbin",
+                       @"/usr/bin", @"/bin", @"/usr/sbin", @"/sbin"];
+    for (NSString *dir in dirs) {
+        p = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:p])
+            return p;
+    }
+    return nil;
+}
+
 /* Layout constants following AppearanceMetrics.h conventions */
 static const CGFloat kSideMargin = 24.0;
 static const CGFloat kBottomMargin = 20.0;
@@ -16,7 +55,9 @@ static const CGFloat kBtnHeight = 20.0;
 static const CGFloat kBtnWide = 100.0;
 static const CGFloat kBtnHSpace = 10.0;
 static const CGFloat kSpace16 = 16.0;
+static const CGFloat kSpace8 = 8.0;
 static const CGFloat kRowHeight = 20.0;
+static const CGFloat kSearchFieldHeight = 22.0;
 
 static const CGFloat kWinWidth = 420.0;
 static const CGFloat kWinHeight = 260.0;
@@ -28,6 +69,7 @@ static const CGFloat kWinHeight = 260.0;
     self = [super init];
     if (self) {
         _entries = [[CatalogEntry loadCatalog] retain];
+        _filteredEntries = [_entries retain];
     }
     return self;
 }
@@ -35,9 +77,14 @@ static const CGFloat kWinHeight = 260.0;
 - (void)dealloc
 {
     [_entries release];
+    [_filteredEntries release];
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_window release];
     [_tableView release];
+    [_searchField release];
     [_buildButton release];
+    [_spinner release];
+    [_statusLabel release];
     [super dealloc];
 }
 
@@ -48,22 +95,19 @@ static const CGFloat kWinHeight = 260.0;
         return;
     }
 
-    CGFloat left = kSideMargin;
+    [self loadEntriesFromLocal];
+
     CGFloat right = kSideMargin;
-    CGFloat contentW = kWinWidth - left - right;
     CGFloat bottom = kBottomMargin;
-    CGFloat top = kTopMargin;
     CGFloat btnW = kBtnWide;
     CGFloat btnH = kBtnHeight;
-
-    CGFloat listH = kWinHeight - top - kSpace16 - btnH - bottom;
 
     _window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, kWinWidth, kWinHeight)
                                           styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
                                                   | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
                                             backing:NSBackingStoreBuffered
                                               defer:NO];
-    [_window setTitle:@"Build"];
+    [_window setTitle:NSLocalizedString(@"Build", @"Window title")];
     [_window setMinSize:NSMakeSize(300, 200)];
     [_window setDelegate:(id)self];
 
@@ -73,7 +117,7 @@ static const CGFloat kWinHeight = 260.0;
     /* Build button (lower-right) */
     CGFloat buildX = kWinWidth - right - btnW;
     _buildButton = [[NSButton alloc] initWithFrame:NSMakeRect(buildX, y, btnW, btnH)];
-    [_buildButton setTitle:@"Build"];
+    [_buildButton setTitle:NSLocalizedString(@"Build", @"Build button")];
     [_buildButton setTarget:self];
     [_buildButton setAction:@selector(buildClicked:)];
     [_buildButton setEnabled:NO];
@@ -83,30 +127,33 @@ static const CGFloat kWinHeight = 260.0;
     /* Open button (to the left of Build) */
     CGFloat openX = buildX - kBtnHSpace - btnW;
     NSButton *openButton = [[NSButton alloc] initWithFrame:NSMakeRect(openX, y, btnW, btnH)];
-    [openButton setTitle:@"Open\u2026"];
+    [openButton setTitle:NSLocalizedString(@"Open…", @"Open button")];
     [openButton setTarget:self];
     [openButton setAction:@selector(openClicked:)];
     [contentView addSubview:openButton];
 
     y += btnH + kSpace16;
 
-    /* Table view */
-    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(left, y, contentW, listH)];
+    /* Table view — edge-to-edge */
+    CGFloat tableTop = kWinHeight - kTopMargin - kSpace8 - kSearchFieldHeight;
+    CGFloat listH = tableTop - y;
+    CGFloat tableW = kWinWidth;
+    NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, y, tableW, listH)];
     [scrollView setHasVerticalScroller:YES];
     [scrollView setHasHorizontalScroller:NO];
     [scrollView setBorderType:NSBezelBorder];
     [scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
 
-    _tableView = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, contentW, listH)];
+    _tableView = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, tableW, listH)];
     [_tableView setRowHeight:kRowHeight];
     [_tableView setAllowsMultipleSelection:NO];
     [_tableView setAllowsEmptySelection:NO];
     [_tableView setHeaderView:nil];
 
     NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"name"];
-    [[column headerCell] setStringValue:@"App"];
+    [[column headerCell] setStringValue:NSLocalizedString(@"App", @"Table column header: app name")];
     [column setEditable:NO];
-    [column setWidth:contentW];
+    [column setWidth:tableW];
     [_tableView addTableColumn:column];
 
     [_tableView setDataSource:self];
@@ -118,13 +165,94 @@ static const CGFloat kWinHeight = 260.0;
     [scrollView setDocumentView:_tableView];
     [contentView addSubview:scrollView];
 
-    if ([_entries count] > 0) {
+    y = tableTop + kSpace8;
+
+    /* Search field */
+    BOOL themeSearch = [NSSearchFieldCell instancesRespondToSelector:@selector(EAUsearchButtonRectForBounds:)];
+    if (themeSearch)
+      {
+        _searchField = [[NSSearchField alloc] initWithFrame: NSMakeRect(kSideMargin, y, kWinWidth - kSideMargin * 2, kSearchFieldHeight)];
+      }
+    else
+      {
+        NSTextField *tf = [[NSTextField alloc] initWithFrame: NSMakeRect(kSideMargin, y, kWinWidth - kSideMargin * 2, kSearchFieldHeight)];
+        [tf setBezeled: YES];
+        [tf setBezelStyle: NSTextFieldRoundedBezel];
+        [tf setEditable: YES];
+        [tf setSelectable: YES];
+        _searchField = (NSSearchField *)tf;
+      }
+    [_searchField setPlaceholderString:NSLocalizedString(@"Filter…", @"Search placeholder")];
+    [_searchField setTarget:self];
+    [_searchField setAction:@selector(filterContent:)];
+    [_searchField setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(filterContent:)
+                                                 name:NSControlTextDidChangeNotification
+                                               object:_searchField];
+    [contentView addSubview:_searchField];
+
+    /* Restore the last-used filter so the search persists across launches. */
+    NSString *savedFilter = [[NSUserDefaults standardUserDefaults]
+        stringForKey:@"BuildCatalogSearchFilter"];
+    if ([savedFilter length] > 0) {
+        [_searchField setStringValue:savedFilter];
+        [self filterContent:nil];
+    }
+
+    if ([_filteredEntries count] > 0) {
         [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
         [_buildButton setEnabled:YES];
     }
 
+    /* Spinner + status text at the lower-left, shown while the catalog is
+       being refreshed from the server. */
+    _spinner = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(kSideMargin, bottom, 16, 16)];
+    [_spinner setStyle:NSProgressIndicatorSpinningStyle];
+    [_spinner setIndeterminate:YES];
+    [_spinner setDisplayedWhenStopped:NO];
+    [_spinner setHidden:YES];
+    [contentView addSubview:_spinner];
+
+    _statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(kSideMargin + 22, bottom, 170, 16)];
+    [_statusLabel setBezeled:NO];
+    [_statusLabel setDrawsBackground:NO];
+    [_statusLabel setEditable:NO];
+    [_statusLabel setSelectable:NO];
+    [_statusLabel setStringValue:NSLocalizedString(@"Updating catalog…", @"Status while refreshing catalog")];
+    [_statusLabel setHidden:YES];
+    [contentView addSubview:_statusLabel];
+
     [_window center];
     [_window orderFront:nil];
+
+    /* Give the list keyboard focus so Up/Down navigate rows on the very first
+       keypress.  Without this the initial key event is consumed just to make
+       the table the first responder, and only the second press moves the
+       selection. */
+    if ([_filteredEntries count] > 0) {
+        [_window makeFirstResponder:_tableView];
+    }
+
+    /* Refresh the catalog from the server in the background the first time the
+       window is shown. The list is refreshed (and the spinner hidden) once the
+       download has completed. */
+    if (!_catalogRefreshStarted) {
+        _catalogRefreshStarted = YES;
+        [self showSpinner];
+        [NSThread detachNewThreadSelector:@selector(fetchCatalogInBackground)
+                                 toTarget:self
+                               withObject:nil];
+    }
+}
+
+- (void)loadEntriesFromLocal
+{
+    [_entries release];
+    _entries = [[CatalogEntry loadCatalog] retain];
+    [_filteredEntries release];
+    _filteredEntries = [_entries retain];
 }
 
 #pragma mark - List actions
@@ -139,17 +267,74 @@ static const CGFloat kWinHeight = 260.0;
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
 {
-    return [_entries count];
+    return [_filteredEntries count];
 }
 
 - (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
-    if (row < 0 || row >= (NSInteger)[_entries count]) return nil;
-    CatalogEntry *entry = [_entries objectAtIndex:row];
+    if (row < 0 || row >= (NSInteger)[_filteredEntries count]) return nil;
+    CatalogEntry *entry = [_filteredEntries objectAtIndex:row];
     if (entry.desc) {
         return [NSString stringWithFormat:@"%@ \u2014 %@", entry.name, entry.desc];
     }
     return entry.name;
+}
+
+#pragma mark - Search
+
+/* Extract the repository owner (organization or user) from a Git URL such as
+   https://github.com/probonopd/DingusPPC.app -> "probonopd". Used so the search
+   field can match apps by their GitHub owner, not just by name/description. */
+- (NSString *)ownerFromGitURL:(NSString *)gitURL
+{
+    if ([gitURL length] == 0) return @"";
+    NSString *s = gitURL;
+    NSRange scheme = [s rangeOfString:@"://"];
+    if (scheme.location != NSNotFound) {
+        s = [s substringFromIndex:NSMaxRange(scheme)];
+    }
+    NSArray *parts = [s componentsSeparatedByString:@"/"];
+    /* parts[0] is the host (e.g. github.com); the owner is the next segment. */
+    if ([parts count] > 1) {
+        NSString *owner = [parts objectAtIndex:1];
+        if ([owner length] > 0) return owner;
+    }
+    return @"";
+}
+
+- (void)filterContent:(id)sender
+{
+    NSString *searchString = [_searchField stringValue];
+
+    /* Persist the filter so it survives app restarts / reboots. */
+    [[NSUserDefaults standardUserDefaults] setObject:searchString
+                                              forKey:@"BuildCatalogSearchFilter"];
+
+    if ([searchString length] == 0) {
+        [_filteredEntries release];
+        _filteredEntries = [_entries retain];
+    } else {
+        NSMutableArray *filtered = [NSMutableArray array];
+        for (CatalogEntry *entry in _entries) {
+            NSString *lowerSearch = [searchString lowercaseString];
+            if ([[entry.name lowercaseString] rangeOfString:lowerSearch].location != NSNotFound ||
+                [[entry.desc lowercaseString] rangeOfString:lowerSearch].location != NSNotFound ||
+                [[[self ownerFromGitURL:entry.gitURL] lowercaseString] rangeOfString:lowerSearch].location != NSNotFound) {
+                [filtered addObject:entry];
+            }
+        }
+        [_filteredEntries release];
+        _filteredEntries = [filtered retain];
+    }
+
+    [_tableView reloadData];
+
+    if ([_filteredEntries count] > 0) {
+        [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+        [_buildButton setEnabled:YES];
+    } else {
+        [_buildButton setEnabled:NO];
+    }
 }
 
 #pragma mark - Actions
@@ -157,18 +342,18 @@ static const CGFloat kWinHeight = 260.0;
 - (void)buildClicked:(id)sender
 {
     NSInteger row = [_tableView selectedRow];
-    if (row < 0 || row >= (NSInteger)[_entries count]) return;
+    if (row < 0 || row >= (NSInteger)[_filteredEntries count]) return;
 
-    CatalogEntry *entry = [_entries objectAtIndex:row];
+    CatalogEntry *entry = [_filteredEntries objectAtIndex:row];
 
     NSString *template = [NSString stringWithFormat:@"/tmp/Build-catalog-%@-XXXXXXXX",
                           [entry.name stringByReplacingOccurrencesOfString:@" " withString:@"_"]];
     char *tmpPath = strdup([template UTF8String]);
     if (!mkdtemp(tmpPath)) {
         NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:@"Clone Failed"];
-        [alert setInformativeText:@"Could not create temporary directory."];
-        [alert addButtonWithTitle:@"OK"];
+        [alert setMessageText:NSLocalizedString(@"Clone Failed", @"Alert title: clone failed")];
+        [alert setInformativeText:NSLocalizedString(@"Could not create temporary directory.", @"Alert: temp dir error")];
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
         [alert runModal];
         free(tmpPath);
         return;
@@ -192,7 +377,7 @@ static const CGFloat kWinHeight = 260.0;
     /* Clone the repository on a background queue to keep GUI responsive */
     dispatch_async(buildQueue(), ^{
         NSTask *gitTask = [[NSTask alloc] init];
-        [gitTask setLaunchPath:@"/usr/bin/git"];
+        [gitTask setLaunchPath:toolPath(@"git")];
         [gitTask setArguments:@[@"clone", @"--depth=1", entry.gitURL, cloneDir]];
         [gitTask setEnvironment:[[NSProcessInfo processInfo] environment]];
 
@@ -201,7 +386,7 @@ static const CGFloat kWinHeight = 260.0;
     [gitTask setStandardError:gitPipe];
     [gitTask setStandardInput:[NSFileHandle fileHandleWithNullDevice]];
 
-        NSString *logMsg = [NSString stringWithFormat:@"=== Cloning %@ ===\n", entry.gitURL];
+        NSString *logMsg = [NSString stringWithFormat:NSLocalizedString(@"=== Cloning %@ ===\n", @"Log: cloning repo"), entry.gitURL];
         [controller.buildOutput appendString:logMsg];
         dispatch_async(dispatch_get_main_queue(), ^{
             [controller.logController appendLog:logMsg];
@@ -238,9 +423,9 @@ static const CGFloat kWinHeight = 260.0;
             dispatch_sync(dispatch_get_main_queue(), ^{
                 [controller hideProgressWindow];
                 NSAlert *alert = [[NSAlert alloc] init];
-                [alert setMessageText:@"Clone Failed"];
-                [alert setInformativeText:[NSString stringWithFormat:@"git clone failed: %@", [e reason]]];
-                [alert addButtonWithTitle:@"OK"];
+                [alert setMessageText:NSLocalizedString(@"Clone Failed", @"Alert title: clone failed")];
+                [alert setInformativeText:[NSString stringWithFormat:NSLocalizedString(@"git clone failed: %@", @"Alert: git clone error with reason"), [e reason]]];
+                [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                 [alert runModal];
                 [NSApp terminate:nil];
             });
@@ -251,9 +436,9 @@ static const CGFloat kWinHeight = 260.0;
             dispatch_sync(dispatch_get_main_queue(), ^{
                 [controller hideProgressWindow];
                 NSAlert *alert = [[NSAlert alloc] init];
-                [alert setMessageText:@"Clone Failed"];
-                [alert setInformativeText:@"git clone returned an error."];
-                [alert addButtonWithTitle:@"OK"];
+                [alert setMessageText:NSLocalizedString(@"Clone Failed", @"Alert title: clone failed")];
+                [alert setInformativeText:NSLocalizedString(@"git clone returned an error.", @"Alert: git clone error")];
+                [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                 [alert runModal];
                 [NSApp terminate:nil];
             });
@@ -286,9 +471,9 @@ static const CGFloat kWinHeight = 260.0;
                 dispatch_sync(dispatch_get_main_queue(), ^{
                     [controller hideProgressWindow];
                     NSAlert *alert = [[NSAlert alloc] init];
-                    [alert setMessageText:@"No Makefile Found"];
-                    [alert setInformativeText:@"The cloned repository does not contain a GNUmakefile or Makefile."];
-                    [alert addButtonWithTitle:@"OK"];
+                    [alert setMessageText:NSLocalizedString(@"No Makefile Found", @"Alert title: no makefile")];
+                    [alert setInformativeText:NSLocalizedString(@"The cloned repository does not contain a GNUmakefile or Makefile.", @"Alert: no makefile in clone")];
+                    [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                     [alert runModal];
                     [NSApp terminate:nil];
                 });
@@ -306,7 +491,7 @@ static const CGFloat kWinHeight = 260.0;
 - (void)openClicked:(id)sender
 {
     NSOpenPanel *openPanel = [NSOpenPanel openPanel];
-    [openPanel setTitle:@"Select GNUmakefile"];
+    [openPanel setTitle:NSLocalizedString(@"Select GNUmakefile", @"Open panel title")];
     [openPanel setCanChooseFiles:YES];
     [openPanel setCanChooseDirectories:YES];
     [openPanel setAllowsMultipleSelection:NO];
@@ -356,6 +541,246 @@ static const CGFloat kWinHeight = 260.0;
 - (void)windowWillClose:(NSNotification *)notification
 {
     [NSApp terminate:self];
+}
+
+/* Hand our custom field editor to the search field so Up/Down can leave the
+   box and jump into the results list. */
+- (id)windowWillReturnFieldEditor:(NSWindow *)sender toObject:(id)anObject
+{
+    if (anObject == _searchField) {
+        if (!_searchFieldEditor) {
+            _searchFieldEditor = [[CatalogFieldEditor alloc] init];
+            [_searchFieldEditor setCatalogTarget:self];
+        }
+        return _searchFieldEditor;
+    }
+    return nil;
+}
+
+/* Called from the search field's field editor on Up/Down: end editing, move
+   focus into the results table, and select the first (Down) or last (Up) row.
+   Once the table has focus, arrow keys navigate rows natively. */
+- (void)exitSearchFieldIntoResultsWithDelta:(NSInteger)delta
+{
+    NSInteger count = [_filteredEntries count];
+    if (count == 0) return;
+    // Step one row from the current selection rather than always jumping to the
+    // first/last row, so the first arrow press actually moves the highlight
+    // (jumping to row 0 is a no-op when row 0 is already selected).
+    NSInteger current = [_tableView selectedRow];
+    NSInteger row = (current < 0) ? ((delta > 0) ? 0 : count - 1)
+                                   : current + delta;
+    if (row < 0) row = 0;
+    if (row >= count) row = count - 1;
+    [[_searchField window] makeFirstResponder:_tableView];
+    [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:row]
+            byExtendingSelection:NO];
+    [_tableView scrollRowToVisible:row];
+}
+
+#pragma mark - Catalog refresh from server
+
+/* Runs on a background thread: download the catalog and store it in Caches.
+   Always calls back on the main thread with an error message (or nil on
+   success) so the window can report problems. */
+- (void)fetchCatalogInBackground
+{
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *errorMessage = nil;
+
+    NSString *urlString = [CatalogEntry remoteCatalogURLString];
+    NSURL *url = [NSURL URLWithString:urlString];
+
+    if (!url) {
+        errorMessage = NSLocalizedString(@"The catalog address is invalid.",
+                                         @"Catalog fetch error");
+    } else {
+        NSString *cachePath = [CatalogEntry catalogCachePath];
+        NSString *curlPath = [NSTask launchPathForTool:@"curl"];
+        if (!curlPath) {
+            errorMessage = NSLocalizedString(@"The catalog download tool (curl) is missing.",
+                                             @"Catalog fetch error");
+        } else if (!cachePath) {
+            errorMessage = NSLocalizedString(@"The catalog cache directory is unavailable.",
+                                             @"Catalog fetch error");
+        } else {
+            NSString *tmpDir = NSTemporaryDirectory();
+            NSString *dlPath = [tmpDir stringByAppendingPathComponent:@"BuildCatalog.dl"];
+            NSString *hdrPath = [tmpDir stringByAppendingPathComponent:@"BuildCatalog.hdr"];
+            [fm removeItemAtPath:dlPath error:NULL];
+            [fm removeItemAtPath:hdrPath error:NULL];
+
+            /* Track the catalog by its content-derived ETag so we only re-download
+               when it actually changes. raw.githubusercontent branch refs report a
+               Last-Modified that does NOT track the latest commit, so If-Modified-Since
+               style checks are unreliable; the ETag is content-derived and stable. */
+            NSString *etagPath = [cachePath stringByAppendingString:@".etag"];
+            NSMutableArray *args = [NSMutableArray arrayWithObjects:@"-fsSL", nil];
+            NSString *storedEtag = nil;
+            if (etagPath && [fm fileExistsAtPath:etagPath]) {
+                storedEtag = [NSString stringWithContentsOfFile:etagPath
+                                                      encoding:NSUTF8StringEncoding
+                                                         error:NULL];
+                if ([storedEtag length] > 0) {
+                    [args addObject:@"-H"];
+                    [args addObject:[NSString stringWithFormat:@"If-None-Match: %@", storedEtag]];
+                }
+            }
+            [args addObject:@"-D"];
+            [args addObject:hdrPath];
+            [args addObject:@"-o"];
+            [args addObject:dlPath];
+            [args addObject:urlString];
+
+            /* libcurl (via the curl CLI) follows the GitHub raw 302 redirects that
+               GNUstep's NSURLConnection cannot, so this path is reliable. */
+            NSTask *task = [[NSTask alloc] init];
+            [task setLaunchPath:curlPath];
+            [task setArguments:args];
+            [task launch];
+            [task waitUntilExit];
+            int status = [task terminationStatus];
+            [task release];
+
+            if (status != 0) {
+                errorMessage = [NSString stringWithFormat:
+                    NSLocalizedString(@"Could not download the catalog (curl exit %d).",
+                                      @"Catalog fetch error with curl status"),
+                    status];
+            } else {
+                NSString *headers = [NSString stringWithContentsOfFile:hdrPath
+                                                              encoding:NSUTF8StringEncoding
+                                                                 error:NULL];
+                NSInteger code = [self statusCodeFromHeaders:headers];
+                if (code == 304) {
+                    /* Unchanged: keep the cached copy, no reload. */
+                } else if (code != 200) {
+                    errorMessage = [NSString stringWithFormat:
+                        NSLocalizedString(@"The catalog server returned an error (HTTP %d).",
+                                          @"Catalog fetch error with status code"),
+                        (int)code];
+                } else {
+                    NSData *data = [NSData dataWithContentsOfFile:dlPath];
+                    if (!data || [data length] == 0) {
+                        errorMessage = NSLocalizedString(@"The downloaded catalog is empty.",
+                                                         @"Catalog fetch error: empty");
+                    } else {
+                        NSArray *parsed = [NSPropertyListSerialization
+                                              propertyListWithData:data
+                                                            options:NSPropertyListImmutable
+                                                             format:NULL
+                                                              error:NULL];
+                        if (![parsed isKindOfClass:[NSArray class]]) {
+                            errorMessage = NSLocalizedString(@"The downloaded catalog is not valid.",
+                                                             @"Catalog fetch error: bad plist");
+                        } else {
+                            [data writeToFile:cachePath atomically:YES];
+                            NSString *newEtag = [self etagFromHeaders:headers];
+                            if (newEtag && etagPath) {
+                                [newEtag writeToFile:etagPath
+                                      atomically:YES
+                                        encoding:NSUTF8StringEncoding
+                                           error:NULL];
+                            }
+                        }
+                    }
+                }
+            }
+            [fm removeItemAtPath:dlPath error:NULL];
+            [fm removeItemAtPath:hdrPath error:NULL];
+        }
+    }
+
+    [self performSelectorOnMainThread:@selector(catalogFetchDidFinishWithError:)
+                           withObject:errorMessage
+                        waitUntilDone:NO];
+    [pool release];
+}
+
+/* Parse the final HTTP status code from a curl -D header dump. With -L the dump
+   contains every response's headers; we want the last HTTP/ line (the final,
+   post-redirect response). Returns 0 if none is found. */
+- (NSInteger)statusCodeFromHeaders:(NSString *)headers
+{
+    if ([headers length] == 0) return 0;
+    NSInteger code = 0;
+    NSArray *lines = [headers componentsSeparatedByString:@"\n"];
+    for (NSString *line in lines) {
+        NSString *s = [line stringByTrimmingCharactersInSet:
+                          [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if ([s hasPrefix:@"HTTP/"]) {
+            NSRange sp = [s rangeOfString:@" "];
+            if (sp.location != NSNotFound) {
+                NSString *num = [[s substringFromIndex:NSMaxRange(sp)]
+                                    stringByTrimmingCharactersInSet:
+                                      [NSCharacterSet whitespaceCharacterSet]];
+                code = [num integerValue];
+            }
+        }
+    }
+    return code;
+}
+
+/* Extract the (last) ETag: header from a curl -D header dump. */
+- (NSString *)etagFromHeaders:(NSString *)headers
+{
+    if ([headers length] == 0) return nil;
+    NSString *etag = nil;
+    NSArray *lines = [headers componentsSeparatedByString:@"\n"];
+    for (NSString *line in lines) {
+        NSString *s = [line stringByTrimmingCharactersInSet:
+                          [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if ([[s lowercaseString] hasPrefix:@"etag:"]) {
+            etag = [[s substringFromIndex:5]
+                       stringByTrimmingCharactersInSet:
+                         [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        }
+    }
+    return etag;
+}
+
+/* Called on the main thread once the background fetch has completed: report any
+   error, hide the spinner, and refresh the list with whatever catalog is now on
+   disk. */
+- (void)catalogFetchDidFinishWithError:(NSString *)errorMessage
+{
+    [self hideSpinner];
+
+    if (errorMessage) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:NSLocalizedString(@"Catalog Update Failed",
+                                                @"Alert title: catalog fetch failed")];
+        [alert setInformativeText:errorMessage];
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
+        [alert runModal];
+        [alert release];
+    }
+
+    [self reloadCatalog];
+}
+
+- (void)showSpinner
+{
+    [_spinner startAnimation:nil];
+    [_spinner setHidden:NO];
+    [_statusLabel setHidden:NO];
+}
+
+- (void)hideSpinner
+{
+    [_spinner stopAnimation:nil];
+    [_spinner setHidden:YES];
+    [_statusLabel setHidden:YES];
+}
+
+- (void)reloadCatalog
+{
+    [self loadEntriesFromLocal];
+
+    /* Re-apply the current filter (which may have been restored from
+       NSUserDefaults or typed by the user) to the freshly loaded catalog. */
+    [self filterContent:nil];
 }
 
 @end

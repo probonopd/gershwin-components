@@ -1,15 +1,38 @@
-{
-    ApplicationDescription = "Process monitor";
-    ApplicationIcon = "Processes.png";
-    ApplicationName = Processes;
-    ApplicationRelease = "1.0";
-    Authors = (
-        "Simon Peter"
-    );
-    Copyright = "Copyright (C) 2026";
-    FullVersionID = "1.0";
-    NSExecutable = Processes;
-    NSIcon = "Processes.png";
-    NSPrincipalClass = NSApplication;
-    NSRole = Application;
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+	<key>CFBundleName</key>
+	<string>Processes</string>
+	<key>CFBundleDisplayName</key>
+	<string>Processes</string>
+	<key>ApplicationName</key>
+	<string>Processes</string>
+	<key>ApplicationDescription</key>
+	<string>Process monitor</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.Processes</string>
+	<key>CFBundleExecutable</key>
+	<string>Processes</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>Processes.icns</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
+</dict>
+</plist>

@@ -1,0 +1,26 @@
+#!/usr/bin/env run_uitest
+# Menu-item assertions: existence, checkmark state and key equivalents
+# (shortcuts) read from the app's main-menu dump.
+#
+# Run with: run_uitest Menu/Tests/menu_assert.uitest
+launch application "Processes"
+activate application "Processes"
+
+assert menu item "Processes/About Processes" exists
+assert menu item "Processes/Hide Processes" shortcut "Cmd+H"
+assert menu item "Processes/Quit Processes" shortcut "Cmd+Q"
+assert menu item "Window/Minimize" shortcut "Cmd+M"
+assert not exists menu item "Processes/DoesNotExist"
+if menu item "Processes/About Processes" enabled
+  log "About Processes is enabled"
+end
+
+# Leave the computer as it was found: quit the launched app and make sure it
+# has really quit.
+activate application "Processes"
+wait until menu bar "Processes" timeout 10s
+press "Alt+Q"
+wait until not exists window "Processes" timeout 5s
+assert not exists application "Processes"
+
+log "menu assertions pass"

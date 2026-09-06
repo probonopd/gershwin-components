@@ -14,5 +14,9 @@
 @property (copy) NSString *makefilePath;
 
 + (NSArray *)loadCatalog;
++ (NSArray *)loadCatalogFromPath:(NSString *)catalogPath;
++ (NSString *)localCatalogPath;
++ (NSString *)catalogCachePath;
++ (NSString *)remoteCatalogURLString;
 
 @end

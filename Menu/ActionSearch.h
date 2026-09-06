@@ -21,7 +21,21 @@
 @property (nonatomic, strong) NSMenuItem *menuItem;      // Reference to actual menu item
 @property (nonatomic, assign) BOOL enabled;              // Whether item is enabled in original menu
 
+/* Kind of result: "menu" (a menu item), "run" (launch an app/command),
+   "goto" (open a folder path), or "index" (a file/folder hit from the
+   full-text metadata index).  Run/GoTo/Index results carry the target in
+   `path`. */
+@property (nonatomic, copy) NSString *kind;
+
+/* Group for separator placement: "menu", "app", "command" (PATH), "path",
+   or "index".  Results of the same group are shown contiguously with a
+   separator between different groups. */
+@property (nonatomic, copy) NSString *group;
+
 - (id)initWithMenuItem:(NSMenuItem *)item path:(NSString *)path;
+
+/* Convenience: build a Run or Go To result.  kind is "run" or "goto". */
++ (instancetype)runResultWithTitle:(NSString *)title target:(NSString *)target;
 
 @end
 
@@ -59,6 +73,12 @@
  * Toggle the search popup
  */
 - (void)toggleSearchPopupAtPoint:(NSPoint)point;
+
+/**
+ * Toggle the search popup (the Action Search).  Called by the global
+ * Cmd+Space (Alt+Space) shortcut and the Command menu's "Search..." item.
+ */
+- (void)toggleSearch:(id)sender;
 
 /**
  * Whether the search field is currently visible in the menu bar

@@ -1,0 +1,7 @@
+# OpenBSD boot attach lines as consumed by disk discovery: the unit name is
+# the first token, "at" the second, and the "<...>" span becomes the display
+# description. cd* lines are filtered out of the disk pass by the caller.
+sd0 at scsibus0 targ 1 lun 0: <ATA, Samsung SSD 860, 1B6Q> naa.002538b711000001
+sd1 at scsibus1 targ 2 lun 0: <SanDisk, Cruzer Blade, 1.00> removable serial.20060475311417215412
+wd0 at pciide0 channel 0 drive 0: <WDC WD800JB-00JJC1>
+cd0 at scsibus0 targ 5 lun 0: <HL-DT-ST, DVDRAM GH24NSC0, LG00> removable

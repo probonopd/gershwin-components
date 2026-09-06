@@ -5,6 +5,7 @@
  */
 
 #import "MouseController.h"
+#import "AppearanceMetrics.h"
 #import <dispatch/dispatch.h>
 
 static NSString *const kMouseDomain = @"MousePreferences";
@@ -19,6 +20,50 @@ static NSString *const kMouseDomain = @"MousePreferences";
 - (void)setBoolProperty:(NSString *)prop forDevice:(NSString *)device value:(BOOL)value;
 - (void)applyAllSettings;
 - (void)updateStatus:(NSString *)message;
+
+/* Layout helpers (HIG group boxes and rows). */
+- (NSBox *)groupBoxWithTitle:(NSString *)title frame:(NSRect)frame inView:(NSView *)parent;
+- (NSTextField *)labelWithText:(NSString *)text frame:(NSRect)frame alignment:(NSTextAlignment)align;
+- (void)addCheckbox:(NSButton *)checkbox toBox:(NSBox *)box y:(CGFloat)y width:(CGFloat)w;
+- (void)addSliderRowWithLabel:(NSString *)label
+                       slider:(NSSlider *)slider
+                        value:(NSTextField *)value
+                        toBox:(NSBox *)box
+                            y:(CGFloat)y
+                        width:(CGFloat)w;
+@end
+
+/* The pane view. When the host window gives us a width (which is not the
+   560px base we built at), re-lay out the group boxes so the left/right
+   margins to the window edge stay symmetric. */
+@interface MouseMainView : NSView
+{
+    MouseController *_layoutOwner;
+}
+@end
+
+@implementation MouseMainView
+- (void)setFrameSize:(NSSize)newSize
+{
+    [super setFrameSize:newSize];
+    [_layoutOwner relayoutWithWidth:newSize.width];
+}
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window] && [self superview]) {
+        /* The host window does not necessarily size the pane view to its
+           content area; make it fill the box content and re-lay out so the
+           left/right margins stay symmetric.  GNUstep's setFrame: bypasses
+           setFrameSize:, so re-lay out explicitly here. */
+        [self setFrame:[[self superview] bounds]];
+        [_layoutOwner relayoutWithWidth:[self bounds].size.width];
+    }
+}
+- (void)setLayoutOwner:(MouseController *)owner
+{
+    _layoutOwner = owner;
+}
 @end
 
 @implementation MouseController
@@ -112,6 +157,13 @@ static NSString *const kMouseDomain = @"MousePreferences";
     [task setArguments:[NSArray arrayWithObjects:@"list", @"--name-only", nil]];
     NSPipe *pipe = [NSPipe pipe];
     [task setStandardOutput:pipe];
+
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     [task launch];
     NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
     [task waitUntilExit];
@@ -184,6 +236,13 @@ static NSString *const kMouseDomain = @"MousePreferences";
     [task setArguments:[NSArray arrayWithObjects:@"list-props", device, nil]];
     NSPipe *pipe = [NSPipe pipe];
     [task setStandardOutput:pipe];
+
+    // Force C locale for consistent tool output
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    [env setObject:@"C" forKey:@"LC_ALL"];
+    [task setEnvironment:env];
+    [env release];
+
     [task launch];
     NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
     [task waitUntilExit];
@@ -256,241 +315,282 @@ static NSString *const kMouseDomain = @"MousePreferences";
     }
     xinputPath = [[self findXinput] retain];
     [self enumerateDevices];
-    mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 560, 370)];
-    CGFloat y = 352;
-    CGFloat labelX = 20;
-    CGFloat controlX = 160;
-    CGFloat controlW = 260;
-    CGFloat rowH = 22;
 
-    // ---- Mouse Section ----
-    NSTextField *mouseSection = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX, y, 200, 18)];
-    [mouseSection setBezeled:NO];
-    [mouseSection setEditable:NO];
-    [mouseSection setSelectable:NO];
-    [mouseSection setDrawsBackground:NO];
-    [mouseSection setStringValue:@"Mouse"];
-    [mouseSection setFont:[NSFont boldSystemFontOfSize:13]];
-    [mouseSection setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:mouseSection];
-    [mouseSection release];
-    y -= 20;
+    const CGFloat winW = 560, winH = 445;
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;      /* 24 */
+    const CGFloat topMargin = METRICS_CONTENT_TOP_MARGIN;        /* 15 */
+    const CGFloat bottomMargin = METRICS_CONTENT_BOTTOM_MARGIN;  /* 20 */
+    const CGFloat boxGap = METRICS_SPACE_12;                     /* between group boxes */
+    const CGFloat rowGap = METRICS_SPACE_8;
+    const CGFloat rowH = 20;                                     /* checkbox line spacing */
+    const CGFloat sliderRowH = METRICS_TEXT_INPUT_FIELD_HEIGHT;  /* 22 */
+    /* NSBox with NSAtTop title reserves ~14px for the title text before
+       its content area starts.  The first control must clear that. */
+    const CGFloat boxTitleInset = 14.0;
+    /* Group-box heights sized to their content (title inset + rows +
+       16px inner margin top and bottom), so the status line at the
+       bottom does not overlap the last box. */
+    const CGFloat mouseBoxH = 96;
+    const CGFloat trackpadBoxH = 176;
+    const CGFloat trackpointBoxH = 68;
 
-    // Left handed
-    leftHandedCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(labelX + 10, y, 300, rowH)];
-    [leftHandedCheckbox setButtonType:NSSwitchButton];
-    [leftHandedCheckbox setTitle:@"Swap left and right buttons"];
-    [leftHandedCheckbox setTarget:self];
-    [leftHandedCheckbox setAction:@selector(settingChanged:)];
-    [leftHandedCheckbox setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:leftHandedCheckbox];
-    y -= 22;
+    mainView = [[MouseMainView alloc] initWithFrame:NSMakeRect(0, 0, winW, winH)];
+    [(MouseMainView *)mainView setLayoutOwner:self];
+    [mainView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    CGFloat contentW = winW - 2 * sideMargin;
+    CGFloat boxW = contentW;
 
-    // Mouse speed slider
-    NSTextField *mouseSpeedText = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX + 10, y, 120, rowH)];
-    [mouseSpeedText setBezeled:NO];
-    [mouseSpeedText setEditable:NO];
-    [mouseSpeedText setSelectable:NO];
-    [mouseSpeedText setDrawsBackground:NO];
-    [mouseSpeedText setStringValue:@"Tracking speed:"];
-    [mouseSpeedText setAlignment:NSRightTextAlignment];
-    [mouseSpeedText setFont:[NSFont systemFontOfSize:12]];
-    [mouseSpeedText setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:mouseSpeedText];
-    [mouseSpeedText release];
-    mouseSpeedSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(controlX, y + 2, controlW, rowH)];
-    [mouseSpeedSlider setMinValue:-1.0];
-    [mouseSpeedSlider setMaxValue:1.0];
-    [mouseSpeedSlider setFloatValue:0.0];
-    [mouseSpeedSlider setNumberOfTickMarks:11];
-    [mouseSpeedSlider setAllowsTickMarkValuesOnly:NO];
-    [mouseSpeedSlider setContinuous:YES];
-    [mouseSpeedSlider setTarget:self];
-    [mouseSpeedSlider setAction:@selector(settingChanged:)];
-    [mouseSpeedSlider setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:mouseSpeedSlider];
-    mouseSpeedLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX + controlW + 10, y, 60, rowH)];
-    [mouseSpeedLabel setBezeled:NO];
-    [mouseSpeedLabel setEditable:NO];
-    [mouseSpeedLabel setSelectable:NO];
-    [mouseSpeedLabel setDrawsBackground:NO];
-    [mouseSpeedLabel setStringValue:@"0.00"];
-    [mouseSpeedLabel setFont:[NSFont systemFontOfSize:11]];
-    [mouseSpeedLabel setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:mouseSpeedLabel];
-    y -= 28;
+    CGFloat y = winH - topMargin;
 
-    // ---- Separator ----
-    NSBox *sep1 = [[NSBox alloc] initWithFrame:NSMakeRect(labelX, y - 2, 520, 1)];
-    [sep1 setBoxType:NSBoxSeparator];
-    [sep1 setAutoresizingMask:NSViewMaxYMargin | NSViewWidthSizable];
-    [mainView addSubview:sep1];
-    [sep1 release];
-    y -= 16;
+    /* ---- Mouse group box ---- */
+    mouseBox = [self groupBoxWithTitle:@"Mouse"
+                                frame:NSMakeRect(sideMargin, y - mouseBoxH, boxW, mouseBoxH)
+                               inView:mainView];
+    {
+        CGFloat by = mouseBoxH - boxTitleInset - METRICS_SPACE_16 - rowH;
+        [self addCheckbox:leftHandedCheckbox = [[[NSButton alloc]
+                    initWithFrame:NSZeroRect] autorelease]
+                    toBox:mouseBox y:by width:boxW];
+        [leftHandedCheckbox setButtonType:NSSwitchButton];
+        [leftHandedCheckbox setTitle:@"Swap left and right buttons"];
+        [leftHandedCheckbox setTarget:self];
+        [leftHandedCheckbox setAction:@selector(settingChanged:)];
 
-    // ---- Trackpad Section ----
-    NSTextField *trackpadSection = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX, y, 200, 18)];
-    [trackpadSection setBezeled:NO];
-    [trackpadSection setEditable:NO];
-    [trackpadSection setSelectable:NO];
-    [trackpadSection setDrawsBackground:NO];
-    [trackpadSection setStringValue:@"Trackpad"];
-    [trackpadSection setFont:[NSFont boldSystemFontOfSize:13]];
-    [trackpadSection setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:trackpadSection];
-    [trackpadSection release];
-    y -= 20;
+        by -= rowGap + sliderRowH;
+        [self addSliderRowWithLabel:@"Tracking speed:"
+                             slider:mouseSpeedSlider =
+                             [[[NSSlider alloc] initWithFrame:NSZeroRect] autorelease]
+                              value:mouseSpeedLabel =
+                             [[[NSTextField alloc] initWithFrame:NSZeroRect] autorelease]
+                              toBox:mouseBox y:by width:boxW];
+        [mouseSpeedSlider setMinValue:-1.0];
+        [mouseSpeedSlider setMaxValue:1.0];
+        [mouseSpeedSlider setFloatValue:0.0];
+        [mouseSpeedSlider setNumberOfTickMarks:11];
+        [mouseSpeedSlider setAllowsTickMarkValuesOnly:NO];
+        [mouseSpeedSlider setContinuous:YES];
+        [mouseSpeedSlider setTarget:self];
+        [mouseSpeedSlider setAction:@selector(settingChanged:)];
+        [mouseSpeedLabel setStringValue:@"0.00"];
+    }
+    y -= mouseBoxH + boxGap;
 
-    // Tap to click
-    tapToClickCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(labelX + 10, y, 300, rowH)];
-    [tapToClickCheckbox setButtonType:NSSwitchButton];
-    [tapToClickCheckbox setTitle:@"Tap to click"];
-    [tapToClickCheckbox setTarget:self];
-    [tapToClickCheckbox setAction:@selector(settingChanged:)];
-    [tapToClickCheckbox setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:tapToClickCheckbox];
-    y -= 22;
+    /* ---- Trackpad group box ---- */
+    trackpadBox = [self groupBoxWithTitle:@"Trackpad"
+                                    frame:NSMakeRect(sideMargin, y - trackpadBoxH, boxW, trackpadBoxH)
+                                   inView:mainView];
+    {
+        CGFloat by = trackpadBoxH - boxTitleInset - METRICS_SPACE_16 - rowH;
+        [self addCheckbox:tapToClickCheckbox =
+                   [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease]
+                    toBox:trackpadBox y:by width:boxW];
+        [tapToClickCheckbox setButtonType:NSSwitchButton];
+        [tapToClickCheckbox setTitle:@"Tap to click"];
+        [tapToClickCheckbox setTarget:self];
+        [tapToClickCheckbox setAction:@selector(settingChanged:)];
+        by -= rowH;
 
-    // Two-finger right click
-    twoFingerRightClickCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(labelX + 10, y, 300, rowH)];
-    [twoFingerRightClickCheckbox setButtonType:NSSwitchButton];
-    [twoFingerRightClickCheckbox setTitle:@"Two-finger tap = right click"];
-    [twoFingerRightClickCheckbox setTarget:self];
-    [twoFingerRightClickCheckbox setAction:@selector(settingChanged:)];
-    [twoFingerRightClickCheckbox setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:twoFingerRightClickCheckbox];
-    y -= 22;
+        [self addCheckbox:twoFingerRightClickCheckbox =
+                   [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease]
+                    toBox:trackpadBox y:by width:boxW];
+        [twoFingerRightClickCheckbox setButtonType:NSSwitchButton];
+        [twoFingerRightClickCheckbox setTitle:@"Two-finger tap = right click"];
+        [twoFingerRightClickCheckbox setTarget:self];
+        [twoFingerRightClickCheckbox setAction:@selector(settingChanged:)];
+        by -= rowH;
 
-    // Three-finger middle click
-    threeFingerMiddleClickCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(labelX + 10, y, 300, rowH)];
-    [threeFingerMiddleClickCheckbox setButtonType:NSSwitchButton];
-    [threeFingerMiddleClickCheckbox setTitle:@"Three-finger tap = middle click"];
-    [threeFingerMiddleClickCheckbox setTarget:self];
-    [threeFingerMiddleClickCheckbox setAction:@selector(settingChanged:)];
-    [threeFingerMiddleClickCheckbox setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:threeFingerMiddleClickCheckbox];
-    y -= 22;
+        [self addCheckbox:threeFingerMiddleClickCheckbox =
+                   [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease]
+                    toBox:trackpadBox y:by width:boxW];
+        [threeFingerMiddleClickCheckbox setButtonType:NSSwitchButton];
+        [threeFingerMiddleClickCheckbox setTitle:@"Three-finger tap = middle click"];
+        [threeFingerMiddleClickCheckbox setTarget:self];
+        [threeFingerMiddleClickCheckbox setAction:@selector(settingChanged:)];
+        by -= rowH;
 
-    // Disable while typing
-    disableWhileTypingCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(labelX + 10, y, 300, rowH)];
-    [disableWhileTypingCheckbox setButtonType:NSSwitchButton];
-    [disableWhileTypingCheckbox setTitle:@"Disable trackpad while typing"];
-    [disableWhileTypingCheckbox setTarget:self];
-    [disableWhileTypingCheckbox setAction:@selector(settingChanged:)];
-    [disableWhileTypingCheckbox setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:disableWhileTypingCheckbox];
-    y -= 22;
+        [self addCheckbox:disableWhileTypingCheckbox =
+                   [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease]
+                    toBox:trackpadBox y:by width:boxW];
+        [disableWhileTypingCheckbox setButtonType:NSSwitchButton];
+        [disableWhileTypingCheckbox setTitle:@"Disable trackpad while typing"];
+        [disableWhileTypingCheckbox setTarget:self];
+        [disableWhileTypingCheckbox setAction:@selector(settingChanged:)];
+        by -= rowH;
 
-    // Reverse scrolling direction
-    naturalScrollingCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(labelX + 10, y, 300, rowH)];
-    [naturalScrollingCheckbox setButtonType:NSSwitchButton];
-    [naturalScrollingCheckbox setTitle:@"Reverse scrolling direction"];
-    [naturalScrollingCheckbox setTarget:self];
-    [naturalScrollingCheckbox setAction:@selector(settingChanged:)];
-    [naturalScrollingCheckbox setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:naturalScrollingCheckbox];
-    y -= 22;
+        [self addCheckbox:naturalScrollingCheckbox =
+                   [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease]
+                    toBox:trackpadBox y:by width:boxW];
+        [naturalScrollingCheckbox setButtonType:NSSwitchButton];
+        [naturalScrollingCheckbox setTitle:@"Reverse scrolling direction"];
+        [naturalScrollingCheckbox setTarget:self];
+        [naturalScrollingCheckbox setAction:@selector(settingChanged:)];
+        by -= rowGap + sliderRowH;
 
-    // Trackpad speed slider
-    NSTextField *trackpadSpeedText = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX + 10, y, 120, rowH)];
-    [trackpadSpeedText setBezeled:NO];
-    [trackpadSpeedText setEditable:NO];
-    [trackpadSpeedText setSelectable:NO];
-    [trackpadSpeedText setDrawsBackground:NO];
-    [trackpadSpeedText setStringValue:@"Tracking speed:"];
-    [trackpadSpeedText setAlignment:NSRightTextAlignment];
-    [trackpadSpeedText setFont:[NSFont systemFontOfSize:12]];
-    [trackpadSpeedText setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:trackpadSpeedText];
-    [trackpadSpeedText release];
-    trackpadSpeedSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(controlX, y + 2, controlW, rowH)];
-    [trackpadSpeedSlider setMinValue:-1.0];
-    [trackpadSpeedSlider setMaxValue:1.0];
-    [trackpadSpeedSlider setFloatValue:0.0];
-    [trackpadSpeedSlider setNumberOfTickMarks:11];
-    [trackpadSpeedSlider setAllowsTickMarkValuesOnly:NO];
-    [trackpadSpeedSlider setContinuous:YES];
-    [trackpadSpeedSlider setTarget:self];
-    [trackpadSpeedSlider setAction:@selector(settingChanged:)];
-    [trackpadSpeedSlider setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:trackpadSpeedSlider];
-    trackpadSpeedLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX + controlW + 10, y, 60, rowH)];
-    [trackpadSpeedLabel setBezeled:NO];
-    [trackpadSpeedLabel setEditable:NO];
-    [trackpadSpeedLabel setSelectable:NO];
-    [trackpadSpeedLabel setDrawsBackground:NO];
-    [trackpadSpeedLabel setStringValue:@"0.00"];
-    [trackpadSpeedLabel setFont:[NSFont systemFontOfSize:11]];
-    [trackpadSpeedLabel setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:trackpadSpeedLabel];
-    y -= 28;
+        [self addSliderRowWithLabel:@"Tracking speed:"
+                             slider:trackpadSpeedSlider =
+                             [[[NSSlider alloc] initWithFrame:NSZeroRect] autorelease]
+                              value:trackpadSpeedLabel =
+                             [[[NSTextField alloc] initWithFrame:NSZeroRect] autorelease]
+                              toBox:trackpadBox y:by width:boxW];
+        [trackpadSpeedSlider setMinValue:-1.0];
+        [trackpadSpeedSlider setMaxValue:1.0];
+        [trackpadSpeedSlider setFloatValue:0.0];
+        [trackpadSpeedSlider setNumberOfTickMarks:11];
+        [trackpadSpeedSlider setAllowsTickMarkValuesOnly:NO];
+        [trackpadSpeedSlider setContinuous:YES];
+        [trackpadSpeedSlider setTarget:self];
+        [trackpadSpeedSlider setAction:@selector(settingChanged:)];
+        [trackpadSpeedLabel setStringValue:@"0.00"];
+    }
+    y -= trackpadBoxH + boxGap;
 
-    // ---- Separator ----
-    NSBox *sep2 = [[NSBox alloc] initWithFrame:NSMakeRect(labelX, y - 2, 520, 1)];
-    [sep2 setBoxType:NSBoxSeparator];
-    [sep2 setAutoresizingMask:NSViewMaxYMargin | NSViewWidthSizable];
-    [mainView addSubview:sep2];
-    [sep2 release];
-    y -= 16;
+    /* ---- TrackPoint group box ---- */
+    trackpointBox = [self groupBoxWithTitle:@"TrackPoint"
+                                      frame:NSMakeRect(sideMargin, y - trackpointBoxH, boxW, trackpointBoxH)
+                                     inView:mainView];
+    {
+        CGFloat by = trackpointBoxH - boxTitleInset - METRICS_SPACE_16 - sliderRowH;
+        [self addSliderRowWithLabel:@"Tracking speed:"
+                             slider:trackpointSpeedSlider =
+                             [[[NSSlider alloc] initWithFrame:NSZeroRect] autorelease]
+                              value:trackpointSpeedLabel =
+                             [[[NSTextField alloc] initWithFrame:NSZeroRect] autorelease]
+                              toBox:trackpointBox y:by width:boxW];
+        [trackpointSpeedSlider setMinValue:-1.0];
+        [trackpointSpeedSlider setMaxValue:1.0];
+        [trackpointSpeedSlider setFloatValue:0.0];
+        [trackpointSpeedSlider setNumberOfTickMarks:11];
+        [trackpointSpeedSlider setAllowsTickMarkValuesOnly:NO];
+        [trackpointSpeedSlider setContinuous:YES];
+        [trackpointSpeedSlider setTarget:self];
+        [trackpointSpeedSlider setAction:@selector(settingChanged:)];
+        [trackpointSpeedLabel setStringValue:@"0.00"];
+    }
 
-    // ---- TrackPoint Section ----
-    NSTextField *trackpointSection = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX, y, 200, 18)];
-    [trackpointSection setBezeled:NO];
-    [trackpointSection setEditable:NO];
-    [trackpointSection setSelectable:NO];
-    [trackpointSection setDrawsBackground:NO];
-    [trackpointSection setStringValue:@"TrackPoint"];
-    [trackpointSection setFont:[NSFont boldSystemFontOfSize:13]];
-    [trackpointSection setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:trackpointSection];
-    [trackpointSection release];
-    y -= 20;
-
-    // TrackPoint speed slider
-    NSTextField *trackpointSpeedText = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX + 10, y, 120, rowH)];
-    [trackpointSpeedText setBezeled:NO];
-    [trackpointSpeedText setEditable:NO];
-    [trackpointSpeedText setSelectable:NO];
-    [trackpointSpeedText setDrawsBackground:NO];
-    [trackpointSpeedText setStringValue:@"Tracking speed:"];
-    [trackpointSpeedText setAlignment:NSRightTextAlignment];
-    [trackpointSpeedText setFont:[NSFont systemFontOfSize:12]];
-    [trackpointSpeedText setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:trackpointSpeedText];
-    [trackpointSpeedText release];
-    trackpointSpeedSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(controlX, y + 2, controlW, rowH)];
-    [trackpointSpeedSlider setMinValue:-1.0];
-    [trackpointSpeedSlider setMaxValue:1.0];
-    [trackpointSpeedSlider setFloatValue:0.0];
-    [trackpointSpeedSlider setNumberOfTickMarks:11];
-    [trackpointSpeedSlider setAllowsTickMarkValuesOnly:NO];
-    [trackpointSpeedSlider setContinuous:YES];
-    [trackpointSpeedSlider setTarget:self];
-    [trackpointSpeedSlider setAction:@selector(settingChanged:)];
-    [trackpointSpeedSlider setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:trackpointSpeedSlider];
-    trackpointSpeedLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(controlX + controlW + 10, y, 60, rowH)];
-    [trackpointSpeedLabel setBezeled:NO];
-    [trackpointSpeedLabel setEditable:NO];
-    [trackpointSpeedLabel setSelectable:NO];
-    [trackpointSpeedLabel setDrawsBackground:NO];
-    [trackpointSpeedLabel setStringValue:@"0.00"];
-    [trackpointSpeedLabel setFont:[NSFont systemFontOfSize:11]];
-    [trackpointSpeedLabel setAutoresizingMask:NSViewMaxYMargin];
-    [mainView addSubview:trackpointSpeedLabel];
-    // Update section title availability indicators
-    [self updateSectionTitles];
-    // Status label at the bottom
-    statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(labelX, 6, 520, 26)];
-    [statusLabel setBezeled:NO];
-    [statusLabel setEditable:NO];
-    [statusLabel setSelectable:NO];
-    [statusLabel setDrawsBackground:NO];
+    // Status label at the bottom, bottom-anchored
+    statusLabel = [self labelWithText:@""
+                                frame:NSMakeRect(sideMargin, bottomMargin,
+                                                contentW, 20)
+                              alignment:NSTextAlignmentLeft];
     [statusLabel setFont:[NSFont systemFontOfSize:10]];
     [statusLabel setAutoresizingMask:(NSViewWidthSizable | NSViewMaxYMargin)];
     [mainView addSubview:statusLabel];
+
+    [self updateSectionTitles];
     [self refreshFromSystem];
     return mainView;
+}
+
+/* Re-lay out the group boxes for the given view width, keeping the
+   left and right margins equal. Called whenever the host resizes the
+   pane view. */
+- (void)relayoutWithWidth:(CGFloat)width
+{
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;  /* 24 */
+    NSRect f;
+
+    if (mouseBox) {
+        f = [mouseBox frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        [mouseBox setFrame:f];
+    }
+    if (trackpadBox) {
+        f = [trackpadBox frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        [trackpadBox setFrame:f];
+    }
+    if (trackpointBox) {
+        f = [trackpointBox frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        [trackpointBox setFrame:f];
+    }
+    if (statusLabel) {
+        f = [statusLabel frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        [statusLabel setFrame:f];
+    }
+}
+
+/* Build a titled group box, top-anchored and width-flexible. */
+- (NSBox *)groupBoxWithTitle:(NSString *)title frame:(NSRect)frame inView:(NSView *)parent
+{
+    NSBox *box = [[NSBox alloc] initWithFrame:frame];
+    [box setTitle:title];
+    [box setBoxType:NSBoxPrimary];
+    [box setTitlePosition:NSAtTop];
+    /* Bezel border: Eau draws bezel boxes with rounded corners
+       (drawDarkBezel:), a plain line border stays square. */
+    [box setBorderType:NSBezelBorder];
+    /* Width is managed by relayoutWithWidth: so margins stay symmetric;
+       keep vertical position only. */
+    [box setAutoresizingMask:NSViewMinYMargin];
+    [parent addSubview:box];
+    return box;
+}
+
+/* A plain read-only label. */
+- (NSTextField *)labelWithText:(NSString *)text frame:(NSRect)frame alignment:(NSTextAlignment)align
+{
+    NSTextField *label = [[NSTextField alloc] initWithFrame:frame];
+    [label setStringValue:text ?: @""];
+    [label setBezeled:NO];
+    [label setEditable:NO];
+    [label setSelectable:NO];
+    [label setDrawsBackground:NO];
+    [label setFont:[NSFont systemFontOfSize:11]];
+    [label setAlignment:align];
+    return label;
+}
+
+/* Position a checkbox in the top-left of a group box's content area.
+   Width-flexible so it tracks the box when the pane is wider than the
+   560px base layout the Mouse pane was designed for. */
+- (void)addCheckbox:(NSButton *)checkbox toBox:(NSBox *)box y:(CGFloat)y width:(CGFloat)w
+{
+    [checkbox setFrame:NSMakeRect(METRICS_SPACE_16, y, w - 2 * METRICS_SPACE_16, 18)];
+    [checkbox setAutoresizingMask:NSViewWidthSizable];
+    [box addSubview:checkbox];
+}
+
+/* A label + slider + value row in a group box: label on the left (right
+   aligned), slider stretching, value label on the right. */
+- (void)addSliderRowWithLabel:(NSString *)label
+                       slider:(NSSlider *)slider
+                        value:(NSTextField *)value
+                        toBox:(NSBox *)box
+                            y:(CGFloat)y
+                        width:(CGFloat)w
+{
+    const CGFloat pad = METRICS_SPACE_16;
+    const CGFloat labelW = 110;
+    const CGFloat valueW = 50;
+    const CGFloat gap = METRICS_SPACE_8;
+    const CGFloat sliderW = w - 2 * pad - labelW - valueW - 2 * gap;
+
+    NSTextField *labelField = [self labelWithText:label
+                                            frame:NSMakeRect(pad, y + 1, labelW, 20)
+                                        alignment:NSTextAlignmentRight];
+    [labelField setFont:[NSFont systemFontOfSize:11]];
+    [labelField setAutoresizingMask:NSViewMaxXMargin];
+    [box addSubview:labelField];
+    [labelField release];
+
+    [slider setFrame:NSMakeRect(pad + labelW + gap, y, sliderW, 22)];
+    [slider setAutoresizingMask:NSViewWidthSizable];
+    [box addSubview:slider];
+
+    [value setFrame:NSMakeRect(pad + labelW + gap + sliderW + gap, y, valueW, 20)];
+    [value setAutoresizingMask:NSViewMinXMargin];
+    [value setBezeled:NO];
+    [value setEditable:NO];
+    [value setSelectable:NO];
+    [value setDrawsBackground:NO];
+    [value setFont:[NSFont systemFontOfSize:11]];
+    [box addSubview:value];
 }
 
 - (void)updateSectionTitles

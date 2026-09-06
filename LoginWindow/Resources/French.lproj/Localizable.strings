@@ -1,0 +1,138 @@
+/* Label for username field */
+"Username:" = "Nom d'utilisateur:";
+
+/* Label for password field */
+"Password:" = "Mot de passe:";
+
+/* Shutdown button */
+"Shut Down" = "Arr\u00eater";
+
+/* Restart button */
+"Restart" = "Red\u00e9marrer";
+
+/* Login button */
+"Log In" = "Connexion";
+
+/* Shutdown alert title */
+"Shutdown Computer" = "Arr\u00eat de l'ordinateur";
+
+/* Restart alert title */
+"Restart Computer" = "Red\u00e9marrage de l'ordinateur";
+
+/* Shutdown confirmation */
+"Are you sure you want to shut down now?" = "\u00cates-vous s\u00fbr de vouloir arr\u00eater l'ordinateur maintenant?";
+
+/* Restart confirmation */
+"Are you sure you want to restart now?" = "\u00cates-vous s\u00fbr de vouloir red\u00e9marrer l'ordinateur maintenant?";
+
+/* Cancel button */
+"Cancel" = "Annuler";
+
+/* OK button */
+"OK" = "OK";
+
+/* Error alert title */
+"Error" = "Erreur";
+
+/* Status when username is empty */
+"Please enter username" = "Veuillez entrer un nom d'utilisateur";
+
+/* Status on auth failure */
+"Authentication failed" = "\u00c9chec d'authentification";
+
+/* Shutdown error message */
+"Failed to execute shutdown command. No suitable command found." = "\u00c9chec de la commande d'arr\u00eat. Aucune commande appropri\u00e9e trouv\u00e9e.";
+
+/* Restart error message */
+"Failed to execute restart command. No suitable command found." = "\u00c9chec de la commande de red\u00e9marrage. Aucune commande appropri\u00e9e trouv\u00e9e.";
+
+/* Status user not found */
+"User not found" = "Utilisateur non trouv\u00e9";
+
+/* Status chdir failure */
+"Cannot change to home directory" = "Impossible d'acc\u00e9der au r\u00e9pertoire personnel";
+
+/* Status X socket missing */
+"X server socket not found" = "Socket du serveur X non trouv\u00e9";
+
+/* Status login cancelled */
+"Login cancelled" = "Connexion annul\u00e9e";
+
+/* Status session start failure */
+"Failed to start session" = "\u00c9chec du d\u00e9marrage de la session";
+
+/* Status auto-login user missing */
+"Auto-login user not found" = "Utilisateur auto-connexion non trouv\u00e9";
+
+/* Status auto-login PAM failure */
+"Failed to open session for auto-login" = "\u00c9chec d'ouverture de session pour l'auto-connexion";
+
+/* Status auto-login X socket */
+"Auto-login socket access failed" = "\u00c9chec d'acc\u00e8s au socket d'auto-connexion";
+
+/* Status auto-login session failed */
+"Failed to start auto-login session" = "\u00c9chec du d\u00e9marrage de la session auto-connexion";
+
+/* Auth error alert title */
+"Authentication Error" = "Erreur d'authentification";
+
+/* Home dir error title */
+"Home Directory Error" = "Erreur de r\u00e9pertoire personnel";
+
+/* X socket error title */
+"X Server Socket Not Found" = "Socket du serveur X non trouv\u00e9";
+
+/* X access warning title */
+"X Server Access Warning" = "Avertissement d'acc\u00e8s au serveur X";
+
+/* Session error title */
+"Session Start Error" = "Erreur de d\u00e9marrage de session";
+
+/* Session startup error */
+"Session Startup Error" = "Erreur au d\u00e9marrage de la session";
+
+/* Autologin permission title */
+"Autologin File Permission Error" = "Erreur de permission du fichier d'auto-connexion";
+
+/* Auto-login PAM title */
+"Auto-Login PAM Error" = "Erreur PAM d'auto-connexion";
+
+/* Auto-login home dir title */
+"Auto-Login Home Directory Error" = "Erreur de r\u00e9pertoire personnel d'auto-connexion";
+
+/* Auto-login X socket title */
+"Auto-Login X Server Socket Not Found" = "Socket du serveur X d'auto-connexion non trouv\u00e9";
+
+/* Auto-login X access title */
+"Auto-Login X Server Access Warning" = "Avertissement d'acc\u00e8s au serveur X d'auto-connexion";
+
+/* Continue anyway button */
+"Continue Anyway" = "Continuer quand m\u00eame";
+
+/* Log window title */
+"Keyboard Layout Log" = "Journal des dispositions de clavier";
+
+/* Fallback log message when no detection data */
+"No keyboard layout detection data available.\n"
+"The layout was detected before the logging\n"
+"infrastructure was initialized." = "Aucune donn\u00e9e de d\u00e9tection de disposition de clavier disponible.\n"
+"La disposition a \u00e9t\u00e9 d\u00e9tect\u00e9e avant l'initialisation\n"
+"de l'infrastructure de journalisation.";
+
+/* X socket missing message */
+"The X server unix socket at %s does not exist. The X server may not be running properly." = "Le socket Unix du serveur X \u00e0 %s n'existe pas. Le serveur X ne fonctionne peut-\u00eatre pas correctement.";
+
+/* X access warning message */
+"The user %s may not have access to the X server socket. The X session may not work properly." = "L'utilisateur %s n'a peut-\u00eatre pas acc\u00e8s au socket du serveur X. La session X peut ne pas fonctionner correctement.";
+
+/* Autologin permission message */
+"The autologin configuration file is not owned by root. Please check file permissions." = "Le fichier de configuration d'auto-connexion n'appartient pas \u00e0 root. Veuillez v\u00e9rifier les permissions.";
+
+/* Autologin bad permissions message */
+"The autologin configuration file has incorrect permissions (expected 0644). This is a security risk." = "Le fichier de configuration d'auto-connexion a des permissions incorrectes (0644 attendu). Ceci est un risque de s\u00e9curit\u00e9.";
+
+/* Auto-login X socket missing message */
+"The X server unix socket at %s does not exist. Falling back to login window." = "Le socket Unix du serveur X \u00e0 %s n'existe pas. Repli sur la fen\u00eatre de connexion.";
+
+/* Auto-login X access warning message */
+"The auto-login user %s may not have access to the X server socket. Falling back to login window." = "L'utilisateur auto-connexion %s n'a peut-\u00eatre pas acc\u00e8s au socket du serveur X. Repli sur la fen\u00eatre de connexion.";

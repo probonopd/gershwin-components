@@ -9,18 +9,52 @@
 #import "SoundController.h"
 #import "ALSABackend.h"
 #import "OSSBackend.h"
+#import "AppearanceMetrics.h"
 
-// UI Constants
-static const CGFloat kPaneWidth = 595.0;
-static const CGFloat kPaneHeight = 390.0;
-static const CGFloat kTabContentWidth = 575.0;  // Tab content area width
-static const CGFloat kTabContentHeight = 340.0; // Tab content area height (minus tab bar)
-static const CGFloat kMargin = 20.0;
+// UI Constants. Content area matches the 640x480 window (24px side margins
+// per AppearanceMetrics; the tab bar eats the rest of the height).
+static const CGFloat kPaneWidth = 640.0;
+static const CGFloat kPaneHeight = 440.0;
+static const CGFloat kTabContentWidth = 640.0;  // window content width
+static const CGFloat kTabContentHeight = 400.0; // content below the tab bar
+static const CGFloat kMargin = 24.0;
 static const CGFloat kSmallMargin = 10.0;
 static const CGFloat kLabelHeight = 17.0;
 static const CGFloat kSliderHeight = 21.0;
 static const CGFloat kCheckboxHeight = 18.0;
 static const CGFloat kTableRowHeight = 18.0;
+
+@class SoundController;
+
+/* The pane view. The host window sizes it 5px wider than the box content
+   (GNUstep NSBox quirk); make it exactly fill its superview and re-lay out
+   so margins stay symmetric. */
+@interface SoundMainView : NSView
+{
+    SoundController *_layoutOwner;
+}
+@end
+
+@implementation SoundMainView
+- (void)setFrameSize:(NSSize)newSize
+{
+    [super setFrameSize:newSize];
+    [_layoutOwner relayoutWithWidth:newSize.width];
+}
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window] && [self superview]) {
+        /* GNUstep's setFrame: bypasses setFrameSize:, so re-lay out explicitly */
+        [self setFrame:[[self superview] bounds]];
+        [_layoutOwner relayoutWithWidth:[self bounds].size.width];
+    }
+}
+- (void)setLayoutOwner:(SoundController *)owner
+{
+    _layoutOwner = owner;
+}
+@end
 
 @implementation SoundController
 
@@ -139,14 +173,14 @@ static const CGFloat kTableRowHeight = 18.0;
     // Mark that we're in initialization phase - don't modify audio settings
     isInitializing = YES;
     
-    mainView = [[NSView alloc] initWithFrame:
+    mainView = [[SoundMainView alloc] initWithFrame:
                 NSMakeRect(0, 0, kPaneWidth, kPaneHeight)];
+    [(SoundMainView *)mainView setLayoutOwner:self];
     [mainView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     
     // Create tab view
     mainTabView = [[NSTabView alloc] initWithFrame:
                    NSMakeRect(0, 0, kPaneWidth, kPaneHeight)];
-    [mainTabView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [mainTabView setTabViewType:NSTopTabsBezelBorder];
     
     // Create Output tab
@@ -176,6 +210,22 @@ static const CGFloat kTableRowHeight = 18.0;
     return mainView;
 }
 
+/* Re-lay out the pane. The tab view fills the pane; force it to the window
+   content size so it does not track the +5px inflated contentView. */
+- (void)relayoutWithWidth:(CGFloat)width
+{
+    if (mainTabView) {
+        CGFloat w = width;
+        if ([mainView window]) {
+            w = [[[mainView window] contentView] frame].size.width;
+        }
+        NSRect f = [mainTabView frame];
+        f.size.width = w;
+        f.size.height = [mainView bounds].size.height;
+        [mainTabView setFrame:f];
+    }
+}
+
 - (void)createSoundEffectsTab:(NSTabViewItem *)tab
 {
     // Use fixed dimensions since tab view bounds may not be set yet
@@ -199,7 +249,7 @@ static const CGFloat kTableRowHeight = 18.0;
     
     // Alert sounds list (left side)
     CGFloat listWidth = 250;
-    CGFloat listHeight = 150;
+    CGFloat listHeight = 220;
     
     alertSoundsScrollView = [[NSScrollView alloc] initWithFrame:
                              NSMakeRect(kMargin, yPos - listHeight, listWidth, listHeight)];
@@ -359,7 +409,7 @@ static const CGFloat kTableRowHeight = 18.0;
     yPos -= kLabelHeight + kSmallMargin;
     
     // Device table
-    CGFloat tableHeight = 140;
+    CGFloat tableHeight = 220;
     
     outputDevicesScrollView = [[NSScrollView alloc] initWithFrame:
                                NSMakeRect(kMargin, yPos - tableHeight, 
@@ -371,7 +421,7 @@ static const CGFloat kTableRowHeight = 18.0;
     
     outputDevicesTable = [[NSTableView alloc] initWithFrame:
                           NSMakeRect(0, 0, contentWidth - 2 * kMargin - 20, tableHeight)];
-    [outputDevicesTable setRowHeight:36];
+    [outputDevicesTable setRowHeight:kTableRowHeight];
     [outputDevicesTable setAllowsEmptySelection:NO];
     [outputDevicesTable setAllowsMultipleSelection:NO];
     [outputDevicesTable setDataSource:self];
@@ -543,7 +593,7 @@ static const CGFloat kTableRowHeight = 18.0;
     yPos -= kLabelHeight + kSmallMargin;
     
     // Device table
-    CGFloat tableHeight = 140;
+    CGFloat tableHeight = 220;
     
     inputDevicesScrollView = [[NSScrollView alloc] initWithFrame:
                               NSMakeRect(kMargin, yPos - tableHeight, 
@@ -555,7 +605,7 @@ static const CGFloat kTableRowHeight = 18.0;
     
     inputDevicesTable = [[NSTableView alloc] initWithFrame:
                          NSMakeRect(0, 0, contentWidth - 2 * kMargin - 20, tableHeight)];
-    [inputDevicesTable setRowHeight:36];
+    [inputDevicesTable setRowHeight:kTableRowHeight];
     [inputDevicesTable setAllowsEmptySelection:NO];
     [inputDevicesTable setAllowsMultipleSelection:NO];
     [inputDevicesTable setDataSource:self];
@@ -683,14 +733,16 @@ static const CGFloat kTableRowHeight = 18.0;
 
 - (void)createUnavailableView
 {
-    mainView = [[NSView alloc] initWithFrame:
+    mainView = [[SoundMainView alloc] initWithFrame:
                 NSMakeRect(0, 0, kPaneWidth, kPaneHeight)];
+    [(SoundMainView *)mainView setLayoutOwner:self];
+    [mainView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     
     // Create centered message
     NSTextField *message = [[NSTextField alloc] initWithFrame:
                             NSMakeRect(50, kPaneHeight/2 - 30, kPaneWidth - 100, 60)];
     [message setStringValue:@"No audio system available.\n\n"
-                            @"Please ensure ALSA is installed and configured."];
+                            @"Please check your audio hardware and drivers."];
     [message setBezeled:NO];
     [message setEditable:NO];
     [message setSelectable:NO];
@@ -1134,7 +1186,7 @@ static const CGFloat kTableRowHeight = 18.0;
             NSDebugLLog(@"gwcomp", @"SoundController:   selectOutputDevice: %@", success ? @"SUCCESS" : @"FAILED");
             if (!success) {
                 NSRunAlertPanel(@"Device Error", 
-                              @"Could not select the output device. Please check your audio hardware and ALSA configuration.",
+                              @"Could not select the output device. Please check your audio hardware and configuration.",
                               @"OK", nil, nil);
             }
         }
@@ -1149,7 +1201,7 @@ static const CGFloat kTableRowHeight = 18.0;
             NSDebugLLog(@"gwcomp", @"SoundController:   selectInputDevice: %@", success ? @"SUCCESS" : @"FAILED");
             if (!success) {
                 NSRunAlertPanel(@"Device Error", 
-                              @"Could not select the input device. Please check your audio input hardware and ALSA configuration.",
+                              @"Could not select the input device. Please check your audio input hardware and configuration.",
                               @"OK", nil, nil);
             }
         }
@@ -1360,7 +1412,7 @@ static const CGFloat kTableRowHeight = 18.0;
         if (!success) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 NSRunAlertPanel(@"Volume Error",
-                              @"Could not change the output volume. Please check your audio hardware and ALSA configuration.",
+                              @"Could not change the output volume. Please check your audio hardware and configuration.",
                               @"OK", nil, nil);
             });
         }
@@ -1399,7 +1451,7 @@ static const CGFloat kTableRowHeight = 18.0;
         if (!success) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 NSRunAlertPanel(@"Mute Error",
-                              @"Could not change the mute setting. Please check your audio hardware and ALSA configuration.",
+                              @"Could not change the mute setting. Please check your audio hardware and configuration.",
                               @"OK", nil, nil);
             });
         }
@@ -1462,7 +1514,7 @@ static const CGFloat kTableRowHeight = 18.0;
         if (!success) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 NSRunAlertPanel(@"Volume Error",
-                              @"Could not change the input volume. Please check your audio input device and ALSA configuration.",
+                              @"Could not change the input volume. Please check your audio input device and configuration.",
                               @"OK", nil, nil);
             });
         }
@@ -1483,7 +1535,7 @@ static const CGFloat kTableRowHeight = 18.0;
         if (!success) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 NSRunAlertPanel(@"Mute Error",
-                              @"Could not change the input mute setting. Please check your audio input device and ALSA configuration.",
+                              @"Could not change the input mute setting. Please check your audio input device and configuration.",
                               @"OK", nil, nil);
             });
         }

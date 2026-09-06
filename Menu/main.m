@@ -98,6 +98,35 @@ static void killOtherInstances(void) {
         
         // Compare the executable paths
         if ([otherRealPath isEqualToString:currentRealPath]) {
+            /* Only this user's instances: a Menu on another display/session
+             * belongs to a different (test) user and must be left alone.
+             * Linux reads /proc/<pid>/status; the BSDs fall back to ps. */
+            int otherUid = -1;
+#if defined(__linux__)
+            NSString *statusPath = [NSString stringWithFormat:@"/proc/%d/status", otherPID];
+            FILE *sf = fopen([statusPath UTF8String], "r");
+            if (sf) {
+                char line[256];
+                while (fgets(line, sizeof(line), sf)) {
+                    if (strncmp(line, "Uid:", 4) == 0) {
+                        sscanf(line + 4, "%d", &otherUid);
+                        break;
+                    }
+                }
+                fclose(sf);
+            }
+#else
+            char cmd[64];
+            snprintf(cmd, sizeof(cmd), "ps -o uid= -p %d", otherPID);
+            FILE *sf = popen(cmd, "r");
+            if (sf) {
+                if (fscanf(sf, "%d", &otherUid) != 1) otherUid = -1;
+                pclose(sf);
+            }
+#endif
+            if (otherUid != (int)getuid()) {
+                continue;
+            }
             NSDebugLLog(@"gwcomp", @"Menu.app: Killing other instance with PID %d", otherPID);
             kill(otherPID, SIGTERM);
             // Give it a moment to terminate gracefully
@@ -110,6 +139,23 @@ static void killOtherInstances(void) {
     closedir(procDir);
 }
 
+/* The Menu app routinely walks the window tree while other clients - and its
+   own popup menus - create and destroy transient windows.  A query that races
+   a window teardown fails with BadWindow/BadDrawable, and every call site
+   already handles that via the return value, so the default Xlib handler's
+   per-error spew is pure noise.  Suppress it; anything else is logged once so
+   real errors remain visible. */
+static int menuXErrorHandler(Display *display, XErrorEvent *event)
+{
+    (void)display;
+    if (event->error_code == BadWindow || event->error_code == BadDrawable)
+        return 0;
+    fprintf(stderr, "Menu.app: X11 error %d (request %d) on resource 0x%lx\n",
+            (int)event->error_code, (int)event->request_code,
+            (unsigned long)event->resourceid);
+    return 0;
+}
+
 int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) argv[])
 {
     MenuInstallCrashHandlers();
@@ -119,6 +165,9 @@ int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) 
         fprintf(stderr, "Menu.app: Failed to initialize X11 threading support\n");
         return 1;
     }
+
+    // Keep the flood of BadWindow errors from racing window scans off the log.
+    XSetErrorHandler(menuXErrorHandler);
 
     NSDebugLLog(@"gwcomp", @"Menu.app: Starting application initialization...");
     
@@ -144,6 +193,30 @@ int main(int __attribute__((unused)) argc, const char * __attribute__((unused)) 
             } @catch (NSException *runException) {
                 NSDebugLLog(@"gwcomp", @"Menu.app: Exception in run loop: %@", runException);
                 NSDebugLLog(@"gwcomp", @"Menu.app: Run loop exception reason: %@", [runException reason]);
+            }
+            
+            // GNUstep's [NSApp run] may return when it detects no regular windows.
+            // The menu bar is borderless (NSBorderlessWindowMask) and is not counted.
+            // Keep the run loop alive manually to prevent premature exit.
+            // Defensive guard: if the run loop ever starts returning with NO
+            // work done (no sources attached, backend gone), do not spin at
+            // 100% CPU - only loop iterations that returned instantly (< 1ms,
+            // i.e. nothing ran at all) count toward the backoff; normal
+            // re-entry after processing events resets it.
+            unsigned degenerateReturns = 0;
+            while (YES) {
+                NSTimeInterval t0 = [NSDate timeIntervalSinceReferenceDate];
+                @autoreleasepool {
+                    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate distantFuture]];
+                }
+                if ([NSDate timeIntervalSinceReferenceDate] - t0 < 0.001) {
+                    if (degenerateReturns < 1000000) degenerateReturns++;
+                    if (degenerateReturns > 20) {
+                        usleep(100000); // 100ms - caps a degenerate loop at ~10 wakeups/s
+                    }
+                } else {
+                    degenerateReturns = 0;
+                }
             }
             
             NSDebugLLog(@"gwcomp", @"Menu.app: Main run loop exited normally");

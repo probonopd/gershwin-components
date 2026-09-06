@@ -30,14 +30,11 @@ int main(int argc, const char * argv[])
         
         // Default socket path
         NSString *socketPath = @"/tmp/minibus-socket";
-        BOOL verbose = NO;
-        
+
         // Parse command line arguments
         for (int i = 1; i < argc; i++) {
             NSString *arg = [NSString stringWithUTF8String:argv[i]];
-            if ([arg isEqualToString:@"-v"] || [arg isEqualToString:@"--verbose"]) {
-                verbose = YES;
-            } else if (![arg hasPrefix:@"-"]) {
+            if (![arg hasPrefix:@"-"]) {
                 socketPath = arg;
             }
         }

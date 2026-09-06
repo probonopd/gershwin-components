@@ -456,7 +456,8 @@
     BOOL _showProgress;
     BOOL _allowCancel;
     NSMutableArray<id<GSAssistantStepProtocol>> *_steps;
-    BOOL _includeLocalizedContent; // New property for auto-localized content
+    BOOL _includeLocalizedContent;
+    id<GSAssistantWindowDelegate> _delegate;
 }
 
 + (instancetype)builder {
@@ -512,6 +513,11 @@
 - (instancetype)allowingCancel:(BOOL)allowCancel {
     NSDebugLLog(@"gwcomp", @"[GSAssistantBuilder] Setting allow cancel: %@", allowCancel ? @"YES" : @"NO");
     _allowCancel = allowCancel;
+    return self;
+}
+
+- (instancetype)withDelegate:(id<GSAssistantWindowDelegate>)delegate {
+    _delegate = delegate;
     return self;
 }
 
@@ -596,6 +602,9 @@
     assistant.animationType = _animationType;
     assistant.showsProgressBar = _showProgress;
     assistant.allowsCancel = _allowCancel;
+    if (_delegate) {
+        assistant.delegate = _delegate;
+    }
     
     NSDebugLLog(@"gwcomp", @"[GSAssistantBuilder] Assistant window created, showing first step");
     // Show the first step immediately after creating the window

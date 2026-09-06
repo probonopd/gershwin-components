@@ -6,8 +6,57 @@
 
 #import "StartupDiskPane.h"
 #import "StartupDiskController.h"
+#include <stdlib.h>
+
+@class StartupDiskController;
+
+/* The pane view.  The host sizes it to the preferences-box content area
+   (640x440 on this stack); fill the superview exactly and let the controller
+   re-lay out the controls to the actual width, so margins stay symmetric and
+   nothing is clipped. */
+@interface StartupDiskMainView : NSView
+{
+    StartupDiskController *_layoutOwner;
+}
+- (void)setLayoutOwner:(StartupDiskController *)owner;
+@end
+
+@implementation StartupDiskMainView
+- (void)setFrameSize:(NSSize)newSize
+{
+    [super setFrameSize:newSize];
+    [_layoutOwner relayoutWithWidth:newSize.width];
+}
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window] && [self superview]) {
+        [self setFrame:[[self superview] bounds]];
+        [_layoutOwner relayoutWithWidth:NSWidth([[self superview] bounds])];
+    }
+}
+- (void)setLayoutOwner:(StartupDiskController *)owner
+{
+    _layoutOwner = owner;
+}
+@end
 
 @implementation StartupDiskPane
+
++ (BOOL)isCompatible {
+  NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
+  NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
+  for (NSString *dir in paths) {
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
+          [dir stringByAppendingPathComponent: @"efibootmgr"]])
+      return YES;
+  }
+  return NO;
+}
+
++ (NSString *)compatibilityReason {
+  return @"efibootmgr not found — startup disk selection requires EFI boot manager";
+}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {
@@ -30,7 +79,7 @@
     // Create the main view if it doesn't exist
     if (![self mainView]) {
         NSDebugLLog(@"gwcomp", @"StartupDiskPane: No main view exists, creating one");
-        NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 600, 400)];
+        StartupDiskMainView *view = [[StartupDiskMainView alloc] initWithFrame:NSMakeRect(0, 0, 600, 400)];
         [self setMainView:view];
         [view release];
         NSDebugLLog(@"gwcomp", @"StartupDiskPane: Created main view with frame: %@", NSStringFromRect([view frame]));

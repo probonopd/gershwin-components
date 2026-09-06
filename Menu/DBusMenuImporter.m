@@ -218,6 +218,27 @@
     }
     
     if (legacyCachedMenu) {
+        /* Validate the cache against the window's CURRENT X11 menu-service
+           property before returning it.  X reuses window IDs across app
+           relaunches; a relaunched app re-registers (MenuUtils writes the new
+           service to the window), so a cached menu bound to the old - now dead
+           - service must be discarded and rebuilt, otherwise the menu shows
+           but every action targets a dead process.  Apps that never write the
+           property simply keep the cache. */
+        NSString *currentService = [MenuUtils getWindowMenuService:windowId];
+        if (serviceName && currentService
+            && ![currentService isEqualToString:serviceName]) {
+            NSDebugLog(@"DBusMenuImporter: Cached menu stale (service %@ -> %@) for window %lu, reloading",
+                  serviceName, currentService, windowId);
+            @synchronized(_windowRegistryLock) {
+                [self.menuCache removeObjectForKey:windowKey];
+                [self.registeredWindows removeObjectForKey:windowKey];
+                [self.windowMenuPaths removeObjectForKey:windowKey];
+            }
+            legacyCachedMenu = nil;
+        }
+    }
+    if (legacyCachedMenu) {
         NSDebugLog(@"DBusMenuImporter: Returning cached menu for window %lu", windowId);
         
         // Re-register shortcuts
@@ -248,6 +269,27 @@
         } else {
             NSDebugLog(@"DBusMenuImporter: No service/path found for window %lu (checked both DBus registry and X11 properties)", windowId);
 
+            // Last resort: query the AppMenu.Registrar directly.  It knows about
+            // every registered window even when we missed the RegisterWindow
+            // signal (e.g. second launch of an app that reconnected to DBus
+            // without re-sending RegisterWindow).
+            NSArray *reply = [self.dbusConnection callMethod:@"GetMenuForWindow"
+                                                   onService:@"com.canonical.AppMenu.Registrar"
+                                                 objectPath:@"/com/canonical/AppMenu/Registrar"
+                                                  interface:@"com.canonical.AppMenu.Registrar"
+                                                  arguments:@[@(windowId)]];
+            if (reply && [reply count] >= 2) {
+                NSString *regService = [reply objectAtIndex:0];
+                NSString *regPath = [reply objectAtIndex:1];
+                if ([regService isKindOfClass:[NSString class]] && [regService length] > 0 &&
+                    [regPath isKindOfClass:[NSString class]] && [regPath length] > 0) {
+                    NSDebugLog(@"DBusMenuImporter: Registrar returned service=%@ path=%@ for window %lu",
+                          regService, regPath, windowId);
+                    [self registerWindow:windowId serviceName:regService objectPath:regPath];
+                    serviceName = regService;
+                    objectPath = regPath;
+                }
+            }
         }
     }
     
@@ -301,22 +343,28 @@
     
     // Wrap DBus calls in try/catch to handle service disappearing mid-call
     @try {
-        // First, try to introspect the service to see what interfaces it supports
-        id introspectResult = [self.dbusConnection callMethod:@"Introspect"
-                                                onService:serviceName
-                                               objectPath:objectPath
-                                                interface:@"org.freedesktop.DBus.Introspectable"
-                                                arguments:nil];
-    
-        if (introspectResult) {
-            NSDebugLog(@"DBusMenuImporter: Service introspection successful");
-            if ([introspectResult isKindOfClass:[NSString class]]) {
-                NSDebugLog(@"DBusMenuImporter: Introspection XML:\n%@", introspectResult);
+        // First, try to introspect the service to see what interfaces it supports.
+        // This result is ONLY used for debug logging, and it is a synchronous
+        // 5s-timeout D-Bus round trip on the main thread - a hung menu service
+        // would freeze the menu bar here on every uncached menu load.  Only
+        // pay that cost when debug logging is actually enabled.
+        if (getenv("GDEBUG") != NULL) {
+            id introspectResult = [self.dbusConnection callMethod:@"Introspect"
+                                                    onService:serviceName
+                                                   objectPath:objectPath
+                                                    interface:@"org.freedesktop.DBus.Introspectable"
+                                                    arguments:nil];
+
+            if (introspectResult) {
+                NSDebugLog(@"DBusMenuImporter: Service introspection successful");
+                if ([introspectResult isKindOfClass:[NSString class]]) {
+                    NSDebugLog(@"DBusMenuImporter: Introspection XML:\n%@", introspectResult);
+                } else {
+                    NSDebugLog(@"DBusMenuImporter: Introspection result (non-string): %@", introspectResult);
+                }
             } else {
-                NSDebugLog(@"DBusMenuImporter: Introspection result (non-string): %@", introspectResult);
+                NSDebugLog(@"DBusMenuImporter: Service introspection failed - service may not be available");
             }
-        } else {
-            NSDebugLog(@"DBusMenuImporter: Service introspection failed - service may not be available");
         }
     
         // Call GetLayout method on the dbusmenu interface
@@ -407,6 +455,7 @@
         // Fallback: create a simple placeholder menu if parsing fails
         NSDebugLog(@"DBusMenuImporter: Failed to parse menu structure, creating placeholder");
         menu = [[NSMenu alloc] initWithTitle:@"App Menu"];
+        [menu setAutoenablesItems:NO];
         
         // Add some placeholder menu items
         NSMenuItem *fileItem = [[NSMenuItem alloc] initWithTitle:NSLocalizedString(@"File", @"File menu")
@@ -444,12 +493,12 @@
     }
     
     // Send Event method call to activate the menu item
-    // In a real implementation, we would track menu item IDs from the DBus structure
+    int menuItemId = (int)[menuItem tag];
     NSArray *arguments = [NSArray arrayWithObjects:
-                         [NSNumber numberWithInt:0],    // menu item ID (placeholder)
-                         @"clicked",                     // event type
-                         @"",                           // event data (empty)
-                         [NSNumber numberWithUnsignedInt:0], // timestamp
+                         [NSNumber numberWithInt:menuItemId],
+                         @"clicked",
+                         @"",
+                         [NSNumber numberWithUnsignedInt:0],
                          nil];
     
     [self.dbusConnection callMethod:@"Event"
@@ -500,29 +549,28 @@
     // and display its menu after a short delay to let the window stabilize.
     // This prevents crashes when windows are opened and closed quickly.
     if (self.appMenuWidget) {
-        // Defer menu loading by 150ms to allow window to stabilize
-        // Using NSTimer for GNUstep compatibility
-        NSDictionary *userInfo = @{@"windowId": [NSNumber numberWithUnsignedLong:windowId]};
-        [NSTimer scheduledTimerWithTimeInterval:0.15
-                                         target:self
-                                       selector:@selector(deferredMenuCheck:)
-                                       userInfo:userInfo
-                                        repeats:NO];
+        /* Coalesce per window with a cancellable perform: a misbehaving app
+         * that spams RegisterWindow would otherwise schedule an unbounded
+         * pile-up of one-shot NSTimers (each one a full menu check). */
+        [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                                 selector:@selector(deferredMenuCheckForWindowId:)
+                                                   object:windowKey];
+        [self performSelector:@selector(deferredMenuCheckForWindowId:)
+                   withObject:windowKey
+                   afterDelay:0.15];
     } else {
         NSDebugLog(@"DBusMenuImporter: AppMenuWidget not set, cannot check for immediate menu display");
     }
 }
 
-// Called after a delay to load menu for a newly registered window
-// This delay prevents crashes when windows are closed immediately after opening
-- (void)deferredMenuCheck:(NSTimer *)timer
+/* Called after a delay to load menu for a newly registered window
+ * (cancellable via cancelPreviousPerformRequestsWithTarget:, unlike NSTimer).
+ * This delay prevents crashes when windows are closed immediately after
+ * opening. */
+- (void)deferredMenuCheckForWindowId:(NSNumber *)windowIdNum
 {
-    NSDictionary *userInfo = [timer userInfo];
-    if (!userInfo) return;
-    
-    NSNumber *windowIdNum = [userInfo objectForKey:@"windowId"];
     if (!windowIdNum) return;
-    
+
     unsigned long windowId = [windowIdNum unsignedLongValue];
     
     @try {
@@ -990,6 +1038,14 @@
     NSDebugLLog(@"gwcomp", @"DBusMenuImporter: This is non-fatal to avoid supervisor restart loops");
 }
 
+- (NSUInteger)pendingMessageCount
+{
+    if (!_dbusConnection) {
+        return 0;
+    }
+    return [_dbusConnection hasPendingMessages] ? 1 : 0;
+}
+
 - (void)reregisterShortcutsForMenu:(NSMenu *)menu windowId:(unsigned long)windowId
 {
     if (!menu) {
@@ -999,6 +1055,7 @@
     NSNumber *windowKey = [NSNumber numberWithUnsignedLong:windowId];
     NSString *serviceName = [self.registeredWindows objectForKey:windowKey];
     NSString *objectPath = [self.windowMenuPaths objectForKey:windowKey];
+    NSDebugLLog(@"gwcomp", @"reregister dbus importer: window 0x%lx service=%@ path=%@", (unsigned long)windowId, serviceName, objectPath);
     
     if (!serviceName || !objectPath) {
         NSDebugLog(@"DBusMenuImporter: Cannot re-register shortcuts - missing service/object path");
@@ -1011,7 +1068,12 @@
 
 - (void)reregisterShortcutsForMenuItems:(NSArray *)items serviceName:(NSString *)serviceName objectPath:(NSString *)objectPath
 {
-    for (NSMenuItem *item in items) {
+    /* Snapshot the array: [NSMenu itemArray] returns the menu's LIVE array in
+     * GNUstep, and the menu can be mutated while we walk it (e.g. the system
+     * menu is still being populated) - fast-enumerating the live array then
+     * crashes mid-loop and silently drops the app's shortcuts. */
+    NSArray *snapshot = [items copy];
+    for (NSMenuItem *item in snapshot) {
         // Check if this item has a shortcut
         NSString *keyEquivalent = [item keyEquivalent];
         if (keyEquivalent && [keyEquivalent length] > 0) {

@@ -1,8 +1,9 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 BUNDLE_NAME = StartupDisk
 StartupDisk_OBJC_FILES = StartupDiskPane.m StartupDiskController.m
-StartupDisk_RESOURCE_FILES = StartupDisk.png StartupDiskInfo.plist efiboot-helper
+StartupDisk_RESOURCE_FILES = StartupDisk.png efiboot-helper
 StartupDisk_BUNDLE_LIBS = -lPreferencePanes
 StartupDisk_PRINCIPAL_CLASS = StartupDiskPane
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles
@@ -52,3 +53,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

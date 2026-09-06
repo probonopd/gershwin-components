@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+    <key>packages</key>
+    <array>
+    </array>
+    <key>os_overrides</key>
+    <dict>
+        <key>linux</key>
+        <dict>
+            <key>description</key>
+            <string>CPU profiler using hardware performance counters</string>
+            <key>packages</key>
+            <array>
+                <string>linux-perf</string>
+                <string>heaptrack</string>
+            </array>
+        </dict>
+        <key>freebsd</key>
+        <dict>
+            <key>description</key>
+            <string>Use procstat and pmcstat instead of perf on FreeBSD</string>
+            <key>packages</key>
+            <array>
+            </array>
+        </dict>
+        <key>openbsd</key>
+        <dict>
+            <key>description</key>
+            <string>Use native OpenBSD profiling tools instead of perf</string>
+            <key>packages</key>
+            <array>
+            </array>
+        </dict>
+        <key>netbsd</key>
+        <dict>
+            <key>description</key>
+            <string>Use native NetBSD profiling tools instead of perf</string>
+            <key>packages</key>
+            <array>
+            </array>
+        </dict>
+    </dict>
+</dict>
+</plist>

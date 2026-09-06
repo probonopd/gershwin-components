@@ -1,24 +1,56 @@
-{
-    ApplicationDescription = "System log viewer";
-    ApplicationIcon = "Console.png";
-    ApplicationName = Console;
-    ApplicationRelease = "1.0";
-    Authors = (
-        "Simon Peter"
-    );
-    Copyright = "Copyright (C) 2026";
-    FullVersionID = "1.0";
-    NSExecutable = Console;
-    NSIcon = "Console.png";
-    NSMainNibFile = "Console.gorm";
-    NSPrincipalClass = NSApplication;
-    NSRole = Application;
-    NSTypes = (
-        {
-            NSHumanReadableName = "Log File";
-            NSName = "log";
-            NSRole = Viewer;
-            NSUnixExtensions = ( log, txt );
-        }
-    );
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+	<key>CFBundleName</key>
+	<string>Console</string>
+	<key>CFBundleDisplayName</key>
+	<string>Console</string>
+	<key>ApplicationName</key>
+	<string>Console</string>
+	<key>ApplicationDescription</key>
+	<string>System log viewer</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.Console</string>
+	<key>CFBundleExecutable</key>
+	<string>Console</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>Console.png</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSMainNibFile</key>
+	<string>Console.gorm</string>
+	<key>NSTypes</key>
+	<array>
+		<dict>
+			<key>NSHumanReadableName</key>
+			<string>Log File</string>
+			<key>NSName</key>
+			<string>log</string>
+			<key>NSRole</key>
+			<string>Viewer</string>
+			<key>NSUnixExtensions</key>
+			<array>
+				<string>log</string>
+				<string>txt</string>
+			</array>
+		</dict>
+	</array>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
+</dict>
+</plist>

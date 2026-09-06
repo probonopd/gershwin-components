@@ -6,8 +6,24 @@
 
 #import "BluetoothPane.h"
 #import "BluetoothController.h"
+#include <stdlib.h>
 
 @implementation BluetoothPane
+
++ (BOOL)isCompatible {
+  NSString *pathEnv = [NSString stringWithUTF8String: getenv("PATH")];
+  NSArray *paths = [pathEnv componentsSeparatedByString: @":"];
+  for (NSString *dir in paths) {
+    if ([[NSFileManager defaultManager] isExecutableFileAtPath:
+          [dir stringByAppendingPathComponent: @"bluetoothctl"]])
+      return YES;
+  }
+  return NO;
+}
+
++ (NSString *)compatibilityReason {
+  return @"bluetoothctl not found — Bluetooth configuration requires bluez";
+}
 
 - (id)initWithBundle:(NSBundle *)bundle
 {

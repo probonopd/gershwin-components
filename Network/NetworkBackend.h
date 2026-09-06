@@ -160,6 +160,7 @@ typedef NS_ENUM(NSInteger, WLANSecurityType) {
     // WLAN specific
     NSString *ssid;
     WLANSecurityType WLANSecurity;
+    NSString *clonedMacAddress;
     
     // IP settings
     IPConfiguration *ipv4Config;
@@ -182,6 +183,7 @@ typedef NS_ENUM(NSInteger, WLANSecurityType) {
 @property (copy) NSString *interfaceName;
 @property (copy) NSString *ssid;
 @property WLANSecurityType WLANSecurity;
+@property (copy) NSString *clonedMacAddress;
 @property (retain) IPConfiguration *ipv4Config;
 @property (retain) IPConfiguration *ipv6Config;
 @property (copy) NSString *eapMethod;
@@ -232,6 +234,9 @@ typedef NS_ENUM(NSInteger, WLANSecurityType) {
 - (BOOL)connectToWLAN:(WLAN *)network withPassword:(NSString *)password;
 - (BOOL)disconnectFromWLAN;
 - (WLAN *)connectedWLAN;
+- (NSString *)connectedWLANSSID;
+- (NSString *)clonedMacAddressForSSID:(NSString *)ssid;
+- (BOOL)setClonedMacAddress:(NSString *)value forSSID:(NSString *)ssid;
 
 // Status
 - (NetworkConnectionState)globalConnectionState;

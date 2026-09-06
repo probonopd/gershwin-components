@@ -1,11 +1,14 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
+
+SUBPROJECTS = efivar
 
 # Compiler flags for production builds
 Keyboard_OBJCFLAGS += -Wall -Wextra -Werror -O2
 
 BUNDLE_NAME = Keyboard
 Keyboard_OBJC_FILES = KeyboardPane.m KeyboardController.m
-Keyboard_RESOURCE_FILES = Keyboard.png KeyboardInfo.plist
+Keyboard_RESOURCE_FILES = Keyboard.png
 Keyboard_BUNDLE_LIBS = -lPreferencePanes
 Keyboard_PRINCIPAL_CLASS = KeyboardPane
 PREF_INSTALL_DIR = $(GNUSTEP_SYSTEM_LIBRARY)/Bundles
@@ -52,3 +55,4 @@ internal-bundle-install::
 	@true
 
 .PHONY: install uninstall
+

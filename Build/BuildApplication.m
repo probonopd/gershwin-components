@@ -9,6 +9,20 @@
 #import "CatalogController.h"
 #import "CatalogEntry.h"
 
+static NSString *toolPath(NSString *name)
+{
+    NSString *p = [NSTask launchPathForTool:name];
+    if (p) return p;
+    NSArray *dirs = @[@"/usr/local/bin", @"/usr/local/sbin",
+                       @"/usr/bin", @"/bin", @"/usr/sbin", @"/sbin"];
+    for (NSString *dir in dirs) {
+        p = [dir stringByAppendingPathComponent:name];
+        if ([[NSFileManager defaultManager] isExecutableFileAtPath:p])
+            return p;
+    }
+    return nil;
+}
+
 @implementation BuildApplication
 
 - (id)init
@@ -78,6 +92,11 @@
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
+    /* Build's main menu must be present for every launch path (the catalog
+     * window and the makefile workflow alike); the catalog path never created
+     * a BuildController before showing its window, so without this the app
+     * ran with no menu bar. */
+    [BuildController setupMainMenu];
 }
 
 - (void)startBuildWorkflow
@@ -111,9 +130,9 @@
     }
     if (!entry) {
         NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:@"Catalog Entry Not Found"];
-        [alert setInformativeText:[NSString stringWithFormat:@"No catalog entry named '%@'.", name]];
-        [alert addButtonWithTitle:@"OK"];
+        [alert setMessageText:NSLocalizedString(@"Catalog Entry Not Found", @"Alert title: catalog entry missing")];
+        [alert setInformativeText:[NSString stringWithFormat:NSLocalizedString(@"No catalog entry named '%@'.", @"Alert: no entry with name"), name]];
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
         [alert runModal];
         return;
     }
@@ -123,9 +142,9 @@
     char *tmpPath = strdup([template UTF8String]);
     if (!mkdtemp(tmpPath)) {
         NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:@"Clone Failed"];
-        [alert setInformativeText:@"Could not create temporary directory."];
-        [alert addButtonWithTitle:@"OK"];
+        [alert setMessageText:NSLocalizedString(@"Clone Failed", @"Alert title: clone failed")];
+        [alert setInformativeText:NSLocalizedString(@"Could not create temporary directory.", @"Alert: temp dir error")];
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
         [alert runModal];
         free(tmpPath);
         return;
@@ -148,7 +167,7 @@
     /* Clone the repository on a background queue to keep GUI responsive */
     dispatch_async(buildQueue(), ^{
         NSTask *gitTask = [[NSTask alloc] init];
-        [gitTask setLaunchPath:@"/usr/bin/git"];
+        [gitTask setLaunchPath:toolPath(@"git")];
         [gitTask setArguments:@[@"clone", @"--depth=1", entry.gitURL, cloneDir]];
         [gitTask setEnvironment:[[NSProcessInfo processInfo] environment]];
 
@@ -157,7 +176,7 @@
     [gitTask setStandardError:gitPipe];
     [gitTask setStandardInput:[NSFileHandle fileHandleWithNullDevice]];
 
-        NSString *logMsg = [NSString stringWithFormat:@"=== Cloning %@ ===\n", entry.gitURL];
+        NSString *logMsg = [NSString stringWithFormat:NSLocalizedString(@"=== Cloning %@ ===\n", @"Log: cloning repo"), entry.gitURL];
         [controller.buildOutput appendString:logMsg];
         dispatch_async(dispatch_get_main_queue(), ^{
             [controller.logController appendLog:logMsg];
@@ -194,11 +213,11 @@
             dispatch_sync(dispatch_get_main_queue(), ^{
                 [controller hideProgressWindow];
                 NSAlert *alert = [[NSAlert alloc] init];
-                [alert setMessageText:@"Clone Failed"];
-                [alert setInformativeText:[NSString stringWithFormat:@"git clone failed: %@", [e reason]]];
-                [alert addButtonWithTitle:@"OK"];
+                [alert setMessageText:NSLocalizedString(@"Clone Failed", @"Alert title: clone failed")];
+                [alert setInformativeText:[NSString stringWithFormat:NSLocalizedString(@"git clone failed: %@", @"Alert: git clone error with reason"), [e reason]]];
+                [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                 [alert runModal];
-                [NSApp terminate:nil];
+                [BuildController scheduleQuit];
             });
         }
 
@@ -207,11 +226,11 @@
             dispatch_sync(dispatch_get_main_queue(), ^{
                 [controller hideProgressWindow];
                 NSAlert *alert = [[NSAlert alloc] init];
-                [alert setMessageText:@"Clone Failed"];
-                [alert setInformativeText:@"git clone returned an error."];
-                [alert addButtonWithTitle:@"OK"];
+                [alert setMessageText:NSLocalizedString(@"Clone Failed", @"Alert title: clone failed")];
+                [alert setInformativeText:NSLocalizedString(@"git clone returned an error.", @"Alert: git clone error")];
+                [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                 [alert runModal];
-                [NSApp terminate:nil];
+                [BuildController scheduleQuit];
             });
         }
 
@@ -240,11 +259,11 @@
                 dispatch_sync(dispatch_get_main_queue(), ^{
                     [controller hideProgressWindow];
                     NSAlert *alert = [[NSAlert alloc] init];
-                    [alert setMessageText:@"No Makefile Found"];
-                    [alert setInformativeText:@"The cloned repository does not contain a GNUmakefile or Makefile."];
-                    [alert addButtonWithTitle:@"OK"];
+                    [alert setMessageText:NSLocalizedString(@"No Makefile Found", @"Alert title: no makefile")];
+                    [alert setInformativeText:NSLocalizedString(@"The cloned repository does not contain a GNUmakefile or Makefile.", @"Alert: no makefile in clone")];
+                    [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK button")];
                     [alert runModal];
-                    [NSApp terminate:nil];
+                    [BuildController scheduleQuit];
                 });
             } else {
                 dispatch_async(dispatch_get_main_queue(), ^{

@@ -50,6 +50,31 @@ static dispatch_once_t _sharedDisplayOnce;
     // If we're using sharedDisplay, we don't close it until cleanup
 }
 
++ (unsigned long)getActiveWindowFresh
+{
+    /* Fresh connection so the poll can run from any thread - see isWindowValid:. */
+    Display *display = XOpenDisplay(NULL);
+    if (!display) return 0;
+
+    unsigned long activeWindow = 0;
+    Atom atom = XInternAtom(display, "_NET_ACTIVE_WINDOW", False);
+    Atom actualType;
+    int actualFormat;
+    unsigned long nitems, bytesAfter;
+    unsigned char *prop = NULL;
+    if (XGetWindowProperty(display, DefaultRootWindow(display), atom,
+                          0, 1, False, XA_WINDOW,
+                          &actualType, &actualFormat, &nitems, &bytesAfter,
+                          &prop) == 0 && prop) {
+        if (nitems > 0) {
+            activeWindow = *(Window*)prop;
+        }
+        XFree(prop);
+    }
+    XCloseDisplay(display);
+    return activeWindow;
+}
+
 + (unsigned long)getActiveWindow
 {
     Display *display = [self sharedDisplay];
@@ -108,9 +133,15 @@ static dispatch_once_t _sharedDisplayOnce;
         if (classHint.res_class != NULL) {
             className = [NSString stringWithUTF8String:classHint.res_class];
         }
-        if (classHint.res_class != NULL || classHint.res_name != NULL) {
-            char *strings[3] = {classHint.res_class, classHint.res_name, NULL};
-            XFreeStringList(strings);
+        /* XGetClassHint allocates res_class/res_name; each must be freed with
+         * XFree individually.  XFreeStringList must NEVER be used here: it
+         * also frees the list array itself, and this list is on the stack -
+         * freeing it aborts the process ("invalid pointer"). */
+        if (classHint.res_class != NULL) {
+            XFree(classHint.res_class);
+        }
+        if (classHint.res_name != NULL) {
+            XFree(classHint.res_name);
         }
     }
 
@@ -208,27 +239,29 @@ static dispatch_once_t _sharedDisplayOnce;
 {
     if (windowId == 0) return NO;
 
-    Display *display = [self openDisplay];
+    /* Use a FRESH display connection: the shared display is touched from
+     * several threads (WindowMonitor, watchdog, importers), and a
+     * cross-thread interleave can make XGetWindowAttributes spuriously fail
+     * on it for perfectly valid windows - which the menu watchdog then took
+     * as "app closed" and cleared the menu (and the app's shortcuts). */
+    Display *display = XOpenDisplay(NULL);
     if (!display) {
         return NO;
     }
     
     XWindowAttributes attrs;
-    if (XGetWindowAttributes(display, (Window)windowId, &attrs) == Success) {
-        return YES;
-    }
-    
-    // Low-level check if the window exists using XQueryTree might be more robust
-    // but XGetWindowAttributes is usually sufficient.
-    NSDebugLLog(@"gwcomp", @"MenuUtils: XGetWindowAttributes failed for 0x%lx", windowId);
-    return NO;
+    BOOL ok = (XGetWindowAttributes(display, (Window)windowId, &attrs) == Success);
+    XCloseDisplay(display);
+    return ok;
 }
 
 + (BOOL)isWindowMapped:(unsigned long)windowId
 {
     if (windowId == 0) return NO;
 
-    Display *display = [self openDisplay];
+    /* Fresh connection per call - see isWindowValid: for why the shared
+     * display cannot be trusted for these checks. */
+    Display *display = XOpenDisplay(NULL);
     if (!display) {
         return NO;
     }
@@ -239,20 +272,86 @@ static dispatch_once_t _sharedDisplayOnce;
         // Require IsViewable: window AND all ancestors must be mapped.
         // IsUnviewable (window mapped but an ancestor is not) is treated as not visible.
         mapped = (attrs.map_state == IsViewable);
-        if (!mapped) {
-            NSDebugLLog(@"gwcomp", @"MenuUtils: Window 0x%lx is not viewable (map_state %d)", windowId, attrs.map_state);
-        }
     } else {
         // XGetWindowAttributes failure does NOT mean the window is unmapped.
         // It can fail due to X11 thread-safety issues with shared Display connections,
         // or transient server states. Assume mapped (safe default) and let the caller
         // use isWindowValid for definitive existence checks.
-        NSDebugLog(@"MenuUtils: XGetWindowAttributes failed for window 0x%lx (assuming mapped)", windowId);
         mapped = YES;
     }
     
-    [self closeDisplay:display];
+    XCloseDisplay(display);
     return mapped;
+}
+
++ (BOOL)isRealApplicationWindow:(unsigned long)windowId
+{
+    if (windowId == 0) return NO;
+
+    Display *display = [self openDisplay];
+    if (!display) return NO;
+
+    XWindowAttributes attrs;
+    BOOL real = NO;
+    if (XGetWindowAttributes(display, (Window)windowId, &attrs) == Success) {
+        /* Mapped (window and ancestors) and not an override-redirect popup. */
+        if (attrs.map_state == IsViewable && !attrs.override_redirect) {
+            /* WM-managed, or a GNUstep window.  Chromium keeps internal helper
+             * windows that look like normal toplevels (viewable, NORMAL type)
+             * but are neither WM-managed nor GNUstep - they must not be treated
+             * as app windows, otherwise the menu chases them and clears. */
+            BOOL managed = NO;
+            Atom wmStateAtom = XInternAtom(display, "WM_STATE", True);
+            if (wmStateAtom != None) {
+                Atom t2; int f2; unsigned long n2, b2; unsigned char *p2 = NULL;
+                if (XGetWindowProperty(display, (Window)windowId, wmStateAtom, 0, 1,
+                                       False, AnyPropertyType, &t2, &f2, &n2, &b2,
+                                       &p2) == Success && p2) {
+                    managed = YES;
+                    XFree(p2);
+                }
+            }
+            if (!managed) {
+                Atom gsAtom = XInternAtom(display, "_GNUSTEP_WM_ATTR", True);
+                if (gsAtom != None) {
+                    Atom t3; int f3; unsigned long n3, b3; unsigned char *p3 = NULL;
+                    if (XGetWindowProperty(display, (Window)windowId, gsAtom, 0, 1,
+                                           False, AnyPropertyType, &t3, &f3, &n3, &b3,
+                                           &p3) == Success && p3) {
+                        managed = YES;
+                        XFree(p3);
+                    }
+                }
+            }
+            if (managed) {
+                /* _NET_WM_WINDOW_TYPE: accept normal/dialog/utility or absent. */
+                Atom wmTypeAtom = XInternAtom(display, "_NET_WM_WINDOW_TYPE", True);
+                Atom wmTypeNormal = XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", False);
+                Atom wmTypeDialog = XInternAtom(display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+                Atom wmTypeUtility = XInternAtom(display, "_NET_WM_WINDOW_TYPE_UTILITY", False);
+                BOOL typeOK = YES;
+                if (wmTypeAtom != None) {
+                    Atom actualType; int actualFormat;
+                    unsigned long nItems, bytesAfter;
+                    unsigned char *prop = NULL;
+                    if (XGetWindowProperty(display, (Window)windowId, wmTypeAtom, 0, 16,
+                                           False, XA_ATOM, &actualType, &actualFormat,
+                                           &nItems, &bytesAfter, &prop) == Success) {
+                        if (prop && nItems > 0) {
+                            Atom first = ((Atom *)prop)[0];
+                            typeOK = (first == wmTypeNormal || first == wmTypeDialog
+                                      || first == wmTypeUtility);
+                        }
+                        if (prop) XFree(prop);
+                    }
+                }
+                real = typeOK;
+            }
+        }
+    }
+
+    [self closeDisplay:display];
+    return real;
 }
 
 + (BOOL)isDesktopWindow:(unsigned long)windowId
@@ -261,7 +360,8 @@ static dispatch_once_t _sharedDisplayOnce;
         return NO;
     }
     
-    Display *display = [self openDisplay];
+    /* Fresh connection - see isWindowValid:. */
+    Display *display = XOpenDisplay(NULL);
     if (!display) {
         return NO;
     }
@@ -290,7 +390,7 @@ static dispatch_once_t _sharedDisplayOnce;
         XFree(prop);
     }
     
-    [self closeDisplay:display];
+    XCloseDisplay(display);
     return isDesktop;
 }
 
@@ -423,7 +523,13 @@ static dispatch_once_t _sharedDisplayOnce;
         for (unsigned int i = 0; i < nchildren; i++) {
             XWindowAttributes attrs;
             if (XGetWindowAttributes(display, children[i], &attrs) == Success) {
-                if (attrs.map_state == IsViewable && attrs.class == InputOutput) {
+                /* Skip override-redirect windows: dropdown menus, popups and
+                 * tooltips are transient, churn constantly while being
+                 * opened/closed, and are never menu-bar or menu-service hosts.
+                 * Not querying them avoids both wasted work and the stale-XID
+                 * races that produce BadWindow errors. */
+                if (attrs.map_state == IsViewable && attrs.class == InputOutput
+                    && !attrs.override_redirect) {
                     [windows addObject:[NSNumber numberWithUnsignedLong:children[i]]];
                 }
             }
@@ -579,6 +685,90 @@ static dispatch_once_t _sharedDisplayOnce;
     [self closeDisplay:display];
     return pid;
 }
+
+#pragma mark - Gershwin root-window active-application properties
+
++ (pid_t)getActiveApplicationPID
+{
+    Display *display = [self sharedDisplay];
+    if (!display) return 0;
+
+    Atom atom = XInternAtom(display, "_GERSHWIN_ACTIVE_APP", False);
+    if (atom == None) return 0;
+
+    Atom actualType;
+    int actualFormat;
+    unsigned long nitems, bytesAfter;
+    unsigned char *prop = NULL;
+    pid_t pid = 0;
+
+    if (XGetWindowProperty(display, DefaultRootWindow(display), atom,
+                           0, 1, False, XA_CARDINAL,
+                           &actualType, &actualFormat, &nitems, &bytesAfter,
+                           &prop) == Success && prop) {
+        if (nitems >= 1 && actualFormat == 32) {
+            unsigned int *value = (unsigned int *)prop;
+            pid = (pid_t)*value;
+        }
+        XFree(prop);
+    }
+    return pid;
+}
+
++ (NSArray *)getMenuApps
+{
+    Display *display = [self sharedDisplay];
+    if (!display) return @[];
+
+    Atom atom = XInternAtom(display, "_GERSHWIN_MENU_APPS", False);
+    if (atom == None) return @[];
+
+    Atom actualType;
+    int actualFormat;
+    unsigned long nitems, bytesAfter;
+    unsigned char *prop = NULL;
+    NSMutableArray *result = [NSMutableArray array];
+
+    if (XGetWindowProperty(display, DefaultRootWindow(display), atom,
+                           0, 4096, False, XA_CARDINAL,
+                           &actualType, &actualFormat, &nitems, &bytesAfter,
+                           &prop) == Success && prop) {
+        if (actualFormat == 32) {
+            // XGetWindowProperty returns format-32 data as an array of long
+            long *values = (long *)prop;
+            for (unsigned long i = 0; i < nitems; i++) {
+                [result addObject:@(values[i])];
+            }
+        }
+        XFree(prop);
+    }
+    return result;
+}
+
++ (void)setMenuApps:(NSArray *)pids
+{
+    Display *display = [self sharedDisplay];
+    if (!display) return;
+
+    Atom atom = XInternAtom(display, "_GERSHWIN_MENU_APPS", False);
+    if (atom == None) return;
+
+    NSUInteger count = [pids count];
+    long *values = NULL;
+    if (count > 0) {
+        // XChangeProperty with format 32 copies an array of long
+        values = (long *)calloc(count, sizeof(long));
+        if (!values) return;
+        for (NSUInteger i = 0; i < count; i++) {
+            id obj = [pids objectAtIndex:i];
+            values[i] = (long)[obj longValue];
+        }
+    }
+    XChangeProperty(display, DefaultRootWindow(display), atom, XA_CARDINAL, 32,
+                    PropModeReplace, (const unsigned char *)values, (int)count);
+    if (values) free(values);
+    XFlush(display);
+}
         
 + (NSString *)getWindowProperty:(unsigned long)windowId atomName:(NSString *)atomName
 {
@@ -693,6 +883,75 @@ static dispatch_once_t _sharedDisplayOnce;
     return NO;
 }
 
++ (void)mergeNetSupportedAtoms:(const Atom *)atoms
+                         count:(unsigned long)count
+                         onRoot:(Window)root
+                       display:(Display *)display
+{
+    Atom supportedAtom = XInternAtom(display, "_NET_SUPPORTED", False);
+    if (supportedAtom == None || atoms == NULL || count == 0) {
+        return;
+    }
+
+    // Read what the window manager already advertised: _NET_SUPPORTED belongs to
+    // the WM, and a plain PropModeReplace here would drop the entries it relies
+    // on (e.g. the _WINDOW_BIRTH_ANIMATION / _WINDOW_CLOSE_ANIMATION protocol),
+    // silently disabling features for other clients.
+    Atom actualType = None;
+    int actualFormat = 0;
+    unsigned long numItems = 0, bytesAfter = 0;
+    unsigned char *propData = NULL;
+    if (XGetWindowProperty(display, root, supportedAtom, 0, ~0L, False,
+                           XA_ATOM, &actualType, &actualFormat, &numItems,
+                           &bytesAfter, &propData) != Success) {
+        return;
+    }
+    if (actualFormat != 32 || numItems == 0 || propData == NULL) {
+        if (propData) XFree(propData);
+        // No list to preserve: just publish our atoms.
+        XChangeProperty(display, root, supportedAtom, XA_ATOM, 32,
+                        PropModeReplace, (unsigned char *)atoms, count);
+        return;
+    }
+
+    /* Cap the merged list: _NET_SUPPORTED is written by the WM and a
+       pathological value (millions of atoms) would overflow a stack VLA.
+       Beyond the cap, keep the WM's existing entries and drop ours - the WM
+       list is the one other clients rely on. */
+    if (numItems > 4096) {
+        XFree(propData);
+        XChangeProperty(display, root, supportedAtom, XA_ATOM, 32,
+                        PropModeReplace, (unsigned char *)atoms, count);
+        return;
+    }
+
+    Atom *existing = (Atom *)propData;
+    NSUInteger maxTotal = numItems + count;
+    Atom *merged = (Atom *)malloc(maxTotal * sizeof(Atom));
+    if (!merged) {
+        XFree(propData);
+        return;
+    }
+    NSUInteger total = 0;
+    for (unsigned long i = 0; i < numItems; i++) {
+        merged[total++] = existing[i];
+    }
+    for (unsigned long i = 0; i < count; i++) {
+        BOOL alreadyThere = NO;
+        for (unsigned long j = 0; j < numItems; j++) {
+            if (existing[j] == atoms[i]) { alreadyThere = YES; break; }
+        }
+        if (!alreadyThere) {
+            merged[total++] = atoms[i];
+        }
+    }
+    XFree(propData);
+
+    XChangeProperty(display, root, supportedAtom, XA_ATOM, 32,
+                    PropModeReplace, (unsigned char *)merged, total);
+    free(merged);
+}
+
 + (BOOL)advertiseGlobalMenuSupport
 {
     Display *display = [self openDisplay];
@@ -722,22 +981,20 @@ static dispatch_once_t _sharedDisplayOnce;
         NSDebugLLog(@"gwcomp", @"MenuUtils: Set _NET_SUPPORTING_WM_CHECK for global menu support");
     }
     
-    // Set _NET_SUPPORTED to advertise supported features
-    Atom supportedAtom = XInternAtom(display, "_NET_SUPPORTED", False);
-    if (supportedAtom != None) {
-        Atom supportedFeatures[] = {
-            XInternAtom(display, "_NET_WM_NAME", False),
-            XInternAtom(display, "_NET_ACTIVE_WINDOW", False),
-            XInternAtom(display, "_KDE_NET_WM_APPMENU_SERVICE_NAME", False),
-            XInternAtom(display, "_KDE_NET_WM_APPMENU_OBJECT_PATH", False)
-        };
-        
-        XChangeProperty(display, root, supportedAtom, XA_ATOM, 32,
-                       PropModeReplace, (unsigned char*)supportedFeatures, 
-                       sizeof(supportedFeatures) / sizeof(Atom));
-        
-        NSDebugLLog(@"gwcomp", @"MenuUtils: Set _NET_SUPPORTED with global menu atoms");
-    }
+    // Advertise our global-menu atoms by merging them into the WM-owned
+    // _NET_SUPPORTED property, never replacing it.
+    Atom supportedFeatures[] = {
+        XInternAtom(display, "_NET_WM_NAME", False),
+        XInternAtom(display, "_NET_ACTIVE_WINDOW", False),
+        XInternAtom(display, "_KDE_NET_WM_APPMENU_SERVICE_NAME", False),
+        XInternAtom(display, "_KDE_NET_WM_APPMENU_OBJECT_PATH", False)
+    };
+    [self mergeNetSupportedAtoms:supportedFeatures
+                           count:sizeof(supportedFeatures) / sizeof(Atom)
+                           onRoot:root
+                         display:display];
+    
+    NSDebugLLog(@"gwcomp", @"MenuUtils: Merged global menu atoms into _NET_SUPPORTED");
     
     // Set KDE-specific property to indicate global menu support
     Atom kdeMenuAtom = XInternAtom(display, "_KDE_GLOBAL_MENU_AVAILABLE", False);

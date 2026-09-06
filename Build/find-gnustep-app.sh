@@ -80,7 +80,7 @@ REL_MF="${REL_MF#/}"
 # Extract description from makefile comment or GitHub description
 DESC=$(grep -m1 '^# ' "$BEST_MF" 2>/dev/null | sed 's/^# *//' || true)
 if [ -z "$DESC" ]; then
-    DESC="$DISPLAY_NAME app for GNUstep"
+    DESC="$DISPLAY_NAME app"
 fi
 
 # Output plist dict

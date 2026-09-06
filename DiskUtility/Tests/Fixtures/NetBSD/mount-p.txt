@@ -1,0 +1,14 @@
+# mount(8) -p output (fstab-style dump of mounted filesystems) - input for
+# DUNetBSDDeviceDiscovery currentMountTable.
+#
+# Exercises: full /dev/<name><letter> device keys for disk partitions, a
+# msdos volume on removable media, and pseudo-filesystem mounts (tmpfs,
+# kernfs) whose first field is a filesystem name rather than a device node
+# and which must not be mistaken for disk partitions. The mount -p options
+# column may itself contain commas and '=' (rw,-s=512m).
+/dev/wd0a / ffs rw 1 1
+/dev/wd0e /usr ffs rw 1 1
+/dev/sd0e /media/usb msdos rw 1 1
+tmpfs /tmp tmpfs rw,-s=512m 1 1
+kernfs /kern kernfs rw 1 1
+procfs /proc procfs rw 1 1

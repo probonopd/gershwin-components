@@ -1,0 +1,36 @@
+Geom name: ada0s1
+modified: false
+state: OK
+fwsectors: 63
+fwheads: 16
+scheme: BSD
+lasterror: 0
+providers:
+1. Name: ada0s1a
+   Mediasize: 146778910720 (136G)
+   Sectorsize: 512
+   Stripesize: 0
+   Stripeoffset: 2097152
+   Mode: r1w1e3
+   len: 146778910720
+   offset: 8192
+   type: freebsd-ufs
+   index: 7
+   end: 286677559
+   start: 16
+2. Name: ada0s1b
+   Mediasize: 4294967296 (4.0G)
+   Sectorsize: 512
+   Stripesize: 0
+   Stripeoffset: 2097152
+   Mode: r0w0e0
+   len: 4294967296
+   offset: 146778918912
+   type: freebsd-swap
+   index: 8
+   end: 295042111
+   start: 286677560
+consumers:
+1. Name: ada0s1
+   Mediasize: 151075084288 (140G)
+   Slicesize: 0

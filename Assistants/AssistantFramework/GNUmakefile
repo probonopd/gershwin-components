@@ -1,4 +1,5 @@
 include $(GNUSTEP_MAKEFILES)/common.make
+GNUSTEP_INSTALLATION_DOMAIN = SYSTEM
 
 # Framework configuration
 FRAMEWORK_NAME = GSAssistantFramework
@@ -26,7 +27,7 @@ GSAssistantFramework_HEADER_FILES = \
 	GSStepBulletView.h
 
 # Headers that should be included in the framework headers
-GSAssistantFramework_HEADER_FILES_INSTALL_DIR = /GSAssistantFramework
+GSAssistantFramework_HEADER_FILES_INSTALL_DIR = GSAssistantFramework
 
 # Resource files to include in the framework
 GSAssistantFramework_RESOURCE_FILES = \
@@ -65,14 +66,22 @@ after-install::
 
 install:: custom-install
 
+# A framework bundle contains symlinks (Versions/Current, Resources, Headers).
+# Copying over an existing install makes cp descend into those symlinked
+# directories: GNU cp replaces the link, but BSD cp refuses with
+#   "cannot overwrite directory ... with non-directory"
+# which broke reinstalls on OpenBSD. Remove the old bundle first so the copy
+# always lands on a clean target.
 custom-install: $(FRAMEWORK_NAME).framework
 	@if [ -n "$(DESTDIR)" ]; then \
 		echo "Installing $(FRAMEWORK_NAME) to $(DESTDIR)$(FRAMEWORK_INSTALL_DIR)"; \
 		mkdir -p $(DESTDIR)$(FRAMEWORK_INSTALL_DIR); \
+		rm -rf $(DESTDIR)$(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework; \
 		cp -R $(FRAMEWORK_NAME).framework $(DESTDIR)$(FRAMEWORK_INSTALL_DIR)/; \
 	else \
 		echo "Installing $(FRAMEWORK_NAME) to $(FRAMEWORK_INSTALL_DIR)"; \
 		mkdir -p $(FRAMEWORK_INSTALL_DIR); \
+		rm -rf $(FRAMEWORK_INSTALL_DIR)/$(FRAMEWORK_NAME).framework; \
 		cp -R $(FRAMEWORK_NAME).framework $(FRAMEWORK_INSTALL_DIR)/; \
 	fi
 
@@ -113,3 +122,4 @@ clean::
 test: TestNewLayout
 	@echo "Running layout test..."
 	@echo "Note: Run './obj/TestNewLayout' to test both layout styles"
+

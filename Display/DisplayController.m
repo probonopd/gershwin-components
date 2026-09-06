@@ -8,10 +8,45 @@
 #import "DisplayController.h"
 #import "DisplayView.h"
 #import "X11DisplayManager.h"
+#import "AppearanceMetrics.h"
 #import <dispatch/dispatch.h>
 
-@implementation DisplayInfo
+@class DisplayController;
 
+/* The pane view. When the host window gives us a width (which is not the
+   560px base we built at), re-lay out the group boxes so the left/right
+   margins to the window edge stay symmetric. */
+@interface DisplayMainView : NSView
+{
+    DisplayController *_layoutOwner;
+}
+@end
+
+@implementation DisplayMainView
+- (void)setFrameSize:(NSSize)newSize
+{
+    [super setFrameSize:newSize];
+    [_layoutOwner relayoutWithWidth:newSize.width];
+}
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    if ([self window] && [self superview]) {
+        /* The host window does not necessarily size the pane view to its
+           content area; make it fill the box content and re-lay out so the
+           left/right margins stay symmetric.  GNUstep's setFrame: bypasses
+           setFrameSize:, so re-lay out explicitly here. */
+        [self setFrame:[[self superview] bounds]];
+        [_layoutOwner relayoutWithWidth:[self bounds].size.width];
+    }
+}
+- (void)setLayoutOwner:(DisplayController *)owner
+{
+    _layoutOwner = owner;
+}
+@end
+
+@implementation DisplayInfo
 @synthesize name, frame, resolution, isPrimary, isConnected, output, currentResolutionString, availableResolutions;
 
 - (id)init
@@ -44,6 +79,24 @@
 static NSInteger dialogIDCounter = 0;
 static NSMutableDictionary *activeDialogsByID = nil;
 
+@interface DisplayController ()
+/* Layout helpers (HIG group boxes and rows). */
+- (NSBox *)groupBoxWithTitle:(NSString *)title frame:(NSRect)frame inView:(NSView *)parent;
+- (NSTextField *)labelWithText:(NSString *)text frame:(NSRect)frame alignment:(NSTextAlignment)align;
+- (void)addCheckbox:(NSButton *)checkbox toBox:(NSBox *)box y:(CGFloat)y width:(CGFloat)w;
+- (void)addPopUpRowWithLabel:(NSString *)label
+                      popup:(NSPopUpButton *)popup
+                      toBox:(NSBox *)box
+                          y:(CGFloat)y
+                      width:(CGFloat)w;
+- (void)addSliderRowWithLabel:(NSString *)label
+                       slider:(NSSlider *)slider
+                        value:(NSTextField *)value
+                        toBox:(NSBox *)box
+                            y:(CGFloat)y
+                        width:(CGFloat)w;
+@end
+
 @implementation DisplayController
 
 - (id)init
@@ -70,10 +123,14 @@ static NSMutableDictionary *activeDialogsByID = nil;
     [displayView release];
     [mainView release];
     [resolutionPopup release];
+    [scaleSlider release];
+    [scaleValueLabel release];
+    [scaleFactorHintLabel release];
     [mirrorDisplaysCheckbox release];
     [x11 release];
     [saveButton release];
     [savedStateSnapshot release];
+    [lastDisplaySnapshot release];
     [super dealloc];
 }
 
@@ -106,86 +163,249 @@ static NSMutableDictionary *activeDialogsByID = nil;
     
     NSDebugLog(@"DisplayController: Creating main view with X11 RANDR available");
     
-    // Get available width from SystemPreferences window if possible
-    float availableWidth = 500; // Default fallback
-    float availableHeight = 320; // Default fallback
-    
-    // Try to get the actual SystemPreferences window size
-    NSArray *windows = [NSApp windows];
-    for (NSWindow *window in windows) {
-        if ([[window title] containsString:@"System Preferences"] || 
-            [[window className] containsString:@"PreferencePane"]) {
-            NSRect windowFrame = [window frame];
-            NSRect contentRect = [window contentRectForFrameRect:windowFrame];
-            // Use most of the content area, leaving margins
-            availableWidth = contentRect.size.width - 40; // 20px margin on each side
-            availableHeight = contentRect.size.height - 80; // Space for title and controls
-            NSDebugLog(@"DisplayController: Found SystemPreferences window, using size: %.0fx%.0f", availableWidth, availableHeight);
-            break;
-        }
+    const CGFloat winW = 560, winH = 440;
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;      /* 24 */
+    const CGFloat topMargin = METRICS_CONTENT_TOP_MARGIN;        /* 15 */
+    const CGFloat bottomMargin = METRICS_SPACE_12;               /* under bottom controls */
+    const CGFloat boxGap = METRICS_SPACE_8;                      /* between group boxes */
+    const CGFloat rowH = METRICS_TEXT_INPUT_FIELD_HEIGHT;        /* 22 */
+    const CGFloat checkboxRowH = METRICS_RADIO_BUTTON_LINE_SPACING; /* 20 */
+    const CGFloat boxTitleInset = 14.0;
+    const CGFloat arrangeBoxH = 230;      /* arrangement view */
+    const CGFloat settingsBoxH = 126;     /* mirror, resolution, scale */
+
+    mainView = [[DisplayMainView alloc] initWithFrame:NSMakeRect(0, 0, winW, winH)];
+    [(DisplayMainView *)mainView setLayoutOwner:self];
+    [mainView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    CGFloat contentW = winW - 2 * sideMargin;
+    CGFloat boxW = contentW;
+
+    CGFloat y = winH - topMargin;
+
+    /* ---- Arrangement view directly on the pane (single item, no box) ---- */
+    {
+        /* No autoresizing mask: GNUstep's +5px contentView quirk would otherwise
+           make this view track the inflated size and misalign its right edge
+           with the box below. relayoutWithWidth: sets its width explicitly. */
+        displayView = [[DisplayView alloc] initWithFrame:
+            NSMakeRect(sideMargin, y - arrangeBoxH, boxW, arrangeBoxH)];
+        [displayView setController:self];
+        [mainView addSubview:displayView];
     }
-    
-    // Ensure reasonable minimums
-    if (availableWidth < 400) availableWidth = 500;
-    if (availableHeight < 250) availableHeight = 320;
-    
-    mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, availableWidth, availableHeight)];
-    
-    NSTextField *instructLabel1 = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 115, availableWidth - 22, 20)];
-    [instructLabel1 setStringValue:@"Drag displays to arrange them. Drag menu bar to set the main display."];
-    [instructLabel1 setBezeled:NO];
-    [instructLabel1 setDrawsBackground:NO];
-    [instructLabel1 setEditable:NO];
-    [instructLabel1 setSelectable:NO];
-    [instructLabel1 setFont:[NSFont systemFontOfSize:11]];
-    [mainView addSubview:instructLabel1];
-    [instructLabel1 release];
-    
-    // Create a display arrangement view that uses most of the available space
-    float displayAreaHeight = availableHeight - 160; // Leave space for controls below
-    displayView = [[DisplayView alloc] initWithFrame:NSMakeRect(20, 140, availableWidth - 22, displayAreaHeight)];
-    [displayView setController:self];
-    [mainView addSubview:displayView];
+    y -= arrangeBoxH + boxGap;
 
-    
-    // Mirror displays checkbox
-    mirrorDisplaysCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, 65, 200, 20)];
-    [mirrorDisplaysCheckbox setButtonType:NSSwitchButton];
-    [mirrorDisplaysCheckbox setTitle:@"Mirror Displays"];
-    [mirrorDisplaysCheckbox setTarget:self];
-    [mirrorDisplaysCheckbox setAction:@selector(mirrorDisplaysChanged:)];
-    [mainView addSubview:mirrorDisplaysCheckbox];
-    
-    // Resolution popup
-    NSTextField *resLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 35, 80, 20)];
-    [resLabel setStringValue:@"Resolution:"];
-    [resLabel setBezeled:NO];
-    [resLabel setDrawsBackground:NO];
-    [resLabel setEditable:NO];
-    [resLabel setSelectable:NO];
-    [mainView addSubview:resLabel];
-    [resLabel release];
-    
-    resolutionPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(110, 32, 180, 25)];
-    [resolutionPopup setTarget:self];
-    [resolutionPopup setAction:@selector(resolutionChanged:)];
-    [mainView addSubview:resolutionPopup];
+    /* ---- Display Settings group box ---- */
+    settingsBox = [self groupBoxWithTitle:@"Display Settings"
+                                   frame:NSMakeRect(sideMargin, y - settingsBoxH, boxW, settingsBoxH)
+                                  inView:mainView];
+    {
+        CGFloat by = settingsBoxH - boxTitleInset - METRICS_SPACE_16 - checkboxRowH;
+        [self addCheckbox:mirrorDisplaysCheckbox =
+                   [[[NSButton alloc] initWithFrame:NSZeroRect] autorelease]
+                    toBox:settingsBox y:by width:boxW];
+        [mirrorDisplaysCheckbox setButtonType:NSSwitchButton];
+        [mirrorDisplaysCheckbox setTitle:@"Mirror Displays"];
+        by -= METRICS_SPACE_8 + rowH;
 
-    // Save Settings button
-    saveButton = [[NSButton alloc] initWithFrame:NSMakeRect(availableWidth - 120, 32, 100, 25)];
-    [saveButton setTitle:@"Save Settings"];
-    [saveButton setButtonType:NSMomentaryPushInButton];
-    [saveButton setBezelStyle:NSRoundedBezelStyle];
-    [saveButton setTarget:self];
-    [saveButton setAction:@selector(saveSettings:)];
-    [saveButton setEnabled:NO];
-    [mainView addSubview:saveButton];
+        [self addPopUpRowWithLabel:@"Resolution:"
+                            popup:resolutionPopup =
+                            [[[NSPopUpButton alloc] initWithFrame:NSZeroRect] autorelease]
+                            toBox:settingsBox y:by width:boxW];
+        [resolutionPopup setTarget:self];
+        [resolutionPopup setAction:@selector(resolutionChanged:)];
+
+        by -= METRICS_SPACE_8 + rowH;
+        [self addSliderRowWithLabel:@"Scale Factor:"
+                             slider:scaleSlider =
+                             [[[NSSlider alloc] initWithFrame:NSZeroRect] autorelease]
+                              value:scaleValueLabel =
+                             [[[NSTextField alloc] initWithFrame:NSZeroRect] autorelease]
+                              toBox:settingsBox y:by width:boxW];
+        [scaleSlider setMinValue:0.8];
+        [scaleSlider setMaxValue:2.0];
+        [scaleSlider setNumberOfTickMarks:13];
+        [scaleSlider setAllowsTickMarkValuesOnly:YES];
+        [scaleSlider setContinuous:YES];
+        [scaleSlider setTarget:self];
+        [scaleSlider setAction:@selector(scaleFactorChanged:)];
+        [scaleValueLabel setStringValue:@"1.0x"];
+
+        double currentScaleFactor = 1.0;
+        NSDictionary *domain = [[NSUserDefaults standardUserDefaults] persistentDomainForName:NSGlobalDomain];
+        NSNumber *storedFactor = [domain objectForKey:@"GSScaleFactor"];
+        if (storedFactor) {
+            currentScaleFactor = [storedFactor doubleValue];
+            if (currentScaleFactor < 0.8) currentScaleFactor = 0.8;
+            if (currentScaleFactor > 2.0) currentScaleFactor = 2.0;
+        }
+        currentScaleFactor = round(currentScaleFactor * 10.0) / 10.0;
+        [scaleSlider setDoubleValue:currentScaleFactor];
+        [scaleValueLabel setStringValue:[NSString stringWithFormat:@"%.1fx", currentScaleFactor]];
+    }
+    y -= settingsBoxH + boxGap;
+
+    /* ---- Bottom hint (settings apply automatically) ---- */
+    scaleFactorHintLabel = [self labelWithText:@"Changes will take effect for newly started applications"
+                                         frame:NSMakeRect(sideMargin, bottomMargin,
+                                                         contentW, 20)
+                                      alignment:NSTextAlignmentLeft];
+    [scaleFactorHintLabel setFont:[NSFont systemFontOfSize:11]];
+    [scaleFactorHintLabel setTextColor:[NSColor grayColor]];
+    [scaleFactorHintLabel setHidden:YES];
+    [scaleFactorHintLabel setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
+    [mainView addSubview:scaleFactorHintLabel];
 
     // Do not call refreshDisplays: here — the DisplayPane's didSelect
     // will trigger it once the view is in the window hierarchy.
     // Calling it here races with didSelect and causes double async loads.
 
     return mainView;
+}
+
+/* Re-lay out the pane for the given width. Positions are computed
+   bottom-up and explicitly (the arrangement view fills whatever vertical
+   space remains), so nothing relies on autoresizing quirks. */
+- (void)relayoutWithWidth:(CGFloat)width
+{
+    const CGFloat sideMargin = METRICS_CONTENT_SIDE_MARGIN;  /* 24 */
+    const CGFloat topMargin = METRICS_CONTENT_TOP_MARGIN;    /* 15 */
+    const CGFloat bottomMargin = METRICS_SPACE_12;
+    const CGFloat boxGap = METRICS_SPACE_8;
+    const CGFloat hintH = 20;
+    const CGFloat settingsBoxH = 126;
+    CGFloat height = [mainView bounds].size.height;
+    NSRect f;
+
+    if (scaleFactorHintLabel) {
+        f = [scaleFactorHintLabel frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        f.origin.y = bottomMargin;
+        f.size.height = hintH;
+        [scaleFactorHintLabel setFrame:f];
+    }
+
+    if (settingsBox) {
+        f = [settingsBox frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        f.origin.y = bottomMargin + hintH + boxGap;
+        f.size.height = settingsBoxH;
+        [settingsBox setFrame:f];
+    }
+
+    if (displayView) {
+        CGFloat arrangeY = bottomMargin + hintH + boxGap + settingsBoxH + boxGap;
+        CGFloat arrangeH = height - topMargin - arrangeY;
+        if (arrangeH < 100) arrangeH = 100;
+        f = [displayView frame];
+        f.origin.x = sideMargin;
+        f.size.width = width - 2 * sideMargin;
+        f.origin.y = arrangeY;
+        f.size.height = arrangeH;
+        [displayView setFrame:f];
+    }
+}
+
+/* Build a titled group box, top-anchored. Width is managed by
+   relayoutWithWidth: so margins stay symmetric. */
+- (NSBox *)groupBoxWithTitle:(NSString *)title frame:(NSRect)frame inView:(NSView *)parent
+{
+    NSBox *box = [[NSBox alloc] initWithFrame:frame];
+    [box setTitle:title];
+    [box setBoxType:NSBoxPrimary];
+    [box setTitlePosition:NSAtTop];
+    [box setBorderType:NSBezelBorder];
+    [box setAutoresizingMask:NSViewMinYMargin];
+    [parent addSubview:box];
+    return box;
+}
+
+/* A plain read-only label. */
+- (NSTextField *)labelWithText:(NSString *)text frame:(NSRect)frame alignment:(NSTextAlignment)align
+{
+    NSTextField *label = [[NSTextField alloc] initWithFrame:frame];
+    [label setStringValue:text ?: @""];
+    [label setBezeled:NO];
+    [label setEditable:NO];
+    [label setSelectable:NO];
+    [label setDrawsBackground:NO];
+    [label setFont:[NSFont systemFontOfSize:11]];
+    [label setAlignment:align];
+    return label;
+}
+
+/* Position a checkbox in the top-left of a group box's content area.
+   Width-flexible so it tracks the box. */
+- (void)addCheckbox:(NSButton *)checkbox toBox:(NSBox *)box y:(CGFloat)y width:(CGFloat)w
+{
+    [checkbox setFrame:NSMakeRect(METRICS_SPACE_16, y, w - 2 * METRICS_SPACE_16, 18)];
+    [checkbox setAutoresizingMask:NSViewWidthSizable];
+    [box addSubview:checkbox];
+}
+
+/* A label + pop-up row: label on the left (right aligned), pop-up
+   stretching to fill the rest of the row. */
+- (void)addPopUpRowWithLabel:(NSString *)label
+                      popup:(NSPopUpButton *)popup
+                      toBox:(NSBox *)box
+                          y:(CGFloat)y
+                      width:(CGFloat)w
+{
+    const CGFloat pad = METRICS_SPACE_16;
+    const CGFloat labelW = 110;
+    const CGFloat gap = METRICS_SPACE_8;
+    const CGFloat popupW = w - 2 * pad - labelW - gap;
+
+    NSTextField *labelField = [self labelWithText:label
+                                            frame:NSMakeRect(pad, y + 1, labelW, 20)
+                                        alignment:NSTextAlignmentRight];
+    [labelField setFont:[NSFont systemFontOfSize:11]];
+    [labelField setAutoresizingMask:NSViewMaxXMargin];
+    [box addSubview:labelField];
+    [labelField release];
+
+    [popup setFrame:NSMakeRect(pad + labelW + gap, y, popupW, 22)];
+    [popup setAutoresizingMask:NSViewWidthSizable];
+    [box addSubview:popup];
+}
+
+/* A label + slider + value row in a group box: label on the left (right
+   aligned), slider stretching, value label on the right. */
+- (void)addSliderRowWithLabel:(NSString *)label
+                       slider:(NSSlider *)slider
+                        value:(NSTextField *)value
+                        toBox:(NSBox *)box
+                            y:(CGFloat)y
+                        width:(CGFloat)w
+{
+    const CGFloat pad = METRICS_SPACE_16;
+    const CGFloat labelW = 110;
+    const CGFloat valueW = 50;
+    const CGFloat gap = METRICS_SPACE_8;
+    const CGFloat sliderW = w - 2 * pad - labelW - valueW - 2 * gap;
+
+    NSTextField *labelField = [self labelWithText:label
+                                            frame:NSMakeRect(pad, y + 1, labelW, 20)
+                                        alignment:NSTextAlignmentRight];
+    [labelField setFont:[NSFont systemFontOfSize:11]];
+    [labelField setAutoresizingMask:NSViewMaxXMargin];
+    [box addSubview:labelField];
+    [labelField release];
+
+    [slider setFrame:NSMakeRect(pad + labelW + gap, y, sliderW, 22)];
+    [slider setAutoresizingMask:NSViewWidthSizable];
+    [box addSubview:slider];
+
+    [value setFrame:NSMakeRect(pad + labelW + gap + sliderW + gap, y, valueW, 20)];
+    [value setAutoresizingMask:NSViewMinXMargin];
+    [value setBezeled:NO];
+    [value setEditable:NO];
+    [value setSelectable:NO];
+    [value setDrawsBackground:NO];
+    [value setFont:[NSFont systemFontOfSize:11]];
+    [value setAlignment:NSTextAlignmentRight];
+    [box addSubview:value];
 }
 
 - (void)refreshDisplays:(NSTimer *)timer
@@ -236,9 +456,14 @@ static NSMutableDictionary *activeDialogsByID = nil;
         [previouslySelectedOutput release];
     }
 
-    // Update the display view with new data
+    // Only rebuild views if configuration actually changed
     if (displayView) {
-        [displayView updateDisplayRects];
+        NSString *currentSnap = [self currentStateSnapshot];
+        if (![currentSnap isEqualToString:lastDisplaySnapshot]) {
+            [lastDisplaySnapshot release];
+            lastDisplaySnapshot = [currentSnap copy];
+            [displayView updateDisplayRects];
+        }
         [displayView setNeedsDisplay:YES];
     }
 
@@ -278,9 +503,18 @@ static NSMutableDictionary *activeDialogsByID = nil;
                     [displayView setNeedsDisplay:YES];
                 }
                 [self updateResolutionPopup];
-                [self applyDisplayConfiguration];
+                // Apply positions to X server directly without triggering a
+                // full refresh cycle (which would cascade back into this method)
+                NSMutableDictionary *placements = [NSMutableDictionary dictionary];
+                for (DisplayInfo *display in displays) {
+                    [placements setObject:[NSValue valueWithPoint:[display frame].origin]
+                                  forKey:[display output]];
+                }
+                [x11 applyPositions:placements];
+                [lastDisplaySnapshot release];
+                lastDisplaySnapshot = [[self currentStateSnapshot] copy];
                 [savedStateSnapshot release];
-                savedStateSnapshot = [[self currentStateSnapshot] copy];
+                savedStateSnapshot = [lastDisplaySnapshot copy];
                 [self updateSaveButtonState];
                 return;
             }
@@ -857,6 +1091,21 @@ static NSString *const GERSHWIN_END   = @"# END Gershwin Display Settings";
 
     [conf appendString:GERSHWIN_END];
     return conf;
+}
+
+- (void)scaleFactorChanged:(id)sender
+{
+    double factor = [sender doubleValue];
+    /* Snap to one decimal place. */
+    factor = round(factor * 10.0) / 10.0;
+    [sender setDoubleValue:factor];
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSMutableDictionary *domain = [NSMutableDictionary dictionaryWithDictionary:[defaults persistentDomainForName:NSGlobalDomain]];
+    [domain setObject:[NSNumber numberWithDouble:factor] forKey:@"GSScaleFactor"];
+    [defaults setPersistentDomain:domain forName:NSGlobalDomain];
+    [defaults synchronize];
+    [scaleValueLabel setStringValue:[NSString stringWithFormat:@"%.1fx", factor]];
+    [scaleFactorHintLabel setHidden:NO];
 }
 
 - (void)saveSettings:(id)sender

@@ -1,0 +1,134 @@
+/* Label for username field */
+"Username:" = "Benutzername:";
+
+/* Label for password field */
+"Password:" = "Passwort:";
+
+/* Shutdown button */
+"Shut Down" = "Ausschalten";
+
+/* Restart button */
+"Restart" = "Neustarten";
+
+/* Login button */
+"Log In" = "Anmelden";
+
+/* Shutdown alert title */
+"Shutdown Computer" = "Computer herunterfahren";
+
+/* Restart alert title */
+"Restart Computer" = "Computer neu starten";
+
+/* Shutdown confirmation */
+"Are you sure you want to shut down now?" = "Sind Sie sicher, dass Sie den Computer jetzt herunterfahren m\u00f6chten?";
+
+/* Restart confirmation */
+"Are you sure you want to restart now?" = "Sind Sie sicher, dass Sie den Computer jetzt neu starten m\u00f6chten?";
+
+/* Cancel button */
+"Cancel" = "Abbrechen";
+
+/* OK button */
+"OK" = "OK";
+
+/* Error alert title */
+"Error" = "Fehler";
+
+/* Status when username is empty */
+"Please enter username" = "Bitte Benutzernamen eingeben";
+
+/* Status on auth failure */
+"Authentication failed" = "Authentifizierung fehlgeschlagen";
+
+/* Shutdown error message */
+"Failed to execute shutdown command. No suitable command found." = "Herunterfahrbefehl fehlgeschlagen. Kein geeigneter Befehl gefunden.";
+
+/* Restart error message */
+"Failed to execute restart command. No suitable command found." = "Neustartbefehl fehlgeschlagen. Kein geeigneter Befehl gefunden.";
+
+/* Status user not found */
+"User not found" = "Benutzer nicht gefunden";
+
+/* Status chdir failure */
+"Cannot change to home directory" = "Wechsel zum Benutzerverzeichnis fehlgeschlagen";
+
+/* Status X socket missing */
+"X server socket not found" = "X-Server-Socket nicht gefunden";
+
+/* Status login cancelled */
+"Login cancelled" = "Anmeldung abgebrochen";
+
+/* Status session start failure */
+"Failed to start session" = "Sitzung konnte nicht gestartet werden";
+
+/* Status auto-login user missing */
+"Auto-login user not found" = "Auto-Login-Benutzer nicht gefunden";
+
+/* Status auto-login PAM failure */
+"Failed to open session for auto-login" = "Sitzung f\u00fcr Auto-Login konnte nicht ge\u00f6ffnet werden";
+
+/* Status auto-login X socket */
+"Auto-login socket access failed" = "Auto-Login-Socket-Zugriff fehlgeschlagen";
+
+/* Status auto-login session failed */
+"Failed to start auto-login session" = "Auto-Login-Sitzung konnte nicht gestartet werden";
+
+/* Auth error alert title */
+"Authentication Error" = "Authentifizierungsfehler";
+
+/* Home dir error title */
+"Home Directory Error" = "Benutzerverzeichnis-Fehler";
+
+/* X socket error title */
+"X Server Socket Not Found" = "X-Server-Socket nicht gefunden";
+
+/* X access warning title */
+"X Server Access Warning" = "X-Server-Zugriffswarnung";
+
+/* Session error title */
+"Session Start Error" = "Fehler beim Sitzungsstart";
+
+/* Session startup error */
+"Session Startup Error" = "Fehler beim Starten der Sitzung";
+
+/* Autologin permission title */
+"Autologin File Permission Error" = "Dateiberechtigungsfehler beim Auto-Login";
+
+/* Auto-login PAM title */
+"Auto-Login PAM Error" = "Auto-Login-PAM-Fehler";
+
+/* Auto-login home dir title */
+"Auto-Login Home Directory Error" = "Auto-Login-Benutzerverzeichnis-Fehler";
+
+/* Auto-login X socket title */
+"Auto-Login X Server Socket Not Found" = "Auto-Login-X-Server-Socket nicht gefunden";
+
+/* Auto-login X access title */
+"Auto-Login X Server Access Warning" = "Auto-Login-X-Server-Zugriffswarnung";
+
+/* Continue anyway button */
+"Continue Anyway" = "Trotzdem fortfahren";
+
+/* Log window title */
+"Keyboard Layout Log" = "Tastaturlayout-Protokoll";
+
+/* X socket missing message */
+"The X server unix socket at %s does not exist. The X server may not be running properly." = "Der X-Server-Unix-Socket unter %s ist nicht vorhanden. Der X-Server l\u00e4uft m\u00f6glicherweise nicht richtig.";
+
+/* X access warning message */
+"The user %s may not have access to the X server socket. The X session may not work properly." = "Der Benutzer %s hat m\u00f6glicherweise keinen Zugriff auf den X-Server-Socket. Die X-Sitzung funktioniert m\u00f6glicherweise nicht richtig.";
+
+/* Autologin permission message */
+"The autologin configuration file is not owned by root. Please check file permissions." = "Die Auto-Login-Konfigurationsdatei geh\u00f6rt nicht root. Bitte \u00fcberpr\u00fcfen Sie die Dateiberechtigungen.";
+
+/* Autologin bad permissions message */
+"The autologin configuration file has incorrect permissions (expected 0644). This is a security risk." = "Die Auto-Login-Konfigurationsdatei hat falsche Berechtigungen (erwartet 0644). Dies ist ein Sicherheitsrisiko.";
+
+/* Auto-login X socket missing message */
+"The X server unix socket at %s does not exist. Falling back to login window." = "Der X-Server-Unix-Socket unter %s ist nicht vorhanden. R\u00fcckgriff auf das Anmeldefenster.";
+
+/* Auto-login X access warning message */
+"The auto-login user %s may not have access to the X server socket. Falling back to login window." = "Der Auto-Login-Benutzer %s hat m\u00f6glicherweise keinen Zugriff auf den X-Server-Socket. R\u00fcckgriff auf das Anmeldefenster.";
+
+/* Fallback log message when no detection data */
+"No keyboard layout detection data available.\nThe layout was detected before the logging\ninfrastructure was initialized." = "Keine Tastaturlayout-Erkennungsdaten verf\u00fcgbar.\nDas Layout wurde erkannt, bevor die Protokollierungs-\nInfrastruktur initialisiert wurde.";

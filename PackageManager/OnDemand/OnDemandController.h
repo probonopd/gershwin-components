@@ -9,8 +9,8 @@
 
 #import <Cocoa/Cocoa.h>
 #import <Foundation/Foundation.h>
-#import "../GWPackageManager.h"
-#import "../GWPackageInstallSpec.h"
+#import <PackageManager/GWPackageManager.h>
+#import <PackageManager/GWPackageInstallSpec.h>
 
 @class ODLogWindowController;
 
@@ -30,16 +30,33 @@
   NSString *_appName;
   BOOL _dpkgRetried;
   ODLogWindowController *_logController;
+
+  /* Direct install mode */
+  NSString *_directFilePath;
+  NSString *_directFormat;
+  NSArray  *_extractedFiles;
+  BOOL     _isDirectInstall;
+  NSString *_launchPath;
 }
 
 // Read the install plist from the app bundle
 - (BOOL)setupFromPlist;
+
+// Handle a package file directly (e.g., double-click on .deb)
+- (BOOL)setupFromFile:(NSString *)path;
+
+// Set up from an explicit plist path (used by DependencyLoader.bundle
+// when OnDemand is invoked with a Dependencies.plist argument).
+- (BOOL)setupFromCustomPlistPath:(NSString *)plistPath;
 
 // Check if the target command is already available without showing a window
 - (BOOL)commandIsAvailable;
 
 // Launch the command and exit the app (no GUI shown)
 - (BOOL)launchAndExit;
+
+// Show an error dialog
+- (void)showError:(NSString *)message;
 
 // Show the progress window
 - (void)showWindow;

@@ -35,6 +35,13 @@
     BOOL _usingStreamPlayer;
     BOOL _soundAlertShown;
     BOOL _suppressFlowSelection;
+
+    // Quit-time fade-out of running sound
+    BOOL _quittingAfterFade;
+    NSTimer *_fadeTimer;
+    NSDate *_fadeStartDate;
+    float _fadeStartStreamVolume;
+    float _fadeStartAudioVolume;
 }
 - (void)restoreWindowTitle;
 - (void)handleDroppedFiles:(NSArray *)filePaths;
@@ -49,6 +56,8 @@
                         placeholder:(NSString *)placeholder;
 - (void)_dismissInputDialog:(id)sender;
 - (void)_setupAVPlayerWithURL:(NSURL *)streamURL;
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender;
+- (void)fadeOutTick:(NSTimer *)timer;
 @end
 
 // Default window size (content rect, excl. titlebar)
@@ -792,7 +801,20 @@
     [contentView addSubview:detailsLabel];
 
     // ===== RADIO MODE UI ELEMENTS (hidden initially) =====
-    searchField = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    BOOL themeSearch = [NSSearchFieldCell instancesRespondToSelector:@selector(EAUsearchButtonRectForBounds:)];
+    if (themeSearch)
+      {
+        searchField = [[NSSearchField alloc] initWithFrame:NSZeroRect];
+      }
+    else
+      {
+        NSTextField *tf = [[NSTextField alloc] initWithFrame:NSZeroRect];
+        [tf setBezeled:YES];
+        [tf setBezelStyle:NSTextFieldRoundedBezel];
+        [tf setEditable:YES];
+        [tf setSelectable:YES];
+        searchField = tf;
+      }
     [[searchField cell] setPlaceholderString:@"Search Radio Stations..."];
     [searchField setTarget:self];
     [searchField setAction:@selector(radioSearchAction:)];
@@ -1427,6 +1449,11 @@
         [playbackTimer release];
         playbackTimer = nil;
     }
+    if (_fadeTimer) {
+        [_fadeTimer invalidate];
+        [_fadeTimer release];
+        _fadeTimer = nil;
+    }
     if (overlayHideTimer) {
         [overlayHideTimer invalidate];
         [overlayHideTimer release];
@@ -1437,6 +1464,72 @@
     }
     if (audioPlayer) {
         [audioPlayer stop];
+    }
+}
+
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender
+{
+    // Second pass: the fade is done, let the app die
+    if (_quittingAfterFade) {
+        return NSTerminateNow;
+    }
+
+    NSLog(@"[Player] applicationShouldTerminate: checking for running sound");
+
+    BOOL streamPlaying = [[StreamPlayer sharedPlayer] isPlaying];
+    BOOL avPlaying = (avPlayer != nil && [avPlayer rate] > 0.0f);
+    BOOL audioPlaying = (audioPlayer != nil && [audioPlayer isPlaying]);
+    if (!streamPlaying && !avPlaying && !audioPlaying) {
+        return NSTerminateNow;
+    }
+
+    // Hide the windows first so the app is out of sight while the
+    // sound fades away behind the scenes.
+    [[NSApp windows] makeObjectsPerformSelector:@selector(orderOut:) withObject:nil];
+
+    _fadeStartStreamVolume = [[StreamPlayer sharedPlayer] volume];
+    _fadeStartAudioVolume = (audioPlayer != nil) ? [audioPlayer volume] : 0.0f;
+    [_fadeStartDate release];
+    _fadeStartDate = [[NSDate alloc] init];
+
+    _fadeTimer = [NSTimer scheduledTimerWithTimeInterval:0.02
+                                                  target:self
+                                                selector:@selector(fadeOutTick:)
+                                                userInfo:nil
+                                                 repeats:YES];
+
+    return NSTerminateLater;
+}
+
+- (void)fadeOutTick:(NSTimer *)timer
+{
+    static const NSTimeInterval fadeDuration = 1.0;
+
+    NSTimeInterval elapsed = -[_fadeStartDate timeIntervalSinceNow];
+    CGFloat t = elapsed / fadeDuration;
+    if (t > 1.0) {
+        t = 1.0;
+    }
+
+    // Smoothstep easing so the fade starts and ends gently
+    CGFloat eased = t * t * (3.0 - 2.0 * t);
+    float remaining = 1.0f - (float)eased;
+
+    [[StreamPlayer sharedPlayer] setVolume:_fadeStartStreamVolume * remaining];
+    if (audioPlayer != nil) {
+        [audioPlayer setVolume:_fadeStartAudioVolume * remaining];
+    }
+
+    if (t >= 1.0) {
+        NSLog(@"[Player] fade-out done, terminating");
+        [_fadeTimer invalidate];
+        [_fadeTimer release];
+        _fadeTimer = nil;
+        [_fadeStartDate release];
+        _fadeStartDate = nil;
+        [[StreamPlayer sharedPlayer] setVolume:0.0f];
+        _quittingAfterFade = YES;
+        [NSApp replyToApplicationShouldTerminate:YES];
     }
 }
 
@@ -3047,6 +3140,10 @@
         localVolume = vol;
         [[NSUserDefaults standardUserDefaults] setFloat:localVolume
                                                  forKey:@"PlayerLocalVolume"];
+        if (_usingStreamPlayer) {
+            // Local video files play through StreamPlayer
+            [[StreamPlayer sharedPlayer] setVolume:vol];
+        }
         if (audioPlayer) {
             [audioPlayer setVolume:vol];
             // Also try through NSSound directly if available
@@ -3066,6 +3163,9 @@
     } else {
         // Local mode: mute by setting volume to 0, unmute by restoring slider value
         float targetVol = isMuted ? 0.0f : [volumeSlider floatValue];
+        if (_usingStreamPlayer) {
+            [[StreamPlayer sharedPlayer] setMuted:isMuted];
+        }
         if (audioPlayer) {
             [audioPlayer setVolume:targetVol];
             NSSound *sound = [audioPlayer valueForKey:@"sound"];

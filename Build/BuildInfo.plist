@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="0.9">
+<dict>
+	<key>CFBundleName</key>
+	<string>Build</string>
+	<key>CFBundleDisplayName</key>
+	<string>Build</string>
+	<key>ApplicationName</key>
+	<string>Build</string>
+	<key>ApplicationDescription</key>
+	<string>Graphical frontend for building software projects</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.gershwin-desktop.Build</string>
+	<key>CFBundleExecutable</key>
+	<string>Build</string>
+	<key>CFBundleVersion</key>
+	<string>1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>Build.png</string>
+	<key>NSPrincipalClass</key>
+	<string>BuildApplication</string>
+	<key>NSTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Makefile</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>NSUnixExtensions</key>
+			<array>
+				<string>GNUmakefile</string>
+				<string>gnumakefile</string>
+				<string>GNUmakefile.in</string>
+				<string>gnumakefile.in</string>
+				<string>Makefile</string>
+				<string>makefile</string>
+			</array>
+		</dict>
+	</array>
+	<key>Authors</key>
+	<array>
+		<string>Simon Peter</string>
+	</array>
+	<key>URL</key>
+	<string>https://github.com/gershwin-desktop/gershwin-components</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Simon Peter</string>
+	<key>CopyrightDescription</key>
+	<string>Released under the BSD 2-Clause License</string>
+</dict>
+</plist>
